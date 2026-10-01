@@ -42,6 +42,15 @@ public static class NodeNetworkingExtensions
         services.Configure<KestrelServerOptions>(kestrel =>
             kestrel.Listen(endpoint, listen => listen.UseConnectionHandler<NodeConnectionHandler>()));
 
+        // The UDP Realtime lane (M1-09). Off with UdpPort 0; if the port cannot be bound the lane switches itself off (Welcome.udp_port = 0).
+        if (options.UdpPort > 0)
+        {
+            options.ServerCaps |= (ulong)X4MP.Proto.Capability.UdpRealtime;
+            services.AddSingleton(sp => new UdpRealtimeServer(endpoint.Address, options.UdpPort, sp.GetRequiredService<TimeProvider>(), sp.GetService<ILogger<UdpRealtimeServer>>()));
+            services.AddSingleton<IUdpRealtimeHost>(sp => sp.GetRequiredService<UdpRealtimeServer>());
+            services.AddHostedService<UdpRealtimeService>();
+        }
+
         // Gateway and session hand-off. TryAdd so tests (and later the SessionActor) can pre-register replacements.
         services.TryAddSingleton(sp => GatewayState.FromOptions(sp.GetRequiredService<NetOptions>()));
         services.TryAddSingleton<SqliteNodeStore>();
@@ -55,7 +64,8 @@ public static class NodeNetworkingExtensions
             sp.GetRequiredService<IBanStore>(),
             sp.GetRequiredService<IAdmissionHandler>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetService<ILogger<NodeGateway>>()));
+            sp.GetService<ILogger<NodeGateway>>(),
+            sp.GetService<IUdpRealtimeHost>()));
         services.AddHostedService<NodeGatewayService>();
 
         // Pipe thresholds from server-design 2.2: pause the writer at 1 MiB, resume at 512 KiB.
@@ -66,6 +76,18 @@ public static class NodeNetworkingExtensions
         });
         return services;
     }
+}
+
+/// <summary>Opens the UDP Realtime socket before the gateway accepts nodes and closes it at shutdown.</summary>
+internal sealed class UdpRealtimeService(UdpRealtimeServer server) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        server.Start();
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken) => await server.DisposeAsync().ConfigureAwait(false);
 }
 
 /// <summary>Runs the <see cref="NodeGateway"/> accept loop for the lifetime of the host.</summary>

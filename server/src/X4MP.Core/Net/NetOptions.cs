@@ -22,6 +22,10 @@ public sealed record NetOptions
     [Setting("Node TCP bind endpoint (address:port)", MaxLength = 64)]
     public string NodeTcpEndpoint { get; set; } = "0.0.0.0:" + ProtocolConstants.DefaultTcpPort;
 
+    /// <summary>UDP port of the Realtime lane (protocol.md 3.3). 0 turns the lane off: every node then uses TCP for Realtime.</summary>
+    [Setting("UDP realtime port (0 = UDP off)", Min = 0, Max = 65535)]
+    public int UdpPort { get; set; } = ProtocolConstants.DefaultUdpPort;
+
     /// <summary>Largest accepted frame payload (ADR-026: 1 MiB).</summary>
     [Setting("Largest accepted frame payload (bytes)", Min = 1024, Max = 64 * 1024 * 1024)]
     public int MaxFrameBytes { get; set; } = FrameCodec.DefaultMaxFrameBytes;

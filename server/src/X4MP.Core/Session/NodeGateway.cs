@@ -33,6 +33,7 @@ public sealed partial class NodeGateway
     private readonly IAdmissionHandler _handler;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
+    private readonly IUdpRealtimeHost? _udp;
     private readonly long _startTimestamp;
 
     private readonly object _gate = new();
@@ -50,7 +51,8 @@ public sealed partial class NodeGateway
         IBanStore bans,
         IAdmissionHandler? handler = null,
         TimeProvider? time = null,
-        ILogger<NodeGateway>? logger = null)
+        ILogger<NodeGateway>? logger = null,
+        IUdpRealtimeHost? udp = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(state);
@@ -61,6 +63,7 @@ public sealed partial class NodeGateway
         _players = players;
         _bans = bans;
         _handler = handler ?? new DefaultAdmissionHandler();
+        _udp = udp;
         _time = time ?? TimeProvider.System;
         _logger = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _startTimestamp = _time.GetTimestamp();
@@ -419,9 +422,20 @@ public sealed partial class NodeGateway
         reader.Roles = granted;
         node.Phase = NodePhase.Admitted;
         var frame = ControlFrames.Encode(MsgType.Welcome, fbb => X4MP.Proto.Welcome.Pack(fbb, node.Welcome).Value, 1024);
+        if (_udp is not null && node.Welcome.UdpPort != 0)
+        {
+            _udp.Register(connection, node.Welcome.ConnId, node.Welcome.UdpToken); // before the Welcome leaves: the node's first UdpHello may beat the next line
+        }
+
         connection.TrySend(frame);
         frame.Release();
-        _ = connection.Completion.ContinueWith(_ => Unregister(node), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        _ = connection.Completion.ContinueWith(
+            _ =>
+            {
+                _udp?.Unregister(connection);
+                Unregister(node);
+            },
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         ServerMetrics.RecordHandshakeOk();
         LogAdmitted(connection.Id.Value, name, bind.PlayerId, granted);
         return new AdmitOutcome(node, null);
@@ -516,6 +530,8 @@ public sealed partial class NodeGateway
     {
         Span<byte> random = stackalloc byte[24];
         RandomNumberGenerator.Fill(random);
+        ulong negotiated = hello.ClientCaps & _state.ServerCaps;
+        bool udp = _udp is { Port: > 0 } && (negotiated & (ulong)Capability.UdpRealtime) != 0;
         return new WelcomeT
         {
             PlayerId = (ushort)playerId,
@@ -528,7 +544,7 @@ public sealed partial class NodeGateway
             },
             Resumed = false,
             ConnId = (uint)connection.Id.Value,
-            UdpPort = 0,
+            UdpPort = udp ? (ushort)_udp!.Port : (ushort)0,
             UdpToken = BitConverter.ToUInt64(random[16..]),
             ServerTimeUs = (ulong)_time.GetElapsedTime(_startTimestamp).TotalMicroseconds,
             ResumeGraceS = (ushort)Math.Clamp(_options.ResumeGraceSeconds, 0, ushort.MaxValue),

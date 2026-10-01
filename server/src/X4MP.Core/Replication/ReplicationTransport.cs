@@ -13,6 +13,12 @@ public interface IReplicationTransport
     /// <summary>The pull-model hint: true while the client's Realtime lane is below its low watermark.</summary>
     bool CanAcceptRealtime(int playerId);
 
+    /// <summary>
+    /// True while the client's Realtime lane runs over UDP datagrams: the delivery observer then hears about each acknowledged frame on
+    /// its own (not in order), and replication keeps several frames in flight. The default (TCP) is false.
+    /// </summary>
+    bool UsesDatagram(int playerId) => false;
+
     /// <summary>Queues a <c>Replication</c> frame (Realtime lane). Never blocks; the caller keeps and releases its own reference.</summary>
     SendResult SendRealtime(int playerId, OutboundFrame frame);
 
@@ -33,6 +39,9 @@ internal sealed class NodeReplicationTransport(Dictionary<int, SessionNode> node
 {
     public bool CanAcceptRealtime(int playerId) =>
         nodes.TryGetValue(playerId, out var node) && node.Connection is { } connection && connection.CanAcceptRealtime;
+
+    public bool UsesDatagram(int playerId) =>
+        nodes.TryGetValue(playerId, out var node) && node.Connection is { RealtimeOverDatagram: true };
 
     public SendResult SendRealtime(int playerId, OutboundFrame frame) =>
         nodes.TryGetValue(playerId, out var node) && node.Connection is { } connection ? connection.TrySend(frame) : SendResult.Closed;

@@ -40,6 +40,26 @@ public sealed class SimNet : IInterestTransport, IReplicationTransport
 
     public bool CanAccept { get; set; } = true;
 
+    /// <summary>True: the clients' Realtime lane is UDP (acks one by one, several frames in flight).</summary>
+    public bool Datagram { get; set; }
+
+    public bool UsesDatagram(int playerId) => Datagram;
+
+    /// <summary>Return true to make a realtime frame vanish on the network: never delivered to the client, never acknowledged (by its delivery token).</summary>
+    public Func<long, bool>? Lose { get; set; }
+
+    /// <summary>Delivery tokens of the frames handed to the client whose confirmation is still withheld.</summary>
+    public IReadOnlyList<long> UnconfirmedTokens
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _unconfirmed.Select(u => u.Token)];
+            }
+        }
+    }
+
     public bool OverSoftCap { get; set; }
 
     public bool AuthorityReady { get; set; } = true;
@@ -134,6 +154,11 @@ public sealed class SimNet : IInterestTransport, IReplicationTransport
 
                 foreach (var (payload, token) in pipe.Realtime)
                 {
+                    if (Lose?.Invoke(token) == true)
+                    {
+                        continue;
+                    }
+
                     frames.Add((player, new Frame(MsgType.Replication, FrameOptions.None, Lane.Realtime, payload)));
                     if (pipe.Observer is { } observer)
                     {
@@ -163,6 +188,22 @@ public sealed class SimNet : IInterestTransport, IReplicationTransport
         dummy.DeliveryToken = token;
         observer(dummy);
         dummy.Release();
+    }
+
+    /// <summary>Confirms only the withheld frames whose token matches (a partial ack); the others stay withheld.</summary>
+    public void ConfirmWhere(Func<long, bool> which)
+    {
+        List<(Action<OutboundFrame> Observer, long Token)> batch;
+        lock (_gate)
+        {
+            batch = [.. _unconfirmed.Where(u => which(u.Token))];
+            _unconfirmed.RemoveAll(u => which(u.Token));
+        }
+
+        foreach (var (observer, token) in batch)
+        {
+            Confirm(observer, token);
+        }
     }
 
     /// <summary>Delivers the flush callbacks of frames that were handed to the client while confirmations were off.</summary>

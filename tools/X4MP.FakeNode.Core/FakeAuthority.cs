@@ -421,13 +421,13 @@ public sealed class FakeAuthority
     }
 
     /// <summary>Per-node stats (every 2 s): FPS jitters deterministically around <see cref="FakeAuthorityOptions.Fps"/>.</summary>
-    public OutMessage BuildNodeStats(long tick)
+    public OutMessage BuildNodeStats(long tick, bool udpActive = true, float udpRxLossPct = 0f)
     {
-        var stats = BuildNodeStatsData(tick);
+        var stats = BuildNodeStatsData(tick, udpActive, udpRxLossPct);
         return new OutMessage(MsgType.NodeStats, MessageEncoder.EncodePayload(b => NodeStats.Pack(b, stats)));
     }
 
-    public NodeStatsT BuildNodeStatsData(long tick)
+    public NodeStatsT BuildNodeStatsData(long tick, bool udpActive = true, float udpRxLossPct = 0f)
     {
         double u = DetHash.Unit(DetHash.Hash(World.Galaxy.Seed, 0x57A75, (ulong)tick));
         double fps = _opt.Fps * (0.95 + 0.10 * u);
@@ -438,7 +438,8 @@ public sealed class FakeAuthority
             GameTime = TimeOf(tick),
             Ghosts = 0,
             SuppressedLocal = 0,
-            UdpActive = true,
+            UdpActive = udpActive,
+            UdpRxLossPct = udpRxLossPct,
             MemoryMb = (uint)(3000 + (int)(u * 400)),
             MdHookState = FeatureState.Ok,
             TeamSetupState = FeatureState.Ok,
