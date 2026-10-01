@@ -54,7 +54,7 @@ public static class ConnectionWriter
 
                 foreach (var frame in inFlight)
                 {
-                    stats.AddSent(frame.Length);
+                    stats.AddSent(frame.Length, frame.Lane);
                     flushed?.Invoke(frame);
                     frame.Release();
                 }

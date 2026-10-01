@@ -31,7 +31,56 @@ export interface MeDto {
   mustChangePassword: boolean;
 }
 
+export interface MetricSeriesDto {
+  name: string;
+  unit: string;
+  kind: string;
+  intervalSeconds: number;
+  endedAt: string | null;
+  samples: number[];
+}
+
 export interface ProtocolRangeDto {
   min: number;
   max: number;
+}
+
+export interface SettingErrorDto {
+  key: string;
+  code: string;
+  message: string;
+}
+
+export interface SettingSchemaDto {
+  key: string;
+  section: string;
+  name: string;
+  category: string;
+  description: string;
+  type: string;
+  requiresRestart: boolean;
+  min: number | null;
+  max: number | null;
+  maxLength: number | null;
+  values: string[] | null;
+  secret: boolean;
+  pushToNodes: boolean;
+  default: unknown | null;
+}
+
+export interface SettingsDto {
+  sections: Record<string, Record<string, unknown>>;
+  overrides: string[];
+}
+
+export interface SettingsProblem {
+  title: string;
+  status: number;
+  code: string;
+  detail: string | null;
+  errors: SettingErrorDto[];
+}
+
+export interface SettingsSchemaDto {
+  settings: SettingSchemaDto[];
 }
