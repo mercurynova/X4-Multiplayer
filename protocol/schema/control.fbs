@@ -1,0 +1,114 @@
+// X4MP wire protocol -- connection control: handshake, heartbeat, disconnect.
+include "common.fbs";
+include "teams.fbs";      // TeamTable, TeamRelations, SessionSettings
+
+namespace X4MP.Proto;
+
+enum AuthMethod : ubyte { None = 0, SessionPassword = 1 }
+
+/// S->N, first frame after TCP accept (Control lane).
+table ServerHello {
+  protocol_major:ushort;
+  protocol_minor:ushort;
+  server_version:string;
+  server_name:string;
+  session_id:Id128;
+  nonce:[ubyte];                 // 32 random bytes for auth_proof / admin_proof
+  auth:AuthMethod;
+  server_caps:ulong;             // Capability bits enabled on this server
+  phase:SessionPhase;
+  required_game_build:string;    // authority's build ("900-611726"); empty if no authority yet
+  required_mod_version:string;   // empty = server does not pin
+  extensions_hash:[ubyte];       // authority's extension-set hash; empty if no authority yet
+}
+
+table SaveRef { sha256:[ubyte]; }
+
+/// N->S, reply to ServerHello ("Hello" in server-design.md).
+table ClientHello {
+  protocol_major:ushort;
+  protocol_minor:ushort;
+  mod_version:string;            // semver of the x4mp extension
+  mod_build:string;              // git hash of the native DLL
+  game_version:string;           // "9.00"
+  game_build:string;             // "900-611726"
+  x4native_version:string;
+  platform:string;               // "win64" | "linux64"
+  extensions_hash:[ubyte];       // SHA-256 of sorted "id@version\n" of enabled extensions
+  extensions:[string];           // same list, for mismatch diagnostics
+  player_key:[ubyte];            // 32 random bytes, generated once, stored in the mod config file
+  player_name:string;            // 3..24 chars [\p{L}\p{N} _\-.]
+  requested_roles:Role;
+  client_caps:ulong;
+  auth_proof:[ubyte];            // HMAC-SHA256(key=SHA256(utf8 password), nonce || player_key); empty if auth None
+  admin_proof:[ubyte];           // same construction with the admin password; empty = not requesting Admin
+  resume_token:Id128;            // zero = fresh join
+  last_journal_seq:ulong;        // resume: last journal seq applied locally
+  loaded_save_sha256:[ubyte];    // save currently loaded in this game; empty = main menu
+  cached_saves:[SaveRef];        // x4mp_<sha12>.xml.gz files already in the save folder
+  preferred_team:ushort;         // optional hint (sticky membership wins); 0 = none
+}
+
+/// S->N, handshake accepted. Carries team assignment, the full team roster and relation
+/// matrix, and the session settings (incl. CreditMode) so the mod can set up factions
+/// before loading the save.
+table Welcome {
+  player_id:ushort;
+  granted_roles:Role;
+  negotiated_caps:ulong;
+  resume_token:Id128;            // keep for reconnect (valid for resume_grace_s)
+  resumed:bool;
+  conn_id:uint;                  // goes in every UDP datagram header
+  udp_port:ushort;               // 0 = UDP disabled -> Realtime lane over TCP
+  udp_token:ulong;               // secret for UdpHello
+  server_time_us:ulong;          // first clock sample
+  heartbeat_interval_ms:ushort = 1000;
+  heartbeat_timeout_ms:ushort = 10000;
+  resume_grace_s:ushort = 60;
+  http_base_url:string;          // "http://<server>:47790" (only meaningful with SaveHttp)
+  max_ghosts:uint = 4000;        // client object budget for streamed ghosts
+
+  // --- teams (protocol.md section 14) ---
+  team_id:ushort;                // 0 = not yet assigned (AwaitingTeam: lobby or admin-assign)
+  team_role:TeamRole;
+  faction_slot:ubyte;            // slot of own team; own team is the local "player" faction
+  teams:TeamTable;               // full roster: teams, slots, colours, members
+  relations:TeamRelations;       // full relation matrix
+  settings:SessionSettings;      // team policy + economy (CreditMode etc.)
+}
+
+/// Either direction. Sender closes after flushing. Also used as handshake reject.
+table Disconnect {
+  code:DisconnectCode;
+  message:string;
+  expected:string;               // e.g. required version on *Mismatch codes
+  retry_after_ms:uint;           // 0 = do not auto-retry
+}
+
+/// Either direction, TCP (Control) and UDP. Responder answers with Pong immediately (net thread).
+table Ping {
+  seq:uint;
+  send_time_us:ulong;            // sender's local monotonic clock
+}
+
+table Pong {
+  seq:uint;
+  echo_send_time_us:ulong;       // copied from Ping
+  recv_time_us:ulong;            // responder's clock when Ping arrived (server clock if responder = server)
+  reply_time_us:ulong;           // responder's clock when Pong sent
+}
+
+/// N->S over UDP, repeated every 250 ms until UdpHelloAck (max 3 s, then Realtime over TCP).
+table UdpHello { conn_id:uint; udp_token:ulong; }
+
+/// S->N over UDP.
+table UdpHelloAck { conn_id:uint; }
+
+enum NoticeSeverity : ubyte { Info = 0, Warning, Error }
+
+/// S->N toast / HUD message.
+table ServerNotice {
+  severity:NoticeSeverity;
+  text:string;
+  display_ms:uint = 5000;
+}

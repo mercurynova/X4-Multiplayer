@@ -1,0 +1,152 @@
+// X4MP wire protocol -- teams, factions, relations, session settings.
+// Domain model: server-design.md 2.13. Spec: protocol.md section 14.
+//
+// Faction mapping is PER VIEWER and done by the mod, never on the wire:
+//   own team            -> the game's "player" faction
+//   any other team k    -> "x4mp_team_<faction_slot>"
+// The wire only carries team_id / faction_slot. NPC factions travel as owner_ref strings.
+include "common.fbs";
+
+namespace X4MP.Proto;
+
+enum TeamRole : ubyte { Member = 0, Leader }
+enum TeamJoinMode : ubyte { Auto = 0, Lobby, AdminAssign }
+enum AutoAssignStrategy : ubyte { SingleTeam = 0, Balance, NewTeamPerPlayer }
+enum TeamAssetPolicy : ubyte { SharedCommand = 0, OwnerOnly, OwnerAndLeader }
+enum MoveAssetsScope : ubyte { ShipOnly = 0, AllOwned, None }
+
+enum CreditMode : ubyte { Auto = 0, PerPlayer, Shared }
+enum EffectiveCreditMode : ubyte { PerPlayer = 0, Shared }
+enum PoolWithdrawPolicy : ubyte { AnyMember = 0, LeaderOnly, Disabled }
+/// Who a player-to-player economy action may target.
+enum EconomyScope : ubyte { Off = 0, Teammates, Allied, Anyone }
+/// Who may change inter-team relations at runtime (admins always can).
+enum RelationChangePolicy : ubyte { AdminOnly = 0, LeadersMutualAlly, LeadersUnilateral }
+
+table TeamMember { player_id:ushort; name:string; role:TeamRole; online:bool; }
+
+table TeamInfo {
+  team_id:ushort;
+  name:string;                   // 1..24 chars, unique per session
+  color_rgb:uint;                // 0xRRGGBB
+  faction_slot:ubyte;            // 0..MaxFactionSlots-1 -> x4mp_team_<slot>
+  leader_player:ushort;          // 0 = none
+  locked:bool;
+  max_members:ushort;            // 0 = unlimited
+  password_protected:bool;
+  members:[TeamMember];
+}
+
+/// S->N. full=true replaces the table; otherwise upsert `teams`, delete `removed`.
+table TeamTable {
+  version:uint;
+  full:bool;
+  teams:[TeamInfo];
+  removed:[ushort];
+}
+
+table TeamRelationEntry { team_a:ushort; team_b:ushort; relation:TeamRelation; }
+
+/// S->N. Symmetric sparse matrix; pairs not listed = default_relation.
+/// full=false: only changed pairs. The mod applies them as faction relations (live).
+table TeamRelations {
+  version:uint;
+  full:bool;
+  default_relation:TeamRelation;
+  entries:[TeamRelationEntry];
+}
+
+table TeamPolicy {
+  join_mode:TeamJoinMode;
+  auto_assign:AutoAssignStrategy;
+  allow_create_in_lobby:bool;
+  allow_self_team_change:bool;   // mid-session TeamChangeRequest permitted
+  max_teams:ubyte;
+  asset_policy:TeamAssetPolicy;
+  allow_friendly_fire:bool;
+  allow_asset_transfer:bool;     // asset gifts/trades across teams (still needs economy scope)
+  move_assets_with_player:MoveAssetsScope;
+  relation_change_policy:RelationChangePolicy;
+}
+
+table EconomySettings {
+  credit_mode:CreditMode;                // configured
+  effective_mode:EffectiveCreditMode;    // resolved: Auto -> Shared iff exactly one team
+  team_pool_enabled:bool = true;
+  pool_withdraw_policy:PoolWithdrawPolicy;
+  pool_withdraw_daily_limit:long;        // per player; 0 = none
+  max_transfer_amount:long;              // 0 = unlimited
+  allow_allied_transfers:bool;           // teammate transfer extended to Allied teams
+  donate_scope:EconomyScope = Teammates;
+  loan_scope:EconomyScope = Teammates;
+  trade_scope:EconomyScope = Teammates;
+  trade_ships_enabled:bool = true;
+  trade_stations_enabled:bool;           // later
+  max_open_trades_per_player:ubyte = 5;
+  max_open_loans_per_player:ubyte = 5;
+}
+
+/// S->N, in Welcome and on every change.
+table SessionSettings {
+  version:uint;
+  team:TeamPolicy;
+  economy:EconomySettings;
+}
+
+// ---- requests (C->S); every one carries request_key and is answered by TeamRequestResult ----
+
+/// Lobby: choose a team (AwaitingTeam phase).
+table TeamChoice { request_key:Id128; team_id:ushort; password:[ubyte]; }  // password = HMAC(SHA256(team pw), nonce||player_key)
+
+/// Lobby (allow_create_in_lobby) or mid-session if permitted: create a team and join it.
+table TeamCreateRequest { request_key:Id128; name:string; color_rgb:uint; }
+
+/// Mid-session self move (allow_self_team_change).
+table TeamChangeRequest { request_key:Id128; team_id:ushort; password:[ubyte]; }
+
+/// Leader asks to change the relation between own team and other_team.
+/// LeadersMutualAlly: raising toward Allied needs a matching request from the other leader
+/// within 120 s (server sends RelationProposal); lowering is unilateral.
+table RelationChangeRequest { request_key:Id128; other_team:ushort; relation:TeamRelation; }
+
+enum TeamRequestStatus : ubyte { Ok = 0, Pending, Rejected }
+enum TeamRejectReason : ubyte {
+  None = 0, Locked, Full, BadPassword, NoFactionSlot, NameTaken, NotPermitted,
+  NotLeader, SameTeam, UnknownTeam, SessionRunningRestricted, RateLimited
+}
+
+/// S->C.
+table TeamRequestResult {
+  request_key:Id128;
+  status:TeamRequestStatus;
+  reason:TeamRejectReason;
+  detail:string;
+  team_id:ushort;                // assigned / created team
+}
+
+/// S->N. Membership change (join, leave, move, role change). TeamTable delta follows separately.
+table TeamMemberChanged {
+  player_id:ushort;
+  from_team:ushort;
+  to_team:ushort;
+  role:TeamRole;
+  by_admin:bool;
+  table_version:uint;
+}
+
+/// S->C (other team's leader). A pending mutual relation proposal.
+table RelationProposal {
+  from_team:ushort;
+  to_team:ushort;
+  relation:TeamRelation;
+  expires_in_s:ushort;
+}
+
+/// S->A. Re-own a moved player's assets in game (SetComponentOwner + slot mapping).
+/// Authority answers with EntityChange{OwnerTeam|OwnerPlayer} per asset.
+table ReassignPlayerAssets {
+  player_id:ushort;
+  from_team:ushort;
+  to_team:ushort;
+  scope:MoveAssetsScope;
+}

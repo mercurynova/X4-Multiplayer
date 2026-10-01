@@ -1,0 +1,118 @@
+// X4MP wire protocol -- message type ids (frame header "type" field).
+// Each id maps 1:1 to the table of the same name; decode with GetRoot<T> / GetRootAsT.
+// Rules: ids are never reused or renumbered; values must stay ascending (flatc requirement).
+// Unknown ids are skipped (forward compat) but counted as violations if the peer's minor <= ours.
+// Ranges: 0x00xx control, 0x01xx session/saves, 0x02xx world, 0x03xx player,
+//         0x04xx intents/events, 0x05xx chat/admin, 0x06xx telemetry, 0x07xx teams,
+//         0x08xx economy, 0x7Fxx experimental.
+// Lane per message: see protocol.md section 20 (catalog).
+
+namespace X4MP.Proto;
+
+enum MsgType : ushort {
+  Invalid              = 0x0000,
+
+  // control.fbs
+  ServerHello          = 0x0001,
+  ClientHello          = 0x0002,
+  Welcome              = 0x0003,
+  Disconnect           = 0x0004,
+  Ping                 = 0x0005,
+  Pong                 = 0x0006,
+  UdpHello             = 0x0007,
+  UdpHelloAck          = 0x0008,
+  ServerNotice         = 0x0009,
+
+  // session.fbs
+  SessionState         = 0x0100,
+  RosterUpdate         = 0x0101,
+  SessionSettings      = 0x0102,   // teams.fbs table
+  RequestSave          = 0x0103,
+  SaveStarted          = 0x0104,
+  SaveUploadBegin      = 0x0105,
+  SaveUploadAccept     = 0x0106,
+  SaveChunk            = 0x0107,
+  SaveChunkAck         = 0x0108,
+  SaveUploadEnd        = 0x0109,
+  SaveStored           = 0x010A,
+  SessionSaveInfo      = 0x010B,
+  SaveDownloadRequest  = 0x010C,
+  SaveDownloadAccept   = 0x010D,
+  SaveReady            = 0x010E,
+  LoadStatus           = 0x010F,
+  NodeReady            = 0x0110,
+  ManifestReport       = 0x0111,
+  AuthorityAssign      = 0x0112,
+  GalaxyMetadata       = 0x0113,
+  StringTableAdd       = 0x0114,
+
+  // world.fbs
+  EntitySpawn          = 0x0200,
+  EntityDespawn        = 0x0201,
+  WorldUpdate          = 0x0202,
+  EntityStatusBatch    = 0x0203,
+  EntityChange         = 0x0204,
+  EntityCargo          = 0x0205,
+  CaptureSet           = 0x0206,
+  SectorComplete       = 0x0207,
+  Replication          = 0x0208,
+  InterestUpdate       = 0x0209,
+  InterestChecksum     = 0x020A,
+  ResyncRequest        = 0x020B,
+  WorldCatchUp         = 0x020C,
+  InterestHint         = 0x020D,
+
+  // world.fbs (player)
+  PlayerState          = 0x0300,
+  PlayerShip           = 0x0301,
+
+  // events.fbs
+  Intent               = 0x0400,
+  IntentResult         = 0x0401,
+  GameEvent            = 0x0402,
+
+  // events.fbs / admin.fbs
+  ChatSend             = 0x0500,
+  ChatMessage          = 0x0501,
+  AdminCommand         = 0x0502,
+  AdminResult          = 0x0503,
+
+  // admin.fbs (telemetry)
+  NodeStats            = 0x0600,
+  LogForward           = 0x0601,
+
+  // teams.fbs
+  TeamTable            = 0x0700,
+  TeamRelations        = 0x0701,
+  TeamChoice           = 0x0702,
+  TeamCreateRequest    = 0x0703,
+  TeamChangeRequest    = 0x0704,
+  RelationChangeRequest= 0x0705,
+  TeamRequestResult    = 0x0706,
+  TeamMemberChanged    = 0x0707,
+  RelationProposal     = 0x0708,
+  ReassignPlayerAssets = 0x0709,
+
+  // economy.fbs
+  WalletUpdate         = 0x0800,
+  CreditDelta          = 0x0801,
+  EconomyResult        = 0x0802,
+  CreditTransferRequest= 0x0803,
+  PoolDepositRequest   = 0x0804,
+  PoolWithdrawRequest  = 0x0805,
+  DonateRequest        = 0x0806,
+  LoanOffer            = 0x0807,
+  LoanRespond          = 0x0808,
+  LoanRepay            = 0x0809,
+  LoanForgive          = 0x080A,
+  LoanCancel           = 0x080B,
+  LoanStatus           = 0x080C,
+  TradeProposal        = 0x080D,
+  TradeCounter         = 0x080E,
+  TradeAccept          = 0x080F,
+  TradeCancel          = 0x0810,
+  TradeStatus          = 0x0811,
+  TradeResult          = 0x0812,
+  AssetTransferOrder   = 0x0813,
+  AssetTransferConfirm = 0x0814
+}
