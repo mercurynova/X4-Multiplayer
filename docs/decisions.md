@@ -494,6 +494,25 @@ over 32 KB hit an internal `Convert.ToInt16` overflow that silently skips verifi
 **Consequences:** re-check on every FlatBuffers upgrade. A Dependabot bump must keep flatc and
 NuGet versions equal (`tools/flatc/flatc.lock.json`).
 
+### ADR-042 Spike session 1 consequences (2026-10-01)
+- **Teams (ADR-014) and avatars (ADR-015) are confirmed in game.** The fallbacks are retired.
+  `TeleportPlayerTo` is always called with `force=true`, because without it the game gates it behind
+  a research unlock.
+- **Ghost budget:** default `max_ghosts = 250`, configurable by the server. Frame cost is
+  rendering (~+5 ms per 250 inert S ships on the test PC), not per-frame repositioning.
+- **Money units:** MD `player.money` and `AddPlayerMoney` use cents; Lua `GetPlayerMoney` uses
+  credits. The mod converts at that edge, and the wire stays in whole credits. In-game balances
+  clamp at 0, so the server must prevent overdraft in shared wallets, and any debt lives only
+  in the server ledger.
+- **Team factions have their own in-game money account** (`transfer_money` works both
+  ways), so a team pool can be mirrored to the faction account. That's optional, and the
+  server ledger stays authoritative.
+- **Main menu:** `debug` isn't available, so the upvalue-injection approach (reference
+  mod) is impossible. The MP menu entry hooks public menu functions on the `Menus` tables, or
+  opens our own menu. mod-design §7 must follow this.
+- **Destroy:** MD/self-destruct leave wrecks. Use them for kill visuals. Ghost despawn goes through
+  the guarded remove.
+
 ---
 
 ## Part 2. Open questions for the user
@@ -534,6 +553,14 @@ unless you say otherwise.
 ---
 
 ## Part 3. Needs in-game verification (M2 spike checklist)
+
+> **Spike session 1 ran on 2026-10-01**, full results in [spikes/session-1-results.md](spikes/session-1-results.md):
+> - **PASS:** V01, V02 (with `force`), V03 (budget `max_ghosts=250`; the cost is rendering), V04 (MD cents / Lua credits; no negative balance), V08, V09, V10, V13, V14.
+> - **NO:** V17 (no velocity).
+> - **FAIL:** V20 (no `debug` library, so no upvalue menu injection).
+> - **INCONCLUSIVE:** V12 (spike bug, retest in session 2).
+> - **S9:** gates/known flags readable and `set_known` persists; gate activation still to test.
+> - **Still open:** V05, V06, V07 (need the native DLL).
 
 Merged and de-duplicated from API §7, MOD §10/§11.10/§12.9, PROTO §25 and REQ PIT items.
 Priority: **P0** blocks the design (run as M2-spike, in parallel with M1); **P1** blocks a
