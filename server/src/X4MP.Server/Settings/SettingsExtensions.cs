@@ -49,6 +49,7 @@ public static class SettingsExtensions
         services.AddSettingsSection<SessionActorOptions>();
         services.AddSettingsSection<TeamOptions>();
         services.AddSettingsSection<EconomyOptions>();
+        services.AddSettingsSection<X4MP.Core.Interest.InterestOptions>();
     }
 
     /// <summary>
