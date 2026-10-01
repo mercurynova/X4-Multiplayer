@@ -51,7 +51,11 @@ $vcpkg = $env:VCPKG_ROOT
 if (-not $vcpkg -and $vsPath -and (Test-Path "$vsPath\VC\vcpkg\vcpkg.exe")) { $vcpkg = "$vsPath\VC\vcpkg" }
 Report "native" "vcpkg" ([bool]$vcpkg) $(if ($vcpkg) { $vcpkg } else { "" }) "comes with VS 17.6+, or clone microsoft/vcpkg and set VCPKG_ROOT"
 $flatc = Join-Path $root "tools\flatc"
-Report "native" "flatc (pinned, repo-fetched)" (Test-Path (Join-Path $flatc "flatc.exe")) "" "run the tools/flatc fetch script (added in task M0-02)"
+Report "native" "flatc (pinned, repo-fetched)" (Test-Path (Join-Path $flatc "bin\flatc.exe")) "" "powershell -NoProfile -File tools\flatc\fetch-flatc.ps1"
+$gitLong = if (Cmd git) { (git config --get core.longpaths 2>$null) } else { "" }
+Report "native" "git core.longpaths = true" ($gitLong -eq "true") "core.longpaths=$gitLong" "git config --system core.longpaths true   (admin)"
+$winLong = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -ErrorAction SilentlyContinue).LongPathsEnabled
+Report "native" "Windows LongPathsEnabled = 1" ($winLong -eq 1) "LongPathsEnabled=$winLong" 'New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force   (admin)'
 
 # --- Game ---
 $x4exe = Join-Path $X4Dir "X4.exe"
