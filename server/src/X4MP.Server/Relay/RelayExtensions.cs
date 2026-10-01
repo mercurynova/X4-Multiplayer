@@ -2,8 +2,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using X4MP.Core.Events;
 using X4MP.Core.Interest;
+using X4MP.Core.Permissions;
 using X4MP.Core.Relay;
 using X4MP.Core.Session;
+using X4MP.Core.Teams;
 using X4MP.Core.World;
 using X4MP.Persistence;
 
@@ -30,7 +32,7 @@ public static class RelayExtensions
         {
             var monitor = sp.GetRequiredService<IOptionsMonitor<RelayOptions>>();
             var interest = sp.GetService<InterestManager>();
-            return new RelayModule(
+            var relay = new RelayModule(
                 () => monitor.CurrentValue,
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetService<IEventPublisher>(),
@@ -38,6 +40,18 @@ public static class RelayExtensions
                 sp.GetService<WorldMirror>(),
                 interest is null ? null : new InterestManagerRelayInterest(interest),
                 sp.GetService<ILogger<RelayModule>>());
+
+            // Asset permissions (server-design 2.13) need the teams: without a Teams module nothing is enforced.
+            var mirror = sp.GetService<WorldMirror>();
+            var teams = sp.GetService<ITeamDirectory>();
+            var teamOptions = sp.GetService<IOptionsMonitor<TeamOptions>>();
+            if (mirror is not null && teams is not null && teamOptions is not null)
+            {
+                relay.AssetPermissions = new AssetPermissionGate(
+                    mirror, teams, () => teamOptions.CurrentValue, () => monitor.CurrentValue.ClaimRangeMetres, teamId => (teams as TeamModule)?.LeaderOf(teamId));
+            }
+
+            return relay;
         });
         services.AddSingleton<ISessionModule>(sp => sp.GetRequiredService<RelayModule>());
         services.AddSingleton<IChatControl>(sp => sp.GetRequiredService<RelayModule>());

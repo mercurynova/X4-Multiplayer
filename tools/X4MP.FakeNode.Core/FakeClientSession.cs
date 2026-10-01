@@ -29,6 +29,8 @@ public sealed class FakeClientSession
     private sealed class Ghost
     {
         public ushort Sector;
+        public ushort OwnerTeam;
+        public ushort OwnerPlayer;
         public double LastEntryAt;
 
         /// <summary>A full state entry arrived since the (re)spawn: the ghost's baseline is complete.</summary>
@@ -70,6 +72,29 @@ public sealed class FakeClientSession
     public IReadOnlyCollection<uint> GhostIds => _ghosts.Keys;
 
     public bool IsGhost(uint netId) => _ghosts.ContainsKey(netId);
+
+    /// <summary>
+    /// A ghost to command for <paramref name="mode"/> (M1-T4), the <paramref name="n"/>-th candidate round-robin by net_id; null when there is none.
+    /// Own = my team's team-common ships, Shared = a teammate's ships, Foreign = ships of another team.
+    /// </summary>
+    public (uint NetId, ushort Sector)? PickAsset(CommanderMode mode, int myTeam, int myPlayer, int n)
+    {
+        if (mode == CommanderMode.None || myTeam == 0)
+            return null;
+        var candidates = _ghosts
+            .Where(g => mode switch
+            {
+                CommanderMode.Own => g.Value.OwnerTeam == myTeam && g.Value.OwnerPlayer == 0,
+                CommanderMode.Shared => g.Value.OwnerTeam == myTeam && g.Value.OwnerPlayer != 0 && g.Value.OwnerPlayer != myPlayer,
+                _ => g.Value.OwnerTeam != 0 && g.Value.OwnerTeam != myTeam,
+            })
+            .OrderBy(g => g.Key)
+            .ToList();
+        if (candidates.Count == 0)
+            return null;
+        var pick = candidates[n % candidates.Count];
+        return (pick.Key, pick.Value.Sector);
+    }
 
     public long SpawnsApplied { get; private set; }
 
@@ -160,13 +185,15 @@ public sealed class FakeClientSession
             ushort sector = record.State?.Sector ?? 0;
             if (_ghosts.TryGetValue(id, out var existing))
             {
+                existing.OwnerTeam = record.OwnerTeam;
+                existing.OwnerPlayer = record.OwnerPlayer;
                 existing.Sector = sector; // a refresh (resync)
                 existing.LastEntryAt = now;
                 existing.GotFull = false;
             }
             else
             {
-                _ghosts[id] = new Ghost { Sector = sector, LastEntryAt = now };
+                _ghosts[id] = new Ghost { Sector = sector, OwnerTeam = record.OwnerTeam, OwnerPlayer = record.OwnerPlayer, LastEntryAt = now };
             }
 
             SpawnsApplied++;
