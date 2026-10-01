@@ -11,6 +11,7 @@ public class DependencyDirectionTests
     private static readonly Assembly PersistenceAsm = typeof(X4MP.Persistence.AssemblyMarker).Assembly;
     private static readonly Assembly ServerAsm = typeof(X4MP.Server.AssemblyMarker).Assembly;
     private static readonly Assembly FakeNodeAsm = Assembly.Load("X4MP.FakeNode");
+    private static readonly Assembly FakeNodeCoreAsm = Assembly.Load("X4MP.FakeNode.Core");
 
     private static string[] X4Refs(Assembly assembly) =>
         assembly.GetReferencedAssemblies()
@@ -52,6 +53,10 @@ public class DependencyDirectionTests
             X4Refs(ServerAsm));
 
     [Fact]
-    public void FakeNodeReferencesOnlyProtocol() =>
-        Assert.Equal(["X4MP.Protocol"], X4Refs(FakeNodeAsm));
+    public void FakeNodeCoreReferencesOnlyProtocol() =>
+        Assert.Equal(["X4MP.Protocol"], X4Refs(FakeNodeCoreAsm));
+
+    [Fact]
+    public void FakeNodeExeReferencesOnlyFakeNodeCoreAndProtocol() =>
+        Assert.Empty(X4Refs(FakeNodeAsm).Except(["X4MP.FakeNode.Core", "X4MP.Protocol"]));
 }
