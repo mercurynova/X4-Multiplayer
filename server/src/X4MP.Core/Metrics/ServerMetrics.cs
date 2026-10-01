@@ -55,6 +55,9 @@ public static class ServerMetrics
     private static readonly Counter<long> EventsDropped = Meter.CreateCounter<long>(
         "x4mp.events.dropped", "{event}", "Domain events dropped because a subscriber was full");
 
+    private static readonly Histogram<double> NodeRtt = Meter.CreateHistogram<double>(
+        "x4mp.session.rtt", "ms", "Round-trip time of server Ping/Pong exchanges with nodes");
+
     private static readonly long[] BytesInByLane = new long[3];
     private static readonly long[] BytesOutByLane = new long[3];
     private static readonly long[] DroppedByLane = new long[3];
@@ -132,6 +135,9 @@ public static class ServerMetrics
         Interlocked.Increment(ref _disconnects);
         DisconnectsCounter.Add(1, new KeyValuePair<string, object?>("reason", reason.ToString()));
     }
+
+    /// <summary>One Ping/Pong round trip with a node (the SessionActor calls it per accepted sample).</summary>
+    public static void RecordRtt(double milliseconds) => NodeRtt.Record(milliseconds);
 
     public static void RecordEventPublished()
     {
