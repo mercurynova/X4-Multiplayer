@@ -5,6 +5,12 @@ X4Native) that lets several X4: Foundations players share one universe. One X4 i
 (the *authority*) simulates the universe. Every X4 instance, the authority included,
 connects to the server, which owns sessions, routing, saves, teams, the economy and the GUI.
 
+## Repo
+Private GitHub: https://github.com/mercurynova/X4-Multiplayer (account `mercurynova`).
+This clone uses gh for git credentials (repo-local `credential.helper = !gh auth git-credential`),
+so pushes go through the **active** gh account. If push says "Repository not found",
+run `gh auth switch -u mercurynova`.
+
 ## Start here
 - `docs/README.md`: map of all project knowledge (read it first in a new session).
 - `docs/dev-setup.md`: what a machine needs; run `tools/check-env.ps1`.

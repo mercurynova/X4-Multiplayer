@@ -127,8 +127,13 @@ New-NetFirewallRule -DisplayName "X4MP UDP" -Direction Inbound -Protocol UDP -Lo
 ## 9. New-machine quick start
 
 ```
-git clone <repo-url> "C:\Personal\X4 Mult"      # repo URL TBD (execution-plan §7)
+gh auth login                      # or: gh auth switch -u mercurynova
+gh repo clone mercurynova/X4-Multiplayer "C:\Personal\X4 Mult"
 cd "C:\Personal\X4 Mult"
+git config user.name "mercurynova"
+git config user.email "59706122+mercurynova@users.noreply.github.com"
+git config credential.https://github.com.helper ""
+git config --add credential.https://github.com.helper "!gh auth git-credential"
 powershell -ExecutionPolicy Bypass -File tools\check-env.ps1
 # install whatever it reports missing, then regenerate local-only folders (§6)
 ```
