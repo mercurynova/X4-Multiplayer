@@ -673,6 +673,7 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
     - **Post-v1:** trade agreements, standing/ADR-040, the optional vanilla-menu tab.
 
 ### ADR-048 Per-team HQ and research (requirement accepted, design pending spike) (user requirement 2026-10-01)
+**Status update 2026-10-01: APPROVED by the user with all recommended defaults HQ-1..HQ-9** (research per team; one HQ per team; HQ granted at session start; blueprints per team, server-enforced; team leader starts research; resources from team HQ cargo; inherit team keeps the save's progression, other teams get the base set; terraforming/HQ warp post-v1; licences per team). Extended by ADR-049 (team origins).
 - **Context:** the user wants *"each faction should be able to have their own HQ and research"*,
   where faction means team. Research: [research/team-hq-research.md](research/team-hq-research.md).
   - The PHQ is an ordinary station of macro `station_pla_headquarters_base_01_macro`. The engine
@@ -726,6 +727,39 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
       per-team licences (with ADR-047 reputation), blueprint fan-out.
     - **Post-v1:** player-view vanilla research menu, trickle resources, HQ warp, team
       terraforming, `OnRequest` HQs.
+
+### ADR-049 Team origins: chosen HQ start sector and race-based starting blueprints (user requirement 2026-10-01)
+- **Requirement (user):** each team chooses **where its HQ starts** (which sector). That choice,
+  and/or the team's **race/culture**, decides the team's **starting blueprints**. Example: a
+  Terran-origin team starts with the Terran solar power plant, not the Commonwealth one.
+- **Design direction (to be detailed in docs/research/team-hq-research.md §Origins):**
+  - **Origin catalogue, generated from vanilla data**, not hand-written:
+    `libraries/gamestarts.xml` (84 starts; each has a `location` sector and a `<blueprints>`
+    list; races Argon/Commonwealth, Terran, Split, Boron, Paranid, Teladi, pirate/Hyperion/Envoy
+    DLC starts). A build-time tool extracts "origin packages" = {race/culture, default sectors,
+    blueprint set, optional starting licences/relations} into a server data file.
+  - **Team setting `Origin`** = one of the packages (Argon, Terran, Split, Boron, Paranid,
+    Teladi, ...) or `Custom` (admin edits the blueprint set). Default for the inherit team:
+    `FromSave` (keeps the save's progression, ADR-048 HQ-7).
+  - **Team setting `HqStartSector`**, chosen by the team leader in the lobby or by an admin in the
+    GUI from a list filtered to sensible sectors: known/unlocked (ADR-037 global unlocks), not
+    Xenon/Kha'ak, optionally restricted to the origin's own space; a minimum distance between
+    teams' HQs is configurable. A sector may optionally *suggest* an origin (e.g. Terran space →
+    Terran), but race and sector stay separate settings unless the admin enables "origin follows
+    start sector".
+  - **At session start** the authority spawns each team's HQ (ADR-048) at a free position in the
+    chosen sector, owned by `x4mp_team_k`. The server seeds the team's blueprint set from the
+    origin package. Clients apply it to their local `player` (add-only, server-enforced; ADR-048).
+  - **Starting relations/licences** may also come from the origin (e.g. Terran origin starts
+    friendlier with Terran factions) via the M6 per-team NPC reputation (ADR-047). Optional.
+- **Milestone:** with ADR-048 (M5 first cut: origin + sector + blueprint seed; M6: relations/licences
+  from origin, Custom editor).
+- **Spikes (add to S12):** spawn the HQ macro at an arbitrary sector position owned by a team;
+  grant a race-specific blueprint set on a client and build with it on a team station.
+- **Open questions (recommended defaults):** O-1 may two teams share a start sector? [yes, with
+  a min-distance]; O-2 can teams pick the same origin? [yes]; O-3 origin locked after session
+  start? [yes, admin can override]; O-4 does the start sector also set a starting ship/location
+  for the team's players? [yes, players' avatars spawn at their team HQ].
 
 ---
 
