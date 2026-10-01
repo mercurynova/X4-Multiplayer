@@ -47,6 +47,7 @@ run `gh auth switch -u mercurynova`.
 - Credits: per-player wallets, teammate transfers + team pool, auto-shared if one team
   (CreditMode Auto|PerPlayer|Shared); donate/loan/escrowed trade gated
   Off/Teammates/Allied/Anyone. Starting credits are a GUI setting.
+- On-foot presence (ADR-046): M3b = HUD presence list + MP lounge room, M3c = any shared room, M5b = Talk-menu credits/team/trade.
 - Story/universe unlocks are session-global (no team gets extra sectors); story is
   played together per team (ADR-037). Fog of war later (ADR-038). Loan enforcement
   options later (ADR-040).
