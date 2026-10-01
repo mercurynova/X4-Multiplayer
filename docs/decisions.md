@@ -478,6 +478,22 @@ goes to the inheriting team" vs "split among players".
 The ledger and Loan model must record due/overdue events and default history now so
 these can be added without migrating data.
 
+### ADR-041 FlatBuffers 25.2.10 pin and C# verifier workaround (M0-04, 2026-10-01)
+**Context:** flatc 25.12.19 generates C# that needs a newer `Google.FlatBuffers` runtime than
+NuGet has, so flatc and the runtime are pinned together at **25.2.10**. That C# runtime's
+`Verifier` has two bugs: `VerifyUnion` reads the union type at the wrong offset, and buffers
+over 32 KB hit an internal `Convert.ToInt16` overflow that silently skips verification.
+**Decision:**
+- C# runs the `Verifier` only on payloads of 32,767 bytes or less without unions.
+- Every decode also does a full `UnPack` read inside the guarded decoder, so any malformed
+  buffer becomes `ProtocolViolation`. Managed bounds checks make that memory-safe.
+- C++ (M0-07, mod) always runs the C++ `Verifier`, which doesn't have these bugs, then
+  walks the union messages (Intent, GameEvent, AdminCommand, WorldCatchUp) fully.
+- Cross-language golden tests compare decoded fields for FlatBuffers tables, because vtable
+  layout may differ between builders. Headers and Replication entries stay byte-exact.
+**Consequences:** re-check on every FlatBuffers upgrade. A Dependabot bump must keep flatc and
+NuGet versions equal (`tools/flatc/flatc.lock.json`).
+
 ---
 
 ## Part 2. Open questions for the user
