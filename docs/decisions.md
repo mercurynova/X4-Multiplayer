@@ -204,6 +204,11 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
   `set_faction_diplomacy_exclusion`. Team ↔ NPC relations are copied from the save's
   `player` at session creation and stay fixed until M6 reputation sync (MOD §11.6).
 - **Consequences:** SRV's "+1.0 or ally level" is resolved to +0.75.
+- **Correction 2026-10-01 (diplomacy research, ADR-047):** `set_faction_relation_locked` is
+  **faction-wide** (`common.xsd:35358`), not per pair. Lock only the `x4mp_team_k` factions,
+  **never `player`**, because locking `player` would freeze all of the local player's NPC
+  relations. To change a team relation, a node unlocks the team faction, sets the relation,
+  then relocks it. Re-verify in spike S11.2. MOD §11.6 follows this.
 
 ### ADR-017 Team policy defaults (Consolidation)
 - **Decision:** `JoinMode=Auto`, `AutoAssign=SingleTeam` (everyone co-op, so
