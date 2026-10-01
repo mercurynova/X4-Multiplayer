@@ -24,11 +24,14 @@ public static class TeamsExtensions
         services.TryAddSingleton(sp =>
         {
             var monitor = sp.GetRequiredService<IOptionsMonitor<TeamOptions>>();
-            return new TeamModule(
+            var module = new TeamModule(
                 () => monitor.CurrentValue,
                 sp.GetRequiredService<ITeamStore>(),
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetService<ILogger<TeamModule>>());
+            // A moved player's view is delivered again; resolved lazily because replication is registered after the teams.
+            module.ResyncPlayer = player => sp.GetService<X4MP.Core.Replication.ReplicationModule>()?.Resync(player, null) ?? false;
+            return module;
         });
         services.AddSingleton<ISessionModule>(sp => sp.GetRequiredService<TeamModule>());
         services.AddSingleton<ITeamDirectory>(sp => sp.GetRequiredService<TeamModule>());
