@@ -10,6 +10,7 @@ using X4MP.Server.Logging;
 using X4MP.Server.Metrics;
 using X4MP.Server.Net;
 using X4MP.Server.Settings;
+using X4MP.Server.World;
 
 namespace X4MP.Server.Hosting;
 
@@ -74,6 +75,7 @@ public static partial class ServerHost
         builder.Services.AddServerMetrics();
         builder.Services.AddEventBus();
         builder.Services.AddSessionActor();
+        builder.Services.AddWorldMirror();
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();
