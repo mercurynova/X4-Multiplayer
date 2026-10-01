@@ -7,6 +7,9 @@ namespace X4MP.Server.Tests.Net;
 [Collection("net")]
 public class FakeNodeLiveTests
 {
+    /// <summary>True in <see cref="FakeNodeLiveActorTests"/>: the SessionActor is the admission handler.</summary>
+    protected virtual bool UseActor => false;
+
     private static readonly LiveRunOptions Quick = new()
     {
         PingInterval = TimeSpan.FromMilliseconds(100),
@@ -19,7 +22,7 @@ public class FakeNodeLiveTests
     [Fact]
     public async Task SwarmWithAuthorityConnectsEveryNodeWithoutErrors()
     {
-        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true);
+        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true, useActor: UseActor);
         var options = CliParser.Parse(["swarm", "--clients", "8", "--with-authority", "--duration", "2"]).Options! with { Port = harness.Port };
         var output = new StringWriter();
 
@@ -38,7 +41,7 @@ public class FakeNodeLiveTests
     [Fact]
     public async Task SingleClientAndAuthorityPrintWelcomeAndRtt()
     {
-        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true);
+        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true, useActor: UseActor);
         foreach (var command in new[] { "client", "authority" })
         {
             var options = CliParser.Parse([command, "--duration", "1", "--name", "Solo" + command]).Options! with { Port = harness.Port };
@@ -54,7 +57,7 @@ public class FakeNodeLiveTests
     [Fact]
     public async Task CancellationEndsCleanly()
     {
-        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true);
+        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true, useActor: UseActor);
         var options = CliParser.Parse(["client"]).Options! with { Port = harness.Port };
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(600));
         Assert.Equal(0, await LiveRunner.RunAsync(options, new StringWriter(), Quick, cts.Token));
@@ -79,4 +82,11 @@ public class FakeNodeLiveTests
         Assert.Equal(3, await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None));
         Assert.Contains("not available yet", output.ToString());
     }
+}
+
+/// <summary>The FakeNode live runs again with the <c>SessionActor</c> as the gateway's admission handler.</summary>
+[Collection("net")]
+public sealed class FakeNodeLiveActorTests : FakeNodeLiveTests
+{
+    protected override bool UseActor => true;
 }

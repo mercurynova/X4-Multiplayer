@@ -63,14 +63,34 @@ public abstract class NetHarness : IAsyncDisposable
 
     public abstract ValueTask DisposeAsync();
 
+    /// <summary>Set when the harness runs the SessionActor for the test (<c>useActor: true</c>); disposed with the harness.</summary>
+    protected ActorFixture? OwnedActor { get; set; }
+
+    protected async ValueTask DisposeOwnedActorAsync()
+    {
+        if (OwnedActor is { } owned)
+        {
+            OwnedActor = null;
+            await owned.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
     /// <param name="withGateway">Run a real <see cref="NodeGateway"/> over the listener (in-memory identity stores).</param>
     /// <param name="store">Identity/ban store for the gateway (default: a fresh <see cref="InMemoryNodeStore"/>).</param>
     /// <param name="handler">Admission handler factory (default: <see cref="DefaultAdmissionHandler"/>).</param>
+    /// <param name="useActor">With no <paramref name="handler"/>, run a <see cref="X4MP.Core.Session.SessionActor"/> as the admission handler instead.</param>
     public static async Task<NetHarness> CreateAsync(
         string kind, NetOptions? options = null, TimeProvider? time = null, bool withGateway = false,
-        InMemoryNodeStore? store = null, Func<GatewayState, IAdmissionHandler>? handler = null)
+        InMemoryNodeStore? store = null, Func<GatewayState, IAdmissionHandler>? handler = null, bool useActor = false)
     {
         options ??= new NetOptions();
+        ActorFixture? ownedActor = null;
+        if (withGateway && handler is null && useActor)
+        {
+            ownedActor = new ActorFixture(options);
+            handler = ownedActor.Handler;
+        }
+
         NetHarness harness;
         if (kind == "tcp")
         {
@@ -88,6 +108,7 @@ public abstract class NetHarness : IAsyncDisposable
         }
 
         harness.Options = options;
+        harness.OwnedActor = ownedActor;
         return harness;
     }
 
@@ -144,6 +165,7 @@ public sealed class InProcHarness(NetOptions options, TimeProvider? time) : NetH
 
         await _listener.DisposeAsync();
         _stop.Dispose();
+        await DisposeOwnedActorAsync();
     }
 }
 
@@ -252,6 +274,7 @@ public sealed class TcpHarness : NetHarness
     {
         await _app.StopAsync().ConfigureAwait(false);
         await _app.DisposeAsync().ConfigureAwait(false);
+        await DisposeOwnedActorAsync().ConfigureAwait(false);
     }
 
     private sealed class TcpOwner(TcpClient client) : IAsyncDisposable
