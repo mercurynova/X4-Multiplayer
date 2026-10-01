@@ -1121,8 +1121,8 @@ is isolated and guarded, and every feature stays reachable without it.
 
 - **One adapter module**, `x4mp_optionsmenu_adapter`, is the only code that
   touches `OptionsMenu` internals. Before doing anything it **probes**:
-  `Menus` contains `OptionsMenu`; `require("debug")` returns a table with
-  `getupvalue`; the `config` upvalue exists and has
+  `Menus` contains `OptionsMenu`; an upvalue reader is available (see the order
+  below); the `config` upvalue exists and has
   `optionDefinitions.main` as an array; `menu.submenuHandler`,
   `menu.createOptionsFrame` and `Helper.clearDataForRefresh` are functions.
   The result goes into one log line, `X4MP ui: optionsmenu adapter OK|DEGRADED(<failed probe>)`,
@@ -1136,6 +1136,16 @@ is isolated and guarded, and every feature stays reachable without it.
     (`table.insert(Menus, menu)` plus `Helper.registerMenu`, as in
     `chatwindow.lua:41-46`), with its own frame created by
     `Helper.createFrameHandle` (helper.lua:3767).
+- **Upvalue reader, in probe order** (spike session 1 showed the `debug` *global* is nil
+  on 9.00; `require("debug")` was not tested there, so V20 stays open):
+  1. `require("debug").getupvalue`. This is how X4Native's own `x4n_settings_menu.lua`
+     (vendored, lines 45–62) reads the same `config` upvalue, so if X4Native's
+     settings page works in game, this works too.
+  2. A native helper: `x4mp.dll` reads the upvalue with the Lua C API
+     (`lua_getupvalue`) on the `lua_State*` X4Native hands to extensions, and exposes
+     it to Lua through the bridge (7.1) as `x4mp_native.getupvalue(fn, i)`. Main
+     thread only.
+  3. Neither works: no embedded injection, so use the standalone menu.
 - If any probe fails, the adapter injects nothing, and the screens use
   implementation (b). Entry points for (b), any of which works:
   - the chat command `/mp` from the vanilla chat window adapter (7.6);
@@ -1156,7 +1166,7 @@ Embedded-mode details:
 
 - Injection (as in X4Native's settings injector and the reference): find
   `Menus[i].name == "OptionsMenu"`, pull the `config` upvalue of
-  `menu.displayOptions` with `require("debug").getupvalue`, and edit
+  `menu.displayOptions` with the upvalue reader chosen above, and edit
   `config.optionDefinitions["main"]`. The vanilla table is at
   `gameoptions.lua:1246–1352`.
 - Insert **one** row `{ id = "x4mp", name = ReadText(92000,1) --[["Multiplayer (X4MP)"]], submenu = "x4mp" }`

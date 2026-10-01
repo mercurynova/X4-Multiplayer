@@ -577,5 +577,5 @@ https://github.com/bvbohnen/x4-projects/tree/master/extensions/sn_mod_support_ap
 - [ ] Velocity read via `GetComponentData(id, "speed"/"velocity")` from Lua.
 - [ ] Hook point to strip ghosts *before* saves (autosave + manual + quicksave).
 - [ ] Custom factions loading into an existing save.
-- [ ] Main-menu injection on 9.00 without `debug.getupvalue` (or confirm `debug` stays available).
+- [ ] Main-menu injection on 9.00. Spike 1: the `debug` global is nil; `require("debug")` is untested (X4Native's settings menu relies on it). Retest in session 2, with a native `lua_getupvalue` fallback.
 - [ ] Lua `SetOrderParam` arg layout for `Attack`/`MoveTo`/`DockAt` orders (from `aiscripts/order.*.xml`).

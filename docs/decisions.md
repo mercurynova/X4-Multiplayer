@@ -507,9 +507,10 @@ NuGet versions equal (`tools/flatc/flatc.lock.json`).
 - **Team factions have their own in-game money account** (`transfer_money` works both
   ways), so a team pool can be mirrored to the faction account. That's optional, and the
   server ledger stays authoritative.
-- **Main menu:** `debug` isn't available, so the upvalue-injection approach (reference
-  mod) is impossible. The MP menu entry hooks public menu functions on the `Menus` tables, or
-  opens our own menu. mod-design §7 must follow this.
+- **Main menu (corrected):** the `debug` *global* is nil, but `require("debug")` is the path X4Native
+  itself uses for its settings menu, and the spike didn't test it. Menu injection keeps the guarded
+  probe-first design (mod-design §7.2). Probe order: `require("debug")`, then native `lua_getupvalue`
+  through the X4Native-provided `lua_State`, then the standalone menu. V20 is retested in session 2.
 - **Destroy:** MD/self-destruct leave wrecks. Use them for kill visuals. Ghost despawn goes through
   the guarded remove.
 
@@ -557,7 +558,7 @@ unless you say otherwise.
 > **Spike session 1 ran on 2026-10-01**, full results in [spikes/session-1-results.md](spikes/session-1-results.md):
 > - **PASS:** V01, V02 (with `force`), V03 (budget `max_ghosts=250`; the cost is rendering), V04 (MD cents / Lua credits; no negative balance), V08, V09, V10, V13, V14.
 > - **NO:** V17 (no velocity).
-> - **FAIL:** V20 (no `debug` library, so no upvalue menu injection).
+> - **V20: inconclusive.** The spike checked only the `debug` global, not `require("debug")`, which X4Native uses.
 > - **INCONCLUSIVE:** V12 (spike bug, retest in session 2).
 > - **S9:** gates/known flags readable and `set_known` persists; gate activation still to test.
 > - **Still open:** V05, V06, V07 (need the native DLL).
