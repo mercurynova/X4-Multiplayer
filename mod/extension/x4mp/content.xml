@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<content id="x4mp" name="X4 Multiplayer" version="900" save="0" enabled="1" author="X4MP project" date="2026-10-01"
+         description="Server-based multiplayer for X4: Foundations (requires X4Native).">
+  <dependency id="x4native" optional="false" version="900"/>
+  <text language="44" name="X4 Multiplayer" description="Server-based multiplayer for X4: Foundations (requires X4Native)."/>
+</content>
