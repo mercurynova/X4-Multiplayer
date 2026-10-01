@@ -278,6 +278,23 @@ public sealed class TcpNodeClient : IAsyncDisposable
         return SendAsync(MsgType.Ping, b => Ping.Pack(b, ping), ct);
     }
 
+    /// <summary>
+    /// Drops the connection without a <c>Disconnect</c>, like a crash or a pulled cable: the server keeps the slot for the resume
+    /// grace instead of treating it as a quit. Reconnect with <see cref="ForResume"/>.
+    /// </summary>
+    public void Abort()
+    {
+        try
+        {
+            _stream.Dispose();
+            _tcp?.Dispose();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
+        {
+            // already gone
+        }
+    }
+
     /// <summary>Sends <c>Disconnect(ClientQuit)</c> (best effort) and closes the stream.</summary>
     public async ValueTask DisposeAsync()
     {
