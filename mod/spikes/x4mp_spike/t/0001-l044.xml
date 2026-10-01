@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<language id="44">
+  <page id="90444" title="X4MP spike" descr="Texts for the throwaway x4mp_spike extension" voice="no">
+    <t id="101">MP Team 1</t>
+    <t id="102">Test faction for team 1 of the X4MP in-game spike.</t>
+    <t id="103">MP1</t>
+    <t id="104">MP Team 1</t>
+    <t id="201">MP Team 2</t>
+    <t id="202">Test faction for team 2 of the X4MP in-game spike.</t>
+    <t id="203">MP2</t>
+    <t id="204">MP Team 2</t>
+    <t id="301">MP Team 3</t>
+    <t id="302">Test faction for team 3 of the X4MP in-game spike.</t>
+    <t id="303">MP3</t>
+    <t id="304">MP Team 3</t>
+    <t id="401">MP Team 4</t>
+    <t id="402">Test faction for team 4 of the X4MP in-game spike.</t>
+    <t id="403">MP4</t>
+    <t id="404">MP Team 4</t>
+    <t id="501">MP Team 5</t>
+    <t id="502">Test faction for team 5 of the X4MP in-game spike.</t>
+    <t id="503">MP5</t>
+    <t id="504">MP Team 5</t>
+    <t id="601">MP Team 6</t>
+    <t id="602">Test faction for team 6 of the X4MP in-game spike.</t>
+    <t id="603">MP6</t>
+    <t id="604">MP Team 6</t>
+    <t id="701">MP Team 7</t>
+    <t id="702">Test faction for team 7 of the X4MP in-game spike.</t>
+    <t id="703">MP7</t>
+    <t id="704">MP Team 7</t>
+    <t id="801">MP Team 8</t>
+    <t id="802">Test faction for team 8 of the X4MP in-game spike.</t>
+    <t id="803">MP8</t>
+    <t id="804">MP Team 8</t>
+  </page>
+</language>
