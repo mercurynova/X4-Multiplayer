@@ -1,0 +1,2 @@
+# Vendored upstream bytes: never normalise line endings (VERSION records SHA-256 of every file).
+* -text
