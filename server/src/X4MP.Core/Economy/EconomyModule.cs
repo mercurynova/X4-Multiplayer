@@ -95,6 +95,7 @@ public sealed partial class EconomyModule : ISessionModule
     {
         ArgumentNullException.ThrowIfNull(node);
         _nodes.Remove(node.PlayerId);
+        Service?.ForgetRate(node.PlayerId);
     }
 
     public void OnSessionPhaseChanged(SessionPhase previous, SessionPhase current)
@@ -124,6 +125,11 @@ public sealed partial class EconomyModule : ISessionModule
 
     public bool OnMessage(SessionNode node, InboundFrame frame)
     {
+        if (frame.Type is MsgType.CreditTransferRequest or MsgType.DonateRequest or MsgType.PoolDepositRequest or MsgType.PoolWithdrawRequest)
+        {
+            return OnPlayerAction(node, frame);
+        }
+
         if (frame.Type != MsgType.CreditDelta)
         {
             return false;
@@ -148,6 +154,98 @@ public sealed partial class EconomyModule : ISessionModule
         service.BookCreditDelta(node.PlayerId, node.IsAuthority, delta);
         return true;
     }
+
+    // ------------------------------------------------------------------ player actions (M1-E3)
+
+    private bool OnPlayerAction(SessionNode node, InboundFrame frame)
+    {
+        if (Service is not { } service)
+        {
+            return true;
+        }
+
+        Id128T? key;
+        Func<string, EconomyActionResult> run;
+        try
+        {
+            var registry = MessageRegistry.Default;
+            switch (frame.Type)
+            {
+                case MsgType.CreditTransferRequest:
+                    var transfer = registry.Decode<CreditTransferRequest>(frame.Frame).UnPack();
+                    key = transfer.RequestKey;
+                    run = k => service.Transfer(node.PlayerId, k, transfer.ToPlayer, transfer.Amount, transfer.Memo);
+                    break;
+                case MsgType.DonateRequest:
+                    var donate = registry.Decode<DonateRequest>(frame.Frame).UnPack();
+                    key = donate.RequestKey;
+                    run = k => service.Donate(node.PlayerId, k, donate.ToPlayer, donate.Amount, donate.Memo);
+                    break;
+                case MsgType.PoolDepositRequest:
+                    var deposit = registry.Decode<PoolDepositRequest>(frame.Frame).UnPack();
+                    key = deposit.RequestKey;
+                    run = k => service.PoolDeposit(node.PlayerId, k, deposit.Amount);
+                    break;
+                default:
+                    var withdraw = registry.Decode<PoolWithdrawRequest>(frame.Frame).UnPack();
+                    key = withdraw.RequestKey;
+                    run = k => service.PoolWithdraw(node.PlayerId, k, withdraw.Amount);
+                    break;
+            }
+        }
+        catch (ProtocolViolation ex)
+        {
+            LogMalformedAction(ex, node.PlayerId, frame.Type);
+            return true;
+        }
+
+        key ??= new Id128T();
+        var keyText = KeyText(key);
+        EconomyActionResult result;
+        if (_phase != SessionPhase.Running)
+        {
+            result = EconomyActionResult.Rejected(EconomyReject.SessionNotRunning, _phase.ToString());
+        }
+        else
+        {
+            result = service.CheckRate(node.PlayerId) ?? run(keyText);
+        }
+
+        SendResult(node, key, result);
+        return true;
+    }
+
+    private static string KeyText(Id128T key) => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{key.Hi:x16}{key.Lo:x16}");
+
+    private void SendResult(SessionNode node, Id128T key, EconomyActionResult result)
+    {
+        if (node.Connection is null || Service is not { } service)
+        {
+            return;
+        }
+
+        var message = new EconomyResultT
+        {
+            RequestKey = key,
+            Status = result.Ok ? EconomyStatus.Ok : EconomyStatus.Rejected,
+            Reason = result.Reason,
+            Detail = result.Detail ?? string.Empty,
+            RefId = key,
+            Balances = [],
+        };
+        foreach (var balance in result.Outcome?.Balances ?? [])
+        {
+            if (balance.Wallet.Kind != WalletKind.World && (node.IsAuthority || service.IsVisibleTo(node.PlayerId, balance.Wallet)))
+            {
+                message.Balances.Add(ToWire(balance));
+            }
+        }
+
+        node.Connection.TrySend(ControlFrames.Encode(MsgType.EconomyResult, fbb => EconomyResult.Pack(fbb, message).Value, 128));
+    }
+
+    [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "malformed {Type} from player {PlayerId}")]
+    private partial void LogMalformedAction(Exception ex, int playerId, MsgType type);
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "malformed CreditDelta from player {PlayerId}")]
     private partial void LogMalformedDelta(Exception ex, int playerId);
@@ -197,16 +295,18 @@ public sealed partial class EconomyModule : ISessionModule
                 continue; // internal counter-party, not on the wire
             }
 
-            update.Balances.Add(new WalletBalanceT
-            {
-                Wallet = new WalletRefT { Kind = ToWire(balance.Wallet.Kind), OwnerId = (ushort)Math.Clamp(balance.Wallet.OwnerId, 0, ushort.MaxValue) },
-                Balance = balance.Balance,
-                Version = (ulong)balance.Version,
-            });
+            update.Balances.Add(ToWire(balance));
         }
 
         node.Connection.TrySend(ControlFrames.Encode(MsgType.WalletUpdate, fbb => WalletUpdate.Pack(fbb, update).Value, 128));
     }
+
+    private static WalletBalanceT ToWire(WalletBalanceAfter balance) => new()
+    {
+        Wallet = new WalletRefT { Kind = ToWire(balance.Wallet.Kind), OwnerId = (ushort)Math.Clamp(balance.Wallet.OwnerId, 0, ushort.MaxValue) },
+        Balance = balance.Balance,
+        Version = (ulong)balance.Version,
+    };
 
     private static X4MP.Proto.WalletKind ToWire(WalletKind kind) => kind switch
     {
