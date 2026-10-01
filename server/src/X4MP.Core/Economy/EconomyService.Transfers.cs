@@ -30,8 +30,8 @@ public sealed partial class EconomyService
     /// <summary>
     /// Teammate transfer (<c>CreditTransferRequest</c>): own wallet to a teammate's wallet (or, with
     /// <see cref="EconomyOptions.AllowAlliedTransfers"/>, to a player of an allied team). Posted as one <see cref="TxKind.Transfer"/>.
-    /// In Shared mode two members of one team have the same wallet: <see cref="EconomyReject.NotApplicableInSharedMode"/>
-    /// (server-design 2.14, "same-team actions in Shared mode are rejected with SameWallet"; the wire has no SameWallet).
+    /// In Shared mode two members of one team have the same wallet: <see cref="EconomyReject.SameWallet"/>
+    /// (server-design 2.14, "same-team actions in Shared mode are rejected with SameWallet").
     /// </summary>
     public EconomyActionResult Transfer(int playerId, string requestKey, int toPlayer, long amount, string? memo = null) =>
         MovePlayerToPlayer(TxKind.Transfer, LedgerReason.Transfer, "Transfer", playerId, requestKey, toPlayer, amount, memo);
@@ -124,7 +124,7 @@ public sealed partial class EconomyService
         to = EffectiveWallet(toPlayer);
         if (from == to)
         {
-            return EconomyActionResult.Rejected(EconomyReject.NotApplicableInSharedMode, "both players use the same wallet");
+            return EconomyActionResult.Rejected(EconomyReject.SameWallet, "both players use the same wallet");
         }
 
         if (from.Kind == WalletKind.TeamShared && options.SharedWalletSpend == SharedWalletSpendPolicy.LeaderOnly

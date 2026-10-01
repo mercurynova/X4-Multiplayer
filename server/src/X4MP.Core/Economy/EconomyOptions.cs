@@ -56,6 +56,29 @@ public sealed record EconomyOptions
     [Setting("Teammate transfers also reach allied teams", Scope = SettingScope.Live, PushToNodes = true)]
     public bool AllowAlliedTransfers { get; set; }
 
+    /// <summary>Who may trade with whom (Off, Teammates, Allied = same or allied team, Anyone). Checked at proposal and again at accept.</summary>
+    [Setting("Trade scope", Scope = SettingScope.Live, PushToNodes = true)]
+    public EconomyScope TradeScope { get; set; } = EconomyScope.Allied;
+
+    [Setting("Ships may be traded", Scope = SettingScope.Live, PushToNodes = true)]
+    public bool TradeShipsEnabled { get; set; } = true;
+
+    /// <summary>Open trades (not final) one player may be a party to.</summary>
+    [Setting("Open trades per player", Scope = SettingScope.Live, PushToNodes = true, Min = 1, Max = 50)]
+    public int MaxOpenTradesPerPlayer { get; set; } = 5;
+
+    /// <summary>The traded ship or cargo container has to be in the same sector as the receiving player's ship (per the mirror).</summary>
+    [Setting("Trades need both ships in the same sector", Scope = SettingScope.Live)]
+    public bool TradeRequiresProximity { get; set; } = true;
+
+    /// <summary>How long the authority may take to answer an <c>AssetTransferOrder</c> before the server starts asking (<c>TradeQuery</c>).</summary>
+    [Setting("Trade execute timeout (s)", Scope = SettingScope.Live, Min = 1, Max = 600)]
+    public int TradeExecuteTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>Wait between the up to three <c>TradeQuery</c>s of a silent authority; after the third unanswered one the trade is InDoubt.</summary>
+    [Setting("Trade query interval (s)", Scope = SettingScope.Live, Min = 1, Max = 600)]
+    public int TradeQueryIntervalSeconds { get; set; } = 10;
+
     [Setting("Largest single transfer or pool movement", Scope = SettingScope.Live, PushToNodes = true, Min = 1, Max = 1_000_000_000_000)]
     public long MaxSingleTransfer { get; set; } = 1_000_000_000_000;
 

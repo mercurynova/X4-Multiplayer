@@ -26,6 +26,9 @@ public class AssetPermissionRelayTests
 
         public RelayRig Rig => _rig;
 
+        /// <summary>Entities an open trade holds (M1-E5); the gate rejects commands on them.</summary>
+        public HashSet<uint> Locked { get; } = [];
+
         public JoinedNode Boss { get; private set; } = null!;
 
         public JoinedNode Alice { get; private set; } = null!;
@@ -35,7 +38,7 @@ public class AssetPermissionRelayTests
         public async Task StartAsync(int? leader = null)
         {
             Rig.Relay.AssetPermissions = new AssetPermissionGate(
-                Rig.Mirror, Rig.Teams!, () => Teams, () => Rig.Options.ClaimRangeMetres, _ => leader ?? Boss?.PlayerId);
+                Rig.Mirror, Rig.Teams!, () => Teams, () => Rig.Options.ClaimRangeMetres, _ => leader ?? Boss?.PlayerId, Locked.Contains);
             Boss = await Rig.JoinAuthorityAsync();
             Alice = await Rig.JoinInGameAsync("Alice");
             Bob = await Rig.JoinInGameAsync("Bob");
@@ -61,6 +64,31 @@ public class AssetPermissionRelayTests
 
     private static IntentBodyUnion Order(uint asset, OrderKind kind = OrderKind.MoveTo, uint target = 0) =>
         IntentBodyUnion.FromAssetOrder(new AssetOrderT { Asset = asset, Order = kind, Target = target });
+
+    [Fact]
+    public async Task AnAssetInAnOpenTradeTakesNoOrdersRenamesGiftsOrStationTradesUntilItIsFree()
+    {
+        await using var scene = new Scene();
+        await scene.StartAsync();
+        scene.Spawn(WorldKit.Rec(100, EntityKind.ShipM, 1, ownerTeam: 1), WorldKit.Rec(310, EntityKind.Station, 1, ownerTeam: 0));
+        scene.Locked.Add(100);
+
+        await scene.Send(scene.Alice, 1, Order(100));
+        await scene.Send(scene.Alice, 2, IntentBodyUnion.FromAssetRename(new AssetRenameT { Asset = 100, Name = "x" }));
+        await scene.Send(scene.Alice, 3, IntentBodyUnion.FromAssetGift(new AssetGiftT { Asset = 100, ToTeam = 1 }));
+        await scene.Send(scene.Alice, 4, IntentBodyUnion.FromTradeReport(new TradeReportT { Ship = 100, Station = 310, Amount = 10 }));
+
+        Assert.Empty(scene.Forwarded());
+        Assert.All(Scene.Results(scene.Alice), r => Assert.Equal(RejectReason.Conflict, r.Reason));
+        Assert.Equal(4, Scene.Results(scene.Alice).Count);
+        Assert.Equal(4, scene.Rig.Relay.Stats.IntentsPermissionDenied);
+
+        scene.Locked.Clear(); // the trade ended
+        await scene.Send(scene.Alice, 5, Order(100));
+
+        Assert.Single(scene.Forwarded());
+        Assert.Equal(4, Scene.Results(scene.Alice).Count);
+    }
 
     [Fact]
     public async Task AForeignTeamsAssetIsNeverForwardedAndTheSenderGetsOneRejection()
