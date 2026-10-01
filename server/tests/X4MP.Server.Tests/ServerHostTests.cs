@@ -113,6 +113,18 @@ public class ServerHostTests(ServerFactory factory) : IClassFixture<ServerFactor
     }
 
     [Fact]
+    public async Task GracefulStopLogsShutdownComplete()
+    {
+        var shutdownFactory = new ServerFactory();
+        var ring = shutdownFactory.Services.GetService(typeof(X4MP.Server.Logging.RingBufferSink)) as X4MP.Server.Logging.RingBufferSink;
+        Assert.NotNull(ring);
+
+        await shutdownFactory.DisposeAsync();
+
+        Assert.Contains(ring.Snapshot(), e => e.RenderMessage() == "shutdown complete");
+    }
+
+    [Fact]
     public void StartupMigratedTheDatabaseIntoTheDataDir()
     {
         _ = _client; // ensure the host started
