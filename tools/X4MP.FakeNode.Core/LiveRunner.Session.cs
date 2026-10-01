@@ -309,9 +309,12 @@ public static partial class LiveRunner
         NodeLink link, CliOptions o, FakeGalaxy galaxy, LiveNodeStats stats, LiveRunOptions run, string saveDir, string name, SynchronizedWriter lines, CancellationToken ct)
     {
         var world = new FakeWorld(galaxy);
-        var authority = new FakeAuthority(world, new FakeAuthorityOptions { TickRateHz = o.TickRate, Fps = o.Fps, TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None });
+        var authority = new FakeAuthority(world, new FakeAuthorityOptions { TickRateHz = o.TickRate, Fps = o.Fps, TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None || o.Trade });
         var captures = new ConcurrentQueue<CaptureSetT>();
         var intents = new ConcurrentQueue<IntentT>();
+        var tradeFrames = new ConcurrentQueue<Frame>();
+        var trades = new FakeTradeAuthority(o.Seed, o.TradeFailPercent, o.TradeTimeoutPercent);
+        stats.TradeAuthority = trades;
 
         // Against a server with a save service the authority also answers RequestSave: it builds a fake save and manifest, uploads them
         // in-band and the session starts from that checkpoint (protocol.md 6.3). Its GalaxyMetadata then travels with the checkpoint, keyed
@@ -342,6 +345,10 @@ public static partial class LiveRunner
                 // The server forwards an intent only after its permission checks: the fake authority just counts it and accepts.
                 stats.CountIntentReceived();
                 intents.Enqueue(MessageRegistry.Default.Decode<Intent>(frame).UnPack());
+            }
+            else if (frame.Type is MsgType.AssetTransferOrder or MsgType.TradeQuery)
+            {
+                tradeFrames.Enqueue(frame);
             }
             else
             {
@@ -377,6 +384,15 @@ public static partial class LiveRunner
                     Detail = string.Empty,
                 };
                 await link.Client.SendPayloadAsync(MsgType.IntentResult, MessageEncoder.EncodePayload(b => IntentResult.Pack(b, result), 96), ct).ConfigureAwait(false);
+            }
+
+            while (tradeFrames.TryDequeue(out var tradeFrame))
+            {
+                var replies = tradeFrame.Type == MsgType.AssetTransferOrder
+                    ? trades.OnOrder(MessageRegistry.Default.Decode<AssetTransferOrder>(tradeFrame).UnPack())
+                    : trades.OnQuery(MessageRegistry.Default.Decode<TradeQuery>(tradeFrame).UnPack());
+                foreach (var reply in replies)
+                    await link.Client.SendPayloadAsync(reply.Type, reply.Payload, ct).ConfigureAwait(false);
             }
 
             long target = (long)(clock.Elapsed.TotalSeconds * o.TickRate);
@@ -423,6 +439,9 @@ public static partial class LiveRunner
         run.OnClientSession?.Invoke(session);
         stats.AttachSession(session);
         var outbox = Channel.CreateUnbounded<OutMessage>();
+        FakeTrader? trader = o.Trade ? new FakeTrader(link.PlayerId, o.Seed) : null;
+        stats.Trader = trader;
+        var runClock = Stopwatch.StartNew();
 
         // Against a server with a save service the join is the real one: wait for the checkpoint, download and verify the save and its
         // manifest, match, take the WorldCatchUp (protocol.md 6.4/6.5). The frames of that pipeline are handled in order on their own task.
@@ -443,6 +462,12 @@ public static partial class LiveRunner
                 stats.CountOrderResult(MessageRegistry.Default.Decode<IntentResult>(frame));
             foreach (var reply in session.Handle(frame))
                 outbox.Writer.TryWrite(reply);
+            if (trader is not null)
+            {
+                foreach (var reply in trader.Handle(frame, runClock.Elapsed.TotalSeconds))
+                    outbox.Writer.TryWrite(reply);
+            }
+
             if (saveFrames is not null && IsSaveFrame(frame.Type))
                 saveFrames.Writer.TryWrite(frame);
         };
@@ -488,6 +513,8 @@ public static partial class LiveRunner
         long nextStale = 0;
         long nextOrder = (long)FakePlayer.TickRateHz;
         ulong orderKey = 0;
+        double nextTrade = 4;
+        int tradeN = 0;
         while (!ct.IsCancellationRequested)
         {
             if (link.Closed)
@@ -522,6 +549,21 @@ public static partial class LiveRunner
                 else
                 {
                     stats.CountNoTarget();
+                }
+            }
+
+            if (trader is not null)
+            {
+                double now = runClock.Elapsed.TotalSeconds;
+                foreach (var retry in trader.Retries(now))
+                    await link.Client.SendPayloadAsync(retry.Type, retry.Payload, ct).ConfigureAwait(false);
+                // Stop proposing a little before a timed run ends so the last trades can finish (the server's timeline is seconds long in tests).
+                bool quiet = o.Duration is { } total && now > total - o.TradeQuietSeconds;
+                if (now >= nextTrade && !quiet)
+                {
+                    nextTrade = now + 5;
+                    if (session.PickTeamAsset(link.Team, tradeN++) is { } ship && trader.NextProposal(ship.NetId) is { } proposal)
+                        await link.Client.SendPayloadAsync(proposal.Type, proposal.Payload, ct).ConfigureAwait(false);
                 }
             }
 

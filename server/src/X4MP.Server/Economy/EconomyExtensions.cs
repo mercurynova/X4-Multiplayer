@@ -4,6 +4,7 @@ using X4MP.Core.Economy;
 using X4MP.Core.Events;
 using X4MP.Core.Session;
 using X4MP.Core.Teams;
+using X4MP.Core.World;
 using X4MP.Persistence;
 
 namespace X4MP.Server.Economy;
@@ -26,14 +27,24 @@ public static class EconomyExtensions
         services.AddSingleton(sp =>
         {
             var monitor = sp.GetRequiredService<IOptionsMonitor<EconomyOptions>>();
+            var teams = sp.GetService<ITeamDirectory>();
+            var mirror = sp.GetService<WorldMirror>();
+            var teamOptions = sp.GetService<IOptionsMonitor<TeamOptions>>();
             return new EconomyModule(
                 () => monitor.CurrentValue,
                 sp.GetRequiredService<IEconomyStore>(),
-                sp.GetService<ITeamDirectory>(),
+                teams,
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetService<IEventPublisher>(),
-                sp.GetService<ILogger<EconomyModule>>());
+                sp.GetService<ILogger<EconomyModule>>())
+            {
+                TradeStore = sp.GetRequiredService<ITradeStore>(),
+                TradeWorld = mirror is null || teamOptions is null
+                    ? null
+                    : new MirrorTradeWorld(mirror, teams, () => teamOptions.CurrentValue, teamId => (teams as TeamModule)?.LeaderOf(teamId)),
+            };
         });
+        services.TryAddSingleton<ITradeStore>(sp => new SqliteTradeStore(sp.GetRequiredService<SqliteConnectionFactory>()));
         services.AddSingleton<ISessionModule>(sp => sp.GetRequiredService<EconomyModule>());
         return services;
     }

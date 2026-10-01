@@ -16,7 +16,8 @@ public sealed class AssetPermissionGate(
     ITeamDirectory teams,
     Func<TeamOptions> teamOptions,
     Func<double> claimRangeMetres,
-    Func<int, int?>? leaderOf = null)
+    Func<int, int?>? leaderOf = null,
+    Func<uint, bool>? isLocked = null)
 {
     private const double PositionScale = 64.0; // protocol.md 11: i32 = round(m * 64)
 
@@ -36,6 +37,11 @@ public sealed class AssetPermissionGate(
             case IntentBody.AssetOrder:
                 {
                     var order = body.AsAssetOrder();
+                    if (Locked(order.Asset, AssetAction.Order) is { } lockedOrder)
+                    {
+                        return lockedOrder;
+                    }
+
                     if (!Subject(order.Asset, out var asset))
                     {
                         return Unknown(AssetAction.Order, order.Asset);
@@ -57,6 +63,11 @@ public sealed class AssetPermissionGate(
             case IntentBody.AssetRename:
                 {
                     var rename = body.AsAssetRename();
+                    if (Locked(rename.Asset, AssetAction.Rename) is { } lockedRename)
+                    {
+                        return lockedRename;
+                    }
+
                     return !Subject(rename.Asset, out var asset)
                         ? Unknown(AssetAction.Rename, rename.Asset)
                         : Done(AssetPermissionPolicy.Evaluate(settings, actor, AssetAction.Rename, asset, null, TeamRelation.Allied), AssetAction.Rename, rename.Asset);
@@ -65,6 +76,11 @@ public sealed class AssetPermissionGate(
             case IntentBody.AssetGift:
                 {
                     var gift = body.AsAssetGift();
+                    if (Locked(gift.Asset, AssetAction.Gift) is { } lockedGift)
+                    {
+                        return lockedGift;
+                    }
+
                     if (!Subject(gift.Asset, out var asset))
                     {
                         return Unknown(AssetAction.Gift, gift.Asset);
@@ -88,6 +104,11 @@ public sealed class AssetPermissionGate(
             case IntentBody.TradeReport:
                 {
                     var trade = body.AsTradeReport();
+                    if (Locked(trade.Ship, AssetAction.TradeReport) is { } lockedShip)
+                    {
+                        return lockedShip;
+                    }
+
                     if (!Subject(trade.Ship, out var ship))
                     {
                         return Unknown(AssetAction.TradeReport, trade.Ship);
@@ -152,6 +173,15 @@ public sealed class AssetPermissionGate(
             AssetAction.KillOrHit,
             targetId);
     }
+
+    /// <summary>
+    /// An entity that an open escrowed trade holds (M1-E5) takes no orders, renames, gifts or station trades until the trade ends,
+    /// so it cannot be sold twice or moved while the authority transfers it.
+    /// </summary>
+    private Result? Locked(uint netId, AssetAction action) =>
+        netId != 0 && isLocked?.Invoke(netId) == true
+            ? new Result(new PermissionVerdict(RejectReason.Conflict, "the asset is part of an open trade"), action, netId)
+            : null;
 
     private PermissionVerdict Run(AssetPermissionSettings settings, PermissionActor actor, AssetAction action, PermissionSubject asset, PermissionSubject other) =>
         AssetPermissionPolicy.Evaluate(settings, actor, action, asset, other, Relation(actor.Team, other.Team));

@@ -64,6 +64,18 @@ public sealed record CliOptions
 
     /// <summary>authority: size of the fake save it uploads on <c>RequestSave</c> (megabytes).</summary>
     public int SaveMb { get; init; } = 4;
+
+    /// <summary>client/swarm: clients propose ship-for-credits trades to each other and accept the ones they receive (M1-E5); implies team assets.</summary>
+    public bool Trade { get; init; }
+
+    /// <summary>Trading clients stop proposing this many seconds before a timed run ends (so the last trades can finish).</summary>
+    public int TradeQuietSeconds { get; init; } = 10;
+
+    /// <summary>authority: percent (0..100) of the <c>AssetTransferOrder</c>s that fail (<c>ok=false</c>, compensated).</summary>
+    public double TradeFailPercent { get; init; }
+
+    /// <summary>authority: percent (0..100) of the orders whose confirm is withheld (answered only by a <c>TradeQuery</c>, or never).</summary>
+    public double TradeTimeoutPercent { get; init; }
 }
 
 public sealed record CliParseResult(CliOptions? Options, string? Error)
@@ -104,6 +116,9 @@ public static class CliParser
           --commander shared|own|foreign   clients send AssetOrders for teammates' / own team-common / another team's ships (0.5 s apart)
           --team-assets        authority: give its ships team owners (implied by --commander; start the authority with it when clients run elsewhere)
           --save-mb N          authority: size of the fake save it uploads (default 4)
+          --trade              clients propose ship-for-credits trades to each other and accept incoming ones (implies --team-assets)
+          --trade-fail PCT     authority: fail PCT percent of the AssetTransferOrders (the server must refund and unlock)
+          --trade-timeout PCT  authority: withhold the confirm of PCT percent of the orders; a third of those never answer a TradeQuery either (InDoubt)
         """;
 
     private static readonly Dictionary<string, FakeNodeCommand> Commands = new(StringComparer.OrdinalIgnoreCase)
@@ -138,7 +153,7 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets";
+            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "trade";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -149,6 +164,7 @@ public static class CliParser
                     "verify" => o with { Verify = on },
                     "with-authority" => o with { WithAuthority = on },
                     "team-assets" => o with { TeamAssets = on },
+                    "trade" => o with { Trade = on },
                     _ => o with { Udp = on },
                 };
                 continue;
@@ -210,6 +226,10 @@ public static class CliParser
                 string number = value.TrimEnd('%');
                 return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double loss) && loss is >= 0 and <= 100
                     ? (o with { LossPercent = loss }, null) : (o, $"--loss must be a percentage between 0 and 100 (got '{value}')");
+            case "trade-fail":
+                return Percent(o, key, value, v => o with { TradeFailPercent = v });
+            case "trade-timeout":
+                return Percent(o, key, value, v => o with { TradeTimeoutPercent = v });
             case "name":
                 return (o with { Name = value }, null);
             case "name-prefix":
@@ -226,6 +246,10 @@ public static class CliParser
                 return (o, $"unknown option --{key}");
         }
     }
+
+    private static (CliOptions, string?) Percent(CliOptions o, string key, string value, Func<double, CliOptions> apply) =>
+        double.TryParse(value.TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v is >= 0 and <= 100
+            ? (apply(v), null) : (o, $"--{key} must be a percentage between 0 and 100 (got '{value}')");
 
     private static (CliOptions, string?) PositiveInt(CliOptions o, string key, string value, Func<int, CliOptions?> apply)
     {

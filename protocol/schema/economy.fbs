@@ -60,7 +60,10 @@ enum EconomyReject : ubyte {
   PoolDisabled, PoolPolicyDenied, DailyLimit, AmountInvalid, OverMaxAmount, UnknownPlayer,
   UnknownLoan, UnknownTrade, StaleVersion, NotParty, WrongState, TooManyOpen, EconomyFrozen,
   RateLimited, AssetNotOwned, AssetUnavailable, AuthorityUnavailable, AuthorityRejected, Timeout,
-  SessionNotRunning
+  SessionNotRunning,
+  SameWallet,                    // both parties spend from one wallet (Shared mode, same team)
+  RequestIdReuse,                // request_key reused with a different payload
+  OutOfRange                     // trade proximity: the assets/ships are not in the same sector
 }
 
 /// S->C. Exactly one per request_key.

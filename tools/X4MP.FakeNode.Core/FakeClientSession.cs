@@ -109,6 +109,31 @@ public sealed class FakeClientSession
         return (pick.Key, pick.Value.Sector);
     }
 
+    /// <summary>
+    /// A ghost owned by <paramref name="team"/> (any player), the <paramref name="n"/>-th round-robin by net_id: what a trading client offers (M1-E5).
+    /// </summary>
+    public (uint NetId, ushort Sector)? PickTeamAsset(int team, int n)
+    {
+        if (team == 0)
+            return null;
+        var candidates = _ghosts.Where(g => g.Value.OwnerTeam == team).OrderBy(g => g.Key).ToList();
+        if (candidates.Count == 0)
+            return null;
+        var pick = candidates[n % candidates.Count];
+        return (pick.Key, pick.Value.Sector);
+    }
+
+    /// <summary>Applies an ownership change (a settled trade) to the ghost; the other fields do not matter to the fake client.</summary>
+    private void ApplyChange(EntityChange change)
+    {
+        if (!_ghosts.TryGetValue(change.NetId, out var ghost))
+            return;
+        if ((change.Fields & ChangeField.OwnerTeam) != 0)
+            ghost.OwnerTeam = change.OwnerTeam;
+        if ((change.Fields & ChangeField.OwnerPlayer) != 0)
+            ghost.OwnerPlayer = change.OwnerPlayer;
+    }
+
     public long SpawnsApplied { get; private set; }
 
     public long DespawnsApplied { get; private set; }
@@ -182,6 +207,9 @@ public sealed class FakeClientSession
                 break;
             case MsgType.SectorComplete:
                 SectorCompletes++;
+                break;
+            case MsgType.EntityChange:
+                ApplyChange(MessageRegistry.Default.Decode<EntityChange>(frame));
                 break;
             case MsgType.Replication:
                 ApplyReplication(MessageRegistry.Default.Decode<Replication>(frame));
