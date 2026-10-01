@@ -563,13 +563,15 @@ CREATE TABLE mod_catalog (                           -- server-wide memory of li
 
 ## 10. Open questions for the user (recommended defaults)
 
+> **Answered 2026-10-01:** the user accepted the defaults for MM1–MM4 and MM6–MM9. MM5 was changed to a configurable setting (below).
+
 | # | Question | Recommended default |
 |---|---|---|
 | MM1 | What happens to a player with an **unknown mod** (not in the session list)? | `AllowClientOnly`: allowed if it looks client-only (UI/text/visual), rejected otherwise with "disable X". |
 | MM2 | Should a mod mismatch **reject** or just **warn**? | `Strict` reject for `Required`/`Blocked` and sim mods. `Warn` is a per-session option for casual play. DLC mismatch always rejects. |
 | MM3 | When the admin edits the mod list mid-session, kick players who now violate it? | **No.** Flag them in the GUI and send a notice; the new list applies at their next join. |
 | MM4 | Must versions match exactly? | **Exact** for sim mods (plus content hash when available), **any** for client-only. Per-mod override in the GUI. |
-| MM5 | Who sees a player's mod list? | **Server admins/viewers only**, not other players. |
+| MM5 | Who sees a player's mod list? | **Decided (user, 2026-10-01): a session setting `ModListVisibility`** = `AdminsOnly` (default) / `AdminsAndViewers` / `AllPlayers` (players see each other's lists in game and in a read-only GUI view). There's also an optional per-account **`ModEditor`** permission, so a non-admin GUI account (e.g. a friend helping choose mods) can edit the session mod list without full admin rights. All changes are audited. |
 | MM6 | Launcher: restore the player's original mods after the session automatically? | **Yes**, with a "keep this mod set" checkbox. |
 | MM7 | Is the authority checked against the admin's list? | **Yes** in `AdminList` mode (catches a host who forgot a mod). In `AuthorityDefines` mode the authority's set is the list. |
 | MM8 | Default list mode for a new session? | `AuthorityDefines` until the admin imports or edits; the GUI nudges "Import from authority to add links". |

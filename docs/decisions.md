@@ -583,6 +583,13 @@ schema delta. New tables `player_extension_reports`, `session_mod_policy`,
 `session_mod_entries`, `mod_catalog`. Open questions MM1–MM9 in mod-management.md §10 use
 their recommended defaults until the user answers.
 
+### ADR-045 Mod-management open questions answered (user, 2026-10-01)
+Defaults accepted for MM1–MM4 and MM6–MM9 (mod-management.md §10). **MM5 changed:** who can
+see players' mod lists is a session setting, `ModListVisibility` = `AdminsOnly` (default) |
+`AdminsAndViewers` | `AllPlayers`. Add a `ModEditor` permission for non-admin GUI accounts, so a
+helper can curate the session mod list. All edits go to `audit_log`. This affects the M1-X tasks
+(server setting, permission, GUI) and M2-X (an in-game read-only view when `AllPlayers`).
+
 ---
 
 ## Part 2. Open questions for the user
