@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\X4MP.Protocol\X4MP.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

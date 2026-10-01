@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <AssemblyName>x4mp-server</AssemblyName>
+    <RootNamespace>X4MP.Server</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\X4MP.Core\X4MP.Core.csproj" />
+    <ProjectReference Include="..\X4MP.Transport\X4MP.Transport.csproj" />
+    <ProjectReference Include="..\X4MP.Persistence\X4MP.Persistence.csproj" />
+    <ProjectReference Include="..\X4MP.Protocol\X4MP.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

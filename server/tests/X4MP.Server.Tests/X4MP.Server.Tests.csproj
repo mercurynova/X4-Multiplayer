@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/X4MP.Server/X4MP.Server.csproj" />
+    <ProjectReference Include="../../src/X4MP.Core/X4MP.Core.csproj" />
+    <ProjectReference Include="../../src/X4MP.Transport/X4MP.Transport.csproj" />
+    <ProjectReference Include="../../src/X4MP.Persistence/X4MP.Persistence.csproj" />
+    <ProjectReference Include="../../src/X4MP.Protocol/X4MP.Protocol.csproj" />
+    <ProjectReference Include="../../../tools/X4MP.FakeNode/X4MP.FakeNode.csproj" />
+  </ItemGroup>
+
+</Project>
