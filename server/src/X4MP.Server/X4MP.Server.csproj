@@ -58,13 +58,15 @@
     <Exec Command="npm run build" WorkingDirectory="$(WebDir)" />
   </Target>
 
-  <!-- Embeds web/dist (or a placeholder page when it is missing) as wwwroot/** for ManifestEmbeddedFileProvider. -->
+  <!-- NOTE: the embedded-files manifest task splits Link on the PLATFORM directory separator, so Link must use
+       $([System.IO.Path]::DirectorySeparatorChar) (a literal backslash or slash breaks Linux or Windows respectively). -->
+  <!-- Embeds web/dist(or a placeholder page when it is missing) as wwwroot/** for ManifestEmbeddedFileProvider. -->
   <Target Name="EmbedWebDist" BeforeTargets="BeforeBuild" DependsOnTargets="BuildWeb">
     <ItemGroup>
-      <WebDistFile Include="$(WebDir)dist\**\*" />
+      <WebDistFile Include="$(WebDir)dist/**/*" />
     </ItemGroup>
     <PropertyGroup>
-      <WebPlaceholderDir>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)web-placeholder\</WebPlaceholderDir>
+      <WebPlaceholderDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'web-placeholder'))</WebPlaceholderDir>
     </PropertyGroup>
     <MakeDir Directories="$(WebPlaceholderDir)" Condition="'@(WebDistFile)' == ''" />
     <WriteLinesToFile File="$(WebPlaceholderDir)index.html" Lines="&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;X4MP&lt;/title&gt;&lt;/head&gt;&lt;body&gt;&lt;h1&gt;GUI not built&lt;/h1&gt;&lt;p&gt;Run npm ci &amp;amp;&amp;amp; npm run build in server/web, then rebuild the server.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;" Overwrite="true" Condition="'@(WebDistFile)' == ''" />
@@ -72,7 +74,7 @@
       <WebDistFile Include="$(WebPlaceholderDir)index.html" />
     </ItemGroup>
     <ItemGroup>
-      <EmbeddedResource Include="@(WebDistFile)" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" Condition="'@(WebDistFile)' != '' And '$(WebPlaceholderDir)' != ''" />
+      <EmbeddedResource Include="@(WebDistFile)" Link="wwwroot$([System.IO.Path]::DirectorySeparatorChar)%(RecursiveDir)%(Filename)%(Extension)" Condition="'@(WebDistFile)' != '' And '$(WebPlaceholderDir)' != ''" />
     </ItemGroup>
   </Target>
 
