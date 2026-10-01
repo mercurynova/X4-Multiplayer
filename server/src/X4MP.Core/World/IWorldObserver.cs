@@ -27,12 +27,12 @@ public interface IWorldObserver
     {
     }
 
-    /// <summary>An <c>EntityChange</c> was applied (owner, name, parent, macro, kind, controller).</summary>
-    void OnEntityChanged(MirrorEntity entity, ChangeField fields, ulong journalSeq)
+    /// <summary>An <c>EntityChange</c> was applied (owner, name, parent, macro, kind, controller). <paramref name="change"/> is valid only during the call.</summary>
+    void OnEntityChanged(MirrorEntity entity, EntityChange change, ulong journalSeq)
     {
     }
 
-    void OnEntityCargo(MirrorEntity entity, ulong journalSeq)
+    void OnEntityCargo(MirrorEntity entity, EntityCargo cargo, ulong journalSeq)
     {
     }
 
