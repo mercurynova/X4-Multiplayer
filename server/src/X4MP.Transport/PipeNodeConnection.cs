@@ -36,6 +36,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
     private int _inputCompleted;
     private volatile bool _readFaulted;
     private volatile IDatagramPath? _datagram;
+    private volatile Action<OutboundFrame>? _flushObserver;
     private int _maxInboundFrameBytes;
     private readonly byte[] _headerBuffer = new byte[FrameCodec.HeaderSize]; // single reader
 
@@ -88,6 +89,8 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
     public long QueuedBytes(Lane lane) => _queue.PendingBytes(lane);
 
     public void AttachDatagramPath(IDatagramPath path) => _datagram = path;
+
+    public void SetFlushObserver(Action<OutboundFrame>? observer) => _flushObserver = observer;
 
     public SendResult TrySend(OutboundFrame frame)
     {
@@ -169,11 +172,19 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
     {
         try
         {
-            await ConnectionWriter.RunAsync(_queue, _pipe.Output, Stats, _options.WriterBatchBytes, null, _abortCts.Token).ConfigureAwait(false);
+            await ConnectionWriter.RunAsync(_queue, _pipe.Output, Stats, _options.WriterBatchBytes, OnFlushed, _abortCts.Token).ConfigureAwait(false);
         }
         finally
         {
             Finish();
+        }
+    }
+
+    private void OnFlushed(OutboundFrame frame)
+    {
+        if (frame.DeliveryToken != 0)
+        {
+            _flushObserver?.Invoke(frame);
         }
     }
 

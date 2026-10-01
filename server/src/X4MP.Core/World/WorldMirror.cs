@@ -94,6 +94,12 @@ public sealed partial class WorldMirror : ISessionModule
 
     public uint AuthorityTick { get; private set; }
 
+    /// <summary>
+    /// The <c>capture_time_us</c> of the latest <c>WorldUpdate</c>: the authority's estimate of the server clock at the time
+    /// <see cref="AuthorityGameTime"/> was sampled. The pair is the reference of every <c>Replication</c> frame.
+    /// </summary>
+    public ulong AuthorityCaptureTimeUs { get; private set; }
+
     /// <summary>The latest <c>GalaxySummary</c> game time (0 = none yet).</summary>
     public double SummaryGameTime { get; private set; }
 
@@ -341,6 +347,7 @@ public sealed partial class WorldMirror : ISessionModule
 
         entity.Version++;
         entity.LastUpdateTick = now;
+        entity.SampleGameTime = AuthorityGameTime; // a spawn state carries no time: it is as fresh as the latest world update
         if (entity.IsPersistent)
         {
             _persistentCount++;
@@ -578,7 +585,9 @@ public sealed partial class WorldMirror : ISessionModule
         }
 
         AuthorityTick = table.GetUInt32(0);
-        AuthorityGameTime = table.GetDouble(2);
+        AuthorityCaptureTimeUs = table.GetUInt64(1);
+        double gameTime = table.GetDouble(2);
+        AuthorityGameTime = gameTime;
         long now = _time.GetTimestamp();
         int applied = 0;
         int changed = 0;
@@ -608,7 +617,8 @@ public sealed partial class WorldMirror : ISessionModule
                 BinaryPrimitives.ReadInt16LittleEndian(s[28..]),
                 BinaryPrimitives.ReadInt16LittleEndian(s[30..]),
                 applyVelocity: true,
-                now);
+                now,
+                gameTime);
             if (change != StateChange.None)
             {
                 changed++;
@@ -664,7 +674,7 @@ public sealed partial class WorldMirror : ISessionModule
     /// <summary>Writes one state sample into an entity and tells the observers when anything differs.</summary>
     private StateChange ApplyState(
         MirrorEntity e, ushort sector, ushort flags, int px, int py, int pz, short yaw, short pitch, short roll,
-        short vx, short vy, short vz, bool applyVelocity, long now)
+        short vx, short vy, short vz, bool applyVelocity, long now, double sampleGameTime)
     {
         e.LastUpdateTick = now;
         var change = StateChange.None;
@@ -725,6 +735,7 @@ public sealed partial class WorldMirror : ISessionModule
         }
 
         e.Version++;
+        e.SampleGameTime = sampleGameTime;
         var observers = _observers;
         for (int i = 0; i < observers.Length; i++)
         {
@@ -768,7 +779,7 @@ public sealed partial class WorldMirror : ISessionModule
 
         if (state.NetId != 0 && _entities.TryGetValue(state.NetId, out var entity) && entity.ControllerPlayer == playerId)
         {
-            ApplyState(entity, state.Sector, state.Flags, state.Px, state.Py, state.Pz, state.Yaw, state.Pitch, state.Roll, 0, 0, 0, applyVelocity: false, now);
+            ApplyState(entity, state.Sector, state.Flags, state.Px, state.Py, state.Pz, state.Yaw, state.Pitch, state.Roll, 0, 0, 0, applyVelocity: false, now, AuthorityGameTime);
             if (state.Hull != entity.Hull || state.Shield != entity.Shield)
             {
                 entity.Hull = state.Hull;
