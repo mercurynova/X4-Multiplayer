@@ -85,6 +85,47 @@ public sealed class LiveNodeStats(string name, Role role)
 
     internal void AttachSession(FakeClientSession session) => _session = session;
 
+    // ---- M1-T4: commander orders (clients) and forwarded intents (authority)
+    private long _ordersSent;
+    private long _ordersAccepted;
+    private long _ordersRejected;
+    private long _intentsReceived;
+    private long _noTargets;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<RejectReason, long> _rejectReasons = new();
+
+    /// <summary><c>AssetOrder</c>s this client sent (<c>--commander</c>).</summary>
+    public long OrdersSent => Interlocked.Read(ref _ordersSent);
+
+    public long OrdersAccepted => Interlocked.Read(ref _ordersAccepted);
+
+    public long OrdersRejected => Interlocked.Read(ref _ordersRejected);
+
+    /// <summary>Ticks where the commander found no asset of its kind to order (the authority has no team assets yet).</summary>
+    public long OrderTicksWithoutTarget => Interlocked.Read(ref _noTargets);
+
+    /// <summary>Intents the server forwarded to this node (authority only): with <c>--commander foreign</c> this must stay 0.</summary>
+    public long IntentsReceived => Interlocked.Read(ref _intentsReceived);
+
+    public IReadOnlyDictionary<RejectReason, long> RejectReasons => _rejectReasons;
+
+    internal void CountOrderSent() => Interlocked.Increment(ref _ordersSent);
+
+    internal void CountNoTarget() => Interlocked.Increment(ref _noTargets);
+
+    internal void CountIntentReceived() => Interlocked.Increment(ref _intentsReceived);
+
+    internal void CountOrderResult(IntentResult result)
+    {
+        if (result.Status == IntentStatus.Accepted)
+        {
+            Interlocked.Increment(ref _ordersAccepted);
+            return;
+        }
+
+        Interlocked.Increment(ref _ordersRejected);
+        _rejectReasons.AddOrUpdate(result.Reason, 1, (_, n) => n + 1);
+    }
+
     internal void MarkConnected() => Volatile.Write(ref _connected, 1);
 
     internal void MarkDisconnected() => Volatile.Write(ref _connected, 0);
@@ -173,6 +214,8 @@ public static partial class LiveRunner
 
         foreach (var s in stats.Where(s => s.Session is not null))
             s.Session!.CheckStale();
+        if (o.Commander != CommanderMode.None)
+            await WriteCommanderSummaryAsync(o, stats, lines).ConfigureAwait(false);
         long verifyErrors = stats.Sum(s => s.VerifyErrors);
         if (o.Verify)
             await WriteVerifySummaryAsync(stats, lines).ConfigureAwait(false);
@@ -193,6 +236,19 @@ public static partial class LiveRunner
         }
 
         return errors == 0 ? ExitOk : ExitErrors;
+    }
+
+    /// <summary>The M1-T4 result: what the commanders sent, what the server answered, and what reached the authority.</summary>
+    private static async Task WriteCommanderSummaryAsync(CliOptions o, List<LiveNodeStats> stats, SynchronizedWriter lines)
+    {
+        long sent = stats.Sum(s => s.OrdersSent);
+        long accepted = stats.Sum(s => s.OrdersAccepted);
+        long rejected = stats.Sum(s => s.OrdersRejected);
+        long forwarded = stats.Where(s => s.Role == Role.Authority).Sum(s => s.IntentsReceived);
+        var reasons = string.Join(",", stats.SelectMany(s => s.RejectReasons).GroupBy(r => r.Key).Select(g => $"{g.Key}={g.Sum(r => r.Value)}"));
+        await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+            $"commander({o.Commander.ToString().ToLowerInvariant()}): orders-sent={sent} accepted={accepted} rejected={rejected} forwarded-to-authority={forwarded} " +
+            $"no-target-ticks={stats.Sum(s => s.OrderTicksWithoutTarget)} reasons=[{reasons}]")).ConfigureAwait(false);
     }
 
     private sealed record NodePlan(string Name, Role Role);

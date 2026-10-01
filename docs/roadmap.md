@@ -312,3 +312,12 @@ disable / update message and working links."
 M6 exit adds: "Starting a session through the launcher with one mod to enable and one to
 disable needs no manual Settings → Extensions change, and the player's original mod set is
 back after X4 exits."
+
+## M1-T4 implementation notes (AssetPermissionPolicy)
+
+- `X4MP.Core/Permissions`: `AssetPermissionPolicy` (pure, table-tested) and `AssetPermissionGate` (looks up sender team/leader, mirror owners, positions, relations). `RelayModule.AssetPermissions` runs it in `OnIntent` after the interest check and before custom validators; `AddRelay()` wires it when a Teams module is registered (no teams = no enforcement).
+- Rejections answer `IntentResult{Rejected}` (NotYourAsset, PolicyDenied, HostileRequired, FriendlyFireDisabled, NotAllied, UnknownEntity, InvalidParameters, NotPermitted for out of range), are never forwarded and publish a `PermissionDenied` domain event limited to `Relay.PermissionDeniedEventsPerSecond` (5) per player. Not counted as protocol violations.
+- New settings: `Relay.ClaimRangeMetres` (30000), `Relay.PermissionDeniedEventsPerSecond` (5). The mirror already mirrored `owner_team`/`owner_player` (M1-06); now covered by gate tests.
+- Out of range also covers "target in another sector" and "sender has no ship position yet". Gifts always need `AllowAssetTransfer`, even inside one team. A neutral target gives `HostileRequired`, an allied or teammate target `FriendlyFireDisabled`.
+- FakeNode: `--commander shared|own|foreign` (clients send 2 AssetOrders/s) and `--team-assets` (authority tags ships: id%4 = 1 team 1 common, 2 team 1 teammate-owned, 3 team 2). Summary line `commander(...)`: orders-sent, accepted, rejected, forwarded-to-authority.
+- Follow-up: the `TradeReport` station check ignores trade-asset items (M1-E5); the leader for `OwnerAndLeader` comes from `TeamModule.LeaderOf` (not on `ITeamDirectory`).

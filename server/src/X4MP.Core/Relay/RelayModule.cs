@@ -2,6 +2,7 @@ using Google.FlatBuffers;
 using Microsoft.Extensions.Logging;
 using X4MP.Core.Events;
 using X4MP.Core.Net;
+using X4MP.Core.Permissions;
 using X4MP.Core.Session;
 using X4MP.Core.World;
 using X4MP.Proto;
@@ -94,6 +95,12 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
     /// <summary>Extra intent gates (the permission checks of protocol.md 16.2). Add before the session starts; they run on the actor thread.</summary>
     public IList<IIntentValidator> IntentValidators => _validators;
 
+    /// <summary>
+    /// The asset permission gate (server-design 2.13). Null = no team enforcement (hosts without a Teams module, tests). Set before the
+    /// session starts; <c>AddRelay()</c> sets it when an <c>ITeamDirectory</c> is registered.
+    /// </summary>
+    public AssetPermissionGate? AssetPermissions { get; set; }
+
     private RelayOptions Opt => _options();
 
     private long Now => _time.GetTimestamp();
@@ -165,6 +172,7 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
         _flows.Remove(node.PlayerId);
         _chatBuckets.Remove(node.PlayerId);
         _rateHits.Remove(node.PlayerId);
+        _deniedWindows.Remove(node.PlayerId);
         DropPlayerWork(node.PlayerId);
         _avatarRequests.Remove(node.PlayerId);
         if (node.IsAuthority)

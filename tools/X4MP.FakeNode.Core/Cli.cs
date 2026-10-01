@@ -3,6 +3,18 @@ using X4MP.Protocol;
 
 namespace X4MP.FakeNode;
 
+/// <summary>
+/// Which assets a fake client orders around (M1-T4, server-design 6.3): <c>Own</c> = team-common assets of its team, <c>Shared</c> = a
+/// teammate's assets (allowed under SharedCommand, rejected under OwnerOnly), <c>Foreign</c> = another team's assets (always rejected).
+/// </summary>
+public enum CommanderMode
+{
+    None,
+    Shared,
+    Own,
+    Foreign,
+}
+
 public enum FakeNodeCommand
 {
     Authority,
@@ -40,6 +52,12 @@ public sealed record CliOptions
     /// <summary>swarm: also start one authority node.</summary>
     public bool WithAuthority { get; init; }
     public string? Password { get; init; }
+
+    /// <summary>client/swarm: send <c>AssetOrder</c>s for assets of this kind (default: none).</summary>
+    public CommanderMode Commander { get; init; } = CommanderMode.None;
+
+    /// <summary>authority: tag its ships with team owners (implied by <see cref="Commander"/>), so clients have team assets to command.</summary>
+    public bool TeamAssets { get; init; }
 
     /// <summary>authority: size of the fake save it uploads on <c>RequestSave</c> (megabytes).</summary>
     public int SaveMb { get; init; } = 4;
@@ -79,6 +97,8 @@ public static class CliParser
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
           --with-authority     swarm: also connect one authority node
           --password PW        session password
+          --commander shared|own|foreign   clients send AssetOrders for teammates' / own team-common / another team's ships (0.5 s apart)
+          --team-assets        authority: give its ships team owners (implied by --commander; start the authority with it when clients run elsewhere)
           --save-mb N          authority: size of the fake save it uploads (default 4)
         """;
 
@@ -114,7 +134,7 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp" or "with-authority";
+            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -124,6 +144,7 @@ public static class CliParser
                 {
                     "verify" => o with { Verify = on },
                     "with-authority" => o with { WithAuthority = on },
+                    "team-assets" => o with { TeamAssets = on },
                     _ => o with { Udp = on },
                 };
                 continue;
@@ -187,6 +208,9 @@ public static class CliParser
                 return (o with { NamePrefix = value }, null);
             case "password":
                 return (o with { Password = value }, null);
+            case "commander":
+                return Enum.TryParse<CommanderMode>(value, ignoreCase: true, out var c) && Enum.IsDefined(c) && c != CommanderMode.None
+                    ? (o with { Commander = c }, null) : (o, $"--commander must be shared|own|foreign (got '{value}')");
             case "behavior":
                 return Enum.TryParse<ClientBehavior>(value, ignoreCase: true, out var b) && Enum.IsDefined(b)
                     ? (o with { Behavior = b }, null) : (o, $"--behavior must be wander|patrol|explore (got '{value}')");
