@@ -115,6 +115,15 @@ public interface ISessionModule
     {
     }
 
+    /// <summary>
+    /// A node passed the handshake and its slot was created (<paramref name="resumed"/> false) or taken back (true); the
+    /// <c>Welcome</c> is not sent yet, so this is where a module fills the fields it owns (the team fields) and decides
+    /// about the node. Return anything but <see cref="AdmissionVerdict.Accept"/> to refuse it (for example
+    /// <c>NoFactionSlot</c>); the slot is released again. Do not send frames here, and keep node-phase changes to
+    /// <see cref="ISessionNodeDriver"/>, which queues them behind the admission.
+    /// </summary>
+    AdmissionVerdict OnNodeAdmitting(SessionNode node, WelcomeT welcome, bool resumed) => AdmissionVerdict.Accept;
+
     /// <summary>The server-side phase of a node changed (including Detached).</summary>
     void OnNodePhaseChanged(SessionNode node, NodePhase previous, NodePhase current)
     {
@@ -156,4 +165,29 @@ public interface ISessionModule
     void OnSettingsChanged(X4MP.Core.Settings.SessionSettingsSnapshot settings)
     {
     }
+}
+
+/// <summary>
+/// What a module may ask of the <see cref="SessionActor"/> beyond its callbacks: queue work onto the actor thread,
+/// drive node phases and remove players. The actor implements it and binds every <see cref="ISessionActorBound"/> module.
+/// </summary>
+public interface ISessionNodeDriver
+{
+    /// <summary>The <c>sessions</c> row id (null before the first player or the admin started the session). Read it on the actor thread.</summary>
+    long? StoreSessionId { get; }
+
+    /// <summary>Runs <paramref name="work"/> on the actor thread and returns its result.</summary>
+    Task<T> CallAsync<T>(Func<T> work);
+
+    /// <summary>Raises a server-driven node trigger (<see cref="NodeTrigger.RequireTeam"/>, <see cref="NodeTrigger.TeamAssigned"/>, ...). Queued.</summary>
+    Task<TransitionResult> ApplyNodeTriggerAsync(int playerId, NodeTrigger trigger);
+
+    /// <summary>Kicks a player: sends <c>Disconnect{code}</c> and frees the slot.</summary>
+    Task<bool> RemoveNodeAsync(int playerId, DisconnectCode code, string reason);
+}
+
+/// <summary>A module that wants the <see cref="ISessionNodeDriver"/> (called once, when the actor is constructed).</summary>
+public interface ISessionActorBound
+{
+    void Bind(ISessionNodeDriver driver);
 }

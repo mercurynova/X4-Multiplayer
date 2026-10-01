@@ -23,7 +23,7 @@ namespace X4MP.Core.Session;
 /// <see cref="ISessionEventPublisher"/>; the admin side reads <see cref="Snapshot"/> or posts commands.
 /// </para>
 /// </summary>
-public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPusher
+public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPusher, ISessionNodeDriver
 {
     private abstract class Input
     {
@@ -134,6 +134,10 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
         _sessionGuid = gateway.SessionId;
         _phaseSince = _time.GetUtcNow();
         _gateway.Phase = SessionPhase.Idle;
+        foreach (var module in _modules)
+        {
+            (module as ISessionActorBound)?.Bind(this);
+        }
     }
 
     private static Func<SessionActorOptions> Constant(SessionActorOptions options) => () => options;
@@ -154,6 +158,9 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
     /// use <see cref="GetSnapshotAsync"/> for a fresh one). Safe to read from any thread.
     /// </summary>
     public SessionSnapshot Snapshot => _snapshot;
+
+    /// <summary><see cref="ISessionNodeDriver.StoreSessionId"/>: the <c>sessions</c> row id; read it on the actor thread.</summary>
+    public long? StoreSessionId => SessionId;
 
     /// <summary>Frames from nodes the actor has processed so far (diagnostics, test synchronisation).</summary>
     public long FramesReceived => Interlocked.Read(ref _framesReceived);

@@ -391,6 +391,8 @@ public sealed partial class SessionActor
         Name = slot.Name,
         Roles = slot.Roles,
         Phase = slot.Phase == NodePhase.Detached ? slot.PhaseBeforeDetach : slot.Phase,
+        TeamId = (ushort)Math.Clamp(slot.TeamId, 0, ushort.MaxValue),
+        TeamRole = slot.TeamRole,
         PingMs = (ushort)Math.Clamp(Math.Round(slot.Clock.SmoothedRttMs), 0, ushort.MaxValue),
     };
 

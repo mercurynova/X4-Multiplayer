@@ -276,6 +276,12 @@ public sealed class ActorRig : IAsyncDisposable
     private readonly Task _loop;
 
     public ActorRig(SessionActorOptions? options = null, NetOptions? net = null, params ISessionModule[] modules)
+        : this(null, options, net, modules)
+    {
+    }
+
+    /// <param name="time">The fake clock, when a module needs the same one (otherwise the rig makes its own).</param>
+    public ActorRig(FakeTimeProvider? time, SessionActorOptions? options, NetOptions? net, ISessionModule[] modules)
     {
         Net = net ?? new NetOptions();
         Options = options ?? new SessionActorOptions();
@@ -285,7 +291,7 @@ public sealed class ActorRig : IAsyncDisposable
             Options.HeartbeatTimeoutMs = 24 * 3600 * 1000;
         }
 
-        Time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero));
+        Time = time ?? new FakeTimeProvider(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero));
         Gateway = GatewayState.FromOptions(Net);
         Store = new RecordingStore();
         Events = new RecordingEvents();
@@ -364,6 +370,7 @@ public sealed class ActorRig : IAsyncDisposable
             Hello = hello,
             NegotiatedMinor = ProtocolConstants.ProtocolMinor,
             NegotiatedCaps = 0,
+            Nonce = RandomNumberGenerator.GetBytes(32),
             RemoteAddress = IPAddress.Parse("10.0.0.7"),
             Welcome = new WelcomeT
             {

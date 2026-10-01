@@ -40,6 +40,9 @@ public sealed class AdmittedNode
     /// <summary>The Welcome that will be sent. <see cref="IAdmissionHandler.BeforeWelcomeAsync"/> may adjust it.</summary>
     public required WelcomeT Welcome { get; init; }
 
+    /// <summary>The per-connection nonce from <c>ServerHello</c> (the team password proof uses it, protocol.md 4.3). Empty when unknown.</summary>
+    public byte[] Nonce { get; init; } = [];
+
     public bool IsAdmin => (Roles & Role.Admin) != 0;
 
     public bool IsAuthority => (Roles & Role.Authority) != 0;
