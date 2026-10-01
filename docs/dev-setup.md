@@ -120,7 +120,7 @@ New-NetFirewallRule -DisplayName "X4MP UDP" -Direction Inbound -Protocol UDP -Lo
 
 ## 8. Accounts and secrets
 
-- GitHub access to the project repo (once created). `gh auth login` on each machine.
+- GitHub: private repo **https://github.com/mercurynova/X4-Multiplayer**. `gh auth login` as `mercurynova` on each machine (or `gh auth switch -u mercurynova` if several accounts are logged in). Repo-local git identity: `mercurynova` / `59706122+mercurynova@users.noreply.github.com`.
 - **Never commit** session passwords, admin passwords or `data/`. The server writes its
   initial admin password to a file under `data/` on first run.
 
