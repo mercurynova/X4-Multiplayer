@@ -1071,15 +1071,30 @@ The node sends:
   `GetBuildVersionSuffix` / `GetVersionString` as used in
   `gameoptions.lua:1249`);
 - X4Native version and `md_hook=installed|fallback`;
-- enabled `ego_dlc_*` list (`C.IsExtensionEnabled`) and whether other
-  non-Egosoft extensions are enabled (a warning, not an error);
+- the **extension list** (ADR-043, ADR-044, [mod-management.md](mod-management.md) §3):
+  every extension `GetExtensionList()` returns, enabled or not, as `ExtensionInfo`
+  (id, name, version, source, enabled, egosoft flag, content hash where available,
+  native-DLL / replaced-UI flags) and a derived `class`
+  (`Dlc | Sim | ClientOnly | Unknown`). The list is gathered by Lua in the start menu
+  (`x4mp_bridge.lua`, `x4mp.extensions` verb) and handed to native, which hashes and
+  sends it;
+- `extensions_hash` = SHA-256 of the sorted `"id@version\n"` lines of **enabled**
+  extensions whose class is `Dlc` or `Sim`. Extensions on the shipped **client-only
+  library allowlist** (`kuerteeUIExtensionsAndHUD`, `ws_3477279743`, `ws_2042901274`,
+  `ws_3514258146`) and `x4native`/`x4mp` themselves (compared through version fields)
+  are left out of the hash. The allowlist lives in the shared constants file
+  (ADR-004 consequence);
 - for clients, the **save identity**: filename, SHA-256 of the `.xml.gz`, and
   the in-save game id if readable.
 
 The server rejects or warns according to session policy. The authority's values
 define the session. Mismatched game build (outside the pinned list or different from the
-authority's), protocol major, mod build, DLC/extension set, or the wrong save hash are
-fatal (ADR-004).
+authority's), protocol major, mod build, or the wrong save hash are fatal (ADR-004).
+Extensions are judged by the session **mod policy** (mod-management.md §3.3): an
+`extensions_hash` match is the fast path; on a mismatch the server diffs the full lists
+against the policy and rejects with `ExtensionsMismatch` plus a structured list of what
+to install, enable or disable. Differences in allowlisted libraries are shown as info,
+never as a mismatch.
 
 The server sends `Welcome{player_id, roles, resume_token, team, faction_slot, TeamTable,
 TeamRelations, SessionSettings, udp_token, …}`, then `SessionSaveInfo` (protocol.md §4.1, §6.4).
@@ -1100,7 +1115,7 @@ All UI code follows the vanilla patterns in
 - **Lua → native:** `api.raise_event("x4mp.<verb>", jsonString)`. Each verb is
   subscribed natively with `x4n::on("x4mp.<verb>", cb(const char*))`. Verbs:
   `join`, `disconnect`, `chat_send`, `ui_ready`, `request_status`,
-  `md_fallback`, `save_requested`.
+  `md_fallback`, `save_requested`, `extensions` (start-menu extension list, 6.4).
 - **Native → Lua:** `x4n::raise_lua("x4mp.<topic>", json)`. This must run on the
   UI thread, which is always true for us because we only call it from
   `on_frame_update` handlers. Lua listens with `RegisterEvent("x4mp.<topic>", fn)`.
@@ -1121,11 +1136,12 @@ is isolated and guarded, and every feature stays reachable without it.
 
 - **One adapter module**, `x4mp_optionsmenu_adapter`, is the only code that
   touches `OptionsMenu` internals. Before doing anything it **probes**:
-  `Menus` contains `OptionsMenu`; an upvalue reader is available (see the order
-  below); the `config` upvalue exists and has
-  `optionDefinitions.main` as an array; `menu.submenuHandler`,
-  `menu.createOptionsFrame` and `Helper.clearDataForRefresh` are functions.
-  The result goes into one log line, `X4MP ui: optionsmenu adapter OK|DEGRADED(<failed probe>)`,
+  `Menus` contains `OptionsMenu`; a `config` source works (see the order
+  below); the captured `config` has `optionDefinitions.main` as an array and
+  `optionsLayer` as a number; `menu.submenuHandler`, `menu.createOptionsFrame`,
+  `menu.displayOption` and `Helper.clearDataForRefresh` are functions.
+  The result goes into one log line,
+  `X4MP ui: optionsmenu adapter OK(source=uix|debug|native|append)|DEGRADED(<failed probe>)`,
   which is also forwarded to native and the server (health check).
 - All of our screens (Multiplayer, Join, Economy, Players) are written against a
   **small rendering interface**: `beginScreen(title)`, `addEditRow`,
@@ -1136,17 +1152,57 @@ is isolated and guarded, and every feature stays reachable without it.
     (`table.insert(Menus, menu)` plus `Helper.registerMenu`, as in
     `chatwindow.lua:41-46`), with its own frame created by
     `Helper.createFrameHandle` (helper.lua:3767).
-- **Upvalue reader, in probe order** (spike session 1 showed the `debug` *global* is nil
-  on 9.00; `require("debug")` was not tested there, so V20 stays open):
-  1. `require("debug").getupvalue`. This is how X4Native's own `x4n_settings_menu.lua`
-     (vendored, lines 45–62) reads the same `config` upvalue, so if X4Native's
-     settings page works in game, this works too.
-  2. A native helper: `x4mp.dll` reads the upvalue with the Lua C API
-     (`lua_getupvalue`) on the `lua_State*` X4Native hands to extensions, and exposes
-     it to Lua through the bridge (7.1) as `x4mp_native.getupvalue(fn, i)`. Main
-     thread only.
-  3. Neither works: no embedded injection, so use the standalone menu.
-- If any probe fails, the adapter injects nothing, and the screens use
+- **`config` source, in probe order** (ADR-043; evidence in
+  [research/library-mods.md](research/library-mods.md) §4.1, §5.1). Spike session 1
+  showed the `debug` *global* is nil on 9.00; `require("debug")` was not tested there,
+  so V20 stays open for session 2.
+  - **Capture `config` once, at our file load, and cache it for the session.** File
+    load runs before SirNukes Mod Support APIs' on-load init (which waits for its MD
+    `Lua_Loader` Ready signal), and SirNukes replaces `menu.displayOptions` with a
+    wrapper whose upvalues are its own locals. After that, `getupvalue(displayOptions)`
+    no longer reaches `config`. The retry path (on `gfx_ok`/`show`, and after
+    `/reloadui`) may run after SirNukes, so it must not depend on `displayOptions`
+    being vanilla.
+  - **Search several vanilla functions**, not only `displayOptions`, because any one
+    of them may already be wrapped by another mod. In vanilla 9.00, `config`
+    (`gameoptions.lua:461`) is an upvalue of `menu.displayOptions` (:9345),
+    `menu.createOptionsFrame` (:3615) and `menu.displayOption` (:4713). Search them
+    in that order and take the first match.
+  - **Validate the candidate:** accept a table named `config` only if
+    `optionDefinitions.main` is an array **and** `optionsLayer` is a number. This
+    rejects SirNukes' own copy-table that is also named `config`.
+  1. **kuertee UI Extensions (UIX), when present:**
+     `if type(OptionsMenu.uix_getConfig) == "function" then config = OptionsMenu.uix_getConfig() end`.
+     No `debug` needed and immune to wrapper order. Detected at runtime only; UIX is
+     never required and never declared in `content.xml` (it ships under two ids,
+     `kuerteeUIExtensionsAndHUD` and `ws_3477279743`, and its subst files load before
+     every extension anyway). We use nothing else from UIX (no kHUD, no callbacks).
+  2. **`require("debug").getupvalue`** over the function list above. This is how
+     X4Native's own `x4n_settings_menu.lua` (vendored, lines 45–62) reads the same
+     upvalue, so if X4Native's settings page works in game, this works too.
+     SirNukes replaces the global `require` but passes unregistered names such as
+     `"debug"` through unchanged.
+  3. **Native `lua_getupvalue`:** `x4mp.dll` reads the upvalues with the Lua C API on
+     the `lua_State*` X4Native hands to extensions, and exposes them to Lua through the
+     bridge (7.1) as `x4mp_native.getupvalue(fn, i)`. Same function list and
+     validation. Main thread only.
+  4. **Upvalue-free row append** (the technique SirNukes uses in
+     `sn/ui/simple_menu/options_menu.lua:95-216`; MIT, so reimplement it, with an
+     attribution comment if any code is copied). Wrap `menu.displayOptions`. For
+     `"main"`, temporarily swap `menu.createOptionsFrame` to capture the frame, call
+     the original, append our row with `menu.displayOption(ftable, {id="x4mp", …})`,
+     move it after `timelines`, fix `row.index`, then display. Our ids still route
+     through the `submenuHandler` wrapper. This gives the embedded *entry* without
+     any `config` access. Embedded *screens* (7.3/7.4) still need
+     `config.optionsLayer`; use the literal `4` (vanilla `optionsLayer`,
+     `gameoptions.lua:463`) and check it against `menu.createOptionsFrame` output
+     **[VERIFY]**.
+  5. Nothing works: no embedded injection, so use the standalone menu.
+- **Wrapper chaining.** Every wrapper we install (`displayOptions`, `submenuHandler`)
+  captures the *current* function at wrap time and delegates unknown ids to it, as
+  SirNukes and X4Native already do. We never restore a function we did not install,
+  and we check for our own marker before wrapping again (idempotent on `/reloadui`).
+- If every source fails, the adapter injects nothing, and the screens use
   implementation (b). Entry points for (b), any of which works:
   - the chat command `/mp` from the vanilla chat window adapter (7.6);
   - the HUD widget (click);
@@ -1156,19 +1212,22 @@ is isolated and guarded, and every feature stays reachable without it.
   - automatically on start, when `launch.json` requests a connect.
   **[VERIFY]** that a standalone menu can open over the start menu, which is
   itself `OptionsMenu`.
-- kuertee's UI Extensions mod would give stable hooks, but we do **not** take it
-  as a dependency (x4-api-notes 3.2).
+- UIX, when present, is used only as `config` source 1 (see
+  [research/library-mods.md](research/library-mods.md)). It is never required and
+  never declared in `content.xml`. SirNukes Mod Support APIs is reference only; we
+  must coexist with it (ADR-043).
 - After each game patch, the `selftest` (8.5) re-runs the probes, and CI keeps
   a recorded hash of `gameoptions.lua` from the pinned build, so changes are
-  noticed.
+  noticed. The self-test also runs with UIX and/or SirNukes installed when the tester
+  has them (the compatibility pass in `dev-setup.md` §5) and logs which `source=` won.
 
 Embedded-mode details:
 
 - Injection (as in X4Native's settings injector and the reference): find
-  `Menus[i].name == "OptionsMenu"`, pull the `config` upvalue of
-  `menu.displayOptions` with the upvalue reader chosen above, and edit
-  `config.optionDefinitions["main"]`. The vanilla table is at
-  `gameoptions.lua:1246–1352`.
+  `Menus[i].name == "OptionsMenu"`, take the `config` captured by the source chain
+  above (sources 1–3), and edit `config.optionDefinitions["main"]`. The vanilla table
+  is at `gameoptions.lua:1246–1352`. With source 4 (append) there is no `config`; the
+  row is added to the frame per display instead.
 - Insert **one** row `{ id = "x4mp", name = ReadText(92000,1) --[["Multiplayer (X4MP)"]], submenu = "x4mp" }`
   right after the vanilla `timelines` entry (index 8), **before** the separator
   line. Do **not** reuse id `multiplayer`. Vanilla already has a hidden
@@ -1205,7 +1264,7 @@ The layout copies the online-login form (`displayOnlineLogin`, lines 11958–120
 | Row | Widget | Notes |
 |---|---|---|
 | Server address | `createEditBox({ description = …, defaultText = "host:port" })`, `onTextChanged` → `state.address` | Default is `__X4MP_USER.lastAddress`. Validate `host[:port]`. Port default from config. |
-| Player name | edit box, `onTextChanged` → `state.name` | 1–24 chars, sanitised. Default is the last name, else `OnlineGetUserName()` if non-empty. |
+| Player name | edit box, `onTextChanged` → `state.name` | 1–24 chars, sanitised. Default is the last name, else `OnlineGetUserName()` if it is non-empty **and** not a known placeholder. SirNukes' chat API replaces `OnlineGetUserName` with one that returns a fixed local name (`L.user_name`); treat that value (and any value from a known-placeholder list) as empty. |
 | Password | edit box with `textHidden = true` | **Do not** use `encrypted = true`. Vanilla encrypted boxes go through `C.ResetEncryptedDirectInputData()` and the text is not delivered to `onTextChanged` in clear **[VERIFY]**. The password is kept in a local only until it is sent, then cleared. |
 | Team | dropdown, filled after a server pre-query (`x4mp.server_info`), shown only if the session allows choosing a team | "Auto" or one of the session's teams, with member counts. Locked teams are greyed out (11.5). |
 | Connect | button, `active = function() return valid(state) and not state.busy end` | → `raise_event("x4mp.join", json{address,name,password,team})` |
@@ -1213,6 +1272,11 @@ The layout copies the online-login form (`displayOnlineLogin`, lines 11958–120
 
 Edit boxes need `menu.noupdate = true` while active, as vanilla does at line 11842,
 so that the periodic refresh does not steal focus.
+
+The Join dialog stays in **Lua**. Do **not** build it on SirNukes' MD-driven Simple Menu
+API: that API passes field values through the MD blackboard
+(`player.entity.$simple_menu_args`, `Simple_Menu_API.md:9`), which would expose the
+password to MD scripts and possibly to the save (ADR-043).
 
 **Join flow from the start menu.** Connect, `ServerHello` / `ClientHello` / `Welcome`, then
 `SessionSaveInfo{sha256, local_file_name = x4mp_<sha12>.xml.gz}`. Native checks for a local save with that hash
@@ -1264,14 +1328,35 @@ prompt).
   `OnlineSendChatMessage(text, userid)` (line 443). While a session is active,
   `x4mp_chat.lua` wraps both globals:
   - Get: returns our ring of `{author, authorid, time, text}` merged with the
-    vanilla messages.
-  - Send: routes to `x4mp.chat_send`.
+    result of the **previous** global (vanilla, or another mod's wrapper).
+  - Send: session chat routes to `x4mp.chat_send`. Text starting with `/` (other
+    than our own `/mp` commands) and any text while no session is active is passed
+    to the previous global unchanged.
   - New-message refresh: find the `ChatWindow` menu in `Menus` and call its
     `onChatMessageReceived()`, because the vanilla trigger is an engine
     `registerForEvent` on `Scene.UIContract`.
-  - Disconnect restores the originals.
-  - **[VERIFY]** that the chat window works outside Ventures, and that author
-    colouring through `C.GetChatAuthorColor2` accepts arbitrary names.
+- **Coexistence with SirNukes Mod Support APIs (ADR-043).** Its Chat Window API
+  replaces the globals `OnlineSendChatMessage`, `OnlineGetChatMessages`,
+  `OnlineGetUserName` and `ExecuteDebugCommand` (`sn/ui/chat_window/interface.lua:127-146`),
+  and installs them late, from an on-load init after its MD `Lua_Loader` Ready signal.
+  Its `OnlineGetChatMessages` returns only its own ring buffer, and its
+  `OnlineGetUserName` returns a fixed local name. So the wrapper is chain-safe:
+  - **Capture the current global at wrap time** and delegate to it. Never cache the
+    vanilla function at file load, because SirNukes may install after us.
+  - Wrap on `gfx_ok`/`show` **and** at session start, and on each of those check the
+    global's identity. If it is no longer ours (someone wrapped over us or replaced
+    us), re-wrap on top of the new function.
+  - Merging with the previous `OnlineGetChatMessages` keeps SirNukes' `/command`
+    output visible, and passing `/…` text through keeps its `Text_Entered` cues
+    working.
+  - On disconnect, unwrap **only if the global is still ours**. Otherwise leave it
+    and mark our wrapper inert (it then delegates everything).
+  - SirNukes' notes are also evidence for the [VERIFY] below: the 8.0+ chat window
+    sends non-`/` text to `OnlineSendChatMessage`, shows nothing offline, and works
+    offline once the two globals are replaced (`sn/ui/chat_window/interface.lua:7-48`).
+- **[VERIFY]** that the chat window works outside Ventures, and that author
+  colouring through `C.GetChatAuthorColor2` accepts arbitrary names. Retest the
+  chat round-trip with SirNukes installed (roadmap §4.1).
 - **Fallback:** our own chat menu cloned from the chatwindow structure: a frame
   with a message table and an edit box, opened from the Multiplayer screen and
   by typing in the HUD. It has no custom hotkey in v1, because custom input

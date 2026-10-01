@@ -12,7 +12,7 @@ developer). "Deps" lists task ids that must be done first. Tracks: **P** protoco
 | # | Milestone | Needs X4? | Exit criteria |
 |---|---|---|---|
 | **M0** | Repo skeleton, build, CI, protocol schema v0.1 compiled with codegen in C# and C++ | no | Fresh clone builds and tests on Windows + Linux (server) and Windows (mod core). `flatc` compiles every `.fbs` with the ADR-036 deltas applied. Golden vectors encoded by C# decode in C++ with identical field values; frame/datagram headers and Replication entries are byte-identical (FlatBuffers tables may differ in vtable layout, ADR-041). Published `x4mp-server.exe` serves the empty GUI shell and `/healthz` on 47790. CI green, Dependabot + CodeQL on. |
-| **M1** | Server: handshake, sessions, relay, interest, replication, saves, teams, economy, admin API + GUI, all driven by FakeNode; mod net core headless | no | SRV §8 M1 exit criteria 1–6 (30-min `swarm --clients 8 --verify` with zero errors; GUI kick/ban/mute/broadcast/settings/save upload/session start-stop all audited; slow-reader + fuzz harmless; CI green on both OSes; teams join modes/presets/relations ≤ 1 s/foreign commands always rejected; 30-min economy swarm with clean auditor). **Plus:** C++ headless client (mod `core/`) completes handshake, heartbeat, resume and an in-band save download against the real server in Windows CI. |
+| **M1** | Server: handshake, sessions, relay, interest, replication, saves, teams, economy, admin API + GUI, all driven by FakeNode; mod net core headless | no | SRV §8 M1 exit criteria 1–6 (30-min `swarm --clients 8 --verify` with zero errors; GUI kick/ban/mute/broadcast/settings/save upload/session start-stop all audited; slow-reader + fuzz harmless; CI green on both OSes; teams join modes/presets/relations ≤ 1 s/foreign commands always rejected; 30-min economy swarm with clean auditor). **Plus:** C++ headless client (mod `core/`) completes handshake, heartbeat, resume and an in-band save download against the real server in Windows CI. **Plus:** mod policy (M1-X1..X5): a FakeNode with a mod mismatch is refused with the exact install/enable/disable/update lists and links, visible on the GUI Mods page. |
 | **M2-spike** | In-game experiments S1–S8 (parallel with M1) | yes | Each spike has a recorded verdict (pass / fallback chosen) in `decisions.md` Part 3, and any ADR changed by a failed spike is updated before M3 starts. |
 | **M2** | Mod loads via X4Native, connects, join dialog, heartbeat, save sync + load, resume across extension reload, self-test | yes | From the start menu, a player joins using only the UI: handshake, in-band save download, `LoadGame`, paused at universe ready, `NodeReady`; the server shows **no** leave/join across the extension reload. Build mismatch is refused with a clear message. 30-min connection with < 0.2 ms/frame main-thread net cost. Self-test PASS table logged and visible in the GUI. Password never persisted. |
 | **M3** | Teams + avatars; player positions and player ghosts both ways; chat; save hygiene v1 | yes (2 PCs) | MOD §9 M3 acceptance: two players fly together 30 min over ≥ 5 sectors incl. a highway, each in their own avatar, seeing the other with correct model, team colour and name; ghost error < 50 m below 500 m/s; no Game Over; < 10 log lines/s; < 1 FPS mod cost. Authority checkpoint contains zero `[MP] ` objects (`tools/savescan`) and avatars persist under team factions after reload. Relations from the GUI matrix visible in game (targeting colour). |
@@ -137,6 +137,19 @@ SRV §8 where noted.
 | M1-C2 | Load harness + nightly (1 authority, 16 clients, 20k entities): tick p99 < 15 ms, CPU, memory, bytes/client (SRV M1-28) | M1-08, M1-F1 | Nightly job reports numbers and fails above budget | M |
 | M1-C3 | Docs: `docs/server-admin.md` (install, ports 47780/47781/47790, firewall, service, first login, LAN/VPN) and `docs/fakenode.md` (SRV M1-29) | M1-S2, M1-F2 | A teammate runs server + swarm from the docs alone | S |
 
+### 3.8 Mod management, phase 1 (ADR-044, [mod-management.md](mod-management.md) §3)
+
+M1-03's "extensions hash" check becomes the fast path of M1-X2. M1-X1..X5 are not on the
+M1 critical path but are part of M1 exit (handshake rejections audited and visible in the GUI).
+
+| ID | Track | Title | Deps | Acceptance criteria | Size |
+|---|---|---|---|---|---|
+| M1-X1 | P | Schema delta: `ExtensionInfo` (+ enums), `ClientHello.extension_list` (deprecate `extensions:[string]`), `ModPolicy`/`ModPolicyEntry`/`ModRef`/`ModPolicyViolation`, `Welcome/SessionSettings.mod_policy`, `ServerHello.mod_policy_version`, `ModPolicyChanged` id, `Disconnect.mod_violation`; shared constants (client-only allowlist, Nexus URL regex, hash line format) generated for C#/C++ | M0-03 | `flatc` compiles; golden vectors added for the new tables; constants identical in C# and C++ (test) | S |
+| M1-X2 | S | `ModPolicyEvaluator` (pure) + gateway integration: fast path on `extensions_hash`; classification (allowlist > admin class > hint; Unknown = Sim); Required/Allowed/Blocked × enabled × version rule × hash; `unknown_default`; Strict/Warn; DLC always strict; authority checked in `AdminList` mode | M1-03, M1-X1 | Table-driven test over every rule × player state; DLC mismatch rejects under Warn; allowlisted library differences never reject; FakeNode client with a missing Required mod gets `ExtensionsMismatch` with the exact `install` list incl. links | M |
+| M1-X3 | S | Persistence + domain: migration with `player_extension_reports`, `session_mod_policy`, `session_mod_entries`, `mod_catalog`; report stored on every `ClientHello` (admitted/warned/rejected); janitor keeps 20 per player; `NexusUrl` validation; Workshop link derivation; `SavePatchesReader` for `<patches>` | M0-14, M1-X2, M1-12 | Reports survive restart; bad Nexus URL ⇒ 400 with field error; `ws_<n>` yields both Workshop URLs; `<patches>` read from a real 9.00 save fixture (first 64 KB only) | M |
+| M1-X4 | S/W | Admin REST + hub (`/sessions/{sid}/mods…`, import-from-authority, save-requirements, `/players/{id}/extensions`, mod catalog), audited, `ModPolicyChanged` push to nodes (no kick) + `PlayerModsReported`; **Sessions → Mods page** and **Players → Mods tab** (mod-management §4.3, phase-1 parts) | M1-X3, M1-S2, M1-W1 | Playwright: import from a FakeNode authority fills the list with Workshop links; toggling a mod off makes the next joining bot fail with `disable`; paste of a non-x4foundations Nexus URL shows an inline error; per-player status updates ≤ 1 s | L |
+| M1-X5 | F | FakeNode `--extensions <json>` / `--extensions-preset vanilla\|modded\|mismatch`; swarm verifies rejection details | M1-F1, M1-X2 | `swarm --extensions-preset mismatch` produces one rejection per bot with the expected lists and no other errors | S |
+
 **M1 critical path:** M1-01 → M1-02 → M1-03 → M1-05 → M1-06 → M1-07 → M1-08 (with M1-F1
 growing alongside) → M1-T1/M1-E1 → M1-T4/M1-E5 → M1-S2/S3 → M1-W1 → pages → M1-C1.
 
@@ -163,9 +176,58 @@ noted. Each spike records: procedure, measurements, verdict, fallback chosen, an
 S1, S2, S4 and S5 gate M3/M5 scope and should report before M1's economy and team tasks
 finish so that ADR-014/015/019 can be confirmed or revised.
 
+### 4.1 Session 2 retest list
+
+Session 2 needs the native DLL from M2 work (S5, S6, V07; see
+`spikes/session-1-results.md`). It also retests the following. R3–R6 come from
+`research/library-mods.md` (ADR-043); R7–R8 from `mod-management.md` (ADR-044).
+
+| ID | Retest | Pass criterion | If it fails |
+|---|---|---|---|
+| R1 | **V20** `require("debug").getupvalue` with Protected UI Mode off, at file load and on the `gfx_ok` retry | Returns `config` from `menu.displayOptions` (or `createOptionsFrame` / `displayOption`) and passes validation | Native `lua_getupvalue`, then row append, then standalone (MOD §7.2) |
+| R2 | **V12** MD object variables with the correct syntax | `$x4mp_netid` set and survives save/reload | Manifest matching only (ADR-010) |
+| R3 | **SirNukes installed:** `config` capture at file load still wins; adapter logs `source=debug`; retry path after SirNukes' on-load init finds `config` via `createOptionsFrame`/`displayOption` or uses `append` | Embedded "Multiplayer" row appears with SirNukes' "Extension Options" row | Row append (source 4) or standalone menu |
+| R4 | **SirNukes installed:** X4Native's Settings → Extensions → X4 Multiplayer page still appears | Page visible | Report to X4Native; our entry points don't depend on it |
+| R5 | **SirNukes installed:** chat wrappers stack on its `Online*` globals; our session chat round-trips; a SirNukes `/command` still works; disconnect leaves SirNukes' globals in place | All three | Own chat menu (MOD §7.6 fallback) |
+| R6 | **kuertee UIX installed:** `OptionsMenu.uix_getConfig()` returns the vanilla-shaped `config`; adapter logs `source=uix`; UIX's re-sorted Extensions page coexists with X4Native's injector | Both | Fall through to `require("debug")` |
+| R7 | `GetExtensionList()` in the start menu: `personal`/`isworkshop` values for user-folder and Workshop mods; `GetModifiedBasegameUIFilesExtensions()` names vs ids (V28) | Fields documented in mod-management §1.3 | Native folder scan decides `source` |
+| R8 | `C.OpenWebBrowser` with Nexus https, Workshop https and `steam://url/CommunityFilePage/<id>` (V29) | Each opens something usable | Show URL text only |
+
 ## 5. Post-v1 backlog (from user decisions 2026-10-01)
 
 - **Shared story/unlocks (ADR-037):** `StoryState`/`UnlockEvent` protocol messages, authority-side unlock capture, client-side apply, join-time snapshot, per-team mission progress. Target M5–M6, depending on S9.
 - **Fog of war (ADR-038):** `FogOfWar` session option; per-team visibility filter in the server interest manager (keep the hook from M1 on).
 - **Starting credits GUI (ADR-039):** presets + custom in Sessions → Settings (fold into M1 economy tasks).
 - **Loan enforcement (ADR-040):** `LoanEnforcement` policy, with AutoCollect / Penalty / Diplomacy (reputation loss, relation drift) / admin seizure. The M1 ledger must already record due, overdue and default events.
+- **Modded-game support, mod management phase 3 (ADR-044, [mod-management.md](mod-management.md) §5):** compatibility classes (`Verified / ClientOnly / AuthorityOnlyMD / Incompatible / Untested`) as a shipped, server-overridable list; client-side suppression of state-changing MD for `AuthorityOnlyMD` mods; extension-settings `sync` alignment with the session save; save-required (`<patches>`) mods enforced as hard Required with a refusal to drop them from a campaign; per-mod verification test plan (two-node 30-min M4 run, savescan, third-node join). Not before M4 acceptance.
+
+## 6. Mod management tasks after M1 (ADR-044)
+
+Phase 1 server work is in §3.8. User decision: X4MP never hosts, downloads or installs
+mods; it only shows and opens Nexus / Steam Workshop links and toggles enable state of mods
+the player already has.
+
+### 6.1 M2: mod side of phase 1
+
+| ID | Track | Title | Deps | Acceptance criteria | Size |
+|---|---|---|---|---|---|
+| M2-X1 | N | Lua: `GetExtensionList()` + `GetModifiedBasegameUIFilesExtensions()` gathered in the start menu and on `/reloadui`, sent as `x4mp.extensions` to native | M2 Lua bridge | Log line lists every extension with id/version/enabled; works before any save is loaded | S |
+| M2-X2 | N | `core/mods/`: id → folder mapping over install / user / Workshop roots, `content.xml` parse (`save`, dependencies), DLL and `subst_*.cat` detection, class hint, content hash (`.cat` index or capped file hash) with cache, on a worker thread; fills `ClientHello.extension_list` + `extensions_hash` (allowlist excluded) | M1-X1, M1-N3, M2-X1 | Catch2 tests over fixture folders (cat mod, loose mod, Workshop id, DLL mod, missing folder); no frame-thread file I/O (asserted); hash stable across runs; Connect waits ≤ 2 s for enrichment then sends without hashes | M |
+| M2-X3 | N | Join dialog renders `ModPolicyViolation` grouped (install / enable / disable / update) with link buttons (`C.OpenWebBrowser` when available, else URL text); Multiplayer screen lists the session's mod set when connected | M2-X2, M2 Join dialog | In game: a client missing a Required mod sees the grouped message and the Nexus/Workshop button opens the page (or shows the URL, per R8); with matching mods the join is unchanged | M |
+
+M2 exit adds: "A client with a mod mismatch is refused with the grouped install / enable /
+disable / update message and working links."
+
+### 6.2 M6: phase 2 (launcher sync)
+
+| ID | Track | Title | Deps | Acceptance criteria | Size |
+|---|---|---|---|---|---|
+| M6-X1 | S | `GET /api/v1/join/mod-manifest` + `GET /join/nonce` (HMAC-gated when the session has a password), links re-validated | M1-X4 | Manifest matches the GUI list; wrong proof ⇒ 401; no secrets in the payload | S |
+| M6-X2 | N/F | Launcher scan + plan: three sources, newest profile `content.xml` (ask if several), shared classification rules and allowlist; plan of toggles (installed mods only), missing (links), version mismatches | M6-X1, launcher shell | Fixture profiles produce the expected plan; a missing mod never produces a toggle; stale `content.xml` entries are reported, not touched | M |
+| M6-X3 | N/F | Launcher apply + restore: refuse while `X4.exe` runs; backup + `pending-restore.json` journal; atomic rewrite of only the affected `<extension>` entries; OneDrive retry; restore on X4 exit or next launcher start (only entries still holding the launcher's value); "keep this mod set"; "Restore my original mods"; last 10 backups | M6-X2 | Kill the launcher mid-session ⇒ next start restores; a player change made in game is not overwritten; byte-identical file after apply + restore when nothing else changed | M |
+| M6-X4 | N/F | Trust and links: per-server first-contact prompt, extra confirmation before enabling DLL / base-game-replacing mods, Workshop `steam://url/CommunityFilePage/<n>` (https fallback) and Nexus buttons, "Check again" poll of the Workshop folder | M6-X2 | Only nexusmods.com/x4foundations and Steam Workshop links are opened; DLL mod needs a second click; a newly subscribed Workshop item is picked up without restarting the launcher | S |
+| M6-X5 | W | GUI Mods page phase-2 bits: "launcher sync" status per player (policy version the node started with), copyable manifest URL | M6-X1 | Player who started via the launcher shows the current policy version | S |
+
+M6 exit adds: "Starting a session through the launcher with one mod to enable and one to
+disable needs no manual Settings → Extensions change, and the player's original mod set is
+back after X4 exits."
