@@ -4,9 +4,10 @@ import { AppRoutes } from './AppRoutes';
 import { AuthProvider } from './auth/AuthContext';
 import { screens } from './screens';
 
-function renderAt(path: string, authenticated: boolean) {
+function renderAt(path: string, authenticated: boolean, mustChangePassword = false) {
+  const me = authenticated ? { username: 'admin', role: 'Admin', mustChangePassword } : null;
   return render(
-    <AuthProvider initial={authenticated}>
+    <AuthProvider initialMe={me}>
       <MemoryRouter initialEntries={[path]}>
         <AppRoutes />
       </MemoryRouter>
@@ -27,6 +28,12 @@ describe('routing', () => {
       expect(within(nav).getByRole('link', { name: s.title })).toBeInTheDocument();
     }
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+  });
+
+  it('forces a password change before showing anything else', () => {
+    renderAt('/players', true, true);
+    expect(screen.getByRole('heading', { name: 'Change password' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument();
   });
 
   it('renders the 404 page for unknown routes', () => {
