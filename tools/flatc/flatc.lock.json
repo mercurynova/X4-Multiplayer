@@ -1,0 +1,19 @@
+{
+  "version": "25.12.19",
+  "tag": "v25.12.19-2026-02-06-03fffb2",
+  "baseUrl": "https://github.com/google/flatbuffers/releases/download/v25.12.19-2026-02-06-03fffb2",
+  "nugetPackage": "Google.FlatBuffers",
+  "nugetVersion": "25.12.19",
+  "platforms": {
+    "windows": {
+      "asset": "Windows.flatc.binary.zip",
+      "sha256": "68d51916873a3dbdaf7997ddfbbbfd6472b5907ffc62ccc9a88d146bbc0db87d",
+      "executable": "flatc.exe"
+    },
+    "linux": {
+      "asset": "Linux.flatc.binary.g++-13.zip",
+      "sha256": "c5e0adf44ffc20556620427eb6f183022d1e94d64f751a6b67e2ebd9cec76c9a",
+      "executable": "flatc"
+    }
+  }
+}
