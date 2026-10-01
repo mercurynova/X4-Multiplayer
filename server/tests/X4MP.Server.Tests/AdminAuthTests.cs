@@ -77,7 +77,7 @@ public sealed class AuthFactory(Dictionary<string, string>? settings = null) : W
     public async Task<HttpClient> LoginAsync(string username, string password, string? ip = null)
     {
         var client = NewClient(ip);
-        using var response = await client.SendAsync(Post("/api/auth/login", new { username, password }));
+        using var response = await client.SendAsync(Post("/api/v1/auth/login", new { username, password }));
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         return client;
     }
@@ -87,7 +87,7 @@ public sealed class AuthFactory(Dictionary<string, string>? settings = null) : W
     {
         var client = await LoginAsync("admin", InitialPassword);
         const string newPassword = "correct-horse-battery-staple";
-        using var change = await client.SendAsync(Post("/api/auth/change-password", new { current = InitialPassword, @new = newPassword }));
+        using var change = await client.SendAsync(Post("/api/v1/auth/change-password", new { current = InitialPassword, @new = newPassword }));
         Assert.Equal(HttpStatusCode.NoContent, change.StatusCode);
         return (client, newPassword);
     }
@@ -184,13 +184,13 @@ public class AdminAuthTests
         await using var factory = new AuthFactory();
         var client = factory.NewClient();
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/auth/me")).StatusCode);
 
-        using var wrongPassword = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = "nope" }));
+        using var wrongPassword = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = "nope" }));
         Assert.Equal(HttpStatusCode.Unauthorized, wrongPassword.StatusCode);
-        using var unknownUser = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "ghost", password = "nope" }));
+        using var unknownUser = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "ghost", password = "nope" }));
         Assert.Equal(HttpStatusCode.Unauthorized, unknownUser.StatusCode);
-        using var empty = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "", password = "" }));
+        using var empty = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "", password = "" }));
         Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
     }
 
@@ -200,11 +200,11 @@ public class AdminAuthTests
         await using var factory = new AuthFactory();
         var client = factory.NewClient();
 
-        using var response = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = factory.InitialPassword }, csrf: false));
+        using var response = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = factory.InitialPassword }, csrf: false));
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("CsrfHeaderMissing", doc.RootElement.GetProperty("code").GetString());
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/auth/me")).StatusCode);
     }
 
     [Fact]
@@ -214,14 +214,14 @@ public class AdminAuthTests
         var client = factory.NewClient();
         var initial = factory.InitialPassword;
 
-        using var login = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = initial }));
+        using var login = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = initial }));
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
         var cookie = Assert.Single(login.Headers.GetValues("Set-Cookie"));
         Assert.StartsWith("x4mp_admin=", cookie, StringComparison.Ordinal);
         Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("samesite=strict", cookie, StringComparison.OrdinalIgnoreCase);
 
-        var me = await client.GetFromJsonAsync<JsonElement>("/api/auth/me");
+        var me = await client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me");
         Assert.Equal("admin", me.GetProperty("username").GetString());
         Assert.Equal("Admin", me.GetProperty("role").GetString());
         Assert.True(me.GetProperty("mustChangePassword").GetBoolean());
@@ -230,27 +230,27 @@ public class AdminAuthTests
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/test/admin")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/test/viewer")).StatusCode);
 
-        using var wrong = await client.SendAsync(AuthFactory.Post("/api/auth/change-password", new { current = "wrong", @new = "a-long-enough-password" }));
+        using var wrong = await client.SendAsync(AuthFactory.Post("/api/v1/auth/change-password", new { current = "wrong", @new = "a-long-enough-password" }));
         Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
-        using var weak = await client.SendAsync(AuthFactory.Post("/api/auth/change-password", new { current = initial, @new = "short" }));
+        using var weak = await client.SendAsync(AuthFactory.Post("/api/v1/auth/change-password", new { current = initial, @new = "short" }));
         Assert.Equal(HttpStatusCode.BadRequest, weak.StatusCode);
-        using var same = await client.SendAsync(AuthFactory.Post("/api/auth/change-password", new { current = initial, @new = initial }));
+        using var same = await client.SendAsync(AuthFactory.Post("/api/v1/auth/change-password", new { current = initial, @new = initial }));
         Assert.Equal(HttpStatusCode.BadRequest, same.StatusCode);
         Assert.True(File.Exists(Path.Combine(factory.DataDir, "initial-admin-password.txt")));
 
-        using var change = await client.SendAsync(AuthFactory.Post("/api/auth/change-password", new { current = initial, @new = "a-long-enough-password" }));
+        using var change = await client.SendAsync(AuthFactory.Post("/api/v1/auth/change-password", new { current = initial, @new = "a-long-enough-password" }));
         Assert.Equal(HttpStatusCode.NoContent, change.StatusCode);
         Assert.False(File.Exists(Path.Combine(factory.DataDir, "initial-admin-password.txt")));
 
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/test/admin")).StatusCode);
-        var after = await client.GetFromJsonAsync<JsonElement>("/api/auth/me");
+        var after = await client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me");
         Assert.False(after.GetProperty("mustChangePassword").GetBoolean());
 
         // Old password is dead, new one works from a fresh client.
         using var fresh = factory.NewClient();
-        using var oldLogin = await fresh.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = initial }));
+        using var oldLogin = await fresh.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = initial }));
         Assert.Equal(HttpStatusCode.Unauthorized, oldLogin.StatusCode);
-        using var newLogin = await fresh.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = "a-long-enough-password" }));
+        using var newLogin = await fresh.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = "a-long-enough-password" }));
         Assert.Equal(HttpStatusCode.NoContent, newLogin.StatusCode);
     }
 
@@ -259,11 +259,11 @@ public class AdminAuthTests
     {
         await using var factory = new AuthFactory();
         var (client, _) = await factory.AdminReadyAsync();
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/auth/me")).StatusCode);
 
-        using var logout = await client.SendAsync(AuthFactory.Post("/api/auth/logout"));
+        using var logout = await client.SendAsync(AuthFactory.Post("/api/v1/auth/logout"));
         Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/auth/me")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/test/admin")).StatusCode);
     }
 
@@ -275,17 +275,17 @@ public class AdminAuthTests
 
         for (var i = 0; i < 5; i++)
         {
-            using var attempt = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = "bad" + i }));
+            using var attempt = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = "bad" + i }));
             Assert.Equal(HttpStatusCode.Unauthorized, attempt.StatusCode);
         }
 
-        using var sixth = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = factory.InitialPassword }));
+        using var sixth = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = factory.InitialPassword }));
         Assert.Equal(HttpStatusCode.TooManyRequests, sixth.StatusCode);
         Assert.True(sixth.Headers.Contains("Retry-After"));
 
         // A different client IP has its own window.
         using var other = factory.NewClient("192.168.1.20");
-        using var ok = await other.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = factory.InitialPassword }));
+        using var ok = await other.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = factory.InitialPassword }));
         Assert.Equal(HttpStatusCode.NoContent, ok.StatusCode);
     }
 
@@ -298,11 +298,11 @@ public class AdminAuthTests
 
         for (var i = 0; i < 3; i++)
         {
-            using var attempt = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = "bad" + i }));
+            using var attempt = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = "bad" + i }));
             Assert.Equal(HttpStatusCode.Unauthorized, attempt.StatusCode);
         }
 
-        using var locked = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = factory.InitialPassword }));
+        using var locked = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = factory.InitialPassword }));
         Assert.Equal(HttpStatusCode.TooManyRequests, locked.StatusCode);
         Assert.Contains(factory.AuditRows(), r => r.Action == "auth.login.locked");
     }
@@ -316,7 +316,7 @@ public class AdminAuthTests
         var client = factory.NewClient(ip);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/healthz")).StatusCode);
-        using var login = await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = factory.InitialPassword }));
+        using var login = await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = factory.InitialPassword }));
         Assert.Equal(HttpStatusCode.Forbidden, login.StatusCode);
     }
 
@@ -351,7 +351,7 @@ public class AdminAuthTests
     {
         await using var factory = new AuthFactory();
         var client = factory.NewClient();
-        foreach (var path in new[] { "/healthz", "/", "/api/auth/me", "/nothing-here.js" })
+        foreach (var path in new[] { "/healthz", "/", "/api/v1/auth/me", "/nothing-here.js" })
         {
             var response = await client.GetAsync(path);
             Assert.Contains("default-src 'self'", string.Join(';', response.Headers.GetValues("Content-Security-Policy")), StringComparison.Ordinal);
@@ -389,10 +389,10 @@ public class AdminAuthTests
         Assert.Equal(HttpStatusCode.OK, await Get("/api/test/viewer", viewer));
         Assert.Equal(HttpStatusCode.Forbidden, await Get("/api/test/admin", viewer));
         Assert.Equal(HttpStatusCode.OK, await Get("/api/test/admin", admin));
-        Assert.Equal(HttpStatusCode.OK, await Get("/api/auth/me", admin));
+        Assert.Equal(HttpStatusCode.OK, await Get("/api/v1/auth/me", admin));
 
         // Bearer requests are exempt from the CSRF header (no ambient credentials) and cannot change passwords.
-        using var post = AuthFactory.Post("/api/auth/change-password", new { current = "a", @new = "b" }, csrf: false);
+        using var post = AuthFactory.Post("/api/v1/auth/change-password", new { current = "a", @new = "b" }, csrf: false);
         post.Headers.Authorization = new("Bearer", admin);
         using var postResponse = await client.SendAsync(post);
         Assert.NotEqual(HttpStatusCode.BadRequest, postResponse.StatusCode);
@@ -412,11 +412,11 @@ public class AdminAuthTests
         var client = factory.NewClient();
         var initial = factory.InitialPassword;
 
-        (await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = "wrong" }))).Dispose();
-        (await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = initial }))).Dispose();
-        (await client.SendAsync(AuthFactory.Post("/api/auth/change-password", new { current = "wrong", @new = "a-long-enough-password" }))).Dispose();
-        (await client.SendAsync(AuthFactory.Post("/api/auth/change-password", new { current = initial, @new = "a-long-enough-password" }))).Dispose();
-        (await client.SendAsync(AuthFactory.Post("/api/auth/logout"))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = "wrong" }))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = initial }))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/change-password", new { current = "wrong", @new = "a-long-enough-password" }))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/change-password", new { current = initial, @new = "a-long-enough-password" }))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/logout"))).Dispose();
 
         var actions = factory.AuditRows().Select(r => r.Action).ToList();
         Assert.Equal(
@@ -437,9 +437,9 @@ public class AdminAuthTests
         const string wrong = "Wr0ng-Secret-Value!";
         const string newPassword = "N3w-Secret-Passphrase!";
 
-        (await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = wrong }))).Dispose();
-        (await client.SendAsync(AuthFactory.Post("/api/auth/login", new { username = "admin", password = initial }))).Dispose();
-        (await client.SendAsync(AuthFactory.Post("/api/auth/change-password", new { current = initial, @new = newPassword }))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = wrong }))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/login", new { username = "admin", password = initial }))).Dispose();
+        (await client.SendAsync(AuthFactory.Post("/api/v1/auth/change-password", new { current = initial, @new = newPassword }))).Dispose();
         var token = factory.Services.GetRequiredService<AdminStore>().CreateToken("t", AdminRoles.Viewer);
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/test/viewer");
         request.Headers.Authorization = new("Bearer", token);

@@ -1,14 +1,19 @@
 import type { ApiProblem } from '../generated/generated';
 
-/** Error for a non-2xx response. `code` is the ProblemDetails `code` (e.g. `InvalidCredentials`) when present. */
+/**
+ * Error for a non-2xx response (the body is an RFC 7807 problem). `code` is the ProblemDetails `code` (e.g. `InvalidCredentials`) when
+ * present; `errors` holds the per-field (or per-setting-key) message lists of a `ValidationFailed` answer.
+ */
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
-  constructor(status: number, message: string, code: string | null = null) {
+  readonly errors: Record<string, string[]> | null;
+  constructor(status: number, message: string, code: string | null = null, errors: Record<string, string[]> | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.errors = errors;
   }
 }
 
@@ -29,7 +34,12 @@ export async function http<T>(path: string, init: RequestInit = {}): Promise<T> 
     } catch {
       // not JSON
     }
-    throw new ApiError(res.status, problem?.detail ?? problem?.title ?? res.statusText, problem?.code ?? null);
+    throw new ApiError(
+      res.status,
+      problem?.detail ?? problem?.title ?? res.statusText,
+      problem?.code ?? null,
+      problem?.errors ?? null,
+    );
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

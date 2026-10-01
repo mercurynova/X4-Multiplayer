@@ -66,6 +66,11 @@ public interface ISessionStore
     /// <summary>A player left for good (closes the open <c>session_players</c> row).</summary>
     void PlayerLeft(long sessionId, int playerId, DateTimeOffset at, string reason);
 
+    /// <summary>The admin named the session (<c>POST /sessions</c>): updates <c>sessions.name</c>. Optional; the default does nothing.</summary>
+    void RenameSession(long sessionId, string name)
+    {
+    }
+
 }
 
 /// <summary>Discards everything (running the server without persistence).</summary>
