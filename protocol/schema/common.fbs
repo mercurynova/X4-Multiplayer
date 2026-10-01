@@ -41,7 +41,10 @@ enum Capability : ulong (bit_flags) {
   LogForward,        // 1<<10
   SaveHttp,          // 1<<11 node can download saves over HTTP instead of in-band
   InterestHint,      // 1<<12 node may send InterestHint (server may ignore)
-  Economy            // 1<<13 node implements wallets/transfers/loans/trades UI
+  Economy,           // 1<<13 node implements wallets/transfers/loans/trades UI
+  MdHooks,           // 1<<14 feature report: Mission Director hooks are active on this node
+  NativeFrameTick,   // 1<<15 feature report: X4Native per-frame tick is available
+  TeamFactions       // 1<<16 feature report: x4mp_team_<slot> factions are set up on this node
 }
 
 /// Session-wide phase (SessionState.phase). Mirrors server-design.md 2.4.
@@ -159,6 +162,7 @@ enum DisconnectCode : ushort {
   Kicked = 3,
   Banned = 4,
   SupersededByNewConnection = 5,   // same player_key connected again
+  ClientReload = 6,                // server asks the node to reload the (new) save and rejoin
   ProtocolMismatch = 10,
   ModVersionMismatch = 11,
   GameVersionMismatch = 12,

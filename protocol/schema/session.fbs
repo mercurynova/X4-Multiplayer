@@ -206,6 +206,24 @@ table GalaxyMetadata {
   links:[SectorLink];
 }
 
+/// Per-sector counts for the GUI galaxy map. 14 bytes.
+struct SectorSummary {
+  sector:ushort;
+  ships_xs:ushort;
+  ships_s:ushort;
+  ships_m:ushort;
+  ships_l:ushort;
+  ships_xl:ushort;
+  stations:ushort;
+}
+
+/// A->S, Control lane, ~0.2 Hz. Whole-galaxy ship counts by class and station counts, independent
+/// of the CaptureSet. Feeds the GUI galaxy map only; never forwarded to nodes.
+table GalaxySummary {
+  game_time:double;
+  sectors:[SectorSummary];
+}
+
 table StringEntry { index:uint; kind:StringKind; value:string; }
 
 /// A->S (authority allocates indices), S->N (server replays the full table on join),
