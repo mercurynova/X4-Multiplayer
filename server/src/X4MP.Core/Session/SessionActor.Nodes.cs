@@ -369,9 +369,9 @@ public sealed partial class SessionActor
         AuthorityPlayer = (ushort)Math.Clamp(_authorityPlayerId, 0, ushort.MaxValue),
         Paused = _phase == SessionPhase.Paused,
         PauseReason = string.Empty,
-        GameTime = 0,
+        GameTime = _currentSaveGameTime,
         TimeScale = 1,
-        CurrentSaveSha256 = [],
+        CurrentSaveSha256 = [.. _currentSaveSha],
         MaxPlayers = (ushort)Math.Clamp(_gateway.MaxPlayers, 0, ushort.MaxValue),
     };
 

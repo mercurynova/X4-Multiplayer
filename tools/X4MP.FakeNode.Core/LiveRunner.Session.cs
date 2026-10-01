@@ -193,17 +193,66 @@ public static partial class LiveRunner
             throw new TimeoutException($"the server did not put the node in game (it is {link.Phase})");
     }
 
+    // ------------------------------------------------------------------ the save pipeline (M1-12)
+
+    /// <summary>True when the server runs the save service (it says so in <c>server_caps</c> with the <c>SaveHttp</c> bit); a bare session actor does not.</summary>
+    private static bool HasSaveService(TcpNodeClient client) => (client.ServerHello.ServerCaps & (ulong)Capability.SaveHttp) != 0;
+
+    private static bool IsSaveFrame(MsgType type) => type is
+        MsgType.SessionSaveInfo or MsgType.SaveDownloadAccept or MsgType.SaveChunk or MsgType.StringTableAdd or MsgType.WorldCatchUp or MsgType.RosterUpdate;
+
+    /// <summary>Runs the frames of the save pipeline in order, one at a time (a chunk is written and acked before the next is looked at).</summary>
+    private static async Task PumpSaveFramesAsync(FakeSaveClient saves, ChannelReader<Frame> frames, CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var frame in frames.ReadAllAsync(ct).ConfigureAwait(false))
+                await saves.HandleAsync(frame, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // shutting down
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or ProtocolViolation)
+        {
+            saves.Abort(ex.Message);
+        }
+    }
+
+    /// <summary>Waits for the whole join: the checkpoint, the download, the match and the catch-up, then the server's InGame.</summary>
+    private static async Task JoinWithSavesAsync(NodeLink link, FakeSaveClient saves, LiveRunOptions run, CancellationToken ct)
+    {
+        await link.WaitPhaseAsync(NodePhase.SyncingSave, TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
+        if (link.Phase == NodePhase.AwaitingTeam && !await link.WaitPhaseAsync(NodePhase.SyncingSave, run.PhaseTimeout, ct).ConfigureAwait(false))
+            throw new TimeoutException("the server keeps the node in AwaitingTeam (assign it a team)");
+
+        var watch = Stopwatch.StartNew();
+        while (!saves.Ready.IsCompleted)
+        {
+            if (saves.Error is { } error)
+                throw new InvalidOperationException("the save pipeline failed: " + error);
+            if (link.Closed)
+                throw new IOException(link.DisconnectedBy is { } code ? $"server closed the connection ({code})" : "connection closed");
+            if (watch.Elapsed > run.SaveTimeout)
+                throw new TimeoutException($"the join did not finish within {run.SaveTimeout.TotalSeconds:F0} s (stage {saves.Stage}; does the session have an authority that uploads a checkpoint?)");
+            await Task.Delay(20, ct).ConfigureAwait(false);
+        }
+
+        if (!await link.WaitPhaseAsync(NodePhase.InGame, run.PhaseTimeout, ct).ConfigureAwait(false))
+            throw new TimeoutException($"the server did not put the node in game (it is {link.Phase})");
+    }
+
     private static async Task RunSessionNodeAsync(
         CliOptions o, NodePlan plan, int index, NodeLink link, LiveNodeStats stats, LiveRunOptions run, SynchronizedWriter lines,
-        FakeGalaxy galaxy, bool print, CancellationToken ct)
+        FakeGalaxy galaxy, string saveDir, bool print, CancellationToken ct)
     {
         using var pingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var pings = PingLoopAsync(link, stats, run, lines, plan.Name, print, pingCts.Token);
         try
         {
             Task role = plan.Role == Role.Authority
-                ? RunAuthorityAsync(link, o, galaxy, run, plan.Name, lines, ct)
-                : RunClientAsync(link, o, index, galaxy, stats, run, plan.Name, lines, ct);
+                ? RunAuthorityAsync(link, o, galaxy, stats, run, saveDir, plan.Name, lines, ct)
+                : RunClientAsync(link, o, index, galaxy, stats, run, saveDir, plan.Name, lines, ct);
             var finished = await Task.WhenAny(role, pings).ConfigureAwait(false);
             await finished.ConfigureAwait(false); // rethrows a failure of either side
             await role.ConfigureAwait(false);
@@ -225,19 +274,41 @@ public static partial class LiveRunner
     // ------------------------------------------------------------------ the fake authority
 
     private static async Task RunAuthorityAsync(
-        NodeLink link, CliOptions o, FakeGalaxy galaxy, LiveRunOptions run, string name, SynchronizedWriter lines, CancellationToken ct)
+        NodeLink link, CliOptions o, FakeGalaxy galaxy, LiveNodeStats stats, LiveRunOptions run, string saveDir, string name, SynchronizedWriter lines, CancellationToken ct)
     {
         var world = new FakeWorld(galaxy);
         var authority = new FakeAuthority(world, new FakeAuthorityOptions { TickRateHz = o.TickRate, Fps = o.Fps });
         var captures = new ConcurrentQueue<CaptureSetT>();
+
+        // Against a server with a save service the authority also answers RequestSave: it builds a fake save and manifest, uploads them
+        // in-band and the session starts from that checkpoint (protocol.md 6.3). Its GalaxyMetadata then travels with the checkpoint, keyed
+        // by the save's real hash, so the startup messages carry only the string table.
+        FakeAuthoritySaves? saves = null;
+        if (HasSaveService(link.Client))
+        {
+            saves = new FakeAuthoritySaves(
+                link.Client, authority,
+                new FakeAuthoritySaveOptions { SaveBytes = run.SaveBytes ?? o.SaveMb * 1024L * 1024, Directory = saveDir },
+                text => _ = lines.WriteAsync($"[{name}] {text}"));
+            saves.CheckpointStored += result =>
+            {
+                stats.MarkInGame();
+                stats.SetSaveBytes(saves.BytesSent);
+                _ = lines.WriteAsync($"[{name}] checkpoint stored: save {result.Save.ShaHex[..12]} ({result.Save.Size} bytes), the session can start");
+            };
+        }
+
         link.Handler = frame =>
         {
             if (frame.Type == MsgType.CaptureSet)
                 captures.Enqueue(MessageRegistry.Default.Decode<CaptureSet>(frame).UnPack());
+            else
+                saves?.Handle(frame);
         };
 
-        foreach (var message in authority.StartupMessages())
+        foreach (var message in saves is null ? authority.StartupMessages() : authority.StringTableMessages())
             await link.Client.SendPayloadAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
+        saves?.MarkStringTableSent();
         await AdvanceToInGameAsync(link, run, ct).ConfigureAwait(false);
         await lines.WriteAsync($"[{name}] authority in game: {galaxy.Sectors.Count} sectors, {galaxy.Entities.Count} entities, streaming at {o.TickRate} Hz").ConfigureAwait(false);
 
@@ -267,8 +338,8 @@ public static partial class LiveRunner
                 if (tick >= nextStats)
                 {
                     nextStats = tick + (2L * o.TickRate);
-                    var stats = authority.BuildNodeStats(tick);
-                    await link.Client.SendPayloadAsync(stats.Type, stats.Payload, ct).ConfigureAwait(false);
+                    var nodeStats = authority.BuildNodeStats(tick);
+                    await link.Client.SendPayloadAsync(nodeStats.Type, nodeStats.Payload, ct).ConfigureAwait(false);
                 }
 
                 if (tick >= nextSummary)
@@ -286,20 +357,68 @@ public static partial class LiveRunner
     // ------------------------------------------------------------------ the fake client
 
     private static async Task RunClientAsync(
-        NodeLink link, CliOptions o, int index, FakeGalaxy galaxy, LiveNodeStats stats, LiveRunOptions run, string name, SynchronizedWriter lines,
+        NodeLink link, CliOptions o, int index, FakeGalaxy galaxy, LiveNodeStats stats, LiveRunOptions run, string saveDir, string name, SynchronizedWriter lines,
         CancellationToken ct)
     {
         var session = new FakeClientSession(new FakeWorld(galaxy), o.Verify);
         run.OnClientSession?.Invoke(session);
         stats.AttachSession(session);
         var outbox = Channel.CreateUnbounded<OutMessage>();
+
+        // Against a server with a save service the join is the real one: wait for the checkpoint, download and verify the save and its
+        // manifest, match, take the WorldCatchUp (protocol.md 6.4/6.5). The frames of that pipeline are handled in order on their own task.
+        FakeSaveClient? saves = null;
+        Channel<Frame>? saveFrames = null;
+        Task saveWorker = Task.CompletedTask;
+        if (HasSaveService(link.Client))
+        {
+            saves = new FakeSaveClient(
+                link.Client, new FakeSaveClientOptions { Directory = saveDir, LoadDelay = run.LoadDelay },
+                text => _ = lines.WriteAsync($"[{name}] {text}"));
+            saveFrames = Channel.CreateUnbounded<Frame>(new UnboundedChannelOptions { SingleReader = true });
+        }
+
         link.Handler = frame =>
         {
             foreach (var reply in session.Handle(frame))
                 outbox.Writer.TryWrite(reply);
+            if (saveFrames is not null && IsSaveFrame(frame.Type))
+                saveFrames.Writer.TryWrite(frame);
         };
 
-        await AdvanceToInGameAsync(link, run, ct).ConfigureAwait(false);
+        try
+        {
+            if (saves is null)
+            {
+                await AdvanceToInGameAsync(link, run, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                saveWorker = Task.Run(() => PumpSaveFramesAsync(saves, saveFrames!.Reader, ct), CancellationToken.None);
+                var started = Stopwatch.StartNew();
+                await JoinWithSavesAsync(link, saves, run, ct).ConfigureAwait(false);
+                stats.MarkInGame();
+                stats.SetSaveBytes(saves.BytesReceived);
+                await lines.WriteAsync(
+                    $"[{name}] joined with the save after {started.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s: " +
+                    $"{saves.BytesReceived} bytes downloaded and verified ({saves.VerifiedSaveSha?[..12]}), {saves.StringEntries} strings, {saves.CatchUpEntries} catch-up entries").ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            saveFrames?.Writer.TryComplete();
+            try
+            {
+                await saveWorker.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // reported through the join
+            }
+
+            saves?.Dispose();
+        }
+
         var player = new FakePlayer(galaxy, o.Seed, index + 1, o.Behavior);
         await lines.WriteAsync($"[{name}] in game, flying {o.Behavior} from sector {player.Sector}").ConfigureAwait(false);
 

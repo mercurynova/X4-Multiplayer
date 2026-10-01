@@ -19,8 +19,9 @@ public sealed class SqliteWorldStoreTests : IDisposable
         _factory = new SqliteConnectionFactory(new PersistenceOptions { DataDir = _dir });
         new MigrationRunner(_factory).Migrate();
         _writer = new PersistenceWriter(_factory, new PersistenceOptions { DataDir = _dir });
-        new SqliteSessionStore(_factory, _writer).BeginSessionAsync("s", _guid, T0, default).AsTask().GetAwaiter().GetResult();
-        _store = new SqliteWorldStore(_factory, _writer, () => _guid);
+        long sessionId = new SqliteSessionStore(_factory, _writer).BeginSessionAsync("s", _guid, T0, default).AsTask().GetAwaiter().GetResult();
+        _store = new SqliteWorldStore(_factory, _writer);
+        _store.BindSession(sessionId); // what WorldMirror.OnSessionBegun does
     }
 
     public void Dispose()
@@ -44,7 +45,7 @@ public sealed class SqliteWorldStoreTests : IDisposable
         _store.SaveGalaxy("abc", [1, 2, 3, 4], T0);
         await _writer.FlushAsync();
 
-        var reopened = new SqliteWorldStore(new SqliteConnectionFactory(new PersistenceOptions { DataDir = _dir }), _writer, () => _guid);
+        var reopened = new SqliteWorldStore(new SqliteConnectionFactory(new PersistenceOptions { DataDir = _dir }), _writer);
         Assert.Equal([1, 2, 3, 4], reopened.TryLoadGalaxy("abc"));
         Assert.Null(reopened.TryLoadGalaxy("other"));
 
@@ -83,8 +84,9 @@ public sealed class SqliteWorldStoreTests : IDisposable
     public async Task JournalOfAnotherSessionIsInvisible()
     {
         var otherGuid = Guid.NewGuid();
-        await new SqliteSessionStore(_factory, _writer).BeginSessionAsync("other", otherGuid, T0, default);
-        var other = new SqliteWorldStore(_factory, _writer, () => otherGuid);
+        long otherId = await new SqliteSessionStore(_factory, _writer).BeginSessionAsync("other", otherGuid, T0, default);
+        var other = new SqliteWorldStore(_factory, _writer);
+        other.BindSession(otherId);
 
         _store.AppendJournal(new JournalRecord(1, MsgType.EntitySpawn, 1, 1, [1], T0));
         other.AppendJournal(new JournalRecord(1, MsgType.EntitySpawn, 2, 1, [2], T0));

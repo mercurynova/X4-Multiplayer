@@ -262,6 +262,8 @@ public sealed partial class WorldMirror : ISessionModule
         }
     }
 
+    public void OnSessionBegun(long sessionId) => _store.BindSession(sessionId);
+
     public void OnSessionPhaseChanged(SessionPhase previous, SessionPhase current)
     {
         if (current == SessionPhase.Ended)

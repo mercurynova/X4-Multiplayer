@@ -7,6 +7,14 @@ namespace X4MP.Core.World;
 /// </summary>
 public interface IWorldStore
 {
+    /// <summary>
+    /// The <c>sessions</c> row of the running session exists (<see cref="X4MP.Core.Session.ISessionModule.OnSessionBegun"/>): later
+    /// reads and writes belong to it. Stores without a session scope ignore it.
+    /// </summary>
+    void BindSession(long sessionId)
+    {
+    }
+
     /// <summary>The cached <c>GalaxyMetadata</c> payload for a save (lowercase hex SHA-256), or null.</summary>
     byte[]? TryLoadGalaxy(string saveSha256Hex);
 

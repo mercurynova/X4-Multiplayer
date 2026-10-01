@@ -16,6 +16,36 @@ server without a game. Design: `docs/server-design.md` section 6.
 Against a server **without** a session actor (a bare gateway, as in some tests) a node only keeps its connection
 alive with Ping/Pong; the play-your-role behaviour starts when the server announces a session (`SessionState`).
 
+## The save pipeline (M1-12)
+
+Against a server that runs the save service (it says so with the `SaveHttp` bit in `ServerHello.server_caps`; a bare
+session actor does not) the join is the real one, byte for byte:
+
+- **Authority.** It sends the string table, walks to in-game and then answers `RequestSave`: it builds a fake save
+  (deterministic gzip of an X4-style `<savegame><info>` document plus pseudo-random filler up to `--save-mb`, so the
+  transfer moves real bytes; `FakeSaveGenerator`) and a real `X4MF` manifest of the fake stations, sends
+  `GalaxyMetadata` (keyed by the save's hash) and the `SaveStarted` journal marker, then uploads both files in-band on
+  the Bulk lane with the 8-chunk window, honouring `SaveChunkAck` and the resume offset of `SaveUploadAccept`
+  (`FakeAuthoritySaves`). The session starts from that checkpoint.
+- **Client.** It waits in `SyncingSave` for `SessionSaveInfo` (the server holds it until a checkpoint is current),
+  downloads the save and the manifest with `SaveDownloadRequest{offset}` (resuming from its `.part` file), acks every 4
+  chunks, verifies the SHA-256, reports `LoadStatus` / `SaveReady`, "loads" for 50 ms, matches the manifest
+  (`ManifestReport`), takes the `StringTableAdd` replay and the `WorldCatchUp`, and sends `NodeReady`
+  (`FakeSaveClient`). It waits for the server to confirm each phase (`FakePhaseTracker`, from `RosterUpdate`) before the
+  next frame, because the server checks every frame against the phase it has recorded.
+- Output: `checkpoint stored: ...` for the authority, `joined with the save after 0.2s: ... bytes downloaded and
+  verified ...` per client, and `ingame=N` in the report and summary lines.
+
+`--save-mb N` sets the size of the fake save (default 4, at most 4096). Saves live in a temporary directory that is
+deleted at the end of the run. For a 200 MB transfer on a local server:
+
+```powershell
+dotnet run --project tools/X4MP.FakeNode -- swarm --clients 3 --with-authority --save-mb 200 --duration 60
+```
+
+The same pipeline is driven by the tests in `X4MP.Server.Tests/Saves` (kill at 50% and resume, hash mismatch, non-gzip,
+`ghosts_cleaned=false`, manifest policy, catch-up, ...). `X4MP_LONG_TESTS=1` runs the 200 MB acceptance there.
+
 ## Run a local server plus a swarm
 
 ```powershell
@@ -70,7 +100,7 @@ sphere stream at the sphere's rate (the server asks for 20 Hz around each player
 `--server host:port` (default `127.0.0.1:47780`), `--clients K`, `--with-authority`, `--duration N` (seconds;
 default: until Ctrl+C), `--name NAME` (single node), `--name-prefix PREFIX` (swarm, default `Bot`, so
 `Bot01`..), `--password PW` (session password), `--seed N`, `--behavior wander|patrol|explore`, `--verify`,
-`--sectors N --ships N --tick HZ --fps N` (universe and authority shape).
+`--sectors N --ships N --tick HZ --fps N` (universe and authority shape), `--save-mb N` (authority: size of the fake save).
 
 Player keys are derived from `--seed` and the node name, so re-running against a server with a persistent
 database rejoins as the same players. Change `--seed` or `--name-prefix` to appear as new ones (a name stays
@@ -78,6 +108,7 @@ bound to the first key that used it, otherwise the server answers `NameTaken`).
 
 ## As a library
 
-`FakeClientSession` (the receiving half of a client: ghost set, verifier, checksum, resync) and `FakeAuthority` have no
-I/O. `LiveRunner` drives them over TCP; the replication tests in `X4MP.Core.Tests` drive them in virtual time together
+`FakeClientSession` (the receiving half of a client: ghost set, verifier, checksum, resync), `FakeAuthority`,
+`FakeSaveClient` and `FakeAuthoritySaves` (the join and checkpoint halves of the save pipeline; they send through a
+`TcpNodeClient` you hand them and take every received frame through `HandleAsync` / `Handle`) have no sockets of their own. `LiveRunner` drives them over TCP; the replication tests in `X4MP.Core.Tests` drive them in virtual time together
 with the real server modules, so five minutes of game time run in a few seconds.

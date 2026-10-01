@@ -40,6 +40,9 @@ public sealed record CliOptions
     /// <summary>swarm: also start one authority node.</summary>
     public bool WithAuthority { get; init; }
     public string? Password { get; init; }
+
+    /// <summary>authority: size of the fake save it uploads on <c>RequestSave</c> (megabytes).</summary>
+    public int SaveMb { get; init; } = 4;
 }
 
 public sealed record CliParseResult(CliOptions? Options, string? Error)
@@ -76,6 +79,7 @@ public static class CliParser
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
           --with-authority     swarm: also connect one authority node
           --password PW        session password
+          --save-mb N          authority: size of the fake save it uploads (default 4)
         """;
 
     private static readonly Dictionary<string, FakeNodeCommand> Commands = new(StringComparer.OrdinalIgnoreCase)
@@ -175,6 +179,8 @@ public static class CliParser
                 return PositiveInt(o, key, value, v => o with { Seconds = v, Duration = v });
             case "sector":
                 return PositiveInt(o, key, value, v => v > ushort.MaxValue ? null : o with { Sector = (ushort)v });
+            case "save-mb":
+                return PositiveInt(o, key, value, v => v > 4096 ? null : o with { SaveMb = v });
             case "name":
                 return (o with { Name = value }, null);
             case "name-prefix":
