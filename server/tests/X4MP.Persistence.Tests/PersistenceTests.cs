@@ -36,14 +36,14 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
-    public void EmptyDirectoryCreatesDatabaseAtSchemaV1()
+    public void EmptyDirectoryCreatesDatabaseAtLatestSchema()
     {
         var factory = new SqliteConnectionFactory(Options());
         Assert.False(Directory.Exists(_dir));
 
         var version = Runner(factory).Migrate();
 
-        Assert.Equal(1, version);
+        Assert.Equal(Runner(factory).LatestVersion, version);
         Assert.True(File.Exists(Path.Combine(_dir, "x4mp.db")));
         var tables = Scalar<long>(factory,
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN " +
@@ -51,19 +51,20 @@ public sealed class PersistenceTests : IDisposable
             "'chat_messages','galaxy_cache','config_overrides','admin_users','api_tokens','audit_log'," +
             "'journal','string_table','checkpoints')");
         Assert.Equal(16, tables);
-        // deferred tables must not exist yet
+        // tables of tasks that have not landed yet must not exist
         Assert.Equal(0, Scalar<long>(factory,
-            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('teams','wallets','ledger_tx','loans')"));
+            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('loans')"));
     }
 
     [Fact]
     public void SecondStartIsNoOp()
     {
         var factory = new SqliteConnectionFactory(Options());
-        Assert.Equal(1, Runner(factory).Migrate());
-        Assert.Equal(1, Runner(factory).Migrate());
+        var latest = Runner(factory).LatestVersion;
+        Assert.Equal(latest, Runner(factory).Migrate());
+        Assert.Equal(latest, Runner(factory).Migrate());
 
-        Assert.Equal(1, Scalar<long>(factory, "SELECT COUNT(*) FROM schema_version"));
+        Assert.Equal(latest, Scalar<long>(factory, "SELECT COUNT(*) FROM schema_version"));
     }
 
     [Fact]

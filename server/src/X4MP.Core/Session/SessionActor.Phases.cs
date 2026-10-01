@@ -42,6 +42,19 @@ public sealed partial class SessionActor
         {
             LogModuleFailed(_store.GetType().Name, nameof(ISessionStore.BeginSessionAsync), ex);
             _dbSessionId = -1; // run without persistence rather than refusing players
+            return;
+        }
+
+        foreach (var module in _modules)
+        {
+            try
+            {
+                module.OnSessionBegun(_dbSessionId);
+            }
+            catch (Exception ex)
+            {
+                LogModuleFailed(module.GetType().Name, nameof(ISessionModule.OnSessionBegun), ex);
+            }
         }
     }
 
