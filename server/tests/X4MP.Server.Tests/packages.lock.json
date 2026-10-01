@@ -530,6 +530,12 @@
       "x4mp.fakenode": {
         "type": "Project",
         "dependencies": {
+          "X4MP.FakeNode.Core": "[1.0.0, )"
+        }
+      },
+      "x4mp.fakenode.core": {
+        "type": "Project",
+        "dependencies": {
           "X4MP.Protocol": "[1.0.0, )"
         }
       },

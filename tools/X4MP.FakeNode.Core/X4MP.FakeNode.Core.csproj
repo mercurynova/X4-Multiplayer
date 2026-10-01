@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    FakeNode library (M1-F1): deterministic fake galaxy + world, fake authority/client logic, verifier, CLI parsing.
+    May reference only X4MP.Protocol (enforced by DependencyDirectionTests). Used by the exe and by tests.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\server\src\X4MP.Protocol\X4MP.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>
