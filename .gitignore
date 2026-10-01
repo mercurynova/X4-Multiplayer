@@ -37,3 +37,6 @@ vcpkg_installed/
 Thumbs.db
 *.swp
 .idea/
+
+# Claude Code agent worktrees
+.claude/worktrees/
