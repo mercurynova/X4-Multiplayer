@@ -85,6 +85,17 @@ public sealed record NetOptions
     public int AuthFailureDelayMs { get; set; } = 1000;
 
     /// <summary>Policy violations tolerated per minute; one more closes the connection and temp-bans the IP.</summary>
+    /// <summary>
+    /// Frames one node may have waiting for the session actor (inbound flood protection, M1-10). <c>PlayerState</c> never queues
+    /// more than one (latest wins); past this many, a non-authority node's further frames are dropped and counted.
+    /// </summary>
+    [Setting("Inbound frames one node may have queued for the session actor", Min = 8, Max = 1000000)]
+    public int InboundQueueFramesPerNode { get; set; } = 512;
+
+    /// <summary>Dropped frames (queue full) tolerated per minute; one more closes the node with <c>RateLimited</c>.</summary>
+    [Setting("Inbound queue overflow drops tolerated per minute", Min = 1, Max = 10000000)]
+    public int InboundOverflowLimitPerMinute { get; set; } = 500;
+
     [Setting("Policy violations tolerated per minute", Min = 1, Max = 10000)]
     public int ViolationLimitPerMinute { get; set; } = 20;
 

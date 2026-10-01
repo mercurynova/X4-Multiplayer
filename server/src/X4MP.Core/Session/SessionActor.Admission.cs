@@ -39,12 +39,49 @@ public sealed partial class SessionActor
             return;
         }
 
+        var inbox = new NodeInbox(
+            node.Connection.Stats,
+            Math.Max(1, _netOptions.InboundQueueFramesPerNode),
+            new ViolationTracker(_netOptions.InboundOverflowLimitPerMinute, _time),
+            exempt: node.IsAuthority);
         try
         {
             while (await node.Reader.ReadAsync(ct).ConfigureAwait(false) is { } frame)
             {
-                if (!Post(new MessageInput(node, frame)))
+                if (frame.Type == MsgType.PlayerState)
                 {
+                    // Latest wins: a flood of states costs one mailbox entry, never a backlog.
+                    if (inbox.OfferLatest(frame) && !Post(new StateInput(node, inbox)))
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                if (inbox.Full)
+                {
+                    if (inbox.Exempt)
+                    {
+                        await inbox.WaitForRoomAsync(ct).ConfigureAwait(false); // the authority is never dropped: back-pressure
+                    }
+                    else
+                    {
+                        if (inbox.RecordDrop())
+                        {
+                            LogInboundOverflow(node.PlayerId);
+                            node.Connection.Close(DisconnectCode.RateLimited, "inbound queue overflow");
+                            break;
+                        }
+
+                        continue;
+                    }
+                }
+
+                inbox.Enter();
+                if (!Post(new MessageInput(node, frame, inbox)))
+                {
+                    inbox.Leave();
                     break;
                 }
             }
@@ -314,6 +351,9 @@ public sealed partial class SessionActor
             DetachNode(slot, DetachReason.SocketLost, closeWith: null);
         }
     }
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "player {PlayerId}: sustained inbound queue overflow, closing the connection")]
+    private partial void LogInboundOverflow(int playerId);
 
     [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "player {PlayerId}: reading the connection failed")]
     private partial void LogReadFailed(int playerId, Exception ex);
