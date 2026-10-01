@@ -121,6 +121,14 @@ SRV §8 where noted.
 
 **Follow-ups from M1-S1 review (2026-10-01):** (1) move auth routes from `/api/auth/*` to `/api/v1/auth/*` with the rest of the admin API (M1-S2); (2) a password change must invalidate the user's other sessions/cookies; (3) persist lockout/throttle state only if restarts become an attack vector (currently in-memory, acceptable).
 
+**Follow-ups from M1-05 / M1-N2 review (2026-10-01):**
+1. The SessionActor mailbox is unbounded. Before M1-10 relays high-rate traffic, coalesce `PlayerState` per node (latest-wins) and bound per-node inbound queues, so a flooding client can't grow server memory.
+2. Settings push has no wire message yet: the protocol `SessionSettings` table is team/economy only. Extend it (or add `ServerSettingsUpdate`) for general live settings such as `ModListVisibility` (schema change → golden vectors).
+3. `StopCompleted` has no producer; Stopping→Ended relies on the 30 s timeout. Wire it in M1-12 (save on stop).
+4. Authority admission has no team gate yet (M1-T2).
+5. Mod (M1-N3): Control frames queued while briefly disconnected must be kept and replayed after resume (the M1-N2 outbox currently discards them).
+6. Accepted deviation: the authority's resume window equals the 120 s grace (clients keep 60 s).
+
 ### 3.6 Mod net core (headless, parallel track)
 
 | ID | Title | Deps | Acceptance criteria | Size |
