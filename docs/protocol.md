@@ -764,7 +764,7 @@ the server:
     the player's avatar.
 - **Ship registration (avatar request, ADR-015).**
   1. The client sends `PlayerShip{request_key, macro, name, idcode, sector, pos, rot}`.
-  2. The server forwards it to the authority. If the player already has an avatar, the
+  2. The server stamps `player_id` (overwriting anything the client sent) and forwards it to the authority. If the player already has an avatar, the
      authority returns it; otherwise it spawns one (`StarterShip` at the team spawn point,
      owned by `x4mp_team_<slot>`) and assigns a `net_id`. It replies with
      `EntitySpawn{origin=PlayerShip, controller_player, owner_team, owner_player}`. The
@@ -1281,6 +1281,7 @@ carries `request_key` (idempotency), which is not repeated below.
 | 0x0113 | GalaxyMetadata | A→S, S→N | Ctl | save_sha256, sectors[index, macro, cluster_macro, name, owner_ref, galaxy_pos], links[from, to, kind, from_pos, to_pos] |
 | 0x0114 | StringTableAdd | A→S, S→N, S→A | Ctl | entries[index, kind, value] |
 | 0x0115 | GalaxySummary | A→S | Ctl | per-sector ship counts by class, station count (0.2 Hz; feeds the GUI galaxy map) |
+| 0x0116 | ServerSettingsUpdate | S→N | Ctl | version (ulong), entries[key, value] (strings). The **full** set of node-relevant live settings (`PushToNodes`), sent right after Welcome/SessionState/roster and whenever one changes. Value text: strings and enum names unquoted, other JSON raw (`true`, `30`). Nodes ignore a lower version than they hold. |
 
 ### World (0x02xx)
 
@@ -1306,7 +1307,8 @@ carries `request_key` (idempotency), which is not repeated below.
 | ID | Message | Dir | Lane | Key fields |
 |---|---|---|---|---|
 | 0x0300 | PlayerState | C→S | RT | seq, sample_time_us, net_id, sector, flags, px/py/pz, yaw/pitch/roll, hull, shield, target_net_id (**no velocity**) |
-| 0x0301 | PlayerShip | C→S (→A) | Ctl | ship_macro, name, idcode, sector, pos, rot, hull, shield, local_component_id. Answered by EntitySpawn. |
+| 0x0301 | PlayerShip | C→S (→A) | Ctl | request_key (pure idempotency key), ship_macro, name, idcode, sector, pos, rot, hull, shield, local_component_id, **player_id** (server-stamped when forwarding to the authority; a client value is overwritten). Answered by EntitySpawn. |
+| 0x0302 | OnFootState | C→S | RT | player_id (server-stamped), seq, sample_time_us, mode (OnFootMode), container_net_id, outer_container_net_id, room (RoomKey struct, 16 B), px/py/pz (room-local, 1/1024 m), cx/cy/cz (container-local, 1/64 m), yaw, look_pitch, anim (OnFootAnim), emote_id, flags. ADR-046 / M3b: schema only for now, the server accepts and drops it (no relay yet). |
 
 ### Intents and events (0x04xx)
 
@@ -1586,7 +1588,9 @@ A unit test asserts that every `MsgType` has an entry.
 ## 23. Settings referenced by the protocol
 
 All settings live on the server and are hot unless noted. Nodes learn the relevant ones
-from `Welcome`, `SessionSettings` and `InterestUpdate`.
+from `Welcome`, `SessionSettings`, `ServerSettingsUpdate` (every Live setting flagged
+`PushToNodes`, e.g. `Mods.ModListVisibility`, `Replication.TickRateHz`, `Interest.MaxGhosts`)
+and `InterestUpdate`.
 
 | Group | Setting |
 |---|---|

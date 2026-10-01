@@ -221,6 +221,11 @@ public static class SampleMessages
             GameTime = 3600.25,
             Sectors = [new SectorSummaryT { Sector = 1, ShipsXs = 1, ShipsS = 2, ShipsM = 3, ShipsL = 4, ShipsXl = 5, Stations = 6 }],
         }),
+        S(new ServerSettingsUpdateT
+        {
+            Version = 5,
+            Entries = [new SettingEntryT { Key = "Mods.ModListVisibility", Value = "AdminsAndViewers" }, new SettingEntryT { Key = "Replication.TickRateHz", Value = "30" }],
+        }),
 
         // ---- world ----
         S(new EntitySpawnT { JournalSeq = 77, Entities = [Record(1001), Record(1002)] }),
@@ -261,7 +266,13 @@ public static class SampleMessages
         S(new PlayerShipT
         {
             RequestKey = Id(13), ShipMacro = "ship_arg_s_fighter_01_a_macro", Name = "Pilot", Idcode = "XYZ-789", Sector = 12, Px = 1, Py = 2, Pz = 3,
-            Yaw = 4, Pitch = 5, Roll = 6, Hull = 255, Shield = 255, LocalComponentId = 0x1122334455667788,
+            Yaw = 4, Pitch = 5, Roll = 6, Hull = 255, Shield = 255, LocalComponentId = 0x1122334455667788, PlayerId = 3,
+        }),
+        S(new OnFootStateT
+        {
+            PlayerId = 3, Seq = 77, SampleTimeUs = 5_100_000, Mode = OnFootMode.Walking, ContainerNetId = 1500, OuterContainerNetId = 0,
+            Room = new RoomKeyT { MacroRef = 9, AnchorX = -120, AnchorY = 0, AnchorZ = 340, PathHash = 0xBEEF, Kind = RoomKind.Lounge, Roomtype = 4 },
+            Px = 2048, Py = 0, Pz = -1024, Cx = 640, Cy = 0, Cz = -320, Yaw = 1200, LookPitch = 128, Anim = OnFootAnim.Walk, EmoteId = 0, Flags = 1,
         }),
 
         // ---- intents (one sample per union body) ----

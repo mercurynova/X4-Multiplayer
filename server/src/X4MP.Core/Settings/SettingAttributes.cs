@@ -51,6 +51,9 @@ public sealed class SettingAttribute(string description) : Attribute
     /// <summary>Masked in <c>GET</c> responses and in audit rows.</summary>
     public bool Secret { get; set; }
 
-    /// <summary>Part of <c>SessionSettings</c>: pushed to every node when it changes (<see cref="ISessionSettingsPusher"/>).</summary>
+    /// <summary>
+    /// Node-relevant: the setting is sent to every node in <c>ServerSettingsUpdate</c> (right after Welcome, and the full set again
+    /// whenever one of these changes; <see cref="ISessionSettingsPusher"/>). Only meaningful for Live settings.
+    /// </summary>
     public bool PushToNodes { get; set; }
 }
