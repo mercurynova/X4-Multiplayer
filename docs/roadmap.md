@@ -314,3 +314,10 @@ disable / update message and working links."
 M6 exit adds: "Starting a session through the launcher with one mod to enable and one to
 disable needs no manual Settings → Extensions change, and the player's original mod set is
 back after X4 exits."
+
+**M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
+TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
+`TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the
+economy supply its half of `SessionSettings`; `TeamModule.ResyncPlayer` is wired to `ReplicationModule.Resync` by `AddTeams`.
+Open: `ApplyPresetAsync` does not yet guard the authority's membership while Running; the fake authority records
+`ReassignPlayerAssets` but does not emit `EntityChange` (M1-F3).

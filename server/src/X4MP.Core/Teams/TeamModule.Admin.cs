@@ -55,6 +55,14 @@ public sealed partial class TeamModule
     public Task<TeamResult> DeleteTeamAsync(int teamId, int? moveMembersTo = null) =>
         OnActor(() =>
         {
+            foreach (int member in _registry.MembersOf(teamId))
+            {
+                if (AuthorityMoveBlocked(member, moveMembersTo) is { } blocked)
+                {
+                    return new TeamResult(blocked, AuthorityMoveDetail);
+                }
+            }
+
             var result = _registry.DeleteTeam(teamId, moveMembersTo);
             if (result.Ok)
             {
@@ -67,11 +75,17 @@ public sealed partial class TeamModule
     /// <summary>
     /// Puts a player in a team now, whatever its lock, limit or password (an admin decides). A node waiting in
     /// <c>AwaitingTeam</c> moves on to <c>SyncingSave</c> (and a detached one does when it resumes). Moving a player who is
-    /// already in the game is only recorded here: the fan-out and the asset move are M1-T3.
+    /// already in the game fans out (TeamMemberChanged, table delta, ReassignPlayerAssets to the authority, a resync). The
+    /// authority's own player cannot move while the session is Running (<c>SessionRunningRestricted</c>; the REST layer maps it to 409).
     /// </summary>
     public Task<TeamResult<TeamMembership>> AssignPlayerAsync(int playerId, int teamId, TeamRole role = TeamRole.Member, string assignedBy = "admin") =>
         OnActor(() =>
         {
+            if (AuthorityMoveBlocked(playerId, teamId) is { } blocked)
+            {
+                return TeamResults.Fail<TeamMembership>(blocked, AuthorityMoveDetail);
+            }
+
             var result = _registry.Assign(playerId, teamId, _time.GetUtcNow(), assignedBy, role);
             if (result.Ok)
             {
@@ -87,6 +101,11 @@ public sealed partial class TeamModule
     public Task<bool> UnassignPlayerAsync(int playerId) =>
         OnActor(() =>
         {
+            if (AuthorityMoveBlocked(playerId, null) is not null)
+            {
+                return false;
+            }
+
             bool removed = _registry.Unassign(playerId);
             if (removed)
             {

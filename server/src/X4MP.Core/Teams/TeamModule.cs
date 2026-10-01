@@ -82,6 +82,7 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         }
 
         _view = BuildView();
+        CaptureBaseline();
     }
 
     /// <summary>Convenience for tests and simple hosts: fixed options.</summary>
@@ -151,6 +152,7 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         _view = BuildView();
         _dirty = true;
         SyncNodes();
+        FanOut();
         Persist();
         var handler = Changed;
         if (handler is not null)
@@ -229,6 +231,19 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
 
     public AdmissionVerdict OnNodeAdmitting(SessionNode node, WelcomeT welcome, bool resumed)
     {
+        _admitting = node.PlayerId;
+        try
+        {
+            return Admit(node, welcome, resumed);
+        }
+        finally
+        {
+            _admitting = -1;
+        }
+    }
+
+    private AdmissionVerdict Admit(SessionNode node, WelcomeT welcome, bool resumed)
+    {
         _nodes[node.PlayerId] = node;
         _names[node.PlayerId] = node.Name;
         var state = resumed && _state.TryGetValue(node.PlayerId, out var kept) ? kept : _state[node.PlayerId] = new NodeState();
@@ -260,6 +275,7 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         node.TeamId = membership?.TeamId ?? 0;
         node.TeamRole = membership?.Role ?? TeamRole.Member;
         FillWelcome(node, welcome, opt);
+        _sent[node.PlayerId] = (_registry.Version, _registry.Matrix.Version, _settingsVersion);
         UpdateAuthorityFlag();
         return AdmissionVerdict.Accept;
     }
@@ -319,12 +335,9 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         welcome.Relations = BuildRelations();
         // Shared with the economy module: only the team half of the settings is ours.
         welcome.Settings ??= new SessionSettingsT();
-        if (welcome.Settings.Version == 0)
-        {
-            welcome.Settings.Version = 1;
-        }
-
+        welcome.Settings.Version = _settingsVersion;
         welcome.Settings.Team = BuildPolicy(opt);
+        welcome.Settings.Economy ??= EconomySettings;
     }
 
     private TeamTableT BuildTable()
@@ -416,6 +429,15 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
             state.LobbyDeadline = long.MaxValue;
         }
 
+        if (current == NodePhase.InGame)
+        {
+            CatchUp(node);
+            if (node.IsAuthority)
+            {
+                FlushReassign();
+            }
+        }
+
         UpdateAuthorityFlag();
     }
 
@@ -426,12 +448,17 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         {
             _nodes.Remove(node.PlayerId);
             _state.Remove(node.PlayerId);
+            _sent.Remove(node.PlayerId);
         }
 
         UpdateAuthorityFlag();
     }
 
-    public void OnSessionPhaseChanged(SessionPhase previous, SessionPhase current) => Persist();
+    public void OnSessionPhaseChanged(SessionPhase previous, SessionPhase current)
+    {
+        _sessionPhase = current;
+        Persist();
+    }
 
     public void OnSessionBegun(long sessionId)
     {
@@ -449,6 +476,8 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         {
             Persist(); // a change made before the session row existed
         }
+
+        ExpireProposals(timestamp);
 
         List<SessionNode>? expired = null;
         foreach (var (playerId, state) in _state)
@@ -499,6 +528,11 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
             case MsgType.TeamCreateRequest:
                 HandleCreate(node, frame);
                 return true;
+        }
+
+        if (HandleLiveRequest(node, frame))
+        {
+            return true;
         }
 
         // The authority-must-have-a-team gate: nothing else from an authority that has no team yet (the policy table lets
@@ -600,11 +634,10 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
 
         var result = state.Failures >= MaxLobbyFailures ? Reject(TeamRejectReason.RateLimited, "too many failed attempts") : decide(state);
         result.RequestKey = key ?? new Id128T();
-        if (result.Status == TeamRequestStatus.Ok)
+        bool assigned = result.Status == TeamRequestStatus.Ok;
+        if (assigned)
         {
             state.Failures = 0;
-            AfterChange(); // also fires TeamAssigned for the node
-            LogAssigned(node.PlayerId, node.Name, result.TeamId, "lobby");
         }
         else if (result.Reason != TeamRejectReason.RateLimited)
         {
@@ -618,6 +651,11 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
 
         state.Results[id] = result;
         Send(node, result);
+        if (assigned)
+        {
+            AfterChange(); // also fires TeamAssigned for the node (the answer goes out before the phase changes)
+            LogAssigned(node.PlayerId, node.Name, result.TeamId, "lobby");
+        }
     }
 
     private static bool PasswordMatches(SessionNode node, Team team, List<byte>? proof)
