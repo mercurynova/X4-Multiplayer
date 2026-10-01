@@ -6,7 +6,7 @@ using X4MP.Proto;
 
 namespace X4MP.Persistence.Tests;
 
-/// <summary>The trades table and its lock table (<c>0005_trades.sql</c>), and a trade engine running on top of them.</summary>
+/// <summary>The trades table and its lock table (<c>0006_trades.sql</c>), and a trade engine running on top of them.</summary>
 public sealed class SqliteTradeStoreTests : IDisposable
 {
     private const long Session = 1;

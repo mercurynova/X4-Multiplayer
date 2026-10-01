@@ -83,7 +83,66 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
             }
         }
 
-        return new EconomyLoad(wallets, seqs, new EconomyLayout(mode, teams));
+        return new EconomyLoad(wallets, seqs, new EconomyLayout(mode, teams), LoadLoans(db, sessionId));
+    }
+
+    private static List<LoanRecord> LoadLoans(SqliteConnection db, long sessionId)
+    {
+        var loans = new List<LoanRecord>();
+        using var cmd = Command(db,
+            "SELECT id, lender_id, borrower_id, principal, repay_total, outstanding, repaid, forgiven, interest_bp, auto_repay_pct, due_in_s, due_at, state, " +
+            "created_at, offer_expires_at, accepted_at, closed_at, close_reason, memo, offer_request_key FROM loans WHERE session_id = $s ORDER BY id", sessionId);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            loans.Add(new LoanRecord(
+                reader.GetInt64(0), (int)reader.GetInt64(1), (int)reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4), reader.GetInt64(5),
+                reader.GetInt64(6), reader.GetInt64(7), (int)reader.GetInt64(8), (int)reader.GetInt64(9), (int)reader.GetInt64(10),
+                reader.IsDBNull(11) ? null : ParseTime(reader.GetString(11)),
+                Enum.Parse<LoanState>(reader.GetString(12)),
+                ParseTime(reader.GetString(13)), ParseTime(reader.GetString(14)),
+                reader.IsDBNull(15) ? null : ParseTime(reader.GetString(15)),
+                reader.IsDBNull(16) ? null : ParseTime(reader.GetString(16)),
+                reader.IsDBNull(17) ? null : reader.GetString(17),
+                reader.IsDBNull(18) ? null : reader.GetString(18),
+                reader.GetString(19)));
+        }
+
+        return loans;
+    }
+
+    private static DateTimeOffset ParseTime(string text) => DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+    private static void WriteLoan(SqliteConnection db, SqliteTransaction transaction, long sessionId, LoanRecord loan)
+    {
+        using var cmd = Command(db,
+            "INSERT INTO loans (session_id, id, lender_id, borrower_id, principal, repay_total, outstanding, repaid, forgiven, interest_bp, auto_repay_pct, " +
+            "due_in_s, due_at, state, created_at, offer_expires_at, accepted_at, closed_at, close_reason, memo, offer_request_key) " +
+            "VALUES ($s, $id, $l, $b, $p, $rt, $o, $rp, $f, $ibp, $arp, $dis, $due, $st, $ca, $oe, $aa, $cl, $cr, $m, $k) " +
+            "ON CONFLICT (session_id, id) DO UPDATE SET outstanding = excluded.outstanding, repaid = excluded.repaid, forgiven = excluded.forgiven, " +
+            "due_at = excluded.due_at, state = excluded.state, accepted_at = excluded.accepted_at, closed_at = excluded.closed_at, close_reason = excluded.close_reason", sessionId);
+        cmd.Transaction = transaction;
+        cmd.Parameters.AddWithValue("$id", loan.Id);
+        cmd.Parameters.AddWithValue("$l", loan.LenderId);
+        cmd.Parameters.AddWithValue("$b", loan.BorrowerId);
+        cmd.Parameters.AddWithValue("$p", loan.Principal);
+        cmd.Parameters.AddWithValue("$rt", loan.RepayTotal);
+        cmd.Parameters.AddWithValue("$o", loan.Outstanding);
+        cmd.Parameters.AddWithValue("$rp", loan.Repaid);
+        cmd.Parameters.AddWithValue("$f", loan.Forgiven);
+        cmd.Parameters.AddWithValue("$ibp", loan.InterestBasisPoints);
+        cmd.Parameters.AddWithValue("$arp", loan.AutoRepayPercent);
+        cmd.Parameters.AddWithValue("$dis", loan.DueInSeconds);
+        cmd.Parameters.AddWithValue("$due", loan.DueAt is { } due ? Iso(due) : DBNull.Value);
+        cmd.Parameters.AddWithValue("$st", loan.State.ToString());
+        cmd.Parameters.AddWithValue("$ca", Iso(loan.CreatedAt));
+        cmd.Parameters.AddWithValue("$oe", Iso(loan.OfferExpiresAt));
+        cmd.Parameters.AddWithValue("$aa", loan.AcceptedAt is { } accepted ? Iso(accepted) : DBNull.Value);
+        cmd.Parameters.AddWithValue("$cl", loan.ClosedAt is { } closed ? Iso(closed) : DBNull.Value);
+        cmd.Parameters.AddWithValue("$cr", (object?)loan.CloseReason ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$m", (object?)loan.Memo ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$k", loan.OfferRequestKey);
+        cmd.ExecuteNonQuery();
     }
 
     public void Commit(EconomyCommit commit)
@@ -195,6 +254,11 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
                     cmd.Parameters.AddWithValue("$t", team is { } t ? t : DBNull.Value);
                     cmd.ExecuteNonQuery();
                 }
+            }
+
+            foreach (var loan in commit.Loans ?? [])
+            {
+                WriteLoan(db, transaction, commit.SessionId, loan);
             }
 
             transaction.Commit();

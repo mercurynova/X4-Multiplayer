@@ -64,6 +64,7 @@ public sealed partial class EconomyModule : ISessionModule
         Auditor = new EconomyAuditor(ledger, _store, _time, () => TimeSpan.FromSeconds(Math.Max(1, _options().AuditIntervalSeconds)));
         Service.Start();
         BeginTrades(Service, Auditor);
+        InitLoanHooks(Service, Auditor);
         if (_teams is not null && !_subscribed)
         {
             _subscribed = true;
@@ -91,6 +92,7 @@ public sealed partial class EconomyModule : ISessionModule
             : [.. service.VisibleBalances(node.PlayerId)];
         SendTo(node, balances, LedgerReason.GameIncome, new Id128T());
         TradesNodeAttached(node, resumed);
+        SendOpenLoans(node, service);
     }
 
     public void OnNodeLeft(SessionNode node, string reason)
@@ -119,6 +121,7 @@ public sealed partial class EconomyModule : ISessionModule
 
         Auditor?.Tick(timestamp);
         TradesTick();
+        TickLoans(service, timestamp);
         var mode = _options().CreditMode;
         if (mode != _lastMode || service.MigrationPending)
         {
@@ -137,6 +140,11 @@ public sealed partial class EconomyModule : ISessionModule
         if (frame.Type is MsgType.CreditTransferRequest or MsgType.DonateRequest or MsgType.PoolDepositRequest or MsgType.PoolWithdrawRequest)
         {
             return OnPlayerAction(node, frame);
+        }
+
+        if (IsLoanMessage(frame.Type))
+        {
+            return OnLoanAction(node, frame);
         }
 
         if (frame.Type != MsgType.CreditDelta)

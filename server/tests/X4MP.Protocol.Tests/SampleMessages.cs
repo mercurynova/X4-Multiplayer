@@ -348,7 +348,7 @@ public static class SampleMessages
         // ---- economy ----
         S(new WalletUpdateT { Balances = Balances(), Reason = LedgerReason.Transfer, RefId = Id(30), EffectiveMode = EffectiveCreditMode.Shared, AckedDeltaSeq = 55 }),
         S(new CreditDeltaT { RequestKey = Id(31), PlayerId = 3, TeamId = 1, Amount = -12345, Source = CreditSource.StationIncome, RefEventSeq = 9, GameTime = 3600.25, Seq = 56 }),
-        S(new EconomyResultT { RequestKey = Id(32), Status = EconomyStatus.Rejected, Reason = EconomyReject.InsufficientFunds, Detail = "poor", RefId = Id(33), Balances = Balances() }),
+        S(new EconomyResultT { RequestKey = Id(32), Status = EconomyStatus.Rejected, Reason = EconomyReject.RequestIdReuse, Detail = "poor", RefId = Id(33), Balances = Balances() }),
         S(new CreditTransferRequestT { RequestKey = Id(34), ToPlayer = 4, Amount = 1000, Memo = "thanks" }),
         S(new PoolDepositRequestT { RequestKey = Id(35), Amount = 2000 }),
         S(new PoolWithdrawRequestT { RequestKey = Id(36), Amount = 3000 }),
@@ -358,7 +358,7 @@ public static class SampleMessages
         S(new LoanRepayT { RequestKey = Id(41), LoanId = Id(40), Amount = 500 }),
         S(new LoanForgiveT { RequestKey = Id(42), LoanId = Id(40), Amount = 0 }),
         S(new LoanCancelT { RequestKey = Id(43), LoanId = Id(40) }),
-        S(new LoanStatusT { LoanId = Id(40), Lender = 3, Borrower = 4, State = LoanState.Active, Principal = 1_000_000, RepayTotal = 1_100_000, Repaid = 100, Forgiven = 50, CreatedTimeUs = 1_000, DueTimeUs = 2_000_000, Memo = "m" }),
+        S(new LoanStatusT { LoanId = Id(40), Lender = 3, Borrower = 4, State = LoanState.Withdrawn, Principal = 1_000_000, RepayTotal = 1_100_000, Repaid = 100, Forgiven = 50, CreatedTimeUs = 1_000, DueTimeUs = 2_000_000, Memo = "m" }),
         S(new TradeProposalT { RequestKey = Id(44), Counterparty = 4, Give = [Item(TradeItemKind.Credits)], Want = [Item(TradeItemKind.Ship), Item(TradeItemKind.Ware)], TtlS = 300, Memo = "deal" }),
         S(new TradeCounterT { RequestKey = Id(45), TradeId = Id(46), BaseVersion = 2, Give = [Item(TradeItemKind.Station)], Want = [Item(TradeItemKind.Credits)] }),
         S(new TradeAcceptT { RequestKey = Id(47), TradeId = Id(46), Version = 3, ReceiveIntoAsset = 1500 }),
@@ -370,7 +370,7 @@ public static class SampleMessages
             Counterparty = new TradeSideT { PlayerId = 4, TeamId = 2, Give = [Item(TradeItemKind.Ship)], AcceptedVersion = 2 },
             ExpiresTimeUs = 9_000_000, Memo = "m",
         }),
-        S(new TradeResultT { TradeId = Id(46), Version = 3, State = TradeState.RolledBack, Reason = EconomyReject.Timeout, Detail = "authority timeout" }),
+        S(new TradeResultT { TradeId = Id(46), Version = 3, State = TradeState.RolledBack, Reason = EconomyReject.OutOfRange, Detail = "not in the same sector" }),
         S(new AssetTransferOrderT
         {
             TradeId = Id(46), DeadlineMs = 15000,

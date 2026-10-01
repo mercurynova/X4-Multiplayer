@@ -51,8 +51,8 @@ public sealed class PersistenceTests : IDisposable
             "'chat_messages','galaxy_cache','config_overrides','admin_users','api_tokens','audit_log'," +
             "'journal','string_table','checkpoints')");
         Assert.Equal(16, tables);
-        // tables of tasks that have not landed yet must not exist
-        Assert.Equal(0, Scalar<long>(factory,
+        // the loans table landed with M1-E4 (0005_loans)
+        Assert.Equal(1, Scalar<long>(factory,
             "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('loans')"));
     }
 

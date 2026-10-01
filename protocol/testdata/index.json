@@ -1400,14 +1400,14 @@
       "file": "0x0802_EconomyResult.bin",
       "kind": "frame",
       "size": 192,
-      "sha256": "56fee4a0298b614368184cf3c760f35ab36372035df7de3b69b71cb291a57ad0",
+      "sha256": "24f3933e24b32100219da8833da503f821ff5c9313d6df64f47690d529c83a60",
       "msgType": 2050,
       "msgName": "EconomyResult",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
       "payloadLength": 184,
-      "fields": {"Balances":[{"Balance":1000000,"Version":11,"Wallet":{"Kind":0,"OwnerId":3}},{"Balance":-5,"Version":12,"Wallet":{"Kind":2,"OwnerId":1}}],"Detail":"poor","Reason":1,"RefId":{"Hi":100,"Lo":33},"RequestKey":{"Hi":97,"Lo":32},"Status":2}
+      "fields": {"Balances":[{"Balance":1000000,"Version":11,"Wallet":{"Kind":0,"OwnerId":3}},{"Balance":-5,"Version":12,"Wallet":{"Kind":2,"OwnerId":1}}],"Detail":"poor","Reason":27,"RefId":{"Hi":100,"Lo":33},"RequestKey":{"Hi":97,"Lo":32},"Status":2}
     },
     {
       "file": "0x0803_CreditTransferRequest.bin",
@@ -1530,14 +1530,14 @@
       "file": "0x080C_LoanStatus.bin",
       "kind": "frame",
       "size": 136,
-      "sha256": "c88fed2616b8a4f4b558e755a8151a927e96b5fa8e58ac5820476bf7af2e5389",
+      "sha256": "70599aeec0b167f62e2b807c3e1a3a50766e25e071674878fccb61c3bd05e408",
       "msgType": 2060,
       "msgName": "LoanStatus",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
       "payloadLength": 128,
-      "fields": {"Borrower":4,"CreatedTimeUs":1000,"DueTimeUs":2000000,"Forgiven":50,"Lender":3,"LoanId":{"Hi":121,"Lo":40},"Memo":"m","Principal":1000000,"Repaid":100,"RepayTotal":1100000,"State":1}
+      "fields": {"Borrower":4,"CreatedTimeUs":1000,"DueTimeUs":2000000,"Forgiven":50,"Lender":3,"LoanId":{"Hi":121,"Lo":40},"Memo":"m","Principal":1000000,"Repaid":100,"RepayTotal":1100000,"State":8}
     },
     {
       "file": "0x080D_TradeProposal.bin",
@@ -1607,15 +1607,15 @@
     {
       "file": "0x0812_TradeResult.bin",
       "kind": "frame",
-      "size": 88,
-      "sha256": "1aacf174465edb5c934447d92082b6bfdd6801ae594e74f8c1a27f413d1c72f2",
+      "size": 96,
+      "sha256": "12827fe4fe3ee76606c86b06e108ec28f5fcbabdc2a58de44bc4861e52529986",
       "msgType": 2066,
       "msgName": "TradeResult",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80,
-      "fields": {"Detail":"authority timeout","Reason":24,"State":6,"TradeId":{"Hi":139,"Lo":46},"Version":3}
+      "payloadLength": 88,
+      "fields": {"Detail":"not in the same sector","Reason":28,"State":6,"TradeId":{"Hi":139,"Lo":46},"Version":3}
     },
     {
       "file": "0x0813_AssetTransferOrder.bin",
