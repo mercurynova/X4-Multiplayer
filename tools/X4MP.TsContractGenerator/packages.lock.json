@@ -409,6 +409,7 @@
       "x4mp.core": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
           "X4MP.Protocol": "[1.0.0, )"
         }
       },

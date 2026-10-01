@@ -101,7 +101,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
 
     private void OnOverflow(DisconnectCode code) => Close(code, "send queue overflow");
 
-    public void Close(DisconnectCode reason, string? detail = null)
+    public void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0)
     {
         if (Interlocked.CompareExchange(ref _state, StateClosing, StateOpen) != StateOpen)
         {
@@ -110,7 +110,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
 
         try
         {
-            var final = ControlFrames.Disconnect(reason, detail);
+            var final = ControlFrames.Disconnect(reason, detail, expected, retryAfterMs);
             _queue.Complete(discardControl: reason == DisconnectCode.SlowConsumer, final);
             final.Release();
             _abortCts.CancelAfter(_options.CloseFlushTimeoutMs);

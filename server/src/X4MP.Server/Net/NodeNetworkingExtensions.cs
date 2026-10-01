@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using X4MP.Core.Net;
+using X4MP.Core.Session;
+using X4MP.Persistence;
 using X4MP.Transport;
 
 namespace X4MP.Server.Net;
@@ -40,6 +42,22 @@ public static class NodeNetworkingExtensions
         services.Configure<KestrelServerOptions>(kestrel =>
             kestrel.Listen(endpoint, listen => listen.UseConnectionHandler<NodeConnectionHandler>()));
 
+        // Gateway and session hand-off. TryAdd so tests (and later the SessionActor) can pre-register replacements.
+        services.TryAddSingleton(sp => GatewayState.FromOptions(sp.GetRequiredService<NetOptions>()));
+        services.TryAddSingleton<SqliteNodeStore>();
+        services.TryAddSingleton<IPlayerStore>(sp => sp.GetRequiredService<SqliteNodeStore>());
+        services.TryAddSingleton<IBanStore>(sp => sp.GetRequiredService<SqliteNodeStore>());
+        services.TryAddSingleton<IAdmissionHandler, DefaultAdmissionHandler>();
+        services.TryAddSingleton(sp => new NodeGateway(
+            sp.GetRequiredService<NetOptions>(),
+            sp.GetRequiredService<GatewayState>(),
+            sp.GetRequiredService<IPlayerStore>(),
+            sp.GetRequiredService<IBanStore>(),
+            sp.GetRequiredService<IAdmissionHandler>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<ILogger<NodeGateway>>()));
+        services.AddHostedService<NodeGatewayService>();
+
         // Pipe thresholds from server-design 2.2: pause the writer at 1 MiB, resume at 512 KiB.
         services.Configure<SocketTransportOptions>(socket =>
         {
@@ -48,4 +66,10 @@ public static class NodeNetworkingExtensions
         });
         return services;
     }
+}
+
+/// <summary>Runs the <see cref="NodeGateway"/> accept loop for the lifetime of the host.</summary>
+internal sealed class NodeGatewayService(NodeGateway gateway, INodeListener listener) : BackgroundService
+{
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) => gateway.RunAsync(listener, stoppingToken);
 }
