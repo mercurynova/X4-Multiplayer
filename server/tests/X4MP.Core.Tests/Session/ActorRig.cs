@@ -125,6 +125,16 @@ public sealed class FakeConnection(TimeProvider time) : INodeConnection
         _inbound.Writer.TryWrite(new InboundFrame(new Frame(type, FrameOptions.None, lane, payload), time.GetTimestamp()));
     }
 
+    /// <summary>The node sends an already encoded payload (built with a <c>MessageEncoder</c> or a kit).</summary>
+    public void PushPayload(MsgType type, byte[] payload)
+    {
+        var lane = MessageRegistry.Default.GetDescriptor(type).Lane;
+        _inbound.Writer.TryWrite(new InboundFrame(new Frame(type, FrameOptions.None, lane, payload), time.GetTimestamp()));
+    }
+
+    /// <summary>Frames pushed and not yet read by the actor's reader loop.</summary>
+    public int PendingInbound => _inbound.Reader.Count;
+
     public ValueTask DisposeAsync()
     {
         Close(DisconnectCode.ClientQuit);

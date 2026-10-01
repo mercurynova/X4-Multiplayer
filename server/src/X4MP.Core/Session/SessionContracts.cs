@@ -187,6 +187,9 @@ public interface ISessionNodeDriver
     /// <summary>Runs <paramref name="work"/> on the actor thread and returns its result.</summary>
     Task<T> CallAsync<T>(Func<T> work);
 
+    /// <summary>Microseconds on the server clock the nodes sync to (the <c>Ping</c>/<c>Pong</c> clock); 0 when the driver has none. Safe from any thread.</summary>
+    long ServerTimeUs => 0;
+
     /// <summary>Raises a server-driven node trigger (<see cref="NodeTrigger.RequireTeam"/>, <see cref="NodeTrigger.TeamAssigned"/>, ...). Queued.</summary>
     Task<TransitionResult> ApplyNodeTriggerAsync(int playerId, NodeTrigger trigger);
 
