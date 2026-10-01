@@ -1,0 +1,225 @@
+// X4MP wire protocol -- credits, wallets, transfers, team pool, donations, loans, escrowed trades.
+// The SERVER is the single source of truth for balances (ledger in SQLite). Spec: protocol.md section 15.
+//
+// Rules for every request below:
+//  * request_key (Id128) is an idempotency key. Duplicate -> the original EconomyResult is re-sent.
+//  * The server validates scope (EconomySettings.*_scope vs team relation), balances (never negative),
+//    phase (sender InGame/Loading, session Running), economy freeze, and rate limit (5 / 10 s).
+//  * Amounts are whole credits (long). All replies: EconomyResult to the requester, WalletUpdate to
+//    every affected player (and the authority, so the mod can reflect balances in game).
+include "common.fbs";
+include "teams.fbs";
+
+namespace X4MP.Proto;
+
+enum WalletKind : ubyte { Player = 0, TeamShared, TeamPool, Escrow }
+
+/// owner_id = player_id (Player), team_id (TeamShared/TeamPool), 0 (Escrow: per trade/loan, see ref).
+struct WalletRef { kind:WalletKind; owner_id:ushort; }
+
+table WalletBalance {
+  wallet:WalletRef;
+  balance:long;
+  version:ulong;                 // ledger sequence; ignore older updates
+}
+
+enum LedgerReason : ubyte {
+  GameIncome = 0, GameSpend, Transfer, PoolDeposit, PoolWithdraw, Donation,
+  LoanPrincipal, LoanRepayment, LoanForgiven, TradeEscrow, TradeSettle, TradeRollback,
+  ModeMigration, AdminAdjust
+}
+
+/// S->N. Balances visible to the receiver changed (own wallet, team shared/pool).
+table WalletUpdate {
+  balances:[WalletBalance];
+  reason:LedgerReason;
+  ref_id:Id128;                  // transfer / loan / trade id, or request_key
+  effective_mode:EffectiveCreditMode;
+}
+
+enum CreditSource : ubyte { Trade = 0, Build, Repair, Bounty, Mission, StationIncome, Upkeep, Other }
+
+/// A->S (any player's game-side income/spend observed on the authority, e.g. team station sales)
+/// or C->S (the sender's own local money change, from the mod's GetPlayerMoney diff).
+/// Booked to the effective wallet (player, or team shared). Negative results are booked + alerted.
+table CreditDelta {
+  request_key:Id128;
+  player_id:ushort;              // A only; ignored from clients (server uses sender)
+  team_id:ushort;                // A only, for team-owned income with no player
+  amount:long;                   // signed
+  source:CreditSource;
+  ref_event_seq:ulong;
+  game_time:double;
+}
+
+enum EconomyStatus : ubyte { Ok = 0, Pending, Rejected }
+enum EconomyReject : ubyte {
+  None = 0, InsufficientFunds, NotTeammate, ScopeDisabled, ScopeDenied, NotApplicableInSharedMode,
+  PoolDisabled, PoolPolicyDenied, DailyLimit, AmountInvalid, OverMaxAmount, UnknownPlayer,
+  UnknownLoan, UnknownTrade, StaleVersion, NotParty, WrongState, TooManyOpen, EconomyFrozen,
+  RateLimited, AssetNotOwned, AssetUnavailable, AuthorityUnavailable, AuthorityRejected, Timeout,
+  SessionNotRunning
+}
+
+/// S->C. Exactly one per request_key.
+table EconomyResult {
+  request_key:Id128;
+  status:EconomyStatus;
+  reason:EconomyReject;
+  detail:string;
+  ref_id:Id128;                  // created transfer / loan / trade id
+  balances:[WalletBalance];      // requester's balances after the operation
+}
+
+// ---- teammate transfers and team pool (PerPlayer mode) ----
+
+/// Same team only (or Allied if allow_allied_transfers). Recipient need not be online.
+table CreditTransferRequest { request_key:Id128; to_player:ushort; amount:long; memo:string; }
+table PoolDepositRequest { request_key:Id128; amount:long; }
+table PoolWithdrawRequest { request_key:Id128; amount:long; }
+
+// ---- player-to-player, possibly cross-team, gated by EconomySettings scopes ----
+
+/// Gift (donate_scope). Works in both credit modes (from own wallet, or team shared in Shared mode
+/// only if the sender may spend it -- leader or AnyMember policy).
+table DonateRequest { request_key:Id128; to_player:ushort; amount:long; memo:string; }
+
+enum LoanState : ubyte { Offered = 0, Active, Repaid, Forgiven, Overdue, Declined, Expired, Cancelled }
+
+/// Lender -> S (loan_scope). Server reserves nothing until accepted; on accept it moves principal.
+table LoanOffer {
+  request_key:Id128;
+  borrower:ushort;
+  principal:long;
+  repay_total:long;              // >= principal; flat "interest" agreed up front
+  due_in_s:uint;                 // server wall-clock seconds after acceptance; 0 = no due date
+  offer_ttl_s:uint = 300;
+  memo:string;
+}
+
+/// Borrower -> S.
+table LoanRespond { request_key:Id128; loan_id:Id128; accept:bool; }
+
+/// Borrower -> S. Partial repayments allowed; amount capped at the outstanding balance.
+table LoanRepay { request_key:Id128; loan_id:Id128; amount:long; }
+
+/// Lender -> S. amount 0 = forgive the full outstanding balance.
+table LoanForgive { request_key:Id128; loan_id:Id128; amount:long; }
+
+/// Lender -> S, only while Offered.
+table LoanCancel { request_key:Id128; loan_id:Id128; }
+
+/// S->N (lender and borrower; admins via GUI). On every state or balance change.
+table LoanStatus {
+  loan_id:Id128;
+  lender:ushort;
+  borrower:ushort;
+  state:LoanState;
+  principal:long;
+  repay_total:long;
+  repaid:long;
+  forgiven:long;
+  created_time_us:ulong;
+  due_time_us:ulong;             // 0 = none
+  memo:string;
+}
+
+// ---- escrowed trades: credits <-> wares / ships (stations later) ----
+
+enum TradeItemKind : ubyte { Credits = 0, Ware, Ship, Station }
+
+/// One side's contribution. Credits: amount. Ware: ware_ref + amount from source_asset
+/// (an asset the giver may command) into the receiver's dest_asset (set on accept).
+/// Ship/Station: asset net_id (ownership transfers to the receiver's team/player).
+table TradeItem {
+  kind:TradeItemKind;
+  amount:long;
+  ware_ref:uint;
+  asset:uint;                    // Ship/Station net_id, or Ware source container
+}
+
+enum TradeState : ubyte {
+  Proposed = 0, Countered, Accepted,      // waiting for both parties to accept the same version
+  Escrowed,                               // credits locked in escrow wallet(s)
+  Transferring,                           // AssetTransferOrder(s) sent; awaiting confirmations
+  Completed, RolledBack, Cancelled, Expired, Rejected
+}
+
+/// Initiator -> S (trade_scope; ships need trade_ships_enabled + allow_asset_transfer if cross-team).
+table TradeProposal {
+  request_key:Id128;
+  counterparty:ushort;
+  give:[TradeItem];              // initiator gives
+  want:[TradeItem];              // initiator wants from counterparty
+  ttl_s:uint = 300;
+  memo:string;
+}
+
+/// Either party -> S. Replaces both sides; bumps version; the other party must accept anew.
+table TradeCounter {
+  request_key:Id128;
+  trade_id:Id128;
+  base_version:uint;             // must equal current version, else StaleVersion
+  give:[TradeItem];              // from the sender's perspective
+  want:[TradeItem];
+}
+
+/// Either party -> S. Accepts exactly `version`. When both have accepted the same version the
+/// server executes: validate -> escrow credits -> AssetTransferOrder(s) -> settle or roll back.
+table TradeAccept {
+  request_key:Id128;
+  trade_id:Id128;
+  version:uint;
+  receive_into_asset:uint;       // dest container for incoming wares (own asset); 0 = current ship
+}
+
+/// Either party -> S, any time before Escrowed.
+table TradeCancel { request_key:Id128; trade_id:Id128; }
+
+table TradeSide { player_id:ushort; team_id:ushort; give:[TradeItem]; accepted_version:uint; }
+
+/// S->both parties on every change.
+table TradeStatus {
+  trade_id:Id128;
+  version:uint;
+  state:TradeState;
+  initiator:TradeSide;
+  counterparty:TradeSide;
+  expires_time_us:ulong;
+  memo:string;
+}
+
+/// S->both parties (and GUI). Final outcome.
+table TradeResult {
+  trade_id:Id128;
+  version:uint;
+  state:TradeState;              // Completed | RolledBack | Cancelled | Expired | Rejected
+  reason:EconomyReject;
+  detail:string;
+}
+
+enum AssetTransferKind : ubyte { OwnerChange = 0, WareMove }
+
+/// S->simulating node (authority for NPC-simulated assets; the piloting client for its own
+/// player ship's cargo). Idempotent per (trade_id, line).
+table AssetTransferOrder {
+  trade_id:Id128;
+  line:ubyte;                    // index of this order within the trade
+  kind:AssetTransferKind;
+  asset:uint;                    // ship/station (OwnerChange) or source container (WareMove)
+  to_team:ushort;
+  to_player:ushort;
+  ware_ref:uint;                 // WareMove
+  amount:long;                   // WareMove
+  dest_asset:uint;               // WareMove destination container
+  deadline_ms:uint = 15000;
+}
+
+/// Simulating node -> S. ok=false => server rolls the whole trade back.
+/// For OwnerChange the authority ALSO emits EntityChange{OwnerTeam|OwnerPlayer} (journaled).
+table AssetTransferConfirm {
+  trade_id:Id128;
+  line:ubyte;
+  ok:bool;
+  error:string;
+}

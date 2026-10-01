@@ -1,0 +1,213 @@
+// X4MP wire protocol -- session lifecycle, roster, checkpoints and save transfer,
+// galaxy metadata, string table.
+include "common.fbs";
+include "teams.fbs";
+
+namespace X4MP.Proto;
+
+/// S->N on join and on every change.
+table SessionState {
+  phase:SessionPhase;
+  session_name:string;
+  authority_player:ushort;       // 0 = none
+  paused:bool;
+  pause_reason:string;
+  game_time:double;              // authority game time at last report
+  time_scale:float = 1;          // SETA is admin/authority controlled
+  current_save_sha256:[ubyte];   // the session's current checkpoint
+  max_players:ushort;
+}
+
+table PlayerInfo {
+  player_id:ushort;
+  name:string;
+  roles:Role;
+  phase:NodePhase;
+  team_id:ushort;                // 0 = unassigned
+  team_role:TeamRole;
+  ship_net_id:uint;              // 0 = no ship (dead, observer, loading)
+  sector:ushort;
+  ping_ms:ushort;
+}
+
+/// S->N. full=true replaces the roster; otherwise upsert players, delete removed.
+table RosterUpdate {
+  full:bool;
+  players:[PlayerInfo];
+  removed:[ushort];
+}
+
+// ---------------- checkpoints ----------------
+
+enum SaveReason : ubyte { SessionStart = 0, Autosave, JoinRequested, Migration, Admin, Shutdown }
+
+/// S->A. The authority must, in ONE frame: hide/remove tagged ghosts, call SaveGame(slot),
+/// build the manifest, send SaveStarted, restore ghosts. Then upload save + manifest in-band
+/// (SaveUploadBegin/SaveChunk/SaveUploadEnd).
+table RequestSave {
+  request_id:uint;
+  reason:SaveReason;
+  slot_name:string;              // e.g. "x4mp_checkpoint" (no extension)
+}
+
+/// A->S. Journal ordering marker on the Control lane: every world mutation sent before this
+/// frame is contained in the save; every one after is not.
+table SaveStarted {
+  request_id:uint;               // 0 = manual save by the authority player
+  checkpoint_id:Id128;           // authority-generated; links save + manifest uploads
+  game_time:double;
+  next_net_id:uint;
+}
+
+enum UploadKind : ubyte { Save = 0, Manifest }
+
+/// A->S (Control). Announces an in-band upload. Admin uploads use HTTP instead.
+table SaveUploadBegin {
+  checkpoint_id:Id128;
+  kind:UploadKind;
+  size:ulong;
+  sha256:[ubyte];
+  name:string;                   // display name
+  ghosts_cleaned:bool;           // false => server stores but refuses to make it current
+}
+
+/// S->A (Control).
+table SaveUploadAccept {
+  upload_id:uint;
+  chunk_size:uint = 262144;      // 256 KiB
+  resume_offset:ulong;           // > 0 when resuming an interrupted upload
+  window_chunks:ubyte = 8;
+}
+
+/// Bulk lane, either direction (upload A->S, download S->N). <= chunk_size bytes.
+table SaveChunk {
+  transfer_id:uint;              // upload_id (upload) or download_id (download)
+  offset:ulong;
+  data:[ubyte];
+}
+
+/// Control lane, receiver -> sender of chunks: every 4 chunks; window = 8 chunks.
+table SaveChunkAck {
+  transfer_id:uint;
+  next_offset:ulong;             // all bytes before this are received
+}
+
+/// A->S (Control) after the last chunk.
+table SaveUploadEnd { upload_id:uint; }
+
+enum SaveStoreResult : ubyte { Stored = 0, StoredNotCurrent, HashMismatch, NotASave, TooLarge, Aborted }
+
+/// S->A. Result of an upload. For kind=Save + Stored the save becomes the session's current save
+/// (once its manifest is also stored).
+table SaveStored {
+  upload_id:uint;
+  checkpoint_id:Id128;
+  kind:UploadKind;
+  result:SaveStoreResult;
+  detail:string;
+}
+
+/// S->N. The session's current checkpoint ("SessionSaveInfo" in server-design.md 3.3).
+table SessionSaveInfo {
+  checkpoint_id:Id128;
+  sha256:[ubyte];
+  size:ulong;
+  display_name:string;
+  local_file_name:string;        // "x4mp_<sha256[0..12]>.xml.gz" -- contract with the mod
+  manifest_sha256:[ubyte];
+  manifest_size:ulong;
+  http_url:string;               // only with SaveHttp; empty otherwise
+  manifest_http_url:string;
+  download_token:string;         // HTTP: "Authorization: X4MP-Download <token>"
+  game_time:double;
+}
+
+/// N->S (Control). In-band download (default). Resume = send again with the current offset.
+table SaveDownloadRequest {
+  sha256:[ubyte];                // which file (save or manifest)
+  kind:UploadKind;
+  offset:ulong;
+}
+
+/// S->N (Control). Starts the chunk stream for a download.
+table SaveDownloadAccept {
+  download_id:uint;
+  size:ulong;
+  chunk_size:uint = 262144;
+  window_chunks:ubyte = 8;
+}
+
+/// N->S. The node has the verified save + manifest on disk; server moves it to Loading.
+table SaveReady { sha256:[ubyte]; manifest_sha256:[ubyte]; }
+
+/// N->S, on every phase change and at most 2/s while downloading/loading.
+table LoadStatus {
+  phase:NodePhase;
+  progress:float;                // 0..1 within the phase
+  bytes_done:ulong;
+  detail:string;
+  error:DisconnectCode;          // set when phase = Failed
+}
+
+/// N->S. Universe loaded, manifest matched, catch-up applied: ready for replication.
+table NodeReady {
+  universe_epoch:ulong;          // random per LoadGame; detects reloads (mod-design 4.2)
+  loaded_save_sha256:[ubyte];
+}
+
+/// N->S after matching the checkpoint manifest against the freshly loaded universe.
+table ManifestReport {
+  checkpoint_id:Id128;
+  total:uint;
+  matched:uint;
+  matched_tiebreak_owner:uint;
+  matched_tiebreak_idcode:uint;
+  unmatched:uint;
+  ambiguous:uint;
+  universe_id_equal:uint;        // diagnostic: local UniverseID == authority component_id
+  unmatched_sample:[uint];       // first <=256 unmatched net_ids
+  duration_ms:uint;
+}
+
+/// S->N. grant=true: become authority (after loading the given checkpoint). Later milestone.
+table AuthorityAssign {
+  grant:bool;
+  reason:string;
+  checkpoint_id:Id128;
+  next_net_id:uint;              // continue allocation from here
+  string_table_next:uint;        // continue string indices from here
+}
+
+// ---------------- galaxy metadata + strings ----------------
+
+enum LinkKind : ubyte { Gate = 0, Highway, Accelerator, Other }
+
+table SectorInfo {
+  index:ushort;                  // 1-based, assigned by sorting sector macros (deterministic)
+  macro:string;                  // "cluster_01_sector001_macro" -- stable across machines
+  cluster_macro:string;
+  name:string;
+  owner_ref:uint;
+  galaxy_pos:Vec3f;              // for the GUI map (zero if unavailable)
+}
+
+table SectorLink {
+  from:ushort;
+  to:ushort;
+  kind:LinkKind;
+  from_pos:Vec3f;                // sector-relative position of the exit in `from`
+  to_pos:Vec3f;
+}
+
+/// A->S once per save (server caches it by save sha256), S->N during join.
+table GalaxyMetadata {
+  save_sha256:[ubyte];
+  sectors:[SectorInfo];
+  links:[SectorLink];
+}
+
+table StringEntry { index:uint; kind:StringKind; value:string; }
+
+/// A->S (authority allocates indices), S->N (server replays the full table on join),
+/// S->A (full table on authority migration).
+table StringTableAdd { entries:[StringEntry]; }

@@ -1,0 +1,185 @@
+// X4MP wire protocol -- shared types.
+// Spec: docs/protocol.md. Protocol version 0.1 (draft, not yet validated with flatc).
+//
+// Conventions
+//  * All multi-byte values little-endian (FlatBuffers default).
+//  * "_ref" fields are indices into the session string table (StringTableAdd); 0 = none/unchanged.
+//  * Sector indices (ushort) come from GalaxyMetadata (sorted sector macros); 0 = none.
+//  * net_id: uint32 assigned by the AUTHORITY; 0 = none. UniverseIDs never identify entities on the wire.
+//  * player_id / team_id: ushort assigned by the server; 0 = none.
+//  * Times: *_time_us = server clock, microseconds since server start (monotonic).
+//           game_time  = X4 GetCurrentGameTime() seconds on the authority.
+//  * Every client request that changes state carries request_key:Id128 (idempotency key,
+//    random per request; the server returns the original result for a duplicate).
+
+namespace X4MP.Proto;
+
+/// 128-bit opaque identifier (request keys, resume token, session id, save id, trade/loan id).
+struct Id128 { lo:ulong; hi:ulong; }
+
+/// Unquantised vector (build requests, galaxy metadata, manifests -- not the hot path).
+struct Vec3f { x:float; y:float; z:float; }
+
+/// Unquantised rotation, radians, X4 UIPosRot convention.
+struct Rot3f { yaw:float; pitch:float; roll:float; }
+
+/// Roles a connection holds. Admin is a privilege flag that can combine with the others.
+enum Role : ubyte (bit_flags) { Authority, Client, Observer, Admin }
+
+/// Capability bits. negotiated = client_caps & server_caps.
+enum Capability : ulong (bit_flags) {
+  UdpRealtime,       // 1<<0  Realtime lane over UDP (else TCP, latest-wins)
+  Lz4Frames,         // 1<<1  TCP frame flag Compressed allowed
+  GhostRender,       // 1<<2  node renders remote NPC ships as ghosts (the only v1 client mode)
+  HybridBind,        // 1<<3  reserved: bind remote ships to local copies (not built)
+  DamageSync,        // 1<<4  HitReport intents + authoritative hull/shield apply
+  StationBuild,      // 1<<5
+  TradeSync,         // 1<<6
+  CaptureSync,       // 1<<7
+  AuthorityCapable,  // 1<<8  node can act as authority (capture pipeline present)
+  InGameAdmin,       // 1<<9  node UI can issue AdminCommand
+  LogForward,        // 1<<10
+  SaveHttp,          // 1<<11 node can download saves over HTTP instead of in-band
+  InterestHint,      // 1<<12 node may send InterestHint (server may ignore)
+  Economy            // 1<<13 node implements wallets/transfers/loans/trades UI
+}
+
+/// Session-wide phase (SessionState.phase). Mirrors server-design.md 2.4.
+enum SessionPhase : ubyte {
+  Idle = 0,
+  WaitingForAuthority,
+  AuthorityLoading,    // authority admitted; waiting for GalaxyMetadata + first stored checkpoint
+  Running,
+  Paused,
+  AuthorityLost,       // replication stops; player relay + chat continue
+  Migrating,           // authority handoff (later milestone)
+  Stopping,
+  Ended
+}
+
+/// Per-node phase (LoadStatus.phase, PlayerInfo.phase). Mirrors server-design.md 2.4/2.13.
+enum NodePhase : ubyte {
+  Admitted = 0,
+  AwaitingTeam,        // lobby / admin-assign team selection
+  SyncingSave,         // checking local cache / downloading
+  Verifying,           // SHA-256 of the downloaded save
+  Loading,             // X4 LoadGame in progress
+  Matching,            // universe ready (paused); manifest matching
+  CatchingUp,          // WorldCatchUp + first SectorComplete markers
+  InGame,
+  Detached,            // server-side only: socket gone, inside resume grace
+  Failed
+}
+
+enum EntityKind : ubyte {
+  Unknown = 0,
+  ShipXS, ShipS, ShipM, ShipL, ShipXL,
+  Station,
+  Gate, Accelerator, HighwayEntry,
+  Satellite, NavBeacon, ResourceProbe, Mine, LaserTower,
+  Drone, Lockbox, Crate,
+  Other
+}
+
+/// How the entity came to exist in the session (diagnostics + journal rules).
+enum EntityOrigin : ubyte {
+  Manifest = 0,        // existed in the checkpoint save, bound via manifest match keys
+  AuthorityRuntime,    // spawned on the authority after the checkpoint / ship entering capture set
+  PlayerShip,          // a human player's piloted ship (client-simulated; id still authority-assigned)
+  PlayerBuilt          // created for a player intent (station build)
+}
+
+/// EntityState.flags / Replication FLAGS field.
+enum StateFlags : ushort (bit_flags) {
+  VelCoarse,           // velocity unit 4 m/s instead of 0.25 m/s
+  Docked,              // position meaningless; see parent_net_id
+  InHighway,
+  TravelDrive,
+  Boost,
+  Teleport,            // discontinuity: snap, do not interpolate from previous sample
+  Keyframe,            // periodic refresh, not triggered by change detection
+  PlayerControlled,
+  Dying,               // destruction in progress; EntityDespawn(Destroyed) follows
+  BoardingExempt       // boarding in progress on some node; do not suppress
+}
+
+/// Authority capture state: 32 bytes, 4-byte aligned. Used in WorldUpdate (A->S).
+/// Quantisation (protocol.md section 11):
+///  px,py,pz        sector-relative position, units of 1/64 m (range +-33,554 km)
+///  yaw,pitch,roll  radians * 32768/pi (wrapping; ~0.0055 deg)
+///  vx,vy,vz        DERIVED velocity (finite difference on the authority; X4 exports no getter)
+///                  m/s * 4 (0.25 m/s units, +-8,191 m/s); if VelCoarse: m/s / 4 (+-131 km/s)
+struct EntityState {
+  net_id:uint;
+  sector:ushort;
+  flags:ushort;
+  px:int; py:int; pz:int;
+  yaw:short; pitch:short; roll:short;
+  vx:short; vy:short; vz:short;
+}
+
+/// Low-rate status: 8 bytes. hull/shield as 0..255 fraction of max.
+struct EntityStatus {
+  net_id:uint;
+  hull:ubyte;
+  shield:ubyte;
+  status_flags:ushort;   // reserved
+}
+
+struct WareAmount { ware_ref:uint; amount:int; }
+
+/// Server-owned interest tiers (server-design.md 2.5). None = not in interest.
+enum InterestTier : ubyte { None = 0, Linger, Adjacent, Sector, Near }
+
+struct SectorTier { sector:ushort; tier:InterestTier; }
+
+enum DespawnReason : ubyte {
+  Unknown = 0,
+  OutOfInterest,       // left this receiver's interest set; entity still exists
+  Destroyed,           // killed; play destruction effect (SelfDestructComponent)
+  Removed,             // removed without destruction (script, recycle)
+  DockedInside,        // docked inside a carrier/station; tracked via parent
+  PlayerLeft           // a player's ship whose player disconnected
+}
+
+/// 12 bytes.
+struct DespawnEntry { net_id:uint; killer_net_id:uint; reason:DespawnReason; }
+
+enum StringKind : ubyte { Generic = 0, Macro, Faction, Ware, Text }
+
+/// Team relation (symmetric). Diagonal (same team) is implicitly "self".
+enum TeamRelation : byte { Hostile = -1, Neutral = 0, Allied = 1 }
+
+/// Disconnect / reject codes. Ranges: 0-9 normal, 10-29 handshake, 30-49 runtime protocol,
+/// 50-69 session/save, 90-99 internal.
+enum DisconnectCode : ushort {
+  None = 0,
+  ClientQuit = 1,
+  ServerShutdown = 2,
+  Kicked = 3,
+  Banned = 4,
+  SupersededByNewConnection = 5,   // same player_key connected again
+  ProtocolMismatch = 10,
+  ModVersionMismatch = 11,
+  GameVersionMismatch = 12,
+  ExtensionsMismatch = 13,
+  AuthFailed = 14,
+  SessionFull = 15,
+  NameTaken = 16,
+  RoleUnavailable = 17,            // e.g. authority already present
+  NotJoinable = 18,                // session stopping / migrating
+  ResumeExpired = 19,
+  HandshakeTimeout = 20,
+  NoFactionSlot = 21,              // NewTeamPerPlayer and all slots used
+  HeartbeatTimeout = 30,
+  MalformedMessage = 31,
+  UnexpectedMessage = 32,          // valid message, wrong phase or role
+  SlowConsumer = 33,               // Control lane hard cap exceeded
+  RateLimited = 34,
+  TooManyViolations = 35,          // > 20 policy violations / min (temp IP ban)
+  SaveChecksumMismatch = 50,
+  LoadFailed = 51,
+  ManifestMismatch = 52,
+  AuthorityRevoked = 53,
+  InternalError = 90
+}

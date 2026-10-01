@@ -1,0 +1,204 @@
+// X4MP wire protocol -- intents (requests to the authority), game events (facts), chat.
+//
+// Pattern: a node that observes something it does not own sends an Intent.
+// Server stamps player_id, validates cheap rules, forwards to the authority (or handles it
+// itself for player-owned facts). The authority applies it, emits world mutations
+// (EntityDespawn/EntityChange/...) which nodes APPLY, plus a GameEvent which is
+// INFORMATIONAL only (feed, log, GUI, stats) and never needs to be applied.
+include "common.fbs";
+
+namespace X4MP.Proto;
+
+/// A remote NPC (ghost) was destroyed locally on the claiming node.
+table KillClaim {
+  target:uint;
+  killer:uint;                   // usually the claimant's ship net_id
+  weapon_macro_ref:uint;
+}
+
+struct HitEntry { target:uint; hull_damage:float; shield_damage:float; }
+
+/// DamageSync capability. Aggregated damage dealt to remote entities, sent <= 4 Hz.
+table HitReport { hits:[HitEntry]; }
+
+/// The claimant's own ship died. Server despawns the ship entity, clears ship_net_id and forwards to the
+/// authority so it removes the player mirror.
+table PlayerDeath { killer:uint; }
+
+table StationBuildRequest {
+  macro:string;                  // station macro or construction-plan base
+  construction_plan:string;      // plan id or serialized plan
+  sector:ushort;
+  position:Vec3f;
+  rotation:Rot3f;
+  local_component_id:ulong;      // the station the client already created locally (to be replaced/bound)
+}
+
+/// Player traded with a station. amount > 0: ship bought from station; < 0: ship sold.
+table TradeReport {
+  station:uint;
+  ship:uint;
+  ware_ref:uint;
+  amount:int;
+  unit_price:int;                // credits, informational (credits are not synced)
+}
+
+/// Player captured (boarded/claimed) a remote entity locally.
+table CaptureReport {
+  target:uint;
+  new_owner_ref:uint;
+}
+
+enum OrderKind : ubyte { MoveTo = 0, Attack, DockAt, Follow, Protect, Patrol, Trade, Mine, Stop, Custom }
+
+/// Command a team asset (ship/station). Server checks AssetPermissionPolicy (protocol.md 16.2)
+/// before forwarding to the authority, which issues the order in game.
+table AssetOrder {
+  asset:uint;
+  order:OrderKind;
+  target:uint;                   // entity target (Attack/DockAt/Follow/Protect/Trade)
+  sector:ushort;
+  position:Vec3f;
+  immediate:bool;                // replace queue vs append
+  params_json:string;            // order-specific extras (Custom)
+}
+
+table AssetRename { asset:uint; name:string; }
+
+/// Gift an asset to another team (allow_asset_transfer, destination must be Allied).
+/// Paid transfers use the escrowed trade flow in economy.fbs instead.
+table AssetGift { asset:uint; to_team:ushort; to_player:ushort; }
+
+union IntentBody {
+  KillClaim, HitReport, PlayerDeath, StationBuildRequest, TradeReport, CaptureReport,
+  AssetOrder, AssetRename, AssetGift
+}
+
+/// Control lane. C->S, S->A (after server validation incl. team permission checks).
+table Intent {
+  request_key:Id128;             // idempotency key
+  request_id:uint;               // per-sender monotonic (logging)
+  player_id:ushort;              // stamped by server; ignored from clients
+  game_time:double;
+  body:IntentBody;
+}
+
+enum IntentStatus : ubyte { Accepted = 0, Rejected }
+
+enum RejectReason : ubyte {
+  None = 0,
+  UnknownEntity,
+  AlreadyDestroyed,
+  NotInInterest,
+  NotPermitted,
+  RateLimited,
+  Unsupported,
+  AuthorityUnavailable,
+  InvalidParameters,
+  Conflict,
+  Timeout,
+  NotYourAsset,                  // asset not owned by sender's team / player per asset_policy
+  PolicyDenied,
+  HostileRequired,               // attack/capture/kill on an Allied or Neutral team asset
+  FriendlyFireDisabled,
+  NotAllied                      // AssetGift destination not Allied
+}
+
+/// Control lane. A->S (or S itself), S->originating node. Exactly one per Intent.
+table IntentResult {
+  request_key:Id128;
+  request_id:uint;
+  player_id:ushort;
+  status:IntentStatus;
+  reason:RejectReason;
+  detail:string;
+  result_net_id:uint;            // e.g. the new station
+}
+
+// ---- game events (informational) ----
+
+table KillEvent {
+  victim:uint;
+  victim_macro_ref:uint;
+  victim_owner_ref:uint;
+  victim_kind:EntityKind;
+  victim_team:ushort;
+  killer:uint;
+  killer_player:ushort;          // 0 = NPC
+  killer_team:ushort;
+}
+
+table PlayerDiedEvent { player_id:ushort; killer:uint; killer_player:ushort; }
+
+table PlayerSpawnedEvent { player_id:ushort; ship_net_id:uint; }
+
+table StationBuiltEvent {
+  station:uint;
+  macro_ref:uint;
+  owner_ref:uint;
+  builder_player:ushort;
+}
+
+table TradeEvent {
+  station:uint;
+  ship:uint;
+  player_id:ushort;
+  ware_ref:uint;
+  amount:int;
+  unit_price:int;
+}
+
+table CaptureEvent {
+  target:uint;
+  old_owner_ref:uint;
+  old_team:ushort;
+  new_team:ushort;
+  player_id:ushort;
+}
+
+table SectorOwnerEvent { old_owner_ref:uint; new_owner_ref:uint; }
+
+table PlayerConnectionEvent { player_id:ushort; joined:bool; code:DisconnectCode; }
+
+/// Escape hatch for new event kinds before they get a typed table.
+table CustomEvent { name:string; json:string; }
+
+/// Membership move (player_id != 0) or relation change (team_a/team_b/relation).
+table TeamEvent { player_id:ushort; from_team:ushort; to_team:ushort; team_a:ushort; team_b:ushort; relation:TeamRelation; }
+table EconomyEvent { kind:ubyte; from_player:ushort; to_player:ushort; amount:long; ref_id:Id128; }  // public feed only if enabled
+
+union GameEventBody {
+  KillEvent, PlayerDiedEvent, PlayerSpawnedEvent, StationBuiltEvent,
+  TradeEvent, CaptureEvent, SectorOwnerEvent, PlayerConnectionEvent, CustomEvent,
+  TeamEvent, EconomyEvent
+}
+
+/// Control lane. A->S (authority facts), S->N (filtered: player-related events to all,
+/// world events to nodes interested in `sector`), server also journals and pushes to the GUI.
+table GameEvent {
+  event_seq:ulong;               // server-assigned
+  server_time_us:ulong;
+  game_time:double;
+  sector:ushort;
+  body:GameEventBody;
+}
+
+// ---- chat ----
+
+enum ChatChannel : ubyte { All = 0, Whisper, Admin, System, Team }
+
+/// C->S.
+table ChatSend {
+  channel:ChatChannel;
+  to_player:ushort;              // Whisper only
+  text:string;                   // <= 256 chars, control chars stripped by the server
+}
+
+/// S->N.
+table ChatMessage {
+  from_player:ushort;            // 0 = server / web admin
+  from_name:string;
+  channel:ChatChannel;
+  text:string;
+  server_time_us:ulong;
+}

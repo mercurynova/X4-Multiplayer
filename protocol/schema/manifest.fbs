@@ -1,0 +1,37 @@
+// X4MP checkpoint manifest -- NOT a wire message. A standalone file uploaded by the authority
+// next to each checkpoint save (in-band SaveUploadBegin kind=Manifest) and downloaded by nodes
+// (in-band SaveDownloadRequest kind=Manifest, or HTTP with SaveHttp).
+// Maps net_ids to match keys of the persistent entities (stations, gates, accelerators, deployables)
+// in that save so every instance that loads the save can bind net_id <-> its own local UniverseID.
+// Primary key: (sector macro, macro, position rounded to 50 m); tie-break: owner, then idcode.
+// UniverseIDs differ between instances; component_id is a diagnostic only. See protocol.md 8.4.
+include "session.fbs";   // StringEntry, SectorInfo
+
+namespace X4MP.Proto;
+
+table ManifestEntry {
+  net_id:uint;
+  kind:EntityKind;
+  component_id:ulong;            // authority UniverseID at save time -- DIAGNOSTIC ONLY, never a key
+  macro_ref:uint;
+  owner_ref:uint;
+  owner_team:ushort;
+  owner_player:ushort;
+  sector:ushort;
+  idcode:string;                 // GetObjectIDCode()
+  position:Vec3f;                // sector-relative, exact float from save time
+  parent_net_id:uint;
+}
+
+table Manifest {
+  checkpoint_id:Id128;
+  game_time:double;
+  next_net_id:uint;
+  strings:[StringEntry];         // full string table snapshot (macro/faction/ware refs above)
+  sectors:[SectorInfo];          // index -> macro, so the manifest is self-contained
+  entries:[ManifestEntry];       // sorted by net_id
+}
+
+root_type Manifest;
+file_identifier "X4MF";
+file_extension "x4mf";

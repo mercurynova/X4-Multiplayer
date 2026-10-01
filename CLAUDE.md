@@ -1,0 +1,51 @@
+# X4MP: X4: Foundations multiplayer (from-scratch rewrite)
+
+A standalone **C# server with a web admin GUI** plus a **Windows C++ mod** (built on
+X4Native) that lets several X4: Foundations players share one universe. One X4 instance
+(the *authority*) simulates the universe. Every X4 instance, the authority included,
+connects to the server, which owns sessions, routing, saves, teams, the economy and the GUI.
+
+## Start here
+- `docs/README.md`: map of all project knowledge (read it first in a new session).
+- `docs/dev-setup.md`: what a machine needs; run `tools/check-env.ps1`.
+- `docs/architecture.md`: **authoritative design**; wins over the detailed docs.
+- `docs/decisions.md`: ADR log, user decisions, in-game verification list.
+- `docs/roadmap.md`: milestones, task ids (M0-xx, M1-xx), spikes S1–S9.
+- `docs/execution-plan.md`: how work is delegated and reviewed.
+
+## Working agreements (from the user)
+- **Opus plans, Sonnet codes.** The main Opus session does planning, briefs and review.
+  Implementation goes to subagents launched with `model: "sonnet"`, one task per agent, in a
+  git worktree. Don't start big coding tasks in the Opus session. Planning is always fine.
+- The user works from **multiple computers**. Claude's memory is per-machine, so record
+  anything that must persist in this repo (this file, `docs/`), not only in memory.
+- The user is the in-game tester. Claude can't play X4. Give them step-by-step test
+  scripts and ask for logs.
+
+## Hard rules
+- `reference/` is the old mod (<previous-multiplayer-mod-repo>): **unlicensed, binary-only.
+  Read for lessons, never copy code.**
+- Never modify the X4 install. `x4-unpacked/` is extracted game data, read-only reference.
+- Pinned game build: **X4 9.00 build 611726**, X4Native **v9.0.0-611726**.
+- Mod config comes from files, never env vars (Steam relaunch drops them).
+- Never remove the player's own ship (instant game over). MD callbacks may run off the
+  main thread: copy data only, and call game APIs on the frame update.
+
+## Locked product decisions (details in docs/decisions.md)
+- Web dashboard GUI; server-centric relay; Windows-first mod.
+- Server stack: C#/.NET (8 locked; **switch to 10 recommended**, pending user answer),
+  ASP.NET Core + SignalR + SQLite; React/Vite/TS frontend embedded in the exe.
+- Ports: TCP 47780 (control + bulk), UDP 47781 (realtime), HTTP 47790 (GUI + save fallback).
+- Teams: up to 8, factions `x4mp_team_1..8`; players share a faction or are on separate
+  ones; inter-team relations allied/neutral/hostile from the start.
+- Credits: per-player wallets, teammate transfers + team pool, auto-shared if one team
+  (CreditMode Auto|PerPlayer|Shared); donate/loan/escrowed trade gated
+  Off/Teammates/Allied/Anyone. Starting credits are a GUI setting.
+- Story/universe unlocks are session-global (no team gets extra sectors); story is
+  played together per team (ADR-037). Fog of war later (ADR-038). Loan enforcement
+  options later (ADR-040).
+
+## Layout
+`docs/` design + knowledge base · `protocol/schema/` FlatBuffers schema ·
+`tools/` scripts (`x4cat_extract.py`, `check-env.ps1`) · `PLAN.md` original plan.
+Server, web, mod and FakeNode folders get created in M0 (see architecture.md repo layout).

@@ -1,0 +1,39 @@
+# Local-only reference material (regenerate per machine; see docs/dev-setup.md §6)
+/reference/
+/x4-unpacked/
+
+# Server runtime data (SQLite, saves, logs, initial admin password)
+/data/
+**/data/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# Web
+node_modules/
+dist/
+.vite/
+playwright-report/
+test-results/
+
+# Native
+build/
+out/
+CMakeUserPresets.json
+vcpkg_installed/
+*.pdb
+*.ilk
+
+# Tools fetched at build time
+/tools/flatc/bin/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
