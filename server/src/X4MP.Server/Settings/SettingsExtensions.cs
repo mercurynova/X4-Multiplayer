@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using X4MP.Core.Net;
 using X4MP.Core.Session;
 using X4MP.Core.Settings;
+using X4MP.Core.Teams;
 using X4MP.Persistence;
 using X4MP.Server.Api;
 using X4MP.Server.Auth;
@@ -45,6 +46,7 @@ public static class SettingsExtensions
         services.AddSettingsSection<AlertOptions>();
         services.AddSettingsSection<ModManagementOptions>();
         services.AddSettingsSection<SessionActorOptions>();
+        services.AddSettingsSection<TeamOptions>();
     }
 
     /// <summary>
