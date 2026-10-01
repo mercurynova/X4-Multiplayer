@@ -121,6 +121,17 @@ public static class SampleMessages
     private static SampleMessage Admin(AdminBodyUnion body) =>
         S(new AdminCommandT { RequestKey = Id(2), RequestId = 18, Body = body }, body.Type.ToString());
 
+    /// <summary>Two valid codec entries (a moving ship and a status-only entry) for the Replication sample.</summary>
+    public static byte[] ReplicationEntries() => ReplicationCodec.Encode(
+    [
+        new ReplicationEntry
+        {
+            NetId = 1001, Mask = ReplicationMask.Pos | ReplicationMask.Vel | ReplicationMask.Time,
+            PosX = 64, PosY = -64, PosZ = 1_000_000, VelX = 4, VelY = -4, VelZ = short.MaxValue, TimeMs = -20,
+        },
+        new ReplicationEntry { NetId = 1002, Mask = ReplicationMask.Status, Hull = 255, Shield = 7 },
+    ]);
+
     public static IReadOnlyList<SampleMessage> All { get; } = Build();
 
     private static List<SampleMessage> Build() =>
@@ -224,7 +235,7 @@ public static class SampleMessages
             Focus = [new CaptureFocusT { Sector = 12, Center = V(100, 200, 300), RadiusM = 15000, RateHz = 20 }],
         }),
         S(new SectorCompleteT { Sector = 12, Epoch = 6, EntityCount = 321 }),
-        S(new ReplicationT { ServerTick = 777, ServerTimeUs = 5_000_000, AuthorityGameTime = 3600.25, EntryCount = 2, Entries = Enumerable.Range(0, 40).Select(i => (byte)i).ToList() }),
+        S(new ReplicationT { ServerTick = 777, ServerTimeUs = 5_000_000, AuthorityGameTime = 3600.25, EntryCount = 2, Entries = [.. ReplicationEntries()] }),
         S(new InterestUpdateT { Epoch = 6, Full = true, Sectors = [new SectorTierT { Sector = 12, Tier = InterestTier.Near }, new SectorTierT { Sector = 13, Tier = InterestTier.Adjacent }] }),
         S(new InterestChecksumT { ServerTick = 777, Count = 300, XorHash = 0xFEDCBA9876543210 }),
         S(new ResyncRequestT { Sectors = [12, 13], Reason = "checksum" }),
