@@ -19,8 +19,7 @@ public static class WorldMirrorExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IWorldStore>(sp => new SqliteWorldStore(
             sp.GetRequiredService<SqliteConnectionFactory>(),
-            sp.GetRequiredService<PersistenceWriter>(),
-            () => sp.GetRequiredService<GatewayState>().SessionId));
+            sp.GetRequiredService<PersistenceWriter>())); // bound to the session row by WorldMirror.OnSessionBegun
         services.TryAddSingleton(sp => new WorldMirror(
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IWorldStore>(),

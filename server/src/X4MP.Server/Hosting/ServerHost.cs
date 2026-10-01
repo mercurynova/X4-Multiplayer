@@ -12,6 +12,7 @@ using X4MP.Server.Metrics;
 using X4MP.Server.Net;
 using X4MP.Server.Replication;
 using X4MP.Server.Relay;
+using X4MP.Server.Saves;
 using X4MP.Server.Settings;
 using X4MP.Server.Teams;
 using X4MP.Server.World;
@@ -84,6 +85,7 @@ public static partial class ServerHost
         builder.Services.AddWorldMirror();
         builder.Services.AddInterestManager();
         builder.Services.AddReplication();
+        builder.Services.AddSaves();
         builder.Services.AddRelay(); // after the world mirror and the interest manager: it reads what they apply
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
@@ -91,6 +93,7 @@ public static partial class ServerHost
         app.UseAdminAuth();
         app.MapSettingsApi();
         app.MapMetricsApi();
+        app.MapSaveApi();
         MapWeb(app);
         return app;
     }
