@@ -5,6 +5,7 @@ using Serilog;
 using X4MP.Persistence;
 using X4MP.Server.Api;
 using X4MP.Server.Auth;
+using X4MP.Server.Economy;
 using X4MP.Server.Events;
 using X4MP.Server.Logging;
 using X4MP.Server.Metrics;
@@ -74,6 +75,7 @@ public static partial class ServerHost
         builder.Services.AddServerMetrics();
         builder.Services.AddEventBus();
         builder.Services.AddSessionActor();
+        builder.Services.AddEconomy();
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();
