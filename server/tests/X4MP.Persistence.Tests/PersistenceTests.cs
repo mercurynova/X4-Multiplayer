@@ -51,18 +51,16 @@ public sealed class PersistenceTests : IDisposable
             "'chat_messages','galaxy_cache','config_overrides','admin_users','api_tokens','audit_log'," +
             "'journal','string_table','checkpoints')");
         Assert.Equal(16, tables);
-        // the team tables arrive with migration 0002 (M1-T1); the economy tables are still deferred
-        Assert.Equal(4, Scalar<long>(factory,
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('teams','team_members','team_relations','team_assets')"));
+        // tables of tasks that have not landed yet must not exist
         Assert.Equal(0, Scalar<long>(factory,
-            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('wallets','ledger_tx','loans')"));
+            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('loans')"));
     }
 
     [Fact]
     public void SecondStartIsNoOp()
     {
         var factory = new SqliteConnectionFactory(Options());
-        int latest = Runner(factory).LatestVersion;
+        var latest = Runner(factory).LatestVersion;
         Assert.Equal(latest, Runner(factory).Migrate());
         Assert.Equal(latest, Runner(factory).Migrate());
 
