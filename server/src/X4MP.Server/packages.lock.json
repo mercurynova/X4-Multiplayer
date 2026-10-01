@@ -155,7 +155,10 @@
         }
       },
       "x4mp.protocol": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Google.FlatBuffers": "[25.2.10, )"
+        }
       },
       "x4mp.transport": {
         "type": "Project",
@@ -169,6 +172,12 @@
         "requested": "[2.1.89, )",
         "resolved": "2.1.89",
         "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
+      },
+      "Google.FlatBuffers": {
+        "type": "CentralTransitive",
+        "requested": "[25.2.10, )",
+        "resolved": "25.2.10",
+        "contentHash": "z3ykbSRsy6oqMzeZ84a+K8rnMJ/ysVikar8r2yUhHz0HSxIjBpj53mZvpu6LjLEm5fLLWQsCdelJwL1nu7lloA=="
       },
       "Microsoft.Data.Sqlite": {
         "type": "CentralTransitive",

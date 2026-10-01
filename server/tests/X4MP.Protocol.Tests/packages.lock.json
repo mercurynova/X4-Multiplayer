@@ -94,7 +94,16 @@
         }
       },
       "x4mp.protocol": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Google.FlatBuffers": "[25.2.10, )"
+        }
+      },
+      "Google.FlatBuffers": {
+        "type": "CentralTransitive",
+        "requested": "[25.2.10, )",
+        "resolved": "25.2.10",
+        "contentHash": "z3ykbSRsy6oqMzeZ84a+K8rnMJ/ysVikar8r2yUhHz0HSxIjBpj53mZvpu6LjLEm5fLLWQsCdelJwL1nu7lloA=="
       }
     }
   }

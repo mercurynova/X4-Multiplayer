@@ -45,6 +45,7 @@ enum MsgType : ushort {
   AuthorityAssign      = 0x0112,
   GalaxyMetadata       = 0x0113,
   StringTableAdd       = 0x0114,
+  GalaxySummary        = 0x0115,
 
   // world.fbs
   EntitySpawn          = 0x0200,
@@ -70,6 +71,7 @@ enum MsgType : ushort {
   Intent               = 0x0400,
   IntentResult         = 0x0401,
   GameEvent            = 0x0402,
+  DamageReport         = 0x0403,   // RESERVED (M5 damage relay): no table yet; never reuse the id
 
   // events.fbs / admin.fbs
   ChatSend             = 0x0500,
@@ -114,5 +116,6 @@ enum MsgType : ushort {
   TradeStatus          = 0x0811,
   TradeResult          = 0x0812,
   AssetTransferOrder   = 0x0813,
-  AssetTransferConfirm = 0x0814
+  AssetTransferConfirm = 0x0814,
+  TradeQuery           = 0x0815
 }

@@ -1,0 +1,20 @@
+{
+  "version": "25.2.10",
+  "tag": "v25.2.10",
+  "baseUrl": "https://github.com/google/flatbuffers/releases/download/v25.2.10",
+  "nugetPackage": "Google.FlatBuffers",
+  "nugetVersion": "25.2.10",
+  "note": "Newest flatc whose version matches a published Google.FlatBuffers NuGet package (generated C# calls FlatBufferConstants.FLATBUFFERS_<ver>(); flatc 25.12.19 has no matching NuGet yet).",
+  "platforms": {
+    "windows": {
+      "asset": "Windows.flatc.binary.zip",
+      "sha256": "bd9b3cb6bf5ab8009f1927b6e00207db968c3d5c93e3bc215dae084cc681249a",
+      "executable": "flatc.exe"
+    },
+    "linux": {
+      "asset": "Linux.flatc.binary.g++-13.zip",
+      "sha256": "6f01258d7475806f375d6da66a61df47add8016edd73f1774673f37b80b9a711",
+      "executable": "flatc"
+    }
+  }
+}
