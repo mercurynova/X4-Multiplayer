@@ -61,6 +61,9 @@ public sealed class FakeClientSession
 
     public ReplicationVerifier Verifier { get; }
 
+    /// <summary>Team table, relation matrix and policy as the server last said (M1-T3); the fake NPC hostility reads it.</summary>
+    public FakeTeamState Teams { get; } = new();
+
     /// <summary>Ghosts held now (persistent entities are not ghosts).</summary>
     public int Ghosts => _ghosts.Count;
 
@@ -132,6 +135,9 @@ public sealed class FakeClientSession
                 break;
             case MsgType.InterestChecksum:
                 return CheckChecksum(MessageRegistry.Default.Decode<InterestChecksum>(frame));
+            case MsgType.TeamTable or MsgType.TeamRelations or MsgType.SessionSettings or MsgType.TeamMemberChanged
+                or MsgType.RelationProposal or MsgType.TeamRequestResult or MsgType.ReassignPlayerAssets:
+                return Teams.Handle(frame);
         }
 
         return [];
