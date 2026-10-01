@@ -77,7 +77,7 @@ public sealed class CommanderTests
         Assert.NotNull(foreign);
         Assert.Equal(((ushort)1, (ushort)0), authority.TeamAssetOwner((int)own!.Value.NetId, false));
         Assert.Equal(((ushort)1, FakeAuthorityOptions.TeammatePlayerId), authority.TeamAssetOwner((int)shared!.Value.NetId, false));
-        Assert.Equal(((ushort)2, (ushort)0), authority.TeamAssetOwner((int)foreign!.Value.NetId, false));
+        Assert.Equal((ushort)2, authority.TeamAssetOwner((int)foreign!.Value.NetId, false).Team); // any ship of another team
 
         // seen from team 2 the "foreign" ships are team 1, and an unassigned client commands nothing
         Assert.Equal((ushort)1, authority.TeamAssetOwner((int)client.PickAsset(CommanderMode.Foreign, 2, 5, 0)!.Value.NetId, false).Team);

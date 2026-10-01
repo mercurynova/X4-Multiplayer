@@ -344,3 +344,12 @@ Open: `ApplyPresetAsync` does not yet guard the authority's membership while Run
 - Out of range also covers "target in another sector" and "sender has no ship position yet". Gifts always need `AllowAssetTransfer`, even inside one team. A neutral target gives `HostileRequired`, an allied or teammate target `FriendlyFireDisabled`.
 - FakeNode: `--commander shared|own|foreign` (clients send 2 AssetOrders/s) and `--team-assets` (authority tags ships: id%4 = 1 team 1 common, 2 team 1 teammate-owned, 3 team 2). Summary line `commander(...)`: orders-sent, accepted, rejected, forwarded-to-authority.
 - Follow-up: the `TradeReport` station check ignores trade-asset items (M1-E5); the leader for `OwnerAndLeader` comes from `TeamModule.LeaderOf` (not on `ITeamDirectory`).
+
+## M1-F3 implementation notes (FakeNode teams)
+
+- CLI: `--team <id|name>`, `--team-pick lobby-random`, `--teams N`, `--relations coop|allied|ffa|twoteams` (swarm; implies `--teams`, prints the server `Teams.*` settings it needs). Details in `tools/X4MP.FakeNode/README.md` ("Teams").
+- No REST for teams yet (M1-T5), so a layout is reached through server settings (`JoinMode=Lobby`, `AllowCreateInLobby`, `AutoAssign=Balance`, `DefaultRelation`) and the clients place themselves through the lobby; tests use `TeamModule` in-process.
+- Closed the M1-T3 open item: the fake authority applies `ReassignPlayerAssets` (owner_team of the player's ships) and sends one `EntityChange` per ship; the server mirror and the clients' ghosts follow. Verified live: after an admin move the mirror shows the new `owner_team`, `--commander own` orders pass for the new team and are `NotYourAsset` for the old one, `--verify` stays at 0 errors.
+- Fake NPC hostility: `FakeAuthority.Hostility()` (team pairs at war, ship pairs sharing a sector) follows a relation change within one poll (0-20 ms in the live test).
+- Behaviour change: team-tagged ships are now spread over all team ids (`k = (id/8) mod n`) and `--commander own` includes ships the client owns itself.
+- Server observation (not investigated, outside M1-F3): a second FakeNode run against a persistent server whose authority left while loading leaves the session in `WaitingForAuthority`/`AuthorityLoading` and the join never starts; restart the server between runs.
