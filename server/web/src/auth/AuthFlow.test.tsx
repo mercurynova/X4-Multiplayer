@@ -42,7 +42,7 @@ function renderApp(path = '/') {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('auth against the API', () => {
-  it('asks /api/auth/me first and shows the app for a signed-in session', async () => {
+  it('asks /api/v1/auth/me first and shows the app for a signed-in session', async () => {
     mockApi(() => json(200, { username: 'admin', role: 'Admin', mustChangePassword: false }));
     renderApp();
     expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
@@ -51,7 +51,7 @@ describe('auth against the API', () => {
   it('logs in through the API with the CSRF header', async () => {
     let signedIn = false;
     const calls = mockApi((c) => {
-      if (c.url === '/api/auth/login') {
+      if (c.url === '/api/v1/auth/login') {
         signedIn = true;
         return new Response(null, { status: 204 });
       }
@@ -63,7 +63,7 @@ describe('auth against the API', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByRole('heading', { name: 'Players' })).toBeInTheDocument();
-    const login = calls.find((c) => c.url === '/api/auth/login');
+    const login = calls.find((c) => c.url === '/api/v1/auth/login');
     expect(login?.method).toBe('POST');
     expect(login?.csrf).toBe('1');
     expect(JSON.parse(login?.body ?? '{}')).toEqual({ username: 'admin', password: 'secret-password' });
@@ -71,7 +71,7 @@ describe('auth against the API', () => {
 
   it('shows an error for bad credentials', async () => {
     mockApi((c) =>
-      c.url === '/api/auth/login'
+      c.url === '/api/v1/auth/login'
         ? json(401, { title: 'Invalid username or password.', status: 401, code: 'InvalidCredentials' })
         : json(401, {}),
     );
@@ -85,7 +85,7 @@ describe('auth against the API', () => {
   it('forces a password change and then continues into the app', async () => {
     let changed = false;
     const calls = mockApi((c) => {
-      if (c.url === '/api/auth/change-password') {
+      if (c.url === '/api/v1/auth/change-password') {
         changed = true;
         return new Response(null, { status: 204 });
       }
@@ -99,8 +99,8 @@ describe('auth against the API', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Change password' }));
 
     expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-    await waitFor(() => expect(calls.some((c) => c.url === '/api/auth/change-password')).toBe(true));
-    const change = calls.find((c) => c.url === '/api/auth/change-password');
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/v1/auth/change-password')).toBe(true));
+    const change = calls.find((c) => c.url === '/api/v1/auth/change-password');
     expect(JSON.parse(change?.body ?? '{}')).toEqual({ current: 'initial-password-x', new: 'a-brand-new-password' });
   });
 });

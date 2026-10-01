@@ -1,10 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using X4MP.Core.Saves;
+using X4MP.Server.Api;
 
 namespace X4MP.Server.Saves;
 
 /// <summary>A stored save as the admin API shows it (<c>GET /api/v1/saves</c>). The SHA-256 is the identity.</summary>
+[TsContract]
 public sealed record SaveDto(
     string Sha256,
     long SizeBytes,
@@ -24,17 +26,20 @@ public sealed record SaveDto(
 }
 
 /// <summary>Body of <c>POST /api/v1/saves/uploads</c>.</summary>
+[TsContract]
 public sealed record BeginUploadRequest(string? FileName, long Size, string? Sha256);
 
+/// <summary>Response of <c>POST /api/v1/saves/uploads</c>: the upload id, the chunk size to use and the resume point.</summary>
+[TsContract]
 public sealed record UploadStartedDto(string UploadId, int ChunkSize, long ReceivedBytes);
 
+/// <summary>Response of a chunk <c>PUT</c> and of <c>GET /api/v1/saves/uploads/{id}</c>.</summary>
+[TsContract]
 public sealed record UploadProgressDto(long ReceivedBytes, long Size);
 
 /// <summary>Body of <c>PATCH /api/v1/saves/{sha}</c>.</summary>
+[TsContract]
 public sealed record PatchSaveRequest(string? DisplayName, bool? Pinned);
-
-/// <summary>422 body of <c>complete</c>: <c>HashMismatch</c> or <c>NotASave</c>; other errors use their own code.</summary>
-public sealed record SaveErrorDto(string Error, string? Detail, long? ReceivedBytes = null);
 
 /// <summary>Source-generated JSON metadata for the save endpoints (camelCase, like the other admin DTOs).</summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
@@ -44,5 +49,4 @@ public sealed record SaveErrorDto(string Error, string? Detail, long? ReceivedBy
 [JsonSerializable(typeof(UploadStartedDto))]
 [JsonSerializable(typeof(UploadProgressDto))]
 [JsonSerializable(typeof(PatchSaveRequest))]
-[JsonSerializable(typeof(SaveErrorDto))]
 internal sealed partial class SavesJsonContext : JsonSerializerContext;

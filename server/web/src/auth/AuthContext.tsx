@@ -3,7 +3,7 @@ import { ApiError, http, postJson } from '../api/http';
 import type { MeDto } from '../generated/generated';
 
 export interface AuthState {
-  /** `loading` until the first `/api/auth/me` answer arrives. */
+  /** `loading` until the first `/api/v1/auth/me` answer arrives. */
   status: 'loading' | 'anonymous' | 'authenticated';
   me: MeDto | null;
   isAuthenticated: boolean;
@@ -17,7 +17,7 @@ const AuthContext = createContext<AuthState | null>(null);
 
 async function fetchMe(): Promise<MeDto | null> {
   try {
-    return await http<MeDto>('/api/auth/me');
+    return await http<MeDto>('/api/v1/auth/me');
   } catch (e) {
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) return null;
     throw e;
@@ -25,7 +25,7 @@ async function fetchMe(): Promise<MeDto | null> {
 }
 
 /**
- * Session state backed by `/api/auth/me`. Pass `initialMe` (a MeDto or null) to skip the initial request,
+ * Session state backed by `/api/v1/auth/me`. Pass `initialMe` (a MeDto or null) to skip the initial request,
  * which is what tests do.
  */
 export function AuthProvider({ children, initialMe }: { children: ReactNode; initialMe?: MeDto | null }) {
@@ -51,20 +51,20 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
   }, [initialMe]);
 
   const login = useCallback(async (username: string, password: string) => {
-    await postJson('/api/auth/login', { username, password });
+    await postJson('/api/v1/auth/login', { username, password });
     setMe(await fetchMe());
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      await postJson('/api/auth/logout');
+      await postJson('/api/v1/auth/logout');
     } finally {
       setMe(null);
     }
   }, []);
 
   const changePassword = useCallback(async (current: string, next: string) => {
-    await postJson('/api/auth/change-password', { current, new: next });
+    await postJson('/api/v1/auth/change-password', { current, new: next });
     setMe(await fetchMe());
   }, []);
 

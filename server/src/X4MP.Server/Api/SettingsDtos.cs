@@ -31,10 +31,8 @@ public sealed record SettingsSchemaDto(List<SettingSchemaDto> Settings);
 [TsContract]
 public sealed record SettingsDto(Dictionary<string, Dictionary<string, JsonElement>> Sections, List<string> Overrides);
 
-/// <summary>One rejected key of a <c>PATCH /api/v1/settings</c>.</summary>
-[TsContract]
+/// <summary>
+/// One rejected key of a <c>PATCH /api/v1/settings</c>. The 400 response is an <see cref="ApiProblem"/> with <c>errors[key]</c> (the
+/// message) and <c>errorCodes[key]</c> (this code); nothing was applied.
+/// </summary>
 public sealed record SettingErrorDto(string Key, string Code, string Message);
-
-/// <summary>400 body of a rejected <c>PATCH /api/v1/settings</c>: nothing was applied, <c>Errors</c> has one entry per bad key.</summary>
-[TsContract]
-public sealed record SettingsProblem(string Title, int Status, string Code, string? Detail, List<SettingErrorDto> Errors);

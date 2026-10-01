@@ -144,7 +144,12 @@ public class SettingsApiTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var errors = doc.RootElement.GetProperty("errors").EnumerateArray().ToDictionary(e => e.GetProperty("key").GetString()!, e => e.GetProperty("code").GetString());
+        Assert.Equal("ValidationFailed", doc.RootElement.GetProperty("code").GetString());
+        Assert.Equal(400, doc.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(
+            doc.RootElement.GetProperty("errorCodes").EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal),
+            doc.RootElement.GetProperty("errors").EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal)); // a message list per key, a code per key
+        var errors = doc.RootElement.GetProperty("errorCodes").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString());
         Assert.Equal(
             new Dictionary<string, string?>
             {
@@ -188,10 +193,10 @@ public class SettingsApiTests
         using var response = await admin.SendAsync(Patch("""{"Net.MaxFrameBytes":2097152}"""));
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var error = doc.RootElement.GetProperty("errors").EnumerateArray().Single();
-        Assert.Equal("Net.MaxFrameBytes", error.GetProperty("key").GetString());
-        Assert.Equal("RestartRequired", error.GetProperty("code").GetString());
-        Assert.Contains("restart required", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        var error = doc.RootElement.GetProperty("errors").EnumerateObject().Single();
+        Assert.Equal("Net.MaxFrameBytes", error.Name);
+        Assert.Equal("RestartRequired", doc.RootElement.GetProperty("errorCodes").GetProperty("Net.MaxFrameBytes").GetString());
+        Assert.Contains("restart required", error.Value[0].GetString(), StringComparison.Ordinal);
         Assert.Equal(before, factory.Services.GetRequiredService<NetOptions>().MaxFrameBytes);
         Assert.Equal(before, factory.Services.GetRequiredService<IOptionsMonitor<NetOptions>>().CurrentValue.MaxFrameBytes);
     }
