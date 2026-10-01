@@ -15,6 +15,7 @@ public class FakeNodeLiveTests
         PingInterval = TimeSpan.FromMilliseconds(100),
         ReportInterval = TimeSpan.FromMilliseconds(500),
         ConnectStagger = TimeSpan.FromMilliseconds(10),
+        SessionDetect = TimeSpan.FromMilliseconds(300),
     };
 
     private static NetOptions Roomy() => new() { MaxConnectionsPerIp = 64, MaxPlayers = 32, HandshakeTimeoutSeconds = 5 };
@@ -72,12 +73,10 @@ public class FakeNodeLiveTests
         Assert.Contains("connect failed", output.ToString());
     }
 
-    [Theory]
-    [InlineData("inspect", "--sector", "3")]
-    [InlineData("client", "--verify")]
-    public async Task ReplicationPathsAreStubbedWithAMessage(params string[] args)
+    [Fact]
+    public async Task InspectIsStillStubbedWithAMessage()
     {
-        var options = CliParser.Parse(args).Options!;
+        var options = CliParser.Parse(["inspect", "--sector", "3"]).Options!;
         var output = new StringWriter();
         Assert.Equal(3, await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None));
         Assert.Contains("not available yet", output.ToString());

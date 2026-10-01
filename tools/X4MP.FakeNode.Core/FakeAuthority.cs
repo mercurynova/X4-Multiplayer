@@ -102,8 +102,12 @@ public sealed class FakeAuthority
         public HashSet<int> Known { get; } = [];
     }
 
+    /// <summary>A focus sphere of the CaptureSet: entities inside stream at the sphere's rate instead of the sector's.</summary>
+    private readonly record struct Focus(ushort Sector, Vec3 Center, double RadiusM, int RateHz);
+
     private readonly FakeAuthorityOptions _opt;
     private readonly Dictionary<ushort, SectorCapture> _captures = [];
+    private List<Focus> _focus = [];
     private long _lastLeg = -1;
 
     public FakeAuthority(FakeWorld world, FakeAuthorityOptions? options = null)
@@ -191,7 +195,7 @@ public sealed class FakeAuthority
     /// <summary>
     /// Applies a CaptureSet: removed sectors stop immediately; new ones start an index pass that completes
     /// after <c>ceil(entities / IndexPassEntitiesPerTick)</c> ticks (at least 1); rates of kept ones update.
-    /// Focus spheres are ignored by the fake.
+    /// Focus spheres make entities inside them stream at the sphere's rate (the server asks 20 Hz around each player).
     /// </summary>
     public void OnCaptureSet(CaptureSetT set, long tick)
     {
@@ -209,6 +213,9 @@ public sealed class FakeAuthority
 
         foreach (var s in _captures.Keys.Where(s => !wanted.ContainsKey(s)).ToList())
             _captures.Remove(s);
+
+        _focus = [.. (set.Focus ?? []).Where(f => f.Sector != 0 && f.Sector <= World.Galaxy.Sectors.Count && f.RateHz > 0)
+            .Select(f => new Focus(f.Sector, f.Center is null ? default : new Vec3(f.Center.X, f.Center.Y, f.Center.Z), f.RadiusM, f.RateHz))];
 
         foreach (var (sector, rate) in wanted)
         {
@@ -270,16 +277,27 @@ public sealed class FakeAuthority
             output.Add(new OutMessage(MsgType.SectorComplete, MessageEncoder.EncodePayload(b => SectorComplete.Pack(b, done))));
         }
 
-        // 3. WorldUpdate for indexed sectors at their rates
+        // 3. WorldUpdate for indexed sectors at their rates (entities inside a focus sphere at the sphere's rate)
         var states = new List<EntityStateT>();
         foreach (var cap in _captures.Values.Where(c => c.Indexed).OrderBy(c => c.Sector))
         {
             long period = Math.Max(1, (long)Math.Round(_opt.TickRateHz / cap.RateHz));
             long staticPeriod = Math.Max(1, (long)Math.Round(_opt.StaticKeepaliveSeconds * _opt.TickRateHz));
+            var spheres = _focus.Where(f => f.Sector == cap.Sector).ToList();
             foreach (int id in cap.Known.Order())
             {
                 bool isStation = World.Galaxy.Entities[id - 1].IsStation;
-                if ((tick + id) % (isStation ? staticPeriod : period) == 0)
+                long entityPeriod = isStation ? staticPeriod : period;
+                if (!isStation && spheres.Count > 0)
+                {
+                    var pos = World.GetKinematics(id, now).Pos;
+                    foreach (var f in spheres)
+                    {
+                        if ((pos - f.Center).Length <= f.RadiusM)
+                            entityPeriod = Math.Min(entityPeriod, Math.Max(1, (long)Math.Round(_opt.TickRateHz / f.RateHz)));
+                    }
+                }
+                if ((tick + id) % entityPeriod == 0)
                     states.Add(World.GetState(id, now));
             }
         }
@@ -293,6 +311,14 @@ public sealed class FakeAuthority
                 States = [.. states.Skip(i).Take(_opt.MaxStatesPerWorldUpdate)],
             };
             output.Add(new OutMessage(MsgType.WorldUpdate, MessageEncoder.EncodePayload(b => WorldUpdate.Pack(b, update), 1280)));
+        }
+
+        // An EntitySpawn state carries no sample time, so the server assumes it is as fresh as the latest world update. An empty
+        // WorldUpdate in front of the spawns of this tick says exactly which game time that is.
+        if (output.Any(m => m.Type == MsgType.EntitySpawn))
+        {
+            var clock = new WorldUpdateT { AuthorityTick = (uint)tick, CaptureTimeUs = CaptureTimeUs(tick), GameTime = now, States = [] };
+            output.Insert(0, new OutMessage(MsgType.WorldUpdate, MessageEncoder.EncodePayload(b => WorldUpdate.Pack(b, clock), 64)));
         }
         return output;
     }

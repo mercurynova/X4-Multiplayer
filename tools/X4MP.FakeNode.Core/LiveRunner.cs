@@ -16,11 +16,26 @@ public sealed record LiveRunOptions
 
     /// <summary>Pause between starting consecutive nodes (keeps a swarm under the server's handshake rate limit).</summary>
     public TimeSpan ConnectStagger { get; init; } = TimeSpan.FromMilliseconds(60);
+
+    /// <summary>
+    /// How long a node waits after the handshake for the session announcement (<c>SessionState</c>) that only a real session actor sends. Without
+    /// it (a bare gateway) the node stays a ping-only keepalive; with it the node plays its role: the authority streams the fake world,
+    /// clients fly and receive replication.
+    /// </summary>
+    public TimeSpan SessionDetect { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>How long a node waits for each step of the join pipeline (the server's phase change) before it gives up.</summary>
+    public TimeSpan PhaseTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Test hooks for the clients' sessions (inject a fault, shorten the clock).</summary>
+    public Action<FakeClientSession>? OnClientSession { get; init; }
 }
 
 /// <summary>Counters of one connected (or failed) node; read by the reporter, written by the node's loop.</summary>
 public sealed class LiveNodeStats(string name, Role role)
 {
+    private volatile FakeClientSession? _session;
+
     private long _pings;
     private long _rttTicks;
     private long _maxRttTicks;
@@ -37,6 +52,14 @@ public sealed class LiveNodeStats(string name, Role role)
     public TimeSpan MaxRtt => TimeSpan.FromTicks(Interlocked.Read(ref _maxRttTicks));
     public TimeSpan AvgRtt => Pings == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(Interlocked.Read(ref _rttTicks) / Pings);
     public string? LastError { get; private set; }
+
+    /// <summary>The receiving half of a client in session mode (null for the authority and for ping-only nodes).</summary>
+    public FakeClientSession? Session => _session;
+
+    /// <summary>Violations the node's verification found (0 when it does not verify).</summary>
+    public long VerifyErrors => _session?.Errors ?? 0;
+
+    internal void AttachSession(FakeClientSession session) => _session = session;
 
     internal void MarkConnected() => Volatile.Write(ref _connected, 1);
 
@@ -63,12 +86,14 @@ public sealed class LiveNodeStats(string name, Role role)
 }
 
 /// <summary>
-/// First live slice of FakeNode (M1-F1b part 2): connects <c>authority</c>, <c>client</c> and <c>swarm</c> nodes
-/// to a real server with <see cref="TcpNodeClient"/>, keeps them alive with Ping/Pong, prints the Welcome summary
-/// and RTT figures, and ends on cancellation or after <see cref="CliOptions.Duration"/>. Replication (M1-05..08)
-/// is not part of this slice.
+/// The live side of FakeNode: connects <c>authority</c>, <c>client</c> and <c>swarm</c> nodes to a real server with
+/// <see cref="TcpNodeClient"/>, prints the Welcome summary and RTT figures, and ends on cancellation or after
+/// <see cref="CliOptions.Duration"/>. Against a server with a session actor (<c>SessionState</c> arrives after the handshake) the nodes play
+/// their role (see <c>LiveRunner.Session.cs</c>): the authority runs the fake world, honours <c>CaptureSet</c> and streams
+/// <c>WorldUpdate</c>; clients walk the join pipeline, fly and send <c>PlayerState</c>, and with <c>--verify</c> check every
+/// <c>Replication</c> entry against ground truth. Against a bare gateway they only keep the connection alive with Ping/Pong.
 /// </summary>
-public static class LiveRunner
+public static partial class LiveRunner
 {
     public const int ExitOk = 0;
     public const int ExitErrors = 1;
@@ -86,12 +111,6 @@ public static class LiveRunner
             return ExitNotAvailable;
         }
 
-        if (o.Verify)
-        {
-            await output.WriteLineAsync("fakenode --verify: replication verification needs M1-05..08; not available yet. Re-run without --verify.").ConfigureAwait(false);
-            return ExitNotAvailable;
-        }
-
         var plan = Plan(o);
         var lines = new SynchronizedWriter(output);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
@@ -99,6 +118,7 @@ public static class LiveRunner
             cts.CancelAfter(TimeSpan.FromSeconds(seconds));
 
         var stats = plan.Select(p => new LiveNodeStats(p.Name, p.Role)).ToList();
+        var galaxy = new Lazy<FakeGalaxy>(() => FakeGalaxy.Generate(o.Seed, new GalaxyOptions { SectorCount = o.Sectors, ShipCount = o.Ships }), LazyThreadSafetyMode.ExecutionAndPublication);
         bool single = plan.Count == 1;
         await lines.WriteAsync($"fakenode {o.Command.ToString().ToLowerInvariant()}: {plan.Count} node(s) -> {o.Host}:{o.Port}" +
                                (o.Duration is { } d ? $" for {d}s" : " until Ctrl+C")).ConfigureAwait(false);
@@ -107,7 +127,7 @@ public static class LiveRunner
         var tasks = new List<Task>();
         for (int i = 0; i < plan.Count; i++)
         {
-            tasks.Add(RunNodeAsync(o, plan[i], stats[i], single, run, lines, cts.Token));
+            tasks.Add(RunNodeAsync(o, plan[i], i, stats[i], single, run, lines, galaxy, cts.Token));
             if (i + 1 < plan.Count)
             {
                 try
@@ -126,7 +146,12 @@ public static class LiveRunner
         await cts.CancelAsync().ConfigureAwait(false);
         await reporter.ConfigureAwait(false);
 
-        int errors = stats.Sum(s => s.Errors);
+        foreach (var s in stats.Where(s => s.Session is not null))
+            s.Session!.CheckStale();
+        long verifyErrors = stats.Sum(s => s.VerifyErrors);
+        if (o.Verify)
+            await WriteVerifySummaryAsync(stats, lines).ConfigureAwait(false);
+        long errors = stats.Sum(s => s.Errors) + verifyErrors;
         await lines.WriteAsync($"summary: nodes={stats.Count} joined={stats.Count(s => s.Pings > 0)} errors={errors} pings={stats.Sum(s => s.Pings)} " +
                                $"rtt avg={Ms(Average(stats))} max={Ms(stats.Count == 0 ? TimeSpan.Zero : stats.Max(s => s.MaxRtt))} " +
                                $"elapsed={clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s").ConfigureAwait(false);
@@ -170,7 +195,8 @@ public static class LiveRunner
         SHA256.HashData(Encoding.UTF8.GetBytes($"fakenode-key:{seed.ToString(CultureInfo.InvariantCulture)}:{name}"));
 
     private static async Task RunNodeAsync(
-        CliOptions o, NodePlan plan, LiveNodeStats stats, bool print, LiveRunOptions run, SynchronizedWriter lines, CancellationToken ct)
+        CliOptions o, NodePlan plan, int index, LiveNodeStats stats, bool print, LiveRunOptions run, SynchronizedWriter lines,
+        Lazy<FakeGalaxy> galaxy, CancellationToken ct)
     {
         var options = new NodeClientOptions
         {
@@ -206,23 +232,20 @@ public static class LiveRunner
                 $"player_id={w.PlayerId} roles={w.GrantedRoles} caps=0x{w.NegotiatedCaps:x} conn={w.ConnId} " +
                 $"resumed={w.Resumed} resume_grace={w.ResumeGraceS}s").ConfigureAwait(false);
 
-            var nextReport = DateTime.UtcNow + run.ReportInterval;
+            client.PongReceived += stats.RecordRtt;
+            var link = new NodeLink(client, w.PlayerId);
+            using var readerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            link.Start(readerCts.Token);
             try
             {
-                while (!ct.IsCancellationRequested)
+                // Against a session actor the node plays its role; against a bare gateway it only keeps the socket alive.
+                if (await link.WaitForSessionAsync(run.SessionDetect, ct).ConfigureAwait(false))
                 {
-                    using var pingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    pingCts.CancelAfter(run.PingTimeout);
-                    var rtt = await client.PingAsync(pingCts.Token).ConfigureAwait(false);
-                    stats.RecordRtt(rtt);
-
-                    if (print && DateTime.UtcNow >= nextReport)
-                    {
-                        nextReport = DateTime.UtcNow + run.ReportInterval;
-                        await lines.WriteAsync($"[{plan.Name}] rtt={Ms(rtt)} avg={Ms(stats.AvgRtt)} max={Ms(stats.MaxRtt)} pings={stats.Pings}").ConfigureAwait(false);
-                    }
-
-                    await Task.Delay(run.PingInterval, ct).ConfigureAwait(false);
+                    await RunSessionNodeAsync(o, plan, index, link, stats, run, lines, galaxy.Value, print, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await PingLoopAsync(link, stats, run, lines, plan.Name, print, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -233,6 +256,12 @@ public static class LiveRunner
             {
                 stats.Fail(ex is OperationCanceledException ? "ping timed out" : ex.Message);
                 await lines.WriteAsync($"[{plan.Name}] connection lost: {stats.LastError}").ConfigureAwait(false);
+            }
+            finally
+            {
+                await readerCts.CancelAsync().ConfigureAwait(false);
+                await link.StopAsync().ConfigureAwait(false);
+                client.PongReceived -= stats.RecordRtt;
             }
         }
 
