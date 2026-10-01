@@ -1,15 +1,17 @@
 using System.Diagnostics;
 using System.Reflection;
+using X4MP.Protocol;
 
 namespace X4MP.Server.Hosting;
 
 /// <summary>Static facts about this build plus the process uptime clock.</summary>
 public sealed class ServerInfo
 {
-    /// <summary>Placeholder range until the protocol project exposes real version constants (M1).</summary>
-    public const int ProtocolMin = 1;
+    /// <summary>Lowest wire major accepted (peers with another major are rejected, so min == max).</summary>
+    public const int ProtocolMin = ProtocolConstants.ProtocolMajor;
 
-    public const int ProtocolMax = 1;
+    /// <summary>Highest wire major accepted; the minor (<see cref="ProtocolConstants.ProtocolMinor"/>) is negotiated down per session.</summary>
+    public const int ProtocolMax = ProtocolConstants.ProtocolMajor;
 
     private readonly long _startedAt = Stopwatch.GetTimestamp();
 
@@ -31,6 +33,6 @@ public sealed class ServerInfo
 
     public string DescribeVersion() =>
         $"x4mp-server {Version}{Environment.NewLine}" +
-        $"protocol: {ProtocolMin}..{ProtocolMax}{Environment.NewLine}" +
+        $"protocol: {ProtocolConstants.ProtocolMajor}.{ProtocolConstants.ProtocolMinor}{Environment.NewLine}" +
         $"build: {BuildHash}";
 }
