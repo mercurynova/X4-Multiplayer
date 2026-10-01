@@ -31,6 +31,15 @@ export interface MeDto {
   mustChangePassword: boolean;
 }
 
+export interface MetricSeriesDto {
+  name: string;
+  unit: string;
+  kind: string;
+  intervalSeconds: number;
+  endedAt: string | null;
+  samples: number[];
+}
+
 export interface ProtocolRangeDto {
   min: number;
   max: number;

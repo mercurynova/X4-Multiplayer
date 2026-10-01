@@ -13,5 +13,6 @@ namespace X4MP.Server.Api;
 [JsonSerializable(typeof(SettingsSchemaDto))]
 [JsonSerializable(typeof(SettingsDto))]
 [JsonSerializable(typeof(SettingsProblem))]
+[JsonSerializable(typeof(List<MetricSeriesDto>))]
 [JsonSerializable(typeof(Dictionary<string, System.Text.Json.JsonElement>))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext;

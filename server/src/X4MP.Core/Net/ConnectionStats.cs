@@ -1,3 +1,4 @@
+using X4MP.Core.Metrics;
 using X4MP.Protocol;
 
 namespace X4MP.Core.Net;
@@ -8,6 +9,8 @@ public sealed class ConnectionStats
     private long _bytesReceived, _bytesSent, _framesReceived, _framesSent, _coalesced, _dropped, _violations;
     private long _flushCount, _flushTicksTotal, _flushTicksMax;
     private readonly long[] _laneDropped = new long[3];
+    private readonly long[] _laneBytesIn = new long[3];
+    private readonly long[] _laneBytesOut = new long[3];
     private readonly long[] _laneCoalesced = new long[3];
     private readonly long[] _laneMaxQueuedBytes = new long[3];
 
@@ -32,6 +35,12 @@ public sealed class ConnectionStats
 
     public long FlushTicksMax => Interlocked.Read(ref _flushTicksMax);
 
+    /// <summary>Bytes received on a lane (frame header included).</summary>
+    public long BytesReceivedOn(Lane lane) => Interlocked.Read(ref _laneBytesIn[(int)lane]);
+
+    /// <summary>Bytes flushed on a lane (frame header included).</summary>
+    public long BytesSentOn(Lane lane) => Interlocked.Read(ref _laneBytesOut[(int)lane]);
+
     public long Dropped(Lane lane) => Interlocked.Read(ref _laneDropped[(int)lane]);
 
     public long Coalesced(Lane lane) => Interlocked.Read(ref _laneCoalesced[(int)lane]);
@@ -39,30 +48,40 @@ public sealed class ConnectionStats
     /// <summary>High-water mark of queued bytes on a lane.</summary>
     public long MaxQueuedBytes(Lane lane) => Interlocked.Read(ref _laneMaxQueuedBytes[(int)lane]);
 
-    public void AddReceived(int bytes)
+    public void AddReceived(int bytes, Lane lane)
     {
         Interlocked.Add(ref _bytesReceived, bytes);
         Interlocked.Increment(ref _framesReceived);
+        Interlocked.Add(ref _laneBytesIn[(int)lane], bytes);
+        ServerMetrics.RecordReceived(lane, bytes);
     }
 
-    public void AddSent(int bytes)
+    public void AddSent(int bytes, Lane lane)
     {
         Interlocked.Add(ref _bytesSent, bytes);
         Interlocked.Increment(ref _framesSent);
+        Interlocked.Add(ref _laneBytesOut[(int)lane], bytes);
+        ServerMetrics.RecordSent(lane, bytes);
     }
 
-    public void AddViolation() => Interlocked.Increment(ref _violations);
+    public void AddViolation()
+    {
+        Interlocked.Increment(ref _violations);
+        ServerMetrics.RecordViolation();
+    }
 
     internal void AddCoalesced(Lane lane)
     {
         Interlocked.Increment(ref _coalesced);
         Interlocked.Increment(ref _laneCoalesced[(int)lane]);
+        ServerMetrics.RecordCoalesced();
     }
 
     internal void AddDropped(Lane lane)
     {
         Interlocked.Increment(ref _dropped);
         Interlocked.Increment(ref _laneDropped[(int)lane]);
+        ServerMetrics.RecordDropped(lane);
     }
 
     internal void ObserveQueued(Lane lane, long bytes) => RaiseTo(ref _laneMaxQueuedBytes[(int)lane], bytes);
