@@ -61,14 +61,33 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
     private bool _dirty;
 
     /// <param name="options">Supplies the live <see cref="TeamOptions"/> on every use (<c>IOptionsMonitor.CurrentValue</c>).</param>
-    /// <param name="store">Where memberships survive a restart; the latest stored state is loaded now.</param>
-    public TeamModule(Func<TeamOptions> options, ITeamStore? store = null, TimeProvider? time = null, ILogger<TeamModule>? logger = null)
+    /// <param name="store">Where memberships survive a restart.</param>
+    /// <param name="loadStored">Load the latest stored state now (default). A host whose database is not migrated yet passes false and calls <see cref="LoadStored"/> later.</param>
+    public TeamModule(Func<TeamOptions> options, ITeamStore? store = null, TimeProvider? time = null, ILogger<TeamModule>? logger = null, bool loadStored = true)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
         _store = store ?? new NullTeamStore();
         _time = time ?? TimeProvider.System;
         _logger = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        if (loadStored)
+        {
+            LoadStored();
+        }
+
+        _view = BuildView();
+        CaptureBaseline();
+    }
+
+    /// <summary>Convenience for tests and simple hosts: fixed options.</summary>
+    public TeamModule(TeamOptions? options = null, ITeamStore? store = null, TimeProvider? time = null, ILogger<TeamModule>? logger = null)
+        : this(Constant(options ?? new TeamOptions()), store, time, logger)
+    {
+    }
+
+    /// <summary>Loads the latest stored state. Call it before any node connects (a host that built the module before the database was migrated).</summary>
+    public void LoadStored()
+    {
         try
         {
             if (_store.LoadLatest() is { } stored)
@@ -83,12 +102,6 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
 
         _view = BuildView();
         CaptureBaseline();
-    }
-
-    /// <summary>Convenience for tests and simple hosts: fixed options.</summary>
-    public TeamModule(TeamOptions? options = null, ITeamStore? store = null, TimeProvider? time = null, ILogger<TeamModule>? logger = null)
-        : this(Constant(options ?? new TeamOptions()), store, time, logger)
-    {
     }
 
     private static Func<TeamOptions> Constant(TeamOptions options) => () => options;
@@ -153,6 +166,7 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         _dirty = true;
         SyncNodes();
         FanOut();
+        PushSettings(); // the effective credit mode depends on the number of teams
         Persist();
         var handler = Changed;
         if (handler is not null)
