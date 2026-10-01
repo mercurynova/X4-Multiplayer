@@ -1,6 +1,9 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using X4MP.Core.Economy;
 using X4MP.Core.Session;
+using X4MP.Proto;
 using X4MP.Core.Teams;
 using X4MP.Persistence;
 
@@ -28,13 +31,49 @@ public static class TeamsExtensions
                 () => monitor.CurrentValue,
                 sp.GetRequiredService<ITeamStore>(),
                 sp.GetRequiredService<TimeProvider>(),
-                sp.GetService<ILogger<TeamModule>>());
+                sp.GetService<ILogger<TeamModule>>(),
+                loadStored: false); // the database is migrated by DatabaseStartup, which runs later; TeamsStartup loads
             // A moved player's view is delivered again; resolved lazily because replication is registered after the teams.
             module.ResyncPlayer = player => sp.GetService<X4MP.Core.Replication.ReplicationModule>()?.Resync(player, null) ?? false;
+            // The economy half of SessionSettings: built from the live economy options (the Teams module does not know the economy).
+            module.EconomySource = () => sp.GetService<IOptionsMonitor<EconomyOptions>>() is { } economy
+                ? BuildEconomySettings(economy.CurrentValue, module.Teams.Count)
+                : null;
             return module;
         });
+        services.AddHostedService<TeamsStartup>(); // registered after DatabaseStartup, so it runs on a migrated database
         services.AddSingleton<ISessionModule>(sp => sp.GetRequiredService<TeamModule>());
         services.AddSingleton<ITeamDirectory>(sp => sp.GetRequiredService<TeamModule>());
         return services;
     }
+
+    /// <summary>The wire <c>EconomySettings</c> for the options now: the configured credit mode and what <c>Auto</c> resolves to (one team = Shared).</summary>
+    public static EconomySettingsT BuildEconomySettings(EconomyOptions options, int teamCount) => new()
+    {
+        CreditMode = options.CreditMode,
+        EffectiveMode = options.CreditMode switch
+        {
+            CreditMode.Shared => EffectiveCreditMode.Shared,
+            CreditMode.PerPlayer => EffectiveCreditMode.PerPlayer,
+            _ => teamCount == 1 ? EffectiveCreditMode.Shared : EffectiveCreditMode.PerPlayer,
+        },
+        TeamPoolEnabled = options.TeamPoolEnabled,
+        PoolWithdrawPolicy = options.PoolWithdrawPolicy,
+        PoolWithdrawDailyLimit = options.PoolWithdrawDailyLimitPerPlayer,
+        MaxTransferAmount = options.MaxSingleTransfer,
+        AllowAlliedTransfers = options.AllowAlliedTransfers,
+        DonateScope = options.DonateScope,
+    };
+}
+
+/// <summary>Loads the stored teams once the database is migrated (the module is built before that happens).</summary>
+internal sealed class TeamsStartup(TeamModule module) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        module.LoadStored(); // synchronous on purpose: the session actor is not running yet
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

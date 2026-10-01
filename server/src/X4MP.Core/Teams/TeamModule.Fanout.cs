@@ -43,7 +43,20 @@ public sealed partial class TeamModule
     /// The economy half of <c>SessionSettings</c> (the economy module owns it). Set it when the economy settings change; it
     /// goes into every later <c>Welcome</c> and <c>SessionSettings</c> push. Null until the economy supplies it.
     /// </summary>
-    public EconomySettingsT? EconomySettings { get; set; }
+    public EconomySettingsT? EconomySettings
+    {
+        get => _economyOverride ?? EconomySource?.Invoke();
+        set => _economyOverride = value;
+    }
+
+    private EconomySettingsT? _economyOverride;
+
+    /// <summary>
+    /// Where the economy half of <c>SessionSettings</c> comes from (the host builds it from the live economy options and the
+    /// number of teams, so the Teams module does not depend on the economy). Read on every use; call <see cref="PushSettings"/>
+    /// when what it returns changes (a team change does so itself).
+    /// </summary>
+    public Func<EconomySettingsT?>? EconomySource { get; set; }
 
     /// <summary>
     /// Asks replication to deliver a moved player's view again (the host points it at <c>ReplicationModule.Resync</c>). Called

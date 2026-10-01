@@ -146,6 +146,19 @@ public sealed partial class TeamModule
                 players[node.PlayerId] = new TeamPlayer(node.PlayerId, node.Name);
             }
 
+            // A dry run on a copy would be exact; the presets are deterministic, so check the authority's place in the plan:
+            // while Running, the authority's player must keep its team.
+            if (_sessionPhase == SessionPhase.Running && AuthorityNodeWithTeam() is { } authority)
+            {
+                var plan = new TeamRegistry();
+                plan.Restore(_registry.Snapshot());
+                var dry = plan.ApplyPreset(preset, players.Values, _time.GetUtcNow(), assignedBy);
+                if (dry.Ok && plan.TeamOf(authority.PlayerId) != _registry.TeamOf(authority.PlayerId))
+                {
+                    return TeamResults.Fail<TeamPresetPlan>(TeamRejectReason.SessionRunningRestricted, AuthorityMoveDetail);
+                }
+            }
+
             var result = _registry.ApplyPreset(preset, players.Values, _time.GetUtcNow(), assignedBy);
             if (result.Ok)
             {
@@ -154,6 +167,9 @@ public sealed partial class TeamModule
 
             return result;
         });
+
+    private SessionNode? AuthorityNodeWithTeam() =>
+        _nodes.Values.FirstOrDefault(n => n.IsAuthority && _registry.MembershipOf(n.PlayerId) is not null);
 
     /// <summary>The connected players still waiting for a team (the GUI's "Unassigned" list).</summary>
     public Task<IReadOnlyList<UnassignedPlayer>> GetUnassignedAsync() =>
