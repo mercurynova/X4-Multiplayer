@@ -54,6 +54,11 @@ public sealed class SessionNode
 
     public NodePhase Phase { get; internal set; } = NodePhase.Admitted;
 
+    /// <summary>The player's team (0 = none yet), kept by the team module so the roster can carry it.</summary>
+    public int TeamId { get; internal set; }
+
+    public TeamRole TeamRole { get; internal set; }
+
     /// <summary>The phase the node left when it detached; a resume goes back to it.</summary>
     public NodePhase PhaseBeforeDetach { get; internal set; } = NodePhase.Admitted;
 
