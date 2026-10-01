@@ -321,3 +321,15 @@ TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing th
 economy supply its half of `SessionSettings`; `TeamModule.ResyncPlayer` is wired to `ReplicationModule.Resync` by `AddTeams`.
 Open: `ApplyPresetAsync` does not yet guard the authority's membership while Running; the fake authority records
 `ReassignPlayerAssets` but does not emit `EntityChange` (M1-F3).
+### Implementation notes: M1-E3 (donate, transfer, pool actions)
+
+- `EconomyService.Transfer/Donate` (new `TxKind.Transfer`, `LedgerReason.Transfer/Donation`); the pool actions share the
+  same replay-first path. `EconomyService.CheckRate` (5 per 10 s sliding window, `EconomyRateLimiter`) is called by
+  `EconomyModule` once per incoming request. New settings: `DonateScope` (default Teammates), `SharedWalletSpend`
+  (AnyMember), `AllowAlliedTransfers` (false). `EconomyActionCompleted` is published on the bus per booked action.
+- The wire has no `SameWallet`, `SelfTarget` or `RequestIdReuse` reasons (schema owned elsewhere): same-wallet (Shared
+  mode, same team) maps to `NotApplicableInSharedMode`, self-dealing and non-leader `SharedWalletSpend=LeaderOnly` to
+  `NotParty`, a reused key with another payload to `AmountInvalid` with detail "request id reused with a different payload".
+  Suggest adding `SameWallet`/`RequestIdReuse` to `EconomyReject` in the next schema wave.
+- Rejected requests are not stored (only committed ones are), so a replay of a rejection is re-evaluated.
+- `EconomyModule` requires session phase Running (else `SessionNotRunning`); the wire `EconomyResult.ref_id` is the request key.
