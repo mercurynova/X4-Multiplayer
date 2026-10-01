@@ -760,6 +760,13 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
   a min-distance]; O-2 can teams pick the same origin? [yes]; O-3 origin locked after session
   start? [yes, admin can override]; O-4 does the start sector also set a starting ship/location
   for the team's players? [yes, players' avatars spawn at their team HQ].
+- **Answered 2026-10-01 (user):** O-1..O-4 accepted as defaults. **Addition:** on a player's
+  **first** spawn, the authority also spawns that player's **starter scout ship** docked at (or
+  next to) their team HQ, so nobody is stranded on the HQ. The ship macro comes from the team's
+  origin package: the S-class scout that the matching vanilla gamestart gives (extracted with the
+  blueprints), falling back to the `StarterShip` setting (ADR Q12). It is owned by the player's
+  team, flagged as that player's avatar ship (ADR-015), and is a one-time grant per player per
+  session (tracked server-side, not re-granted on reconnect; respawn after death follows Q8).
 
 ---
 
