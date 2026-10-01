@@ -36,14 +36,14 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
-    public void EmptyDirectoryCreatesDatabaseAtSchemaV1()
+    public void EmptyDirectoryCreatesDatabaseAtLatestSchema()
     {
         var factory = new SqliteConnectionFactory(Options());
         Assert.False(Directory.Exists(_dir));
 
         var version = Runner(factory).Migrate();
 
-        Assert.Equal(1, version);
+        Assert.Equal(Runner(factory).LatestVersion, version);
         Assert.True(File.Exists(Path.Combine(_dir, "x4mp.db")));
         var tables = Scalar<long>(factory,
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN " +
@@ -51,19 +51,22 @@ public sealed class PersistenceTests : IDisposable
             "'chat_messages','galaxy_cache','config_overrides','admin_users','api_tokens','audit_log'," +
             "'journal','string_table','checkpoints')");
         Assert.Equal(16, tables);
-        // deferred tables must not exist yet
+        // the team tables arrive with migration 0002 (M1-T1); the economy tables are still deferred
+        Assert.Equal(4, Scalar<long>(factory,
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('teams','team_members','team_relations','team_assets')"));
         Assert.Equal(0, Scalar<long>(factory,
-            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('teams','wallets','ledger_tx','loans')"));
+            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('wallets','ledger_tx','loans')"));
     }
 
     [Fact]
     public void SecondStartIsNoOp()
     {
         var factory = new SqliteConnectionFactory(Options());
-        Assert.Equal(1, Runner(factory).Migrate());
-        Assert.Equal(1, Runner(factory).Migrate());
+        int latest = Runner(factory).LatestVersion;
+        Assert.Equal(latest, Runner(factory).Migrate());
+        Assert.Equal(latest, Runner(factory).Migrate());
 
-        Assert.Equal(1, Scalar<long>(factory, "SELECT COUNT(*) FROM schema_version"));
+        Assert.Equal(latest, Scalar<long>(factory, "SELECT COUNT(*) FROM schema_version"));
     }
 
     [Fact]

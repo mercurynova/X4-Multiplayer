@@ -67,6 +67,13 @@ public sealed class PersistenceWriter : IAsyncDisposable
     public bool TryEnqueue(string sql, object? parameters = null) =>
         _channel.Writer.TryWrite(CreateSqlItem(sql, parameters));
 
+    /// <summary>Queues arbitrary work (several statements, one transaction share). Returns false if the queue is full or the writer is disposed.</summary>
+    public bool TryEnqueue(Action<SqliteConnection, SqliteTransaction> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        return _channel.Writer.TryWrite(new WriteItem(action));
+    }
+
     /// <summary>Queues a SQL statement, waiting while the queue is full.</summary>
     public ValueTask EnqueueAsync(string sql, object? parameters = null, CancellationToken cancellationToken = default) =>
         _channel.Writer.WriteAsync(CreateSqlItem(sql, parameters), cancellationToken);
