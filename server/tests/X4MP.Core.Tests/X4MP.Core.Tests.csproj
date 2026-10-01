@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/X4MP.Core/X4MP.Core.csproj" />
     <ProjectReference Include="../../src/X4MP.Protocol/X4MP.Protocol.csproj" />
+    <ProjectReference Include="../../../tools/X4MP.FakeNode.Core/X4MP.FakeNode.Core.csproj" />
   </ItemGroup>
 
 </Project>

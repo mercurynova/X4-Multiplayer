@@ -111,6 +111,12 @@
           "X4MP.Protocol": "[1.0.0, )"
         }
       },
+      "x4mp.fakenode.core": {
+        "type": "Project",
+        "dependencies": {
+          "X4MP.Protocol": "[1.0.0, )"
+        }
+      },
       "x4mp.protocol": {
         "type": "Project",
         "dependencies": {

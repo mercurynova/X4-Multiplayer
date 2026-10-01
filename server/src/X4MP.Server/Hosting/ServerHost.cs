@@ -12,6 +12,7 @@ using X4MP.Server.Metrics;
 using X4MP.Server.Net;
 using X4MP.Server.Settings;
 using X4MP.Server.Teams;
+using X4MP.Server.World;
 
 namespace X4MP.Server.Hosting;
 
@@ -78,6 +79,8 @@ public static partial class ServerHost
         builder.Services.AddTeams(); // before AddSessionActor: the module must be first in the actor's module list
         builder.Services.AddSessionActor();
         builder.Services.AddEconomy();
+        builder.Services.AddWorldMirror();
+        builder.Services.AddInterestManager();
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();
