@@ -56,12 +56,15 @@ public sealed class ActorFixture : IAsyncDisposable
 
     public CollectingEvents Events { get; } = new();
 
+    /// <summary>Modules the actor attaches (fill before <see cref="Handler"/> runs, that is before the harness is created).</summary>
+    public List<ISessionModule> Modules { get; } = [];
+
     public SessionActor Actor { get; private set; } = null!;
 
     /// <summary>For <c>NetHarness.CreateAsync(handler: fixture.Handler)</c>.</summary>
     public IAdmissionHandler Handler(GatewayState state)
     {
-        Actor = new SessionActor(Options, Net, state, TimeProvider.System, events: Events);
+        Actor = new SessionActor(Options, Net, state, TimeProvider.System, events: Events, modules: Modules);
         _loop = Actor.RunAsync(_stop.Token);
         return Actor;
     }
