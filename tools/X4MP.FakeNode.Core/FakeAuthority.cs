@@ -147,7 +147,15 @@ public sealed class FakeAuthority
     // ---------------- startup messages ----------------
 
     /// <summary>StringTableAdd chunks + GalaxyMetadata (sent once after the handshake / upload of the save).</summary>
-    public IReadOnlyList<OutMessage> StartupMessages()
+    public IReadOnlyList<OutMessage> StartupMessages(byte[]? saveSha256 = null)
+    {
+        var list = new List<OutMessage>(StringTableMessages());
+        list.Add(BuildGalaxyMetadata(saveSha256));
+        return list;
+    }
+
+    /// <summary>The full string table as <c>StringTableAdd</c> chunks (what the authority sends once, and what the server replays on join).</summary>
+    public IReadOnlyList<OutMessage> StringTableMessages()
     {
         var list = new List<OutMessage>();
         const int chunk = 500;
@@ -156,20 +164,23 @@ public sealed class FakeAuthority
             var add = new StringTableAddT { Entries = [.. Strings.Entries.Skip(i).Take(chunk)] };
             list.Add(new OutMessage(MsgType.StringTableAdd, MessageEncoder.EncodePayload(b => StringTableAdd.Pack(b, add), 16384)));
         }
-        list.Add(BuildGalaxyMetadata());
+
         return list;
     }
 
-    /// <summary>Stable fake save hash per seed (the fake save is not generated in part 1).</summary>
+    /// <summary>
+    /// Placeholder save hash per seed, used where no fake save file exists (offline tests). A real run passes the SHA-256 of the
+    /// generated save file (<see cref="FakeSaveGenerator"/>) to <see cref="BuildGalaxyMetadata"/>.
+    /// </summary>
     public byte[] SaveSha256 => SHA256.HashData(Encoding.UTF8.GetBytes($"x4mp-fake-save-{World.Galaxy.Seed}"));
 
-    public OutMessage BuildGalaxyMetadata()
+    /// <summary>The sector table in wire form (also embedded in the manifest).</summary>
+    public List<SectorInfoT> BuildSectorInfos()
     {
         var g = World.Galaxy;
-        var meta = new GalaxyMetadataT
-        {
-            SaveSha256 = [.. SaveSha256],
-            Sectors = [.. g.Sectors.Select(s => new SectorInfoT
+        return
+        [
+            .. g.Sectors.Select(s => new SectorInfoT
             {
                 Index = s.Index,
                 Macro = s.Macro,
@@ -177,7 +188,17 @@ public sealed class FakeAuthority
                 Name = s.Name,
                 OwnerRef = Strings.Index(g.Factions[s.OwnerFaction]),
                 GalaxyPos = new Vec3fT { X = (float)s.GalaxyPos.X, Y = (float)s.GalaxyPos.Y, Z = (float)s.GalaxyPos.Z },
-            })],
+            }),
+        ];
+    }
+
+    public OutMessage BuildGalaxyMetadata(byte[]? saveSha256 = null)
+    {
+        var g = World.Galaxy;
+        var meta = new GalaxyMetadataT
+        {
+            SaveSha256 = [.. saveSha256 ?? SaveSha256],
+            Sectors = BuildSectorInfos(),
             Links = [],
         };
         foreach (var l in g.Links)

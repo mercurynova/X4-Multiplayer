@@ -29,6 +29,18 @@ public sealed record LiveRunOptions
 
     /// <summary>Test hooks for the clients' sessions (inject a fault, shorten the clock).</summary>
     public Action<FakeClientSession>? OnClientSession { get; init; }
+
+    /// <summary>Size of the fake save the authority uploads (null = <c>--save-mb</c>, default 4 MiB).</summary>
+    public long? SaveBytes { get; init; }
+
+    /// <summary>Where the fake saves live (null = a fresh directory under the temp path, deleted at the end of the run).</summary>
+    public string? SaveDirectory { get; init; }
+
+    /// <summary>The fake clients' simulated <c>LoadGame</c> time.</summary>
+    public TimeSpan LoadDelay { get; init; } = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>How long a client waits for the whole save pipeline (the authority's first checkpoint, the download, the match) against a server with a save service.</summary>
+    public TimeSpan SaveTimeout { get; init; } = TimeSpan.FromMinutes(3);
 }
 
 /// <summary>Counters of one connected (or failed) node; read by the reporter, written by the node's loop.</summary>
@@ -42,6 +54,18 @@ public sealed class LiveNodeStats(string name, Role role)
     private long _lastRttTicks;
     private int _connected;
     private int _errors;
+    private int _inGame;
+    private long _saveBytes;
+
+    /// <summary>True once a client finished the join pipeline (save downloaded, matched, <c>NodeReady</c> sent) or the authority stored its first checkpoint.</summary>
+    public bool InGame => Volatile.Read(ref _inGame) != 0;
+
+    /// <summary>Bytes of save data this node moved (downloaded by a client, uploaded by the authority).</summary>
+    public long SaveBytes => Interlocked.Read(ref _saveBytes);
+
+    internal void MarkInGame() => Volatile.Write(ref _inGame, 1);
+
+    internal void SetSaveBytes(long bytes) => Interlocked.Exchange(ref _saveBytes, bytes);
 
     public string Name { get; } = name;
     public Role Role { get; } = role;
@@ -117,6 +141,7 @@ public static partial class LiveRunner
         if (o.Duration is { } seconds)
             cts.CancelAfter(TimeSpan.FromSeconds(seconds));
 
+        string saveRoot = run.SaveDirectory ?? Path.Combine(Path.GetTempPath(), "x4mp-fakenode", Guid.NewGuid().ToString("N")[..8]);
         var stats = plan.Select(p => new LiveNodeStats(p.Name, p.Role)).ToList();
         var galaxy = new Lazy<FakeGalaxy>(() => FakeGalaxy.Generate(o.Seed, new GalaxyOptions { SectorCount = o.Sectors, ShipCount = o.Ships }), LazyThreadSafetyMode.ExecutionAndPublication);
         bool single = plan.Count == 1;
@@ -127,7 +152,7 @@ public static partial class LiveRunner
         var tasks = new List<Task>();
         for (int i = 0; i < plan.Count; i++)
         {
-            tasks.Add(RunNodeAsync(o, plan[i], i, stats[i], single, run, lines, galaxy, cts.Token));
+            tasks.Add(RunNodeAsync(o, plan[i], i, stats[i], single, run, lines, galaxy, saveRoot, cts.Token));
             if (i + 1 < plan.Count)
             {
                 try
@@ -154,7 +179,19 @@ public static partial class LiveRunner
         long errors = stats.Sum(s => s.Errors) + verifyErrors;
         await lines.WriteAsync($"summary: nodes={stats.Count} joined={stats.Count(s => s.Pings > 0)} errors={errors} pings={stats.Sum(s => s.Pings)} " +
                                $"rtt avg={Ms(Average(stats))} max={Ms(stats.Count == 0 ? TimeSpan.Zero : stats.Max(s => s.MaxRtt))} " +
-                               $"elapsed={clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s").ConfigureAwait(false);
+                               $"elapsed={clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s ingame={stats.Count(s => s.InGame)}").ConfigureAwait(false);
+        if (run.SaveDirectory is null)
+        {
+            try
+            {
+                Directory.Delete(saveRoot, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // best effort temp cleanup
+            }
+        }
+
         return errors == 0 ? ExitOk : ExitErrors;
     }
 
@@ -196,7 +233,7 @@ public static partial class LiveRunner
 
     private static async Task RunNodeAsync(
         CliOptions o, NodePlan plan, int index, LiveNodeStats stats, bool print, LiveRunOptions run, SynchronizedWriter lines,
-        Lazy<FakeGalaxy> galaxy, CancellationToken ct)
+        Lazy<FakeGalaxy> galaxy, string saveRoot, CancellationToken ct)
     {
         var options = new NodeClientOptions
         {
@@ -241,7 +278,7 @@ public static partial class LiveRunner
                 // Against a session actor the node plays its role; against a bare gateway it only keeps the socket alive.
                 if (await link.WaitForSessionAsync(run.SessionDetect, ct).ConfigureAwait(false))
                 {
-                    await RunSessionNodeAsync(o, plan, index, link, stats, run, lines, galaxy.Value, print, ct).ConfigureAwait(false);
+                    await RunSessionNodeAsync(o, plan, index, link, stats, run, lines, galaxy.Value, Path.Combine(saveRoot, plan.Name), print, ct).ConfigureAwait(false);
                 }
                 else
                 {
@@ -278,7 +315,7 @@ public static partial class LiveRunner
                 int connected = stats.Count(s => s.Connected);
                 await lines.WriteAsync(
                     $"t={clock.Elapsed.TotalSeconds.ToString("F0", CultureInfo.InvariantCulture)}s connected={connected}/{stats.Count} " +
-                    $"errors={stats.Sum(s => s.Errors)} pings={stats.Sum(s => s.Pings)} rtt avg={Ms(Average(stats))} max={Ms(stats.Max(s => s.MaxRtt))}").ConfigureAwait(false);
+                    $"errors={stats.Sum(s => s.Errors)} pings={stats.Sum(s => s.Pings)} rtt avg={Ms(Average(stats))} max={Ms(stats.Max(s => s.MaxRtt))} ingame={stats.Count(s => s.InGame)}").ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
