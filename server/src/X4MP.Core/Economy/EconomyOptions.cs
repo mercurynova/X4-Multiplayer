@@ -13,6 +13,13 @@ public enum SaveMoneyDistribution
     SplitAmongPlayers,
 }
 
+/// <summary>Who may spend a team's shared wallet toward another team (server-design 2.14 validation rule 5).</summary>
+public enum SharedWalletSpendPolicy
+{
+    AnyMember,
+    LeaderOnly,
+}
+
 /// <summary>Economy settings (server-design 2.14 <c>EconomyOptions</c>). Scopes, loan and trade limits arrive with M1-E3..E5.</summary>
 [SettingsSection(SectionName, "Economy")]
 public sealed record EconomyOptions
@@ -36,6 +43,18 @@ public sealed record EconomyOptions
     /// <summary>Credits one player may take from the pool in any rolling 24 hours (0 = no limit).</summary>
     [Setting("Pool withdraw daily limit per player (0 = unlimited)", Scope = SettingScope.Live, Min = 0, Max = 1_000_000_000_000)]
     public long PoolWithdrawDailyLimitPerPlayer { get; set; }
+
+    /// <summary>Who may give from a team's shared wallet to another team (Shared mode).</summary>
+    [Setting("Who may spend the shared wallet toward other teams", Scope = SettingScope.Live)]
+    public SharedWalletSpendPolicy SharedWalletSpend { get; set; } = SharedWalletSpendPolicy.AnyMember;
+
+    /// <summary>Who may receive a donation (Off, Teammates, Allied = same or allied team, Anyone).</summary>
+    [Setting("Donation scope", Scope = SettingScope.Live)]
+    public EconomyScope DonateScope { get; set; } = EconomyScope.Teammates;
+
+    /// <summary>Teammate transfers also work toward players of allied teams.</summary>
+    [Setting("Teammate transfers also reach allied teams", Scope = SettingScope.Live)]
+    public bool AllowAlliedTransfers { get; set; }
 
     [Setting("Largest single transfer or pool movement", Scope = SettingScope.Live, Min = 1, Max = 1_000_000_000_000)]
     public long MaxSingleTransfer { get; set; } = 1_000_000_000_000;

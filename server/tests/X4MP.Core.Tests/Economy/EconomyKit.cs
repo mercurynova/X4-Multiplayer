@@ -22,7 +22,17 @@ public sealed class FakeTeamDirectory : ITeamDirectory
 
     public IReadOnlyList<int> MembersOf(int teamId) => [.. _teamOf.Where(kv => kv.Value == teamId).Select(kv => kv.Key).Order()];
 
-    public TeamRelation RelationBetween(int teamA, int teamB) => teamA == teamB ? TeamRelation.Allied : TeamRelation.Neutral;
+    private readonly Dictionary<(int, int), TeamRelation> _relations = [];
+
+    public TeamRelation RelationBetween(int teamA, int teamB) =>
+        teamA == teamB ? TeamRelation.Allied : _relations.GetValueOrDefault((Math.Min(teamA, teamB), Math.Max(teamA, teamB)), TeamRelation.Neutral);
+
+    /// <summary>Sets the relation of two teams (symmetric) and raises <see cref="Changed"/>.</summary>
+    public void SetRelation(int teamA, int teamB, TeamRelation relation)
+    {
+        _relations[(Math.Min(teamA, teamB), Math.Max(teamA, teamB))] = relation;
+        Changed?.Invoke(new TeamDirectoryChanged(++Version));
+    }
 
     /// <summary>Replaces the whole layout and raises <see cref="Changed"/>.</summary>
     public void Set(IEnumerable<int> teams, IReadOnlyDictionary<int, int?> members)
