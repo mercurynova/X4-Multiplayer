@@ -38,7 +38,7 @@ jobs:
       mod: ${{ steps.f.outputs.mod }}
       e2e: ${{ steps.f.outputs.e2e }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: f
@@ -91,7 +91,7 @@ jobs:
       run:
         working-directory: server/web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -118,7 +118,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
@@ -157,7 +157,7 @@ jobs:
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache flatc
         uses: actions/cache@v4
         with:
@@ -191,7 +191,7 @@ jobs:
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache flatc
         uses: actions/cache@v4
         with:
@@ -226,7 +226,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: XML well-formedness (mod/extension)
         run: |
           python3 -c "import glob, xml.dom.minidom as m; fs = sorted(glob.glob('mod/extension/**/*.xml', recursive=True)); [(print(f), m.parse(f)) for f in fs]; print('well-formed:', len(fs), 'files')"
@@ -255,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
