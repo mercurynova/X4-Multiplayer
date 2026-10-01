@@ -1,0 +1,82 @@
+using X4MP.Core.Net;
+using X4MP.FakeNode;
+
+namespace X4MP.Server.Tests.Net;
+
+/// <summary>The FakeNode live runner (swarm, authority, client) against the real server over TCP.</summary>
+[Collection("net")]
+public class FakeNodeLiveTests
+{
+    private static readonly LiveRunOptions Quick = new()
+    {
+        PingInterval = TimeSpan.FromMilliseconds(100),
+        ReportInterval = TimeSpan.FromMilliseconds(500),
+        ConnectStagger = TimeSpan.FromMilliseconds(10),
+    };
+
+    private static NetOptions Roomy() => new() { MaxConnectionsPerIp = 64, MaxPlayers = 32, HandshakeTimeoutSeconds = 5 };
+
+    [Fact]
+    public async Task SwarmWithAuthorityConnectsEveryNodeWithoutErrors()
+    {
+        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true);
+        var options = CliParser.Parse(["swarm", "--clients", "8", "--with-authority", "--duration", "2"]).Options! with { Port = harness.Port };
+        var output = new StringWriter();
+
+        int exit = await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None);
+
+        string text = output.ToString();
+        Assert.Equal(0, exit);
+        Assert.Contains("summary: nodes=9 joined=9 errors=0", text);
+        Assert.Equal(9, text.Split('\n').Count(l => l.Contains("welcome:", StringComparison.Ordinal)));
+        Assert.Contains("roles=Authority", text);
+        Assert.Contains("connected=9/9", text);
+        await Task.Delay(300);
+        Assert.Empty(harness.Gateway!.AdmittedNodes);
+    }
+
+    [Fact]
+    public async Task SingleClientAndAuthorityPrintWelcomeAndRtt()
+    {
+        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true);
+        foreach (var command in new[] { "client", "authority" })
+        {
+            var options = CliParser.Parse([command, "--duration", "1", "--name", "Solo" + command]).Options! with { Port = harness.Port };
+            var output = new StringWriter();
+            int exit = await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None);
+            Assert.Equal(0, exit);
+            Assert.Contains("welcome:", output.ToString());
+            Assert.Contains("rtt=", output.ToString());
+            Assert.Contains("errors=0", output.ToString());
+        }
+    }
+
+    [Fact]
+    public async Task CancellationEndsCleanly()
+    {
+        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true);
+        var options = CliParser.Parse(["client"]).Options! with { Port = harness.Port };
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(600));
+        Assert.Equal(0, await LiveRunner.RunAsync(options, new StringWriter(), Quick, cts.Token));
+    }
+
+    [Fact]
+    public async Task UnreachableServerReportsErrorsAndNonZeroExit()
+    {
+        var options = CliParser.Parse(["client", "--duration", "10", "--server", "127.0.0.1:1"]).Options!;
+        var output = new StringWriter();
+        Assert.Equal(1, await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None));
+        Assert.Contains("connect failed", output.ToString());
+    }
+
+    [Theory]
+    [InlineData("inspect", "--sector", "3")]
+    [InlineData("client", "--verify")]
+    public async Task ReplicationPathsAreStubbedWithAMessage(params string[] args)
+    {
+        var options = CliParser.Parse(args).Options!;
+        var output = new StringWriter();
+        Assert.Equal(3, await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None));
+        Assert.Contains("not available yet", output.ToString());
+    }
+}

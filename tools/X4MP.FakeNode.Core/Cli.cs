@@ -33,6 +33,12 @@ public sealed record CliOptions
     public int Fps { get; init; } = 60;
     public ushort? Sector { get; init; }
     public int Seconds { get; init; } = 60;
+
+    /// <summary>Live commands: stop after this many seconds; null = run until Ctrl+C.</summary>
+    public int? Duration { get; init; }
+
+    /// <summary>swarm: also start one authority node.</summary>
+    public bool WithAuthority { get; init; }
     public string? Password { get; init; }
 }
 
@@ -51,23 +57,24 @@ public static class CliParser
         usage: fakenode <command> [options]
 
         commands:
-          authority   act as the X4 authority node         (requires M1-03 server)
-          client      one or more fake player nodes        (requires M1-03 server)
-          swarm       authority + --clients K in a process (requires M1-03 server)
-          inspect     observer printing a sector           (requires M1-03 server)
+          authority   connect as the X4 authority node (handshake + keepalive; replication needs M1-05..08)
+          client      connect as a fake player node        (handshake + keepalive; replication needs M1-05..08)
+          swarm       --clients K client nodes in one process (+ an authority with --with-authority)
+          inspect     observer printing a sector           (requires M1-05..08; not available yet)
           galaxy      offline: generate the galaxy and print its stats
 
         options:
           --server host:port   server address (default 127.0.0.1:47780)
           --seed N             universe seed (default 42)
-          --clients K          swarm: number of fake clients (also --count for client)
+          --clients K          swarm: number of fake clients (also --count)
           --name NAME          node name; --name-prefix PREFIX for several
           --behavior wander|patrol|explore
           --verify             verify replication against ground truth
           --udp                use the UDP realtime lane
           --sectors N --ships N --tick HZ --fps N   universe / authority shape
           --sector ID          inspect: sector index to observe
-          --seconds N          run time
+          --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
+          --with-authority     swarm: also connect one authority node
           --password PW        session password
         """;
 
@@ -103,13 +110,18 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp";
+            bool isFlag = key is "verify" or "udp" or "with-authority";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
                 if (value is not null && !on && !value.Equals("false", StringComparison.OrdinalIgnoreCase))
                     return Fail($"--{key} takes no value (got '{value}')");
-                o = key == "verify" ? o with { Verify = on } : o with { Udp = on };
+                o = key switch
+                {
+                    "verify" => o with { Verify = on },
+                    "with-authority" => o with { WithAuthority = on },
+                    _ => o with { Udp = on },
+                };
                 continue;
             }
 
@@ -159,8 +171,8 @@ public static class CliParser
                 return PositiveInt(o, key, value, v => o with { TickRate = v });
             case "fps":
                 return PositiveInt(o, key, value, v => o with { Fps = v });
-            case "seconds":
-                return PositiveInt(o, key, value, v => o with { Seconds = v });
+            case "seconds" or "duration":
+                return PositiveInt(o, key, value, v => o with { Seconds = v, Duration = v });
             case "sector":
                 return PositiveInt(o, key, value, v => v > ushort.MaxValue ? null : o with { Sector = (ushort)v });
             case "name":
