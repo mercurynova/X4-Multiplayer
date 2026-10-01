@@ -24,6 +24,18 @@ public class TeamsHostingTests
     }
 
     [Fact]
+    public async Task TheHostPointsTheModulesResyncAtReplication()
+    {
+        await using var factory = new AuthFactory();
+        _ = factory.NewClient();
+
+        var module = factory.Services.GetRequiredService<TeamModule>();
+
+        Assert.NotNull(module.ResyncPlayer);
+        Assert.False(module.ResyncPlayer!(12345)); // replication refuses a player that is not in game; nothing throws
+    }
+
+    [Fact]
     public async Task TheTeamOptionsAreSettingsWithTheAdr017Defaults()
     {
         await using var factory = new AuthFactory();

@@ -303,8 +303,12 @@ public static partial class LiveRunner
             if (frame.Type == MsgType.CaptureSet)
                 captures.Enqueue(MessageRegistry.Default.Decode<CaptureSet>(frame).UnPack());
             else
+            {
+                authority.Teams.Handle(frame);
                 saves?.Handle(frame);
+            }
         };
+        authority.Teams.ApplyWelcome(link.Client.Welcome);
 
         foreach (var message in saves is null ? authority.StartupMessages() : authority.StringTableMessages())
             await link.Client.SendPayloadAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
@@ -361,6 +365,7 @@ public static partial class LiveRunner
         CancellationToken ct)
     {
         var session = new FakeClientSession(new FakeWorld(galaxy), o.Verify);
+        session.Teams.ApplyWelcome(link.Client.Welcome);
         run.OnClientSession?.Invoke(session);
         stats.AttachSession(session);
         var outbox = Channel.CreateUnbounded<OutMessage>();

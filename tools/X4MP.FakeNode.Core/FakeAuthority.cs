@@ -110,6 +110,9 @@ public sealed class FakeAuthority
     private List<Focus> _focus = [];
     private long _lastLeg = -1;
 
+    /// <summary>The team state the authority holds (relations to apply in game, the asset re-owns it was told to do; M1-T3).</summary>
+    public FakeTeamState Teams { get; } = new();
+
     public FakeAuthority(FakeWorld world, FakeAuthorityOptions? options = null)
     {
         World = world;
