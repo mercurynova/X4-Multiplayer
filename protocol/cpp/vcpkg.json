@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "x4mp-protocol",
+  "version-string": "0.1.0",
+  "description": "X4MP wire protocol (C++): framing, Replication codec, quantisation, FlatBuffers verification.",
+  "builtin-baseline": "eb2d3a3279fd019cb7733072d86900d0ad2a1aef",
+  "dependencies": [
+    "flatbuffers",
+    "catch2",
+    "nlohmann-json"
+  ],
+  "overrides": [
+    {
+      "name": "flatbuffers",
+      "version": "25.2.10"
+    }
+  ]
+}

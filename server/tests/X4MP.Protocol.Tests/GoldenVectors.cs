@@ -41,6 +41,7 @@ public static class GoldenVectors
             var payload = s.Encode();
             var frame = FrameCodec.Encode(s.Type, payload);
             var lane = MessageRegistry.Default.GetDescriptor(s.Type).Lane;
+            var fields = CanonicalFields.Serialize(UnPackDecoded(s.Type, payload));
             list.Add(new Vector($"{s.Stem}.bin", "frame", frame, w =>
             {
                 w.WriteNumber("msgType", (ushort)s.Type);
@@ -49,6 +50,8 @@ public static class GoldenVectors
                 w.WriteNumber("lane", (int)lane);
                 w.WriteNumber("payloadOffset", FrameCodec.HeaderSize);
                 w.WriteNumber("payloadLength", payload.Length);
+                w.WritePropertyName("fields");
+                w.WriteRawValue(fields);
             }));
         }
 
@@ -127,6 +130,13 @@ public static class GoldenVectors
     }
 
     // ---------------------------------------------------------------- vector builders
+
+    /// <summary>Decodes a payload through the registry and returns its object-API form (all fields).</summary>
+    private static object UnPackDecoded(MsgType type, byte[] payload)
+    {
+        var decoded = MessageRegistry.Default.Decode(type, payload);
+        return decoded.GetType().GetMethod("UnPack")!.Invoke(decoded, null)!;
+    }
 
     private static void Require(bool condition, string message)
     {
@@ -368,7 +378,7 @@ public static class GoldenVectors
             w.WriteNumber("datagramHeaderSize", DatagramCodec.HeaderSize);
             w.WriteNumber("maxDatagramBytes", DatagramCodec.MaxDatagramBytes);
             w.WriteStartObject("kinds");
-            w.WriteString("frame", "complete TCP frame (8-byte header + FlatBuffers payload); decode payload with the table for msgType, re-encode must reproduce the frame semantically");
+            w.WriteString("frame", "complete TCP frame (8-byte header + FlatBuffers payload); decode payload with the table for msgType; fields = canonical dump of every decoded field (see CanonicalFields.cs); re-encode must reproduce the frame semantically");
             w.WriteString("replication-entries", "raw Replication.entries bytes (protocol.md 10.2); decode all entries and re-encode byte-identically");
             w.WriteString("datagram", "complete UDP datagram (24-byte header + padded sub-messages)");
             w.WriteString("reject-frame", "bytes that must be rejected as a frame stream; expect = C# ViolationCode name");
