@@ -51,7 +51,7 @@ target_compile_definitions(x4mp_core PRIVATE
   X4MP_VERSION_STRING="${PROJECT_VERSION}"
   X4MP_GAME_BUILD_PIN="${X4MP_GAME_BUILD_PIN}")
 find_package(nlohmann_json CONFIG REQUIRED)
-target_link_libraries(x4mp_core PUBLIC x4mp::wire PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(x4mp_core PUBLIC x4mp::wire PRIVATE nlohmann_json::nlohmann_json ws2_32)
 set_target_properties(x4mp_core PROPERTIES CXX_EXTENSIONS OFF)
 x4mp_set_warnings(x4mp_core)
 
@@ -111,6 +111,7 @@ if(X4MP_TESTS)
     tests/test_config.cpp
     tests/test_queue.cpp
     tests/test_net.cpp
+    tests/test_net_socket.cpp
     tests/test_no_env.cpp
     tests/test_session.cpp
     tests/test_version.cpp)
@@ -125,7 +126,16 @@ if(X4MP_TESTS)
   x4mp_set_warnings(x4mp_game_tests)
   catch_discover_tests(x4mp_game_tests TEST_PREFIX "game." PROPERTIES TIMEOUT 60)
 
-  foreach(_t x4mp_core x4mp_game x4mp_core_tests x4mp_game_tests)
+  # netprobe: manual/CI smoke tool, connects to a real server and prints ServerHello (M1-N2). Core only, no SDK.
+  add_executable(netprobe tools/netprobe/netprobe.cpp)
+  target_link_libraries(netprobe PRIVATE x4mp_core)
+  x4mp_set_warnings(netprobe)
+  # Skipped (not failed) unless X4MP_TEST_SERVER=host:port is set. Env vars are fine in test tools; the mod
+  # runtime never reads them.
+  add_test(NAME smoke.netprobe_real_server COMMAND netprobe --from-env)
+  set_tests_properties(smoke.netprobe_real_server PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+
+  foreach(_t x4mp_core x4mp_game x4mp_core_tests x4mp_game_tests netprobe)
     x4mp_assert_no_sdk(${_t})
   endforeach()
 
