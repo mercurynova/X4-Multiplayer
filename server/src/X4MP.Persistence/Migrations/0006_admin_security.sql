@@ -1,4 +1,4 @@
--- 0005_admin_security: admin API hardening (task M1-S2).
+-- 0006_admin_security: admin API hardening (task M1-S2).
 --
 -- admin_users.pw_version: bumped by every password CHANGE (not by a work-factor upgrade). The cookie carries it as a claim and the
 --   cookie validator rejects a cookie whose version no longer matches, so a password change signs every other browser session out.
