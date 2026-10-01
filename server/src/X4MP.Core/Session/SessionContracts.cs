@@ -187,6 +187,18 @@ public interface ISessionNodeDriver
     /// <summary>Runs <paramref name="work"/> on the actor thread and returns its result.</summary>
     Task<T> CallAsync<T>(Func<T> work);
 
+    /// <summary>Fire-and-forget: queues <paramref name="work"/> for the actor thread (a timer's way in; allocation-light). False after shutdown.</summary>
+    bool Post(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        _ = CallAsync(() =>
+        {
+            work();
+            return true;
+        });
+        return true;
+    }
+
     /// <summary>Microseconds on the server clock the nodes sync to (the <c>Ping</c>/<c>Pong</c> clock); 0 when the driver has none. Safe from any thread.</summary>
     long ServerTimeUs => 0;
 

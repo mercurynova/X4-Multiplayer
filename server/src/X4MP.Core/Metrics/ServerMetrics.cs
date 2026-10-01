@@ -61,6 +61,18 @@ public static class ServerMetrics
     private static readonly Counter<long> EventsDropped = Meter.CreateCounter<long>(
         "x4mp.events.dropped", "{event}", "Domain events dropped because a subscriber was full");
 
+    private static readonly Counter<long> ReplicationFramesCounter = Meter.CreateCounter<long>(
+        "x4mp.replication.frames", "{frame}", "Replication frames queued to clients");
+
+    private static readonly Counter<long> ReplicationEntriesCounter = Meter.CreateCounter<long>(
+        "x4mp.replication.entries", "{entry}", "Replication entries queued to clients");
+
+    private static readonly Counter<long> ReplicationBytesCounter = Meter.CreateCounter<long>(
+        "x4mp.replication.bytes", "By", "Bytes of Replication frames queued to clients, headers included");
+
+    private static readonly Counter<long> ReplicationResyncsCounter = Meter.CreateCounter<long>(
+        "x4mp.replication.resyncs", "{resync}", "Resyncs started by a client's ResyncRequest");
+
     private static readonly Histogram<double> NodeRtt = Meter.CreateHistogram<double>(
         "x4mp.session.rtt", "ms", "Round-trip time of server Ping/Pong exchanges with nodes");
 
@@ -69,7 +81,7 @@ public static class ServerMetrics
     private static readonly long[] DroppedByLane = new long[3];
     private static long _inboundCoalesced, _inboundDropped;
     private static long _framesIn, _framesOut, _coalesced, _violations, _handshakesOk, _handshakesRefused, _disconnects;
-    private static long _eventsPublished, _eventsDropped;
+    private static long _eventsPublished, _eventsDropped, _replicationFrames, _replicationEntries, _replicationBytes, _replicationResyncs;
 
     private static readonly ConcurrentDictionary<long, INodeConnection> Connections = new();
 
@@ -158,6 +170,23 @@ public static class ServerMetrics
     /// <summary>One Ping/Pong round trip with a node (the SessionActor calls it per accepted sample).</summary>
     public static void RecordRtt(double milliseconds) => NodeRtt.Record(milliseconds);
 
+    /// <summary>One <c>Replication</c> frame queued to a client (the replication module calls it per frame).</summary>
+    public static void RecordReplicationFrame(int entries, int bytes)
+    {
+        Interlocked.Increment(ref _replicationFrames);
+        Interlocked.Add(ref _replicationEntries, entries);
+        Interlocked.Add(ref _replicationBytes, bytes);
+        ReplicationFramesCounter.Add(1);
+        ReplicationEntriesCounter.Add(entries);
+        ReplicationBytesCounter.Add(bytes);
+    }
+
+    public static void RecordReplicationResync()
+    {
+        Interlocked.Increment(ref _replicationResyncs);
+        ReplicationResyncsCounter.Add(1);
+    }
+
     public static void RecordEventPublished()
     {
         Interlocked.Increment(ref _eventsPublished);
@@ -215,6 +244,14 @@ public static class ServerMetrics
     public static long HandshakesRefused => Interlocked.Read(ref _handshakesRefused);
 
     public static long Disconnects => Interlocked.Read(ref _disconnects);
+
+    public static long ReplicationFrames => Interlocked.Read(ref _replicationFrames);
+
+    public static long ReplicationEntries => Interlocked.Read(ref _replicationEntries);
+
+    public static long ReplicationBytes => Interlocked.Read(ref _replicationBytes);
+
+    public static long ReplicationResyncs => Interlocked.Read(ref _replicationResyncs);
 
     public static long EventsPublishedTotal => Interlocked.Read(ref _eventsPublished);
 

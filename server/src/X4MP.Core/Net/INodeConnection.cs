@@ -62,6 +62,16 @@ public interface INodeConnection : IAsyncDisposable
     void AttachDatagramPath(IDatagramPath path);
 
     /// <summary>
+    /// Registers (or clears with null) a callback invoked for every frame after the flush that carried it completed
+    /// (<see cref="OutboundFrame.DeliveryToken"/> says which). It runs on the connection's writer thread, so it must be
+    /// thread-safe and quick; replication only publishes a counter from it. A UDP path invokes the same callback when the datagram
+    /// was acknowledged. The default does nothing (test doubles that never deliver).
+    /// </summary>
+    void SetFlushObserver(Action<OutboundFrame>? observer)
+    {
+    }
+
+    /// <summary>
     /// Orderly close: queues a Disconnect (Control lane, bypassing caps), flushes pending Control frames
     /// (bounded by a short timeout) and closes. Idempotent. Never throws.
     /// <paramref name="expected"/> and <paramref name="retryAfterMs"/> fill the matching Disconnect fields.
