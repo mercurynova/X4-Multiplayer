@@ -16,8 +16,8 @@ public sealed class WorldMirrorTests
         public void OnEntityStateChanged(MirrorEntity entity, ushort previousSector, StateChange change) =>
             Log.Add($"state:{entity.NetId}:{previousSector}->{entity.Sector}:{change}");
 
-        public void OnEntityChanged(MirrorEntity entity, ChangeField fields, ulong journalSeq) =>
-            Log.Add($"change:{entity.NetId}:{fields}:{journalSeq}");
+        public void OnEntityChanged(MirrorEntity entity, EntityChange change, ulong journalSeq) =>
+            Log.Add($"change:{entity.NetId}:{change.Fields}:{journalSeq}");
 
         public void OnEntityDespawned(MirrorEntity entity, DespawnReason reason, uint killerNetId, ulong journalSeq) =>
             Log.Add($"despawn:{entity.NetId}:{reason}:{killerNetId}:{journalSeq}");

@@ -462,7 +462,7 @@ public sealed partial class WorldMirror : ISessionModule
 
         foreach (var observer in _observers)
         {
-            observer.OnEntityChanged(entity, fields, seq);
+            observer.OnEntityChanged(entity, change, seq);
         }
     }
 
@@ -516,7 +516,7 @@ public sealed partial class WorldMirror : ISessionModule
 
         foreach (var observer in _observers)
         {
-            observer.OnEntityCargo(entity, seq);
+            observer.OnEntityCargo(entity, cargo, seq);
         }
     }
 

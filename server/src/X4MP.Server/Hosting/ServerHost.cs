@@ -76,6 +76,7 @@ public static partial class ServerHost
         builder.Services.AddEventBus();
         builder.Services.AddSessionActor();
         builder.Services.AddWorldMirror();
+        builder.Services.AddInterestManager();
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();

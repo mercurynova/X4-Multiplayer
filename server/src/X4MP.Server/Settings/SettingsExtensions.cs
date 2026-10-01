@@ -45,6 +45,7 @@ public static class SettingsExtensions
         services.AddSettingsSection<AlertOptions>();
         services.AddSettingsSection<ModManagementOptions>();
         services.AddSettingsSection<SessionActorOptions>();
+        services.AddSettingsSection<X4MP.Core.Interest.InterestOptions>();
     }
 
     /// <summary>
