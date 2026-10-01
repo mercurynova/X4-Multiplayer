@@ -422,6 +422,19 @@
       "fields": {"GameTime":3600.25,"Sectors":[{"Sector":1,"ShipsL":4,"ShipsM":3,"ShipsS":2,"ShipsXl":5,"ShipsXs":1,"Stations":6}]}
     },
     {
+      "file": "0x0116_ServerSettingsUpdate.bin",
+      "kind": "frame",
+      "size": 176,
+      "sha256": "97cdf49af553987ea8cc721c417c83cce07b03cff45884e600e58a8feebcf5ea",
+      "msgType": 278,
+      "msgName": "ServerSettingsUpdate",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 168,
+      "fields": {"Entries":[{"Key":"Mods.ModListVisibility","Value":"AdminsAndViewers"},{"Key":"Replication.TickRateHz","Value":"30"}],"Version":5}
+    },
+    {
       "file": "0x0200_EntitySpawn.bin",
       "kind": "frame",
       "size": 288,
@@ -619,15 +632,28 @@
     {
       "file": "0x0301_PlayerShip.bin",
       "kind": "frame",
-      "size": 168,
-      "sha256": "a7b4c9c20aea1e086adc16e3b908527d98e0783baf5a7c6943e14b4399cfe6c6",
+      "size": 176,
+      "sha256": "7a7a33cc51d28e5f09d8f6b730321dbbc87d3dce319fe33f42acbd388d93a4bf",
       "msgType": 769,
       "msgName": "PlayerShip",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 160,
-      "fields": {"Hull":255,"Idcode":"XYZ-789","LocalComponentId":1234605616436508552,"Name":"Pilot","Pitch":5,"Px":1,"Py":2,"Pz":3,"RequestKey":{"Hi":40,"Lo":13},"Roll":6,"Sector":12,"Shield":255,"ShipMacro":"ship_arg_s_fighter_01_a_macro","Yaw":4}
+      "payloadLength": 168,
+      "fields": {"Hull":255,"Idcode":"XYZ-789","LocalComponentId":1234605616436508552,"Name":"Pilot","Pitch":5,"PlayerId":3,"Px":1,"Py":2,"Pz":3,"RequestKey":{"Hi":40,"Lo":13},"Roll":6,"Sector":12,"Shield":255,"ShipMacro":"ship_arg_s_fighter_01_a_macro","Yaw":4}
+    },
+    {
+      "file": "0x0302_OnFootState.bin",
+      "kind": "frame",
+      "size": 112,
+      "sha256": "673dbe710f3004a11c61c3db956dacf0205c0dbe6afbddb030217e656104720c",
+      "msgType": 770,
+      "msgName": "OnFootState",
+      "variant": "",
+      "lane": 1,
+      "payloadOffset": 8,
+      "payloadLength": 104,
+      "fields": {"Anim":1,"ContainerNetId":1500,"Cx":640,"Cy":0,"Cz":-320,"EmoteId":0,"Flags":1,"LookPitch":128,"Mode":1,"OuterContainerNetId":0,"PlayerId":3,"Px":2048,"Py":0,"Pz":-1024,"Room":{"AnchorX":-120,"AnchorY":0,"AnchorZ":340,"Kind":4,"MacroRef":9,"PathHash":48879,"Roomtype":4},"SampleTimeUs":5100000,"Seq":77,"Yaw":1200}
     },
     {
       "file": "0x0400_Intent_KillClaim.bin",

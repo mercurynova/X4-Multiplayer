@@ -251,6 +251,44 @@ public class SettingsApiTests
         Assert.Equal(snapshot.Values["Replication.TickRateHz"].GetInt32(), factory.Services.GetRequiredService<SettingsService>().GetSessionSettings().Values["Replication.TickRateHz"].GetInt32());
     }
 
+    [Fact]
+    public async Task OnlyNodeRelevantLiveChangesReachTheSessionActor()
+    {
+        await using var factory = new AuthFactory();
+        var token = factory.Services.GetRequiredService<AdminStore>().CreateToken("a", AdminRoles.Admin);
+        var client = factory.CreateClient();
+        var actor = factory.Services.GetRequiredService<X4MP.Core.Session.SessionActor>();
+
+        var start = Stopwatch.StartNew();
+        while (actor.Settings is null)
+        {
+            Assert.True(start.Elapsed < TimeSpan.FromSeconds(5), "the actor never got its initial node-relevant settings");
+            await Task.Delay(10);
+        }
+
+        var initial = actor.Settings;
+        Assert.Contains("Mods.ModListVisibility", initial.Values.Keys);
+        Assert.Contains("Interest.MaxGhosts", initial.Values.Keys);
+        Assert.DoesNotContain("Alerts.AuthorityFpsSeconds", initial.Values.Keys);
+
+        using var alert = await client.SendAsync(Patch("""{"Alerts.AuthorityFpsSeconds":40}""", token: token));
+        Assert.Equal(HttpStatusCode.OK, alert.StatusCode);
+        await actor.FlushAsync();
+        Assert.Same(initial, actor.Settings); // not node-relevant: nothing pushed
+
+        using var relevant = await client.SendAsync(Patch("""{"Mods.ModListVisibility":"AllPlayers"}""", token: token));
+        Assert.Equal(HttpStatusCode.OK, relevant.StatusCode);
+        var until = Stopwatch.StartNew();
+        while (ReferenceEquals(actor.Settings, initial))
+        {
+            Assert.True(until.Elapsed < TimeSpan.FromSeconds(1), "the push took longer than a second");
+            await Task.Delay(5);
+        }
+
+        Assert.Equal("AllPlayers", actor.Settings!.Values["Mods.ModListVisibility"].GetString());
+        Assert.True(actor.Settings.Version > initial.Version);
+    }
+
     private sealed class RecordingPusher : ISessionSettingsPusher
     {
         public List<SessionSettingsSnapshot> Snapshots { get; } = [];

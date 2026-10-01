@@ -243,7 +243,7 @@ TEST_CASE("HMAC interface verify()", "[wire][hmac]") {
 }
 
 TEST_CASE("catalog lookups", "[wire][registry]") {
-  CHECK(message_catalog().size() == 88);
+  CHECK(message_catalog().size() == 90);
   CHECK(find_message(0x0005)->lane == Lane::Control);
   CHECK(find_message(0x0208)->lane == Lane::Realtime);
   CHECK(find_message(0x0107)->lane == Lane::Bulk);

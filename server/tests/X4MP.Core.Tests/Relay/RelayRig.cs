@@ -180,8 +180,9 @@ public static class RelayFrames
             }).Value,
             96);
 
-    public static FlatBufferBuilder PlayerShip(ulong key, string macro = "ship_arg_s_fighter_01_a_macro") =>
-        Pack(fbb => X4MP.Proto.PlayerShip.Pack(fbb, new PlayerShipT { RequestKey = new Id128T { Lo = key, Hi = 0 }, ShipMacro = macro, Name = "Pilot", Idcode = "ABC-123", Sector = 1 }).Value, 128);
+    /// <param name="claimedPlayerId">What the (lying) client puts in <c>player_id</c>; the server must overwrite it.</param>
+    public static FlatBufferBuilder PlayerShip(ulong key, string macro = "ship_arg_s_fighter_01_a_macro", ushort claimedPlayerId = 0, ulong keyHi = 0) =>
+        Pack(fbb => X4MP.Proto.PlayerShip.Pack(fbb, new PlayerShipT { RequestKey = new Id128T { Lo = key, Hi = keyHi }, ShipMacro = macro, Name = "Pilot", Idcode = "ABC-123", Sector = 1, PlayerId = claimedPlayerId }).Value, 128);
 
     public static FlatBufferBuilder GameEvent(ushort sector, GameEventBodyUnion body) =>
         Pack(fbb => X4MP.Proto.GameEvent.Pack(fbb, new GameEventT { Sector = sector, GameTime = 12.5, Body = body }).Value, 128);

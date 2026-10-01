@@ -3,7 +3,7 @@ using X4MP.Proto;
 namespace X4MP.Protocol;
 
 // One line per message in protocol.md section 20. Lanes follow the catalog (Realtime: WorldUpdate,
-// EntityStatusBatch, Replication, PlayerState, UdpHello/Ack; Bulk: SaveChunk; everything else Control).
+// EntityStatusBatch, Replication, PlayerState, OnFootState, UdpHello/Ack; Bulk: SaveChunk; everything else Control).
 // DamageReport (0x0403) is reserved and deliberately not registered. A test asserts that every
 // MsgType value other than Invalid/DamageReport appears here.
 //
@@ -45,6 +45,7 @@ public sealed partial class MessageRegistry
         Add<GalaxyMetadata>(MsgType.GalaxyMetadata, Lane.Control, GalaxyMetadata.GetRootAsGalaxyMetadata, GalaxyMetadataVerify.Verify, t => t.UnPack());
         Add<StringTableAdd>(MsgType.StringTableAdd, Lane.Control, StringTableAdd.GetRootAsStringTableAdd, StringTableAddVerify.Verify, t => t.UnPack());
         Add<GalaxySummary>(MsgType.GalaxySummary, Lane.Control, GalaxySummary.GetRootAsGalaxySummary, GalaxySummaryVerify.Verify, t => t.UnPack());
+        Add<ServerSettingsUpdate>(MsgType.ServerSettingsUpdate, Lane.Control, ServerSettingsUpdate.GetRootAsServerSettingsUpdate, ServerSettingsUpdateVerify.Verify, t => t.UnPack());
         Add<EntitySpawn>(MsgType.EntitySpawn, Lane.Control, EntitySpawn.GetRootAsEntitySpawn, EntitySpawnVerify.Verify, t => t.UnPack());
         Add<EntityDespawn>(MsgType.EntityDespawn, Lane.Control, EntityDespawn.GetRootAsEntityDespawn, EntityDespawnVerify.Verify, t => t.UnPack());
         Add<WorldUpdate>(MsgType.WorldUpdate, Lane.Realtime, WorldUpdate.GetRootAsWorldUpdate, WorldUpdateVerify.Verify, t => t.UnPack());
@@ -61,6 +62,7 @@ public sealed partial class MessageRegistry
         Add<InterestHint>(MsgType.InterestHint, Lane.Control, InterestHint.GetRootAsInterestHint, InterestHintVerify.Verify, t => t.UnPack());
         Add<PlayerState>(MsgType.PlayerState, Lane.Realtime, PlayerState.GetRootAsPlayerState, PlayerStateVerify.Verify, t => t.UnPack());
         Add<PlayerShip>(MsgType.PlayerShip, Lane.Control, PlayerShip.GetRootAsPlayerShip, PlayerShipVerify.Verify, t => t.UnPack());
+        Add<OnFootState>(MsgType.OnFootState, Lane.Realtime, OnFootState.GetRootAsOnFootState, OnFootStateVerify.Verify, t => t.UnPack());
         Add<Intent>(MsgType.Intent, Lane.Control, Intent.GetRootAsIntent, null, t => t.UnPack());
         Add<IntentResult>(MsgType.IntentResult, Lane.Control, IntentResult.GetRootAsIntentResult, IntentResultVerify.Verify, t => t.UnPack());
         Add<GameEvent>(MsgType.GameEvent, Lane.Control, GameEvent.GetRootAsGameEvent, null, t => t.UnPack());

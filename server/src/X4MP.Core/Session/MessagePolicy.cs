@@ -181,6 +181,7 @@ public static class MessagePolicy
             (MsgType.GalaxyMetadata, A, Post),
             (MsgType.StringTableAdd, A, Post),
             (MsgType.GalaxySummary, A, Post),
+            (MsgType.ServerSettingsUpdate, None, PolicyPhase.None),
 
             // World (0x02xx)
             (MsgType.EntitySpawn, A, Post),
@@ -201,6 +202,7 @@ public static class MessagePolicy
             // Player (0x03xx)
             (MsgType.PlayerState, C, Live),
             (MsgType.PlayerShip, C, Live),
+            (MsgType.OnFootState, C, Live), // M3b relays it; until then the relay accepts and drops it
 
             // Intents and events (0x04xx)
             (MsgType.Intent, C, InGame),

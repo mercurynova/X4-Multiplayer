@@ -55,7 +55,17 @@ public static class SessionActorExtensions
 }
 
 /// <summary>Runs the <see cref="SessionActor"/> mailbox loop for the lifetime of the host.</summary>
-internal sealed class SessionActorService(SessionActor actor) : BackgroundService
+internal sealed class SessionActorService(SessionActor actor, IServiceProvider services) : BackgroundService
 {
-    protected override Task ExecuteAsync(CancellationToken stoppingToken) => actor.RunAsync(stoppingToken);
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Seed the node-relevant settings, so the first node to attach gets them (ServerSettingsUpdate) right after its Welcome.
+        // Resolved here, not in the constructor: SettingsService itself depends on the actor (as the settings pusher).
+        if (services.GetService<X4MP.Server.Settings.SettingsService>() is { } settings)
+        {
+            await actor.PushAsync(settings.GetSessionSettings(), stoppingToken).ConfigureAwait(false);
+        }
+
+        await actor.RunAsync(stoppingToken).ConfigureAwait(false);
+    }
 }

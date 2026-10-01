@@ -30,7 +30,7 @@ public sealed class InterestOptions
     public int CaptureEvictSeconds { get; set; } = 60;
 
     /// <summary>Ghosts a node materialises at most (ADR-042: 250; the in-game cost is rendering, about 5 ms per 250 inert ships).</summary>
-    [Setting("Ghost budget: max ghosts per client", Scope = SettingScope.Live, Min = 10, Max = 100000)]
+    [Setting("Ghost budget: max ghosts per client", Scope = SettingScope.Live, Min = 10, Max = 100000, PushToNodes = true)]
     public int MaxGhosts { get; set; } = 250;
 
     /// <summary>Lower bound between two <c>CaptureSet</c> messages to the authority.</summary>
