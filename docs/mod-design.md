@@ -170,12 +170,15 @@ The **password is never persisted** in Lua.
   "min_api_version": 1,
   "autoreload": false,
   "settings": [
-    { "key": "log_level",      "type": "dropdown", "default": "info" },
-    { "key": "hud_enabled",    "type": "bool",     "default": true },
-    { "key": "interp_delay_ms","type": "number",   "default": 120 }
+    { "id": "log_level",       "name": "Log level",       "type": "dropdown", "default": "info" },
+    { "id": "hud_enabled",     "name": "Show MP HUD",     "type": "bool",     "default": true },
+    { "id": "interp_delay_ms", "name": "Interp delay (ms)", "type": "number", "default": 120 }
   ]
 }
 ```
+
+> Corrected in M0-08: X4Native v9.0.0-611726's settings schema uses `id` + `name`, not
+> `key`. Check `mod/third_party/x4native/v9.0.0-611726/sdk` for the exact field set.
 
 The `settings` array is X4Native's injector for Settings > Extensions
 (`extensions/x4native/ui/x4n_settings_menu.lua`). Read the values with
