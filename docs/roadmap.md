@@ -119,6 +119,8 @@ SRV §8 where noted.
 | M1-W5 | Sessions & Saves page (SRV M1-22) | M1-W1, M1-12 | Resumable 50 MB upload survives reload; starting a session makes bots download that save | M |
 | M1-W6 | Chat, Logs, Settings, Diagnostics pages (SRV M1-23..26) | M1-W1, M1-13, M1-14 | Per SRV acceptance (admin broadcast reaches bots; log source filter; MaxPlayers 2 ⇒ third bot `SessionFull`; slow-reader visible in diagnostics) | L |
 
+**Follow-ups from M1-S1 review (2026-10-01):** (1) move auth routes from `/api/auth/*` to `/api/v1/auth/*` with the rest of the admin API (M1-S2); (2) a password change must invalidate the user's other sessions/cookies; (3) persist lockout/throttle state only if restarts become an attack vector (currently in-memory, acceptable).
+
 ### 3.6 Mod net core (headless, parallel track)
 
 | ID | Title | Deps | Acceptance criteria | Size |
