@@ -18,6 +18,7 @@ public sealed class FakeTeamState
     private readonly Dictionary<int, TeamInfoT> _teams = [];
     private readonly Dictionary<(int A, int B), TeamRelation> _relations = [];
     private TeamRelation _default = TeamRelation.Neutral;
+    private readonly object _sync = new(); // the reader thread applies pushes while the node's loop reads
 
     public int PlayerId { get; private set; }
 
@@ -26,9 +27,20 @@ public sealed class FakeTeamState
 
     public TeamRole OwnRole { get; private set; }
 
-    public IReadOnlyCollection<TeamInfoT> Teams => _teams.Values;
+    public IReadOnlyCollection<TeamInfoT> Teams
+    {
+        get
+        {
+            lock (_sync)
+                return [.. _teams.Values];
+        }
+    }
 
-    public TeamInfoT? Team(int teamId) => _teams.GetValueOrDefault(teamId);
+    public TeamInfoT? Team(int teamId)
+    {
+        lock (_sync)
+            return _teams.GetValueOrDefault(teamId);
+    }
 
     public uint TableVersion { get; private set; }
 
@@ -68,7 +80,8 @@ public sealed class FakeTeamState
     {
         if (teamA == teamB)
             return TeamRelation.Allied;
-        return _relations.TryGetValue(Key(teamA, teamB), out var relation) ? relation : _default;
+        lock (_sync)
+            return _relations.TryGetValue(Key(teamA, teamB), out var relation) ? relation : _default;
     }
 
     /// <summary>Fake NPC behaviour: ships of <paramref name="teamA"/> open fire on <paramref name="teamB"/> (and the other way round) while the relation is Hostile.</summary>
@@ -119,7 +132,8 @@ public sealed class FakeTeamState
                 Proposals.Add(MessageRegistry.Default.Decode<RelationProposal>(frame).UnPack());
                 break;
             case MsgType.TeamRequestResult:
-                Results.Add(MessageRegistry.Default.Decode<TeamRequestResult>(frame).UnPack());
+                lock (Results)
+                    Results.Add(MessageRegistry.Default.Decode<TeamRequestResult>(frame).UnPack());
                 break;
             case MsgType.ReassignPlayerAssets:
                 Reassigns.Add(MessageRegistry.Default.Decode<ReassignPlayerAssets>(frame).UnPack());
@@ -130,6 +144,12 @@ public sealed class FakeTeamState
     }
 
     private void ApplyTable(TeamTableT table)
+    {
+        lock (_sync)
+            ApplyTableLocked(table);
+    }
+
+    private void ApplyTableLocked(TeamTableT table)
     {
         if (table.Version < TableVersion)
             VersionRegressions++;
@@ -145,6 +165,16 @@ public sealed class FakeTeamState
 
     private void ApplyRelations(TeamRelationsT relations)
     {
+        List<(int, int, TeamRelation)> changed;
+        lock (_sync)
+            changed = ApplyRelationsLocked(relations);
+        foreach (var (a, b, relation) in changed)
+            RelationChanged?.Invoke(a, b, relation);
+    }
+
+    private List<(int, int, TeamRelation)> ApplyRelationsLocked(TeamRelationsT relations)
+    {
+        var changed = new List<(int, int, TeamRelation)>();
         if (relations.Version < RelationsVersion)
             VersionRegressions++;
         RelationsVersion = Math.Max(RelationsVersion, relations.Version);
@@ -161,15 +191,17 @@ public sealed class FakeTeamState
             bool had = _relations.ContainsKey(key);
             _relations[key] = entry.Relation;
             if (!had || old != entry.Relation)
-                RelationChanged?.Invoke(key.A, key.B, entry.Relation);
+                changed.Add((key.A, key.B, entry.Relation));
         }
 
         if (before is not null)
         {
             // A full replacement: report pairs that lost their explicit value.
             foreach (var pair in before.Keys.Where(k => !_relations.ContainsKey(k)))
-                RelationChanged?.Invoke(pair.A, pair.B, _default);
+                changed.Add((pair.A, pair.B, _default));
         }
+
+        return changed;
     }
 
     private Dictionary<(int A, int B), TeamRelation> SnapshotPairs() => new(_relations);
@@ -192,6 +224,43 @@ public sealed class FakeTeamState
     {
         var request = new RelationChangeRequestT { RequestKey = new Id128T { Lo = requestKey, Hi = 0 }, OtherTeam = (ushort)otherTeam, Relation = relation };
         return new OutMessage(MsgType.RelationChangeRequest, MessageEncoder.EncodePayload(b => RelationChangeRequest.Pack(b, request), 64));
+    }
+
+    public static OutMessage BuildTeamChoice(ulong requestKey, int teamId)
+    {
+        var request = new TeamChoiceT { RequestKey = new Id128T { Lo = requestKey, Hi = 0 }, TeamId = (ushort)teamId, Password = [] };
+        return new OutMessage(MsgType.TeamChoice, MessageEncoder.EncodePayload(b => TeamChoice.Pack(b, request), 96));
+    }
+
+    public static OutMessage BuildTeamCreateRequest(ulong requestKey, string name)
+    {
+        var request = new TeamCreateRequestT { RequestKey = new Id128T { Lo = requestKey, Hi = 0 }, Name = name, ColorRgb = 0 };
+        return new OutMessage(MsgType.TeamCreateRequest, MessageEncoder.EncodePayload(b => TeamCreateRequest.Pack(b, request), 96));
+    }
+
+    /// <summary>The teams in id order.</summary>
+    public IReadOnlyList<TeamInfoT> OrderedTeams()
+    {
+        lock (_sync)
+            return [.. _teams.Values.OrderBy(t => t.TeamId)];
+    }
+
+    /// <summary>A team by id (digits) or by name (case-insensitive); null when the table has no such team.</summary>
+    public TeamInfoT? FindTeam(string idOrName)
+    {
+        if (ushort.TryParse(idOrName, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ushort id) && Team(id) is { } byId)
+            return byId;
+        return OrderedTeams().FirstOrDefault(t => string.Equals(t.Name, idOrName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The result of the request with this key, or null while the server has not answered.</summary>
+    public TeamRequestResultT? ResultFor(ulong requestKey) =>
+        Snapshot(Results).FirstOrDefault(r => r.RequestKey is { } k && k.Lo == requestKey);
+
+    private static T[] Snapshot<T>(List<T> list)
+    {
+        lock (list)
+            return [.. list];
     }
 
     public static OutMessage BuildTeamChangeRequest(ulong requestKey, int teamId, byte[]? password = null)

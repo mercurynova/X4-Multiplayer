@@ -72,6 +72,47 @@ Exit code 0 means no node failed and verification found nothing; 1 means a hands
 verification found at least one error; 3 means the requested feature is not built yet. Ctrl+C ends the run cleanly
 (nodes send `Disconnect(ClientQuit)`).
 
+## Teams (M1-F3)
+
+| option | meaning |
+|---|---|
+| `--team <id\|name>` | client/swarm: join this team. A lobby (`Teams.JoinMode=Lobby`) gets a `TeamChoice`; a name that does not exist is created when `Teams.AllowCreateInLobby` is on. A node that Auto already placed elsewhere asks for a move once in game (`TeamChangeRequest`; the server needs `Teams.AllowSelfTeamChange`) |
+| `--team-pick lobby-random` | client/swarm: answer the lobby with a random open team (not locked, not full, no password); with creating allowed, "a new team named after the player" is one more choice |
+| `--teams N` | swarm: client i joins the team called `Team (i mod N)+1` (created on first use when the lobby allows it). The authority tags its ships for team ids 1..N (implies `--team-assets`) |
+| `--relations coop\|allied\|ffa\|twoteams` | swarm: a layout. Implies `--teams` (coop 1, twoteams 2, allied/ffa one per client) and prints the server settings it needs (`server-settings=[...]`) |
+| `--commander shared\|own\|foreign` | works across teams: `own` = team-common ships of the client's team plus the ones it owns, `shared` = a teammate's, `foreign` = any other team's |
+
+The server has no REST for teams yet (M1-T5), so a swarm cannot create presets through an admin token. A layout is
+reached through the server's settings instead (the printed `--X4MP:Teams:...` arguments: `JoinMode=Lobby`,
+`AllowCreateInLobby=true`, `AutoAssign=Balance`, `DefaultRelation=Allied|Hostile`); the clients then place themselves
+through the lobby. Tests drive `TeamModule` in-process (`CreateTeamAsync`, `AssignPlayerAsync`, `SetRelationAsync`).
+With `AutoAssign=Balance` the authority becomes the first member of `Team 1` (a node without the Client role cannot answer a lobby).
+
+```powershell
+$env:X4MP__Net__MaxConnectionsPerIp = '64'
+dotnet run --project server/src/X4MP.Server -- --data-dir $env:TEMP\x4mp-data --X4MP:Teams:JoinMode=Lobby --X4MP:Teams:AllowCreateInLobby=true --X4MP:Teams:AutoAssign=Balance
+dotnet run --project tools/X4MP.FakeNode -- swarm --clients 6 --with-authority --teams 2 --commander foreign --verify --duration 25
+dotnet run --project tools/X4MP.FakeNode -- swarm --clients 6 --with-authority --team-pick lobby-random --verify --duration 15   # on a fresh server
+```
+
+Summary lines: `teams: clients=6 placed=6 unplaced=0 teams-used=2 spread=[1:3,2:3] requests=7 rejected=1`, then
+`commander(foreign): ... rejected=282 forwarded-to-authority=0`, `npc-hostility: relation-changes=N hostile-team-pairs=[1-2]
+engaged-ship-pairs=... ships-at-war=... sectors-with-fights=...` and, after an admin move, `reassign: requests=1
+assets-moved=36 owner-changes-seen-by-clients=12`.
+
+- **Asset owners (fake authority).** Ships are tagged for the team ids t[0..n-1] with `k = (id/8) mod n`: id mod 4 = 1 is
+  team-common to t[k], 2 is owned by a player of t[k] (a real member of the team table for id mod 8 = 2, the made-up
+  player 65000 for id mod 8 = 6), 3 is team-common to t[k+1], 0 stays NPC. An owner is fixed when first needed (a spawn
+  record or a reassign) and then changes only through `ReassignPlayerAssets`.
+- **`ReassignPlayerAssets`.** The authority moves every ship the player owns in the old team to the new team and sends one
+  `EntityChange` (`OwnerTeam` bit; the player stays the owner) per ship. The server mirror follows and forwards the change
+  to clients that hold the ship, whose ghosts (and `--commander` picks) follow.
+- **Fake NPC hostility.** `FakeAuthority.Hostility()` answers which team pairs are Hostile in the matrix the node holds
+  (relations plus `DefaultRelation`) and how many ship pairs of such teams share a sector. It follows a
+  `TeamRelations` push at once (0-20 ms after `SetRelationAsync` in `TeamSwarmLiveTests`).
+- **Test hooks.** `LiveRunOptions.OnAuthority` and `OnClientReady` hand a test the `FakeAuthority` and a `FakeClientHandle`
+  (`SendOrderAsync(netId, sector)` sends one targeted `AssetOrder` and returns the server's answer).
+
 ## What `--verify` checks
 
 Ground truth is a pure function of `(seed, game time)` (`FakeWorld`), so a client can compute where every ship should

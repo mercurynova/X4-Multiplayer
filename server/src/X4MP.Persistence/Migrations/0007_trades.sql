@@ -1,4 +1,4 @@
--- 0006_trades: escrowed trades (server-design 2.14, roadmap M1-E5).
+-- 0007_trades: escrowed trades (server-design 2.14, roadmap M1-E5).
 -- A trade is one JSON document (items, acceptances, request marks) plus the columns the server and the GUI filter on.
 -- trade_locks is the "unique index" of the design: an asset is locked by at most one open trade, enforced by the primary key.
 

@@ -88,7 +88,7 @@ public sealed class FakeClientSession
 
     /// <summary>
     /// A ghost to command for <paramref name="mode"/> (M1-T4), the <paramref name="n"/>-th candidate round-robin by net_id; null when there is none.
-    /// Own = my team's team-common ships, Shared = a teammate's ships, Foreign = ships of another team.
+    /// Own = my team's team-common ships and the ones I own, Shared = a teammate's ships, Foreign = ships of another team.
     /// </summary>
     public (uint NetId, ushort Sector)? PickAsset(CommanderMode mode, int myTeam, int myPlayer, int n)
     {
@@ -97,7 +97,7 @@ public sealed class FakeClientSession
         var candidates = _ghosts
             .Where(g => mode switch
             {
-                CommanderMode.Own => g.Value.OwnerTeam == myTeam && g.Value.OwnerPlayer == 0,
+                CommanderMode.Own => g.Value.OwnerTeam == myTeam && (g.Value.OwnerPlayer == 0 || g.Value.OwnerPlayer == myPlayer),
                 CommanderMode.Shared => g.Value.OwnerTeam == myTeam && g.Value.OwnerPlayer != 0 && g.Value.OwnerPlayer != myPlayer,
                 _ => g.Value.OwnerTeam != 0 && g.Value.OwnerTeam != myTeam,
             })
@@ -121,17 +121,6 @@ public sealed class FakeClientSession
             return null;
         var pick = candidates[n % candidates.Count];
         return (pick.Key, pick.Value.Sector);
-    }
-
-    /// <summary>Applies an ownership change (a settled trade) to the ghost; the other fields do not matter to the fake client.</summary>
-    private void ApplyChange(EntityChange change)
-    {
-        if (!_ghosts.TryGetValue(change.NetId, out var ghost))
-            return;
-        if ((change.Fields & ChangeField.OwnerTeam) != 0)
-            ghost.OwnerTeam = change.OwnerTeam;
-        if ((change.Fields & ChangeField.OwnerPlayer) != 0)
-            ghost.OwnerPlayer = change.OwnerPlayer;
     }
 
     public long SpawnsApplied { get; private set; }
@@ -199,6 +188,9 @@ public sealed class FakeClientSession
     {
         switch (frame.Type)
         {
+            case MsgType.EntityChange:
+                ApplyChange(MessageRegistry.Default.Decode<EntityChange>(frame));
+                break;
             case MsgType.EntitySpawn:
                 ApplySpawn(MessageRegistry.Default.Decode<EntitySpawn>(frame));
                 break;
@@ -207,9 +199,6 @@ public sealed class FakeClientSession
                 break;
             case MsgType.SectorComplete:
                 SectorCompletes++;
-                break;
-            case MsgType.EntityChange:
-                ApplyChange(MessageRegistry.Default.Decode<EntityChange>(frame));
                 break;
             case MsgType.Replication:
                 ApplyReplication(MessageRegistry.Default.Decode<Replication>(frame));
@@ -228,6 +217,44 @@ public sealed class FakeClientSession
     public static bool IsPersistent(EntityKind kind) => kind is
         EntityKind.Station or EntityKind.Gate or EntityKind.Accelerator or EntityKind.HighwayEntry
         or EntityKind.Satellite or EntityKind.NavBeacon or EntityKind.ResourceProbe or EntityKind.Mine or EntityKind.LaserTower;
+
+    /// <summary>Ownership changes (<c>EntityChange</c> with an owner bit) applied to ghosts (M1-F3: a moved player's assets change team).</summary>
+    public long OwnerChanges { get; private set; }
+
+    private void ApplyChange(EntityChange change)
+    {
+        if (!_ghosts.TryGetValue(change.NetId, out var ghost))
+            return;
+        if ((change.Fields & ChangeField.OwnerTeam) != 0)
+        {
+            ghost.OwnerTeam = change.OwnerTeam;
+            OwnerChanges++;
+        }
+
+        if ((change.Fields & ChangeField.OwnerPlayer) != 0)
+            ghost.OwnerPlayer = change.OwnerPlayer;
+    }
+
+    /// <summary>The net_ids of the ghosts this client believes are owned by <paramref name="player"/> in <paramref name="team"/>, in net_id order.</summary>
+    public IReadOnlyList<(uint NetId, ushort Sector)> GhostsOwnedBy(int team, int player)
+    {
+        // The reader thread changes the ghost table while a test or tool looks at it from another thread: take the snapshot again if it moved.
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return [.. _ghosts.Where(g => g.Value.OwnerTeam == team && g.Value.OwnerPlayer == player).OrderBy(g => g.Key).Select(g => (g.Key, g.Value.Sector))];
+            }
+            catch (InvalidOperationException) when (attempt < 8)
+            {
+                // retry
+            }
+        }
+    }
+
+    /// <summary>The owner this client currently believes a ghost has (null = no such ghost).</summary>
+    public (ushort Team, ushort Player)? OwnerOf(uint netId) =>
+        _ghosts.TryGetValue(netId, out var g) ? (g.OwnerTeam, g.OwnerPlayer) : null;
 
     private void ApplySpawn(EntitySpawn spawn)
     {

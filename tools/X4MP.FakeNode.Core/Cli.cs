@@ -15,6 +15,33 @@ public enum CommanderMode
     Foreign,
 }
 
+/// <summary>How a client answers the <c>AwaitingTeam</c> lobby when it has no explicit <c>--team</c> (M1-F3).</summary>
+public enum TeamPickMode
+{
+    None,
+
+    /// <summary>A random team that is open (not locked, not full, no password); a new team when there is none and the lobby allows it.</summary>
+    LobbyRandom,
+}
+
+/// <summary>Swarm team layouts (<c>--relations</c>, server-design 2.13 presets): the number of teams and how they relate.</summary>
+public enum RelationsPreset
+{
+    None,
+
+    /// <summary>One team, everyone co-operates (Teams.AutoAssign=SingleTeam).</summary>
+    Coop,
+
+    /// <summary>One team per player, all Allied (Teams.DefaultRelation=Allied, AutoAssign=NewTeamPerPlayer).</summary>
+    Allied,
+
+    /// <summary>One team per player, all Hostile (Teams.DefaultRelation=Hostile, AutoAssign=NewTeamPerPlayer).</summary>
+    Ffa,
+
+    /// <summary>Two teams that are Hostile to each other (Teams.DefaultRelation=Hostile, AutoAssign=Balance).</summary>
+    TwoTeams,
+}
+
 public enum FakeNodeCommand
 {
     Authority,
@@ -61,6 +88,27 @@ public sealed record CliOptions
 
     /// <summary>authority: tag its ships with team owners (implied by <see cref="Commander"/>), so clients have team assets to command.</summary>
     public bool TeamAssets { get; init; }
+
+    /// <summary>client/swarm: the team to join, a team id or a team name (lobby: <c>TeamChoice</c>, creates it when the lobby allows; later: <c>TeamChangeRequest</c>).</summary>
+    public string? Team { get; init; }
+
+    /// <summary>client/swarm: how to answer the lobby when there is no <see cref="Team"/>.</summary>
+    public TeamPickMode TeamPick { get; init; }
+
+    /// <summary>swarm: spread the clients over this many teams (client i joins team <c>i mod N + 1</c>, named "Team k"); 0 = not set. The authority tags its ships for teams 1..N.</summary>
+    public int Teams { get; init; }
+
+    /// <summary>swarm: a team layout; the swarm joins the clients accordingly and prints the server settings the layout needs.</summary>
+    public RelationsPreset Relations { get; init; }
+
+    /// <summary>The number of teams the swarm uses: <c>--teams</c>, else what <c>--relations</c> implies (coop 1, twoteams 2, allied/ffa one per client), else 0 (the server decides).</summary>
+    public int EffectiveTeams => Teams > 0 ? Teams : Relations switch
+    {
+        RelationsPreset.Coop => 1,
+        RelationsPreset.TwoTeams => 2,
+        RelationsPreset.Allied or RelationsPreset.Ffa => Math.Max(1, Clients),
+        _ => 0,
+    };
 
     /// <summary>authority: size of the fake save it uploads on <c>RequestSave</c> (megabytes).</summary>
     public int SaveMb { get; init; } = 4;
@@ -114,6 +162,10 @@ public static class CliParser
           --with-authority     swarm: also connect one authority node
           --password PW        session password
           --commander shared|own|foreign   clients send AssetOrders for teammates' / own team-common / another team's ships (0.5 s apart)
+          --team <id|name>     client/swarm: join this team (a lobby gets a TeamChoice, or a TeamCreateRequest when the team does not exist and the lobby allows creating; a node that already has another team asks for a move)
+          --team-pick lobby-random   client/swarm: answer the lobby with a random open team
+          --teams N            swarm: spread the clients over N teams ("Team 1".."Team N"; the authority tags its ships for them); needs JoinMode=Lobby (+ AllowCreateInLobby) to place clients
+          --relations coop|allied|ffa|twoteams   swarm: team layout; implies --teams (coop 1, twoteams 2, allied/ffa one per client) and prints the server settings it needs
           --team-assets        authority: give its ships team owners (implied by --commander; start the authority with it when clients run elsewhere)
           --save-mb N          authority: size of the fake save it uploads (default 4)
           --trade              clients propose ship-for-credits trades to each other and accept incoming ones (implies --team-assets)
@@ -187,6 +239,12 @@ public static class CliParser
             return Fail("inspect needs --sector <index>");
         if (command == FakeNodeCommand.Swarm && o.Clients < 1)
             return Fail("swarm needs --clients >= 1");
+        if (o.Team is not null && o.TeamPick != TeamPickMode.None)
+            return Fail("--team and --team-pick are mutually exclusive");
+        if (o.Teams > 0 && o.Team is not null)
+            return Fail("--teams and --team are mutually exclusive");
+        if (o.Relations != RelationsPreset.None && command != FakeNodeCommand.Swarm)
+            return Fail("--relations is a swarm option");
         return new CliParseResult(o, null);
     }
 
@@ -239,6 +297,16 @@ public static class CliParser
             case "commander":
                 return Enum.TryParse<CommanderMode>(value, ignoreCase: true, out var c) && Enum.IsDefined(c) && c != CommanderMode.None
                     ? (o with { Commander = c }, null) : (o, $"--commander must be shared|own|foreign (got '{value}')");
+            case "team":
+                return value.Length is >= 1 and <= 24 ? (o with { Team = value }, null) : (o, $"--team must be a team id or a name of 1-24 characters (got '{value}')");
+            case "team-pick":
+                return value.Equals("lobby-random", StringComparison.OrdinalIgnoreCase)
+                    ? (o with { TeamPick = TeamPickMode.LobbyRandom }, null) : (o, $"--team-pick must be lobby-random (got '{value}')");
+            case "teams":
+                return PositiveInt(o, key, value, v => v > 8 ? null : o with { Teams = v });
+            case "relations":
+                return Enum.TryParse<RelationsPreset>(value, ignoreCase: true, out var r) && Enum.IsDefined(r) && r != RelationsPreset.None
+                    ? (o with { Relations = r }, null) : (o, $"--relations must be coop|allied|ffa|twoteams (got '{value}')");
             case "behavior":
                 return Enum.TryParse<ClientBehavior>(value, ignoreCase: true, out var b) && Enum.IsDefined(b)
                     ? (o with { Behavior = b }, null) : (o, $"--behavior must be wander|patrol|explore (got '{value}')");
