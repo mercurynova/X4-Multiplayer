@@ -1,0 +1,71 @@
+X4Native vendored release
+=========================
+tag:          v9.0.0-611726   (X4: Foundations 9.00 build 611726; version_db build key "900-611726")
+upstream:     https://github.com/eg3r/X4Native   (MIT, see LICENSE)
+tag commit:   3211c9b4676e3b6ad68c744905eb1cef7dd60d40
+vendored:     2026-10-01
+
+Release assets used (https://github.com/eg3r/X4Native/releases/tag/v9.0.0-611726):
+  x4native-v9.0.0-611726.zip      sha256 cc7e410b1dbd2f839e5642817787de70328a2c3bb28e8958af723f8078860e13  -> x4native/ (runtime)
+  x4native-sdk-v9.0.0-611726.zip  sha256 4c475168fd64679f1e06c4378161c3adcbc57631a293c2961127e7d0463bcb81  -> sdk/
+  (x4native-symbols-v9.0.0-611726.zip, PDBs, is NOT vendored.)
+
+Deviations from the release assets (the official zips are incomplete):
+  - x4native/native/version_db/*.json and LICENSE are NOT in any release zip. Taken verbatim from the git tag
+    (https://raw.githubusercontent.com/eg3r/X4Native/v9.0.0-611726/native/version_db/<file>, .../LICENSE).
+  - x4native/ui/x4n_game_data.lua and x4n_settings_menu.lua are referenced by the release ui.xml but missing from
+    the runtime zip. Taken verbatim from the git tag (extension/ui/<file>).
+  - Files are stored byte-for-byte (mod/third_party/x4native/.gitattributes sets -text), so the hashes below hold.
+
+Layout:
+  sdk/        headers to compile against (add this directory to the include path)
+  x4native/   the extension folder deployed to <X4>/extensions/x4native/
+  LICENSE     MIT, must ship with any redistribution
+Verified by mod/tools/check-packaging.ps1 (hashes, version_db build key).
+
+SHA-256  size  path (relative to this directory)
+d3b1156be092a66bcf0fe4ed5d221bb181e29d12b8faac61491b294e279c6fe5  1061  LICENSE
+cac26878e846047f12ee864aeb7b9ae4bde4217c67b025b93206f9385966fd7e  12963  sdk/x4_game_class_ids.inc
+bca218a918ec0030ea833c2e6a18a9c7f7a37a979f2e2fe05fe4720121be74ce  175180  sdk/x4_game_func_list.inc
+9f92db58041729be31f09c8f0ec69a0a0ac7dc25fc6adcbed587c6e1b4f2a4da  20731  sdk/x4_game_func_table.h
+12c52e09bf173d2a6f261524914b9d6a02c4f4b13d4c73c3db61dc54e15be7b4  6985  sdk/x4_game_offsets.h
+bd8bbee6dd139bf36f808261ecad4d37ea71cf8f5208fe598da44c31f378fefe  51736  sdk/x4_game_types.h
+d7d4acee340b72ecd2063cfea24a38bbf87bc8d1e2997c1a0fad104e5b993157  14989  sdk/x4_internal_func_list.inc
+d6c962688db7536d1fbd2cdc71c6a886a55765ae6bcb8b030c66051aecd93726  54795  sdk/x4_manual_types.h
+6c511a56525dd36665e6ddfeed33c071a8af7bc6c6e1fa240e635fa56e57ad34  304183  sdk/x4_md_events.h
+4f84d14307b161730eedee98a7c637b39c21690f0ab8cf1d4b437a67e1821ad6  5174  sdk/x4n_buildprocessor.h
+08471a18373a330800933e631aab1d1dd3f359a1a8cfe7c4ffc1d02cca91cc7f  3563  sdk/x4n_container.h
+c9dc0959d05569ec684f49e0968e79b39df8ac32f8db006f1f559c30ddf5ec49  6989  sdk/x4n_core.h
+0406c5f2b99f002e08c670a0b48caf6b05f5fd3892e7144c01e5ee692001ba19  10997  sdk/x4n_entity.h
+dfa5d2382721f691243757cd981ac2a3f82cfb104f11d3268dd095a613ede986  3949  sdk/x4n_events.h
+4324b87ab984ec8751eaede0f6611b5df2c3f1c6a27749982006342b07b659c3  8502  sdk/x4n_faction.h
+2480fe82651f0818858d3e242d8d1581e86cd8d04a18da6116db51e0d28a30d3  5504  sdk/x4n_galaxy.h
+d073722a1766da9fe7522e8d38fb7e22914d4e87c204cda3c1ab4d9fb27468dd  9434  sdk/x4n_hooks.h
+11f64f966a78ba81a68e0d6d5b4a83c5b585655292287f57f337145a9b505ded  10401  sdk/x4n_log.h
+ac2750752b8159a9f6969dd040371e2315f30f25a8dba744f12921185e87fc74  1884  sdk/x4n_math.h
+789a9f85c4daf21f931901abf5074241d80d4730541b62b599c0c770cac89a4a  1667  sdk/x4n_memory.h
+adf2715297041929bb472862688ba19984bc4834d450809d151bf3075716bfa0  5691  sdk/x4n_module.h
+f22e8f53a36a6c6d2fa8a4ba230347a654236cd4190201c80b0509e170aa5182  5879  sdk/x4n_plans.h
+2138ce3374b4b299de1b4c9afa636d8db2003b5cf22568403463d533828bab63  6546  sdk/x4n_resources.h
+4d7edfe41e816de1a02883fc83c312160d265f8281a00bc17f4d3d732749c053  2307  sdk/x4n_rooms.h
+7eb6eb2ba5bf0392a09f7f4b216164fb2501085c65619a400ee8a3eceb7e24cd  2633  sdk/x4n_sector.h
+d8079af2b4d6bb142dbced743f1c19aef5301f8225e23f6a4bcdc69278cf554f  5394  sdk/x4n_settings.h
+e4a0beb37f74917ace9ec7e8439a49731044ccf41ec7bdc2caad10ecbb95e896  13023  sdk/x4n_ship.h
+fa8b9aa35ba1f20730e4caf328a6e4cf393db5b3b889395a2c84dd4a5c8803de  3029  sdk/x4n_stash.h
+aa2d7695a7e61f33156138452afe30266b877ac76b989f0612e306e169c2502f  11799  sdk/x4n_station.h
+2033760020286bf392904852b51cd5fb500137c98e8022145bbf5ef655547daf  8547  sdk/x4n_visibility.h
+302bea1048eea53dd8ecae84625b7ef6dcff79e8ab48d6a6fceabc55c46a5485  2487  sdk/x4n_ware.h
+75dd7ae850113c8008e305f7c9ce86340b97b9ae55537a8429861490364eaca6  3740  sdk/x4native.h
+c4ae6d8507561484dfecbf312d3e07e64b69bff38a954fadbdc073bdd789e054  14597  sdk/x4native_extension.h
+3016670c66ccde51b16f226273d10436cc606326584753135c74181b147faf54  437  x4native/content.xml
+887e2e59503022c9d857d1deac17b3e72ceedd15ab1c6d4f5aecec4b3be08076  2476  x4native/md/x4native_main.xml
+5384de500865c20b56b2abdaae440e74791472853f851c9392e9660189e9b765  154939  x4native/native/version_db/func_history.json
+dd66041dfc2b7fc7adf5832cee42ca1cf1c6ad5aa7343ef034ef989ebaf54d0d  24087  x4native/native/version_db/internal_functions.json
+b56de714c01224f99deafb3e39e19844f3fb8ff1d1d16ebc6f5f09bfc4355b51  59129  x4native/native/version_db/type_changes.json
+02ad9e2462e932610654606d62c6fb1a41891943df43584e48ede2af0f29be46  288256  x4native/native/x4native_64.dll
+6daa50dea7d94b17fb2a492f4723474bec88c9b3affb66f2e07bb0b95bc7a2b6  1155072  x4native/native/x4native_core.dll
+f953c806cc4561044d761d169f5a2af1a835f6e6eade551691837a20b319d409  279  x4native/t/0001-L044.xml
+7d6a93399034abfb9ec22da91d904276fb7268bd930586dfd8303a1f3b0024cd  366  x4native/ui.xml
+0d728d29bd0443304fc5f17bbade84a0ec4695613409e2b52f38bdb65ed69b68  3530  x4native/ui/x4n_game_data.lua
+fb40e6e6a22fef6dc81ca1aa0514dc7dd67aee8d2ced6e87776f691aacfd5143  8549  x4native/ui/x4n_settings_menu.lua
+ee7eb40c9c56c4b3571cd20f0ebdeffde40ff2185c73fb973bcb73bd30b896c5  10689  x4native/ui/x4native.lua
