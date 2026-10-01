@@ -475,6 +475,8 @@ protocol redesign.
 It has presets (0, 100k default, 1M, 10M, custom), and a separate value for "save money
 goes to the inheriting team" vs "split among players".
 
+**Update 2026-10-01 (user):** in Shared credit mode the starting amount is added **per member** (a team of 3 at 100k starts with 300k), confirmed by the user. The amount itself stays an admin GUI setting so groups can pick low-funds starts (e.g. 10k) or rich starts. Implemented as the Live setting `Economy.StartingCredits` (M1-E2). The GUI control lands with the Sessions/Settings pages (M1-W5/W6).
+
 ### ADR-040 Loan enforcement: flag-only in v1, enforcement options later (user decision 2026-10-01)
 **Decision:** v1 overdue loans are only flagged. Planned later as a per-session
 `LoanEnforcement` policy:
