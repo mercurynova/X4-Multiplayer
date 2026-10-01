@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using X4MP.Core.Metrics;
 using X4MP.Core.Net;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -152,12 +153,14 @@ public sealed partial class NodeGateway
 
         if (!TryRegister(connection, address))
         {
+            ServerMetrics.RecordHandshakeRefused(DisconnectCode.SessionFull);
             connection.Close(DisconnectCode.SessionFull, "too many connections from this address", retryAfterMs: 5000);
             return;
         }
 
         if (!TryTakeHandshakeToken())
         {
+            ServerMetrics.RecordHandshakeRefused(DisconnectCode.RateLimited);
             connection.Close(DisconnectCode.RateLimited, "handshake rate limit", retryAfterMs: 1000);
             return;
         }
@@ -165,6 +168,7 @@ public sealed partial class NodeGateway
         var ipBan = address is null ? null : await _bans.FindActiveBanAsync(ReadOnlyMemory<byte>.Empty, address, _time.GetUtcNow(), ct).ConfigureAwait(false);
         if (ipBan is not null)
         {
+            ServerMetrics.RecordHandshakeRefused(DisconnectCode.Banned);
             LogRefused(connection.Id.Value, DisconnectCode.Banned, "address banned");
             connection.Close(DisconnectCode.Banned, ipBan.Reason);
             return;
@@ -417,6 +421,7 @@ public sealed partial class NodeGateway
         connection.TrySend(frame);
         frame.Release();
         _ = connection.Completion.ContinueWith(_ => Unregister(node), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        ServerMetrics.RecordHandshakeOk();
         LogAdmitted(connection.Id.Value, name, bind.PlayerId, granted);
         return new AdmitOutcome(node, null);
 
@@ -438,6 +443,7 @@ public sealed partial class NodeGateway
 
     private void Refuse(INodeConnection connection, Rejection rejection)
     {
+        ServerMetrics.RecordHandshakeRefused(rejection.Code);
         LogRefused(connection.Id.Value, rejection.Code, rejection.Message);
         connection.Close(rejection.Code, rejection.Message, rejection.Expected, rejection.RetryAfterMs);
     }
