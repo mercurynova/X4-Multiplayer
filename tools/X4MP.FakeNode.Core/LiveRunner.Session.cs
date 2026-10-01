@@ -309,9 +309,20 @@ public static partial class LiveRunner
         NodeLink link, CliOptions o, FakeGalaxy galaxy, LiveNodeStats stats, LiveRunOptions run, string saveDir, string name, SynchronizedWriter lines, CancellationToken ct)
     {
         var world = new FakeWorld(galaxy);
-        var authority = new FakeAuthority(world, new FakeAuthorityOptions { TickRateHz = o.TickRate, Fps = o.Fps, TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None });
+        var authority = new FakeAuthority(
+            world,
+            new FakeAuthorityOptions
+            {
+                TickRateHz = o.TickRate,
+                Fps = o.Fps,
+                TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None || o.EffectiveTeams > 0,
+                TeamIds = o.EffectiveTeams >= 2 ? [.. Enumerable.Range(1, o.EffectiveTeams).Select(i => (ushort)i)] : null,
+            });
+        stats.Authority = authority;
+        run.OnAuthority?.Invoke(authority);
         var captures = new ConcurrentQueue<CaptureSetT>();
         var intents = new ConcurrentQueue<IntentT>();
+        var reassigns = new ConcurrentQueue<ReassignPlayerAssetsT>();
 
         // Against a server with a save service the authority also answers RequestSave: it builds a fake save and manifest, uploads them
         // in-band and the session starts from that checkpoint (protocol.md 6.3). Its GalaxyMetadata then travels with the checkpoint, keyed
@@ -346,6 +357,8 @@ public static partial class LiveRunner
             else
             {
                 authority.Teams.Handle(frame);
+                if (frame.Type == MsgType.ReassignPlayerAssets)
+                    reassigns.Enqueue(MessageRegistry.Default.Decode<ReassignPlayerAssets>(frame).UnPack());
                 saves?.Handle(frame);
             }
         };
@@ -377,6 +390,16 @@ public static partial class LiveRunner
                     Detail = string.Empty,
                 };
                 await link.Client.SendPayloadAsync(MsgType.IntentResult, MessageEncoder.EncodePayload(b => IntentResult.Pack(b, result), 96), ct).ConfigureAwait(false);
+            }
+
+            while (reassigns.TryDequeue(out var move))
+            {
+                // M1-T3 open item closed in M1-F3: really change the owner of the player's assets and tell the server (its mirror follows).
+                var changes = authority.Reassign(move);
+                foreach (var change in changes)
+                    await link.Client.SendPayloadAsync(change.Type, change.Payload, ct).ConfigureAwait(false);
+                stats.CountReassign(changes.Count);
+                await lines.WriteAsync($"[{name}] reassign: player {move.PlayerId} team {move.FromTeam} -> {move.ToTeam} ({move.Scope}): {changes.Count} asset(s) re-owned").ConfigureAwait(false);
             }
 
             long target = (long)(clock.Elapsed.TotalSeconds * o.TickRate);
@@ -422,7 +445,11 @@ public static partial class LiveRunner
         session.Teams.ApplyWelcome(link.Client.Welcome);
         run.OnClientSession?.Invoke(session);
         stats.AttachSession(session);
+        var handle = new FakeClientHandle(link, session, stats, name);
+        stats.Handle = handle;
         var outbox = Channel.CreateUnbounded<OutMessage>();
+        int ordinal = o.Command == FakeNodeCommand.Swarm && o.WithAuthority ? index - 1 : index; // 0-based among the clients
+        var wish = TeamWish.For(o, ordinal);
 
         // Against a server with a save service the join is the real one: wait for the checkpoint, download and verify the save and its
         // manifest, match, take the WorldCatchUp (protocol.md 6.4/6.5). The frames of that pipeline are handled in order on their own task.
@@ -440,7 +467,13 @@ public static partial class LiveRunner
         link.Handler = frame =>
         {
             if (frame.Type == MsgType.IntentResult)
-                stats.CountOrderResult(MessageRegistry.Default.Decode<IntentResult>(frame));
+            {
+                var intentResult = MessageRegistry.Default.Decode<IntentResult>(frame);
+                if (intentResult.RequestKey is { } resultKey && resultKey.Lo >= (1UL << 40))
+                    handle.OnIntentResult(resultKey.Lo, intentResult.Status, intentResult.Reason); // a targeted probe, not a commander order
+                else
+                    stats.CountOrderResult(intentResult);
+            }
             foreach (var reply in session.Handle(frame))
                 outbox.Writer.TryWrite(reply);
             if (saveFrames is not null && IsSaveFrame(frame.Type))
@@ -449,6 +482,19 @@ public static partial class LiveRunner
 
         try
         {
+            if (wish is not TeamWish.None)
+            {
+                // Lobby: answer with the team this client wants (M1-F3). A node that Auto already placed skips this and asks for a move later.
+                await link.WaitPhaseAsync(NodePhase.AwaitingTeam, TimeSpan.FromMilliseconds(1500), ct).ConfigureAwait(false);
+                if (link.Phase == NodePhase.AwaitingTeam)
+                {
+                    var step = await FakeTeamJoin.AnswerLobbyAsync(link, session.Teams, wish, name, o.Seed, run.TeamRequestTimeout, ct).ConfigureAwait(false);
+                    stats.CountTeamStep(step);
+                    stats.TeamNote = step.Note;
+                    await lines.WriteAsync($"[{name}] team lobby: {step.Note} (requests={step.Requests} rejected={step.Rejections})").ConfigureAwait(false);
+                }
+            }
+
             if (saves is null)
             {
                 await AdvanceToInGameAsync(link, run, ct).ConfigureAwait(false);
@@ -481,7 +527,16 @@ public static partial class LiveRunner
         }
 
         var player = new FakePlayer(galaxy, o.Seed, index + 1, o.Behavior);
-        await lines.WriteAsync($"[{name}] in game, flying {o.Behavior} from sector {player.Sector}").ConfigureAwait(false);
+        stats.TeamId = link.Team;
+        await lines.WriteAsync($"[{name}] in game, flying {o.Behavior} from sector {player.Sector} (team {link.Team})").ConfigureAwait(false);
+        if (wish is TeamWish.Named or TeamWish.Slot && await FakeTeamJoin.RequestMoveAsync(link, session.Teams, wish, run.TeamRequestTimeout, ct).ConfigureAwait(false) is { } move)
+        {
+            stats.CountTeamStep(move);
+            stats.TeamNote = move.Note;
+            await lines.WriteAsync($"[{name}] team move: {move.Note}").ConfigureAwait(false);
+        }
+
+        run.OnClientReady?.Invoke(handle);
 
         var clock = Stopwatch.StartNew();
         long lastTick = -1;
@@ -494,6 +549,7 @@ public static partial class LiveRunner
                 throw new IOException(link.DisconnectedBy is { } code ? $"server closed the connection ({code})" : "connection closed");
             while (outbox.Reader.TryRead(out var reply))
                 await link.Client.SendPayloadAsync(reply.Type, reply.Payload, ct).ConfigureAwait(false);
+            stats.TeamId = link.Team;
 
             long tick = (long)(clock.Elapsed.TotalSeconds * FakePlayer.TickRateHz);
             if (tick > lastTick)
@@ -509,13 +565,7 @@ public static partial class LiveRunner
                 if (session.PickAsset(o.Commander, link.Team, link.PlayerId, (int)orderKey) is { } asset)
                 {
                     ulong key = ++orderKey;
-                    var intent = new IntentT
-                    {
-                        RequestKey = new Id128T { Lo = key, Hi = (ulong)link.PlayerId },
-                        RequestId = (uint)key,
-                        GameTime = tick / FakePlayer.TickRateHz,
-                        Body = IntentBodyUnion.FromAssetOrder(new AssetOrderT { Asset = asset.NetId, Order = OrderKind.MoveTo, Sector = asset.Sector }),
-                    };
+                    var intent = FakeClientHandle.BuildOrder(link.PlayerId, key, tick / (long)FakePlayer.TickRateHz, asset.NetId, asset.Sector);
                     await link.Client.SendAsync(MsgType.Intent, b => Intent.Pack(b, intent), ct).ConfigureAwait(false);
                     stats.CountOrderSent();
                 }
