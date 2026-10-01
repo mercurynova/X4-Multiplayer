@@ -629,7 +629,7 @@ public sealed partial class NodeGateway
 
 /// <summary>
 /// Admission handler used when no session layer is attached yet: accepts everyone, answers <c>Ping</c> with
-/// <c>Pong</c>, ignores everything else, and ends when the connection does.
+/// <c>Pong</c>, closes on <c>Disconnect</c>, ignores everything else, and ends when the connection does.
 /// </summary>
 public sealed class DefaultAdmissionHandler : IAdmissionHandler
 {
@@ -649,6 +649,12 @@ public sealed class DefaultAdmissionHandler : IAdmissionHandler
                     var pong = ControlFrames.Pong(ping.Seq, ping.SendTimeUs, 0, 0);
                     node.Connection.TrySend(pong);
                     pong.Release();
+                }
+                else if (inbound.Type == MsgType.Disconnect)
+                {
+                    // Graceful goodbye (protocol.md 4): do not wait for the peer to drop the transport.
+                    node.Connection.Close(DisconnectCode.ClientQuit);
+                    break;
                 }
             }
         }
