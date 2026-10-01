@@ -204,6 +204,11 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
   `set_faction_diplomacy_exclusion`. Team ↔ NPC relations are copied from the save's
   `player` at session creation and stay fixed until M6 reputation sync (MOD §11.6).
 - **Consequences:** SRV's "+1.0 or ally level" is resolved to +0.75.
+- **Correction 2026-10-01 (diplomacy research, ADR-047):** `set_faction_relation_locked` is
+  **faction-wide** (`common.xsd:35358`), not per pair. Lock only the `x4mp_team_k` factions,
+  **never `player`**, because locking `player` would freeze all of the local player's NPC
+  relations. To change a team relation, a node unlocks the team faction, sets the relation,
+  then relocks it. Re-verify in spike S11.2. MOD §11.6 follows this.
 
 ### ADR-017 Team policy defaults (Consolidation)
 - **Decision:** `JoinMode=Auto`, `AutoAssign=SingleTeam` (everyone co-op, so
@@ -589,6 +594,81 @@ see players' mod lists is a session setting, `ModListVisibility` = `AdminsOnly` 
 `AdminsAndViewers` | `AllPlayers`. Add a `ModEditor` permission for non-admin GUI accounts, so a
 helper can curate the session mod list. All edits go to `audit_log`. This affects the M1-X tasks
 (server setting, permission, GUI) and M2-X (an in-game read-only view when `AllPlayers`).
+
+### ADR-046 On-foot player presence (requirement accepted, design pending spike) (user requirement 2026-10-01)
+**Status update 2026-10-01: plan APPROVED by the user.** M3b = Tier 0 (HUD presence list) + Tier 1 (MP lounge with full actors and the Talk menu). M3c = Tier 2 (any shared room, with nearest-seat/HUD fallback), gated on the S10 room-matching spike. M5b = Talk-menu economy/team actions (send credits, invite to team, trade).
+- **Context:** the user wants players who are on the same station or ship to see each other's
+  character in the correct position, and maybe interact. X4 interiors are partly static: dock
+  areas, module rooms and bridges come from macros. The rest are dynamic interiors (bar, offices,
+  crew quarters), created lazily by MD from `object.seed` and torn down in low attention. Some are
+  gated by player progress (the bar needs an unlocked black marketeer). Research:
+  [research/on-foot-presence.md](research/on-foot-presence.md).
+- **Decision (draft):** accept the requirement. Build it in tiers on one actor pipeline:
+  - **Tier 0:** a presence list/HUD ("Alice is on this station, in the bar").
+  - **Tier 1:** an "MP lounge". This is a mod-created dynamic interior made only of *vanilla*
+    corridor and room macros (fixed macro, door and seed; private; non-persistent), reached by an
+    MD teleport. Remote players are rendered there as MD cue actors at exact room-local
+    positions, walking with `start_actor_walk`, and with Talk → MP conversation choices.
+  - **Tier 2:** general on-foot presence in any shared room, with a room key
+    (kind, macro, roomtype, container-space anchor) and fallbacks (snap → nearest NPC slot →
+    roster). Enabled only where spike S10.2 proves interiors match.
+  - On-foot state is relayed by the server between players who share a container; the authority
+    is not involved.
+  - Target **M3b = Tiers 0 + 1**, **M3c = Tier 2**, and **M5b = interactions** (credits, team
+    invite, trade, emotes, follow).
+- **Status:** design pending spike block **S10** (session 2, roadmap §4.2). No schema change yet.
+  The proposed messages are `OnFootState`, `PlayerAppearance`, `PresenceRoster` and
+  `PlayerInteraction` (0x0302–0x0305), plus the capability `OnFootPresence`.
+- **Consequences:**
+  - MP actors and lounges join the save-strip path and the load janitor (ADR-023).
+  - mod-design §4.7 needs an exception, so a docked ship stays visible while players walk on its
+    station.
+  - Walking on moving (ghost) ships is out of scope.
+  - Forcing progress-gated rooms to exist on every node needs a separate user decision.
+
+### ADR-047 Team diplomacy via X4 diplomacy system (proposal, pending spike) (user idea 2026-10-01)
+**Status update 2026-10-01: design APPROVED by the user** (server-owned relation matrix + treaties via our own diplomacy screen; vanilla tab read-only; M5 basic proposals, M6 reputation/policy, rest post-v1).
+- **Context:** the user suggested using the game's diplomacy system ("the 9.0 diplomacy update")
+  for relations between player teams. Research: [research/diplomacy.md](research/diplomacy.md).
+  - Diplomacy arrived in **8.00**; 9.00 only tweaked it. It is a `player`-centric minigame: PHQ
+    embassy, agents, one influence value, and MD effects hard-coded to `faction.player`
+    (`md/diplomacy.xml:3181, 4591`).
+  - Its "events" are crises between two NPC factions. It has no proposals, acceptance or
+    treaties between other factions.
+  - `set_faction_relation_locked` is **faction-wide** (`common.xsd:35358`), not per pair as
+    ADR-016 and MOD §11.6 assume.
+- **Decision (draft):**
+  - The server's relation matrix stays the only source of truth for team↔team relations.
+  - Leaders change it through the existing `RelationChangeRequest` / `RelationProposal`, which
+    are extended into treaty proposals: Alliance, Ceasefire/Peace and Trade agreement are
+    mutual; Break alliance and Declare war are unilateral with a notice period.
+  - A new `RelationChangePolicy=Diplomacy` adds cooldowns.
+  - Every node's MD applies the result as unlock → set → relock, with a lock `reason` text.
+  - **Reuse** the vanilla Diplomacy "Factions and Relations" tab as the read-only view: teams
+    are listed, and the lock reason reads "Set by session diplomacy".
+  - **Build** our own Team Diplomacy screen (vanilla `Helper` style and diplomacy icons) for
+    proposing and answering. A tab inside `DiplomacyMenu` is optional, if spike S11.6 passes.
+  - Vanilla agent actions are **not** repurposed: they need a PHQ and agents, and they change
+    only `player`.
+  - Team factions are kept out of vanilla diplomacy: diplomacy inactive, events not allowed,
+    and an exclusion flag on team pairs.
+  - **Never lock `player`.**
+  - Team↔NPC relations: per team (`NpcReputationMode=PerTeam`) through the M6 reputation sync,
+    with today's fixed copy (ADR-016) until then.
+  - NPC↔NPC relation changes (interference, Protocol Null, story) are replicated from the
+    authority, and client-side diplomacy events are suppressed.
+  - ADR-040 `LoanEnforcement=Diplomacy` becomes a standing score per team pair, plus NPC
+    reputation penalties, shown in the same screen.
+- **Status:** proposal. It depends on spike block **S11** (session 2, roadmap §4.3). No
+  schema change yet. Proposed additions: fields on `RelationChangeRequest`/`RelationProposal`
+  (`kind`, `treaty`, `proposal_id`, `note`, `state`), and new `NpcRelationReport`,
+  `NpcRelations`, `ReputationDelta` and `TeamNpcRelations`.
+- **Consequences:**
+  - ADR-016's wording "lock each pair" changes to a per-faction lock on team factions only.
+  - Targets:
+    - **M5:** minimal in-game proposals.
+    - **M6:** per-team NPC reputation, NPC↔NPC replication and the `Diplomacy` policy.
+    - **Post-v1:** trade agreements, standing/ADR-040, the optional vanilla-menu tab.
 
 ---
 

@@ -16,8 +16,11 @@ developer). "Deps" lists task ids that must be done first. Tracks: **P** protoco
 | **M2-spike** | In-game experiments S1–S8 (parallel with M1) | yes | Each spike has a recorded verdict (pass / fallback chosen) in `decisions.md` Part 3, and any ADR changed by a failed spike is updated before M3 starts. |
 | **M2** | Mod loads via X4Native, connects, join dialog, heartbeat, save sync + load, resume across extension reload, self-test | yes | From the start menu, a player joins using only the UI: handshake, in-band save download, `LoadGame`, paused at universe ready, `NodeReady`; the server shows **no** leave/join across the extension reload. Build mismatch is refused with a clear message. 30-min connection with < 0.2 ms/frame main-thread net cost. Self-test PASS table logged and visible in the GUI. Password never persisted. |
 | **M3** | Teams + avatars; player positions and player ghosts both ways; chat; save hygiene v1 | yes (2 PCs) | MOD §9 M3 acceptance: two players fly together 30 min over ≥ 5 sectors incl. a highway, each in their own avatar, seeing the other with correct model, team colour and name; ghost error < 50 m below 500 m/s; no Game Over; < 10 log lines/s; < 1 FPS mod cost. Authority checkpoint contains zero `[MP] ` objects (`tools/savescan`) and avatars persist under team factions after reload. Relations from the GUI matrix visible in game (targeting colour). |
+| **M3b** | On-foot presence v1 (ADR-046): Tier 0 HUD presence list ("Alice is on this station, in the bar") + Tier 1 MP lounge (fixed-layout room built from vanilla room macros, remote players as temporary actors with model/name/team, vanilla conversation Talk menu: message, wave) | yes (2 PCs) | Two players in the lounge see each other at the correct position (error < 0.5 m) and heading, with walk/idle animation; Talk menu works both ways; HUD list correct for any shared container; zero MP actors in any save (`tools/savescan`); a save from a lounge session loads without the mod. Gated on spikes S10.1–S10.5, S10.7, S10.8, S10.11–S10.15. |
+| **M3c** | On-foot presence v2: Tier 2 in any shared room/ship, nearest-seat/HUD fallback when rooms don't match | yes (2 PCs) | Gated on S10.2 room matching. Players visible in matched rooms (bar, office, dock, bridge); unmatched rooms fall back without errors. |
 | **M4** | Authority world streaming, manifest matching, server interest/prefetch, ghost-only clients, record/replay | yes (2 PCs) | MOD §9 M4 acceptance: ≥ 99% station matches; same NPC ships on client and authority in current and adjacent sectors; p95 error < 25 m within 5 km; busy sector (≥ 200 ships) ≥ 45 FPS client, < 3 ms/frame authority mod cost; < 200 kB/s per client; zero `spawn-near-player` pops on a highway transit; no despawn/respawn of the same net_id within 10 s while in interest. UDP realtime lane active in the mod. |
 | **M5** | Events + in-game economy: kills, death/respawn, trade/cargo, station builds, capture, live relations, wallet reconciliation, transfers/pool, (loans/trades stretch), damage relay (stretch) | yes (2 PCs) | MOD §9 M5 acceptance items 2–12; every event in REQ §8.3 checklist executed once with log evidence; ledger auditor clean after a 60-min session with purchases on all nodes. |
+| **M5b** | Talk-menu actions on remote players: send credits, invite to team, trade (uses M5 economy + teams) | yes (2 PCs) | Each action executes through the server economy/team APIs with an audit trail; works from the lounge and Tier 2 rooms. |
 | **M6** | Packaging and hardening: installer, Check Install, Collect Logs, launcher (`launch.json`), HTTP save fallback in mod, release pipeline, user docs; loans/trades in game if not in M5; team asset commands from our UI | partly | One-zip install on a clean Windows PC passes the health check (Protected UI, VC++ redist, MotW, `version_db`, extensions enabled); release tag produces signed-checksum artifacts for server and mod; 4-hour soak with 3 clients and reconnects without leaks. |
 
 ---
@@ -200,6 +203,48 @@ Session 2 needs the native DLL from M2 work (S5, S6, V07; see
 | R6 | **kuertee UIX installed:** `OptionsMenu.uix_getConfig()` returns the vanilla-shaped `config`; adapter logs `source=uix`; UIX's re-sorted Extensions page coexists with X4Native's injector | Both | Fall through to `require("debug")` |
 | R7 | `GetExtensionList()` in the start menu: `personal`/`isworkshop` values for user-folder and Workshop mods; `GetModifiedBasegameUIFilesExtensions()` names vs ids (V28) | Fields documented in mod-management §1.3 | Native folder scan decides `source` |
 | R8 | `C.OpenWebBrowser` with Nexus https, Workshop https and `steam://url/CommunityFilePage/<id>` (V29) | Each opens something usable | Show URL text only |
+
+### 4.2 Session 2: on-foot presence block S10 (ADR-046)
+
+The full procedures are in [research/on-foot-presence.md](research/on-foot-presence.md) §6. Most
+of S10 needs no native DLL and one PC. A "mirror actor" replays your own walk 3 s later to stand
+in for a remote player. If time is short, run S10.1, S10.3, S10.4, S10.11, S10.12, S10.14, S10.7
+and S10.8 first.
+
+| ID | Experiment | Pass criterion | If it fails |
+|---|---|---|---|
+| S10.1 | Read on-foot state: container, room, room-local position and heading, room/transport events | Container and room resolve everywhere. Position matches MD within 1 cm. `changed_room` fires within 1 frame | MD `player.room`/`relativeposition` via the shim at 10 Hz |
+| S10.2 | Room-key determinism across revisit, reload and (optionally) a second PC | Identical room keys per station | Key on roomtype+macro; accept F2 approximation |
+| S10.3 | Spawn an MP character (`create_cue_actor macro=player.entity.macro`, name, team owner) | Visible, right look, name and title shown, survives 5 min | `<select race tags>` fallback look |
+| S10.4 | Movement modes: teleport 5 Hz / `start_actor_walk` 2–4 Hz / `SetPositionalOffset` per frame | One mode with walk animation, rated ≥ 4/5, p95 error < 1 m | Best available mode; F2 slot mode |
+| S10.5 | Facing and emotes | Yaw ±15°. ≥ 2 body gestures and ≥ 1 face emote | Wave as notification only |
+| S10.6 | Room transitions, transporter, interior teardown, capital-ship bridge | Clean re-placement; 0 leftover actors after `interiors_despawning` | Despawn on unknown rooms; ships out of scope |
+| S10.7 | Talk → custom conversation choices + `open_conversation_menu` | Choices render and dispatch; vanilla comm suppressed | Own menu on a key |
+| S10.8 | Cost of 8 walking actors; save strip, janitor, `temporary` trait | < 0.5 ms/frame; 0 actors after reload | Snap mode; janitor only |
+| S10.9 | Catalogue progress-gated interiors on 5 stations | Info | — |
+| S10.10 | (optional, 2 PCs, M3 build) two-player walk | Right room, < 1 m error, no leftovers | Fallbacks |
+| S10.11 | Create the MP lounge (vanilla corridor + room macros, fixed door and seed, private) | Created on 2 stations; no errors; vanilla interiors unaffected | Other macro/module; reuse a vanilla room |
+| S10.12 | Teleport into and out of the lounge; transporter listing; door | In/out works; listing and door reported | MD teleport only |
+| S10.13 | Lounge slot positions identical across reloads | Identical room-local offsets | Slot snapping |
+| S10.14 | Lounge save safety, incl. loading without the mod | Saves load without the mod; janitor removes the orphan lounge | Always remove lounges before saves |
+| S10.15 | Actors + Talk inside the lounge | As S10.4/S10.7; seats work | Snap mode |
+
+### 4.3 Session 2: team diplomacy block S11 (ADR-047)
+
+The full procedures are in [research/diplomacy.md](research/diplomacy.md) §7. The block is
+MD + Lua only, so no native DLL is needed, on one PC, in about 20–30 minutes. The spike
+extension adds a `libraries/diplomacy.xml` diff with one test action and one test event. A
+save with a PHQ embassy and at least one agent is best; without one, S11.4(a) is skipped.
+
+| ID | Experiment | Pass criterion | If it fails |
+|---|---|---|---|
+| S11.1 | Activated `x4mp_team_1..3` in Diplomacy → Factions and Relations: section, colours, lock icon + our `reason` text; `set_faction_known` on/off; `hidden` tag on team 3 | Teams 1–2 listed with correct relation and lock reason; team 3 hidden | Hide teams (`hidden`); relations only in our own screen |
+| S11.2 | Lock semantics: with team 1 locked, try player→team1, team1→argon, `add_faction_relation`; unlock+set+relock in one block; `event_faction_relation_changed` params; effect of locking `player` (documented, never used) | Locked pairs blocked from both sides; unlock-set-relock applies the same frame; event fires with readable params | Unlocked team factions + authority watchdog re-applying the matrix |
+| S11.3 | `set_faction_diplomacy_active` / `…_events_allowed` on a team faction, survives two vanilla 30 s checks both ways; UI section and interference dropdown | Flags stick; UI follows | Accept teams always "unreceptive" |
+| S11.4 | Custom diplomacy content: (a) test action round trip via `event_diplomacy_action_operation_started` → `complete_diplomacy_action_operation`; (b) `create_diplomacy_event_operation` between two teams with `agent=null`, shown in Diplomatic Events | (a) clean round trip; (b) visible; note whether an option is selectable without an agent | Custom action/event UX stays rejected (expected) |
+| S11.5 | Client suppression of NPC diplomacy events (`EventCapable=false` via vanilla library, then `events_allowed false`; wait 70 s) | Flags stay false for vanilla factions | Client-only diff guarding Protocol Null event generation |
+| S11.6 | Inject a "Teams" tab into `DiplomacyMenu` (wrap `menu.createLeftBar`/`createInfoFrame` via `Menus`; also `require("debug")` for `config.leftBar`) | Tab renders; switching tabs works; no Lua errors | Standalone Team Diplomacy screen only |
+| S11.7 | NPC↔NPC relation change detection (`argon↔teladi` set + restore; `event_faction_relation_changed`, `event_player_relation_changed`) | Events fire with faction ids and value | Authority polls relations every 10 s (`x4n::faction::get_relation`) |
 
 ## 5. Post-v1 backlog (from user decisions 2026-10-01)
 

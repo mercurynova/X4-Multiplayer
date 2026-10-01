@@ -677,6 +677,24 @@ public class TeamJoinTests
     }
 
     [Fact]
+    public async Task TheModuleExposesTheLeaderOfATeam()
+    {
+        await using var rig = new TeamRig();
+        var a = await rig.JoinAsync("C1");
+        var b = await rig.JoinAsync("C2");
+        await rig.SettleAsync();
+
+        Assert.Equal(a.PlayerId, rig.Teams.LeaderOf(1)); // the first member leads
+        Assert.Null(rig.Teams.LeaderOf(9));
+
+        await rig.Teams.UpdateTeamAsync(1, new TeamRegistry.TeamPatch(LeaderPlayerId: b.PlayerId));
+
+        Assert.Equal(b.PlayerId, rig.Teams.LeaderOf(1));
+        Assert.Equal(TeamRole.Leader, rig.Teams.Snapshot().Members.Single(m => m.PlayerId == b.PlayerId).Role);
+        Assert.Equal(TeamRole.Member, rig.Teams.Snapshot().Members.Single(m => m.PlayerId == a.PlayerId).Role);
+    }
+
+    [Fact]
     public async Task ARelationSetBeforeAJoinIsInTheWelcomeAsAWireRelation()
     {
         await using var rig = new TeamRig(new TeamOptions { AutoAssign = AutoAssignStrategy.NewTeamPerPlayer });

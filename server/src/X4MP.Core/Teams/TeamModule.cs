@@ -44,6 +44,7 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         IReadOnlyList<TeamInfo> Teams,
         IReadOnlyDictionary<int, int> TeamByPlayer,
         IReadOnlyDictionary<int, IReadOnlyList<int>> Members,
+        IReadOnlyDictionary<int, int> Leaders,
         TeamRelationMatrix Matrix);
 
     private readonly Func<TeamOptions> _options;
@@ -103,6 +104,9 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
 
     public IReadOnlyList<int> MembersOf(int teamId) => _view.Members.TryGetValue(teamId, out var members) ? members : [];
 
+    /// <summary>The leader of a team (the first member, or whoever an admin made leader), or null for an empty team. Not part of <see cref="ITeamDirectory"/>; the economy can use it for its pool-withdraw and remainder rules.</summary>
+    public int? LeaderOf(int teamId) => _view.Leaders.TryGetValue(teamId, out int leader) ? leader : null;
+
     public TeamRelation RelationBetween(int teamA, int teamB) => _view.Matrix.Get(teamA, teamB);
 
     public event Action<TeamDirectoryChanged>? Changed;
@@ -136,6 +140,7 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
             [.. teams.Select(t => t.Info)],
             _registry.Members.ToDictionary(m => m.PlayerId, m => m.TeamId),
             members,
+            teams.Where(t => t.LeaderPlayerId is not null).ToDictionary(t => t.Id, t => t.LeaderPlayerId!.Value),
             _registry.Matrix);
     }
 
@@ -427,6 +432,13 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
     }
 
     public void OnSessionPhaseChanged(SessionPhase previous, SessionPhase current) => Persist();
+
+    public void OnSessionBegun(long sessionId)
+    {
+        // A new sessions row: write the complete current state under it, so the latest session always holds everything (sticky across restarts).
+        _dirty = _dirty || _registry.Teams.Count > 0;
+        Persist();
+    }
 
     private void UpdateAuthorityFlag() =>
         _authorityAwaitingTeam = _nodes.Values.Any(n => n.IsAuthority && n.Phase == NodePhase.AwaitingTeam);
