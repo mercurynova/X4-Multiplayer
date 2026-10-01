@@ -145,7 +145,7 @@ public sealed class RelayHostingTests : IAsyncLifetime
         {
             RequestKey = new Id128T { Lo = 10, Hi = 1 },
             RequestId = 10,
-            Body = IntentBodyUnion.FromAssetRename(new AssetRenameT { Asset = 4711, Name = "Flagship" }),
+            Body = IntentBodyUnion.FromStationBuildRequest(new StationBuildRequestT { Macro = "station_gen_factory_01_macro", Sector = 1 }), // a team member may build (an AssetRename of an unknown entity is now refused by the permission gate)
         }));
         await authority.WaitForAsync(p => p.Intents(), i => i.RequestKey.Lo == 10, "the intent at the authority");
         await Task.Delay(100);
