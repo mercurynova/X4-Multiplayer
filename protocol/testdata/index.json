@@ -10,7 +10,7 @@
   "datagramHeaderSize": 24,
   "maxDatagramBytes": 1200,
   "kinds": {
-    "frame": "complete TCP frame (8-byte header + FlatBuffers payload); decode payload with the table for msgType, re-encode must reproduce the frame semantically",
+    "frame": "complete TCP frame (8-byte header + FlatBuffers payload); decode payload with the table for msgType; fields = canonical dump of every decoded field (see CanonicalFields.cs); re-encode must reproduce the frame semantically",
     "replication-entries": "raw Replication.entries bytes (protocol.md 10.2); decode all entries and re-encode byte-identically",
     "datagram": "complete UDP datagram (24-byte header + padded sub-messages)",
     "reject-frame": "bytes that must be rejected as a frame stream; expect = C# ViolationCode name",
@@ -28,7 +28,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 248
+      "payloadLength": 248,
+      "fields": {"Auth":1,"ExtensionsHash":"01020304","Nonce":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f","Phase":3,"ProtocolMajor":0,"ProtocolMinor":1,"RequiredGameBuild":"900-611726","RequiredModVersion":"0.1.0","ServerCaps":8193,"ServerName":"Test server","ServerVersion":"0.1.0","SessionId":{"Hi":28,"Lo":9},"SupportedGameBuilds":["900-611726","900-611727"]}
     },
     {
       "file": "0x0002_ClientHello.bin",
@@ -40,7 +41,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 384
+      "payloadLength": 384,
+      "fields": {"AdminProof":"0606","AuthProof":"050505","CachedSaves":[{"Sha256":"020202"}],"ClientCaps":16383,"Extensions":["x4mp@0.1.0","other@1.0"],"ExtensionsHash":"090807","GameBuild":"900-611726","GameVersion":"9.00","LastJournalSeq":4242,"LoadedSaveSha256":"01010101","ModBuild":"abc1234","ModVersion":"0.1.0","Platform":"win64","PlayerKey":"6465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80818283","PlayerName":"Alice","PreferredTeam":2,"ProtocolMajor":0,"ProtocolMinor":1,"RequestedRoles":10,"ResumeToken":{"Hi":31,"Lo":10},"X4nativeVersion":"9.0.0"}
     },
     {
       "file": "0x0003_Welcome.bin",
@@ -52,7 +54,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 664
+      "payloadLength": 664,
+      "fields": {"ConnId":3735928559,"FactionSlot":2,"GrantedRoles":2,"HeartbeatIntervalMs":1000,"HeartbeatTimeoutMs":10000,"HttpBaseUrl":"http://127.0.0.1:47790","MaxGhosts":4000,"NegotiatedCaps":31,"PlayerId":4,"Relations":{"DefaultRelation":0,"Entries":[{"Relation":-1,"TeamA":1,"TeamB":2},{"Relation":1,"TeamA":1,"TeamB":3}],"Full":true,"Version":4},"ResumeGraceS":60,"ResumeToken":{"Hi":34,"Lo":11},"Resumed":true,"ServerTimeUs":999999999,"Settings":{"Economy":{"AllowAlliedTransfers":true,"CreditMode":1,"DonateScope":3,"EffectiveMode":0,"LoanScope":2,"MaxOpenLoansPerPlayer":2,"MaxOpenTradesPerPlayer":3,"MaxTransferAmount":1000000000,"PoolWithdrawDailyLimit":500000,"PoolWithdrawPolicy":1,"TeamPoolEnabled":false,"TradeScope":1,"TradeShipsEnabled":false,"TradeStationsEnabled":true},"Team":{"AllowAssetTransfer":true,"AllowCreateInLobby":true,"AllowFriendlyFire":true,"AllowSelfTeamChange":true,"AssetPolicy":2,"AutoAssign":1,"JoinMode":1,"MaxTeams":8,"MoveAssetsWithPlayer":1,"RelationChangePolicy":1},"Version":5},"TeamId":2,"TeamRole":1,"Teams":{"Full":true,"Removed":[7,8],"Teams":[{"ColorRgb":16746496,"FactionSlot":1,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 1","PasswordProtected":true,"TeamId":1},{"ColorRgb":16746496,"FactionSlot":2,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 2","PasswordProtected":true,"TeamId":2}],"Version":3},"UdpPort":47781,"UdpToken":81985529216486895}
     },
     {
       "file": "0x0004_Disconnect.bin",
@@ -64,7 +67,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Code":6,"Expected":"900-611726","Message":"reload","RetryAfterMs":5000}
     },
     {
       "file": "0x0005_Ping.bin",
@@ -76,7 +80,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 32
+      "payloadLength": 32,
+      "fields": {"SendTimeUs":1000000,"Seq":1}
     },
     {
       "file": "0x0006_Pong.bin",
@@ -88,7 +93,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"EchoSendTimeUs":1000000,"RecvTimeUs":1000500,"ReplyTimeUs":1000600,"Seq":1}
     },
     {
       "file": "0x0007_UdpHello.bin",
@@ -100,7 +106,8 @@
       "variant": "",
       "lane": 1,
       "payloadOffset": 8,
-      "payloadLength": 32
+      "payloadLength": 32,
+      "fields": {"ConnId":3735928559,"UdpToken":81985529216486895}
     },
     {
       "file": "0x0008_UdpHelloAck.bin",
@@ -112,7 +119,8 @@
       "variant": "",
       "lane": 1,
       "payloadOffset": 8,
-      "payloadLength": 20
+      "payloadLength": 20,
+      "fields": {"ConnId":3735928559}
     },
     {
       "file": "0x0009_ServerNotice.bin",
@@ -124,7 +132,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 60
+      "payloadLength": 60,
+      "fields": {"DisplayMs":8000,"Severity":1,"Text":"Server restarting soon"}
     },
     {
       "file": "0x0100_SessionState.bin",
@@ -136,7 +145,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 96
+      "payloadLength": 96,
+      "fields": {"AuthorityPlayer":1,"CurrentSaveSha256":"aabb","GameTime":3600.25,"MaxPlayers":8,"PauseReason":"admin","Paused":true,"Phase":4,"SessionName":"Co-op","TimeScale":2.5}
     },
     {
       "file": "0x0101_RosterUpdate.bin",
@@ -148,7 +158,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 160
+      "payloadLength": 160,
+      "fields": {"Full":true,"Players":[{"Name":"Alice","Phase":7,"PingMs":23,"PlayerId":1,"Roles":3,"Sector":12,"ShipNetId":1001,"TeamId":1,"TeamRole":1},{"Name":"Bob","Phase":4,"PingMs":80,"PlayerId":2,"Roles":2,"Sector":0,"ShipNetId":0,"TeamId":2,"TeamRole":0}],"Removed":[9]}
     },
     {
       "file": "0x0102_SessionSettings.bin",
@@ -160,7 +171,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 136
+      "payloadLength": 136,
+      "fields": {"Economy":{"AllowAlliedTransfers":true,"CreditMode":1,"DonateScope":3,"EffectiveMode":0,"LoanScope":2,"MaxOpenLoansPerPlayer":2,"MaxOpenTradesPerPlayer":3,"MaxTransferAmount":1000000000,"PoolWithdrawDailyLimit":500000,"PoolWithdrawPolicy":1,"TeamPoolEnabled":false,"TradeScope":1,"TradeShipsEnabled":false,"TradeStationsEnabled":true},"Team":{"AllowAssetTransfer":true,"AllowCreateInLobby":true,"AllowFriendlyFire":true,"AllowSelfTeamChange":true,"AssetPolicy":2,"AutoAssign":1,"JoinMode":1,"MaxTeams":8,"MoveAssetsWithPlayer":1,"RelationChangePolicy":1},"Version":5}
     },
     {
       "file": "0x0103_RequestSave.bin",
@@ -172,7 +184,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 52
+      "payloadLength": 52,
+      "fields": {"Reason":2,"RequestId":5,"SlotName":"x4mp_checkpoint"}
     },
     {
       "file": "0x0104_SaveStarted.bin",
@@ -184,7 +197,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 56
+      "payloadLength": 56,
+      "fields": {"CheckpointId":{"Hi":37,"Lo":12},"GameTime":7200.5,"NextNetId":5000,"RequestId":5}
     },
     {
       "file": "0x0105_SaveUploadBegin.bin",
@@ -196,7 +210,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 120
+      "payloadLength": 120,
+      "fields": {"CheckpointId":{"Hi":37,"Lo":12},"GhostsCleaned":true,"Kind":1,"Name":"checkpoint","Sha256":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","Size":123456789012}
     },
     {
       "file": "0x0106_SaveUploadAccept.bin",
@@ -208,7 +223,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 32
+      "payloadLength": 32,
+      "fields": {"ChunkSize":262144,"ResumeOffset":524288,"UploadId":7,"WindowChunks":8}
     },
     {
       "file": "0x0107_SaveChunk.bin",
@@ -220,7 +236,8 @@
       "variant": "",
       "lane": 2,
       "payloadOffset": 8,
-      "payloadLength": 344
+      "payloadLength": 344,
+      "fields": {"Data":"00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d","Offset":262144,"TransferId":7}
     },
     {
       "file": "0x0108_SaveChunkAck.bin",
@@ -232,7 +249,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 32
+      "payloadLength": 32,
+      "fields": {"NextOffset":1048576,"TransferId":7}
     },
     {
       "file": "0x0109_SaveUploadEnd.bin",
@@ -244,7 +262,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 20
+      "payloadLength": 20,
+      "fields": {"UploadId":7}
     },
     {
       "file": "0x010A_SaveStored.bin",
@@ -256,7 +275,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"CheckpointId":{"Hi":37,"Lo":12},"Detail":"ghosts","Kind":0,"Result":1,"UploadId":7}
     },
     {
       "file": "0x010B_SessionSaveInfo.bin",
@@ -268,7 +288,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 232
+      "payloadLength": 232,
+      "fields": {"CheckpointId":{"Hi":37,"Lo":12},"DisplayName":"Save 12","DownloadToken":"tok","GameTime":7200.5,"HttpUrl":"http://h/saves/x","LocalFileName":"x4mp_010203040506.xml.gz","ManifestHttpUrl":"http://h/saves/m","ManifestSha256":"040506","ManifestSize":300000,"Sha256":"010203","Size":99999}
     },
     {
       "file": "0x010C_SaveDownloadRequest.bin",
@@ -280,7 +301,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"Kind":1,"Offset":4096,"Sha256":"0707"}
     },
     {
       "file": "0x010D_SaveDownloadAccept.bin",
@@ -292,7 +314,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 32
+      "payloadLength": 32,
+      "fields": {"ChunkSize":262144,"DownloadId":3,"Size":10000000,"WindowChunks":8}
     },
     {
       "file": "0x010E_SaveReady.bin",
@@ -304,7 +327,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 40
+      "payloadLength": 40,
+      "fields": {"ManifestSha256":"0304","Sha256":"0102"}
     },
     {
       "file": "0x010F_LoadStatus.bin",
@@ -316,7 +340,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"BytesDone":5000000,"Detail":"Loading","Error":51,"Phase":4,"Progress":0.5}
     },
     {
       "file": "0x0110_NodeReady.bin",
@@ -328,7 +353,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 40
+      "payloadLength": 40,
+      "fields": {"LoadedSaveSha256":"0909","UniverseEpoch":12379813738877118345}
     },
     {
       "file": "0x0111_ManifestReport.bin",
@@ -340,7 +366,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 104
+      "payloadLength": 104,
+      "fields": {"Ambiguous":2,"CheckpointId":{"Hi":37,"Lo":12},"DurationMs":850,"Matched":2990,"MatchedTiebreakIdcode":3,"MatchedTiebreakOwner":4,"Total":3000,"UniverseIdEqual":2900,"Unmatched":10,"UnmatchedSample":[1,2,3]}
     },
     {
       "file": "0x0112_AuthorityAssign.bin",
@@ -352,7 +379,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"CheckpointId":{"Hi":37,"Lo":12},"Grant":true,"NextNetId":5000,"Reason":"migration","StringTableNext":321}
     },
     {
       "file": "0x0113_GalaxyMetadata.bin",
@@ -364,7 +392,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 228
+      "payloadLength": 228,
+      "fields": {"Links":[{"From":1,"FromPos":{"X":1000,"Y":0,"Z":2000},"Kind":0,"To":2,"ToPos":{"X":-1000,"Y":0,"Z":-2000}}],"SaveSha256":"010203","Sectors":[{"ClusterMacro":"cluster_01_macro","GalaxyPos":{"X":1.5,"Y":-2.5,"Z":0},"Index":1,"Macro":"cluster_01_sector001_macro","Name":"Argon Prime","OwnerRef":3}]}
     },
     {
       "file": "0x0114_StringTableAdd.bin",
@@ -376,7 +405,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 116
+      "payloadLength": 116,
+      "fields": {"Entries":[{"Index":1,"Kind":1,"Value":"cluster_01_sector001_macro"},{"Index":2,"Kind":2,"Value":"argon"}]}
     },
     {
       "file": "0x0115_GalaxySummary.bin",
@@ -388,7 +418,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 56
+      "payloadLength": 56,
+      "fields": {"GameTime":3600.25,"Sectors":[{"Sector":1,"ShipsL":4,"ShipsM":3,"ShipsS":2,"ShipsXl":5,"ShipsXs":1,"Stations":6}]}
     },
     {
       "file": "0x0200_EntitySpawn.bin",
@@ -400,7 +431,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 280
+      "payloadLength": 280,
+      "fields": {"Entities":[{"ControllerPlayer":4,"Hull":200,"Idcode":"ABC-123","Kind":3,"MacroRef":5,"Name":"Ship 1001","NetId":1001,"Origin":1,"OwnerPlayer":3,"OwnerRef":6,"OwnerTeam":2,"ParentNetId":99,"Shield":100,"State":{"Flags":80,"NetId":1001,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}},{"ControllerPlayer":4,"Hull":200,"Idcode":"ABC-123","Kind":3,"MacroRef":5,"Name":"Ship 1002","NetId":1002,"Origin":1,"OwnerPlayer":3,"OwnerRef":6,"OwnerTeam":2,"ParentNetId":99,"Shield":100,"State":{"Flags":80,"NetId":1002,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}}],"JournalSeq":77}
     },
     {
       "file": "0x0201_EntityDespawn.bin",
@@ -412,7 +444,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"Entries":[{"KillerNetId":1002,"NetId":1001,"Reason":2}],"JournalSeq":78}
     },
     {
       "file": "0x0202_WorldUpdate.bin",
@@ -424,7 +457,8 @@
       "variant": "",
       "lane": 1,
       "payloadOffset": 8,
-      "payloadLength": 120
+      "payloadLength": 120,
+      "fields": {"AuthorityTick":123456,"CaptureTimeUs":9876543210,"GameTime":3600.25,"States":[{"Flags":80,"NetId":1001,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384},{"Flags":80,"NetId":1002,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}]}
     },
     {
       "file": "0x0203_EntityStatusBatch.bin",
@@ -436,7 +470,8 @@
       "variant": "",
       "lane": 1,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"CaptureTimeUs":9876543210,"Statuses":[{"Hull":128,"NetId":1001,"Shield":64,"StatusFlags":3}]}
     },
     {
       "file": "0x0204_EntityChange.bin",
@@ -448,7 +483,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 112
+      "payloadLength": 112,
+      "fields": {"CauseTradeId":{"Hi":16,"Lo":5},"ControllerPlayer":1,"Fields":9,"JournalSeq":77,"Kind":6,"MacroRef":9,"Name":"Renamed","NetId":1001,"OwnerPlayer":3,"OwnerRef":8,"OwnerTeam":2,"ParentNetId":5}
     },
     {
       "file": "0x0205_EntityCargo.bin",
@@ -460,7 +496,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"JournalSeq":79,"NetId":1001,"Wares":[{"Amount":100,"WareRef":8},{"Amount":-1,"WareRef":9}]}
     },
     {
       "file": "0x0206_CaptureSet.bin",
@@ -472,7 +509,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 84
+      "payloadLength": 84,
+      "fields": {"Epoch":6,"Focus":[{"Center":{"X":100,"Y":200,"Z":300},"RadiusM":15000,"RateHz":20,"Sector":12}],"Sectors":[{"RateHz":5,"Sector":12}]}
     },
     {
       "file": "0x0207_SectorComplete.bin",
@@ -484,7 +522,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 32
+      "payloadLength": 32,
+      "fields": {"EntityCount":321,"Epoch":6,"Sector":12}
     },
     {
       "file": "0x0208_Replication.bin",
@@ -496,7 +535,8 @@
       "variant": "",
       "lane": 1,
       "payloadOffset": 8,
-      "payloadLength": 96
+      "payloadLength": 96,
+      "fields": {"AuthorityGameTime":3600.25,"Entries":"e90300004a40000000c0ffffff40420f000400fcffff7fecffea03000020ff07","EntryCount":2,"ServerTick":777,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0209_InterestUpdate.bin",
@@ -508,7 +548,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 44
+      "payloadLength": 44,
+      "fields": {"Epoch":6,"Full":true,"Sectors":[{"Sector":12,"Tier":4},{"Sector":13,"Tier":2}]}
     },
     {
       "file": "0x020A_InterestChecksum.bin",
@@ -520,7 +561,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 40
+      "payloadLength": 40,
+      "fields": {"Count":300,"ServerTick":777,"XorHash":18364758544493064720}
     },
     {
       "file": "0x020B_ResyncRequest.bin",
@@ -532,7 +574,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"Reason":"checksum","Sectors":[12,13]}
     },
     {
       "file": "0x020C_WorldCatchUp.bin",
@@ -544,7 +587,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 496
+      "payloadLength": 496,
+      "fields": {"CheckpointId":{"Hi":37,"Lo":12},"Entries":[{"Body":{"type":1,"value":{"ControllerPlayer":4,"Hull":200,"Idcode":"ABC-123","Kind":3,"MacroRef":5,"Name":"Ship 2001","NetId":2001,"Origin":1,"OwnerPlayer":3,"OwnerRef":6,"OwnerTeam":2,"ParentNetId":99,"Shield":100,"State":{"Flags":80,"NetId":2001,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}}},"Seq":1},{"Body":{"type":2,"value":{"Entry":{"KillerNetId":0,"NetId":2001,"Reason":3}}},"Seq":2},{"Body":{"type":3,"value":{"CauseTradeId":{"Hi":16,"Lo":5},"ControllerPlayer":1,"Fields":9,"JournalSeq":77,"Kind":6,"MacroRef":9,"Name":"Renamed","NetId":1001,"OwnerPlayer":3,"OwnerRef":8,"OwnerTeam":2,"ParentNetId":5}},"Seq":3},{"Body":{"type":4,"value":{"JournalSeq":4,"NetId":2001,"Wares":[{"Amount":2,"WareRef":1}]}},"Seq":4}],"Final":true}
     },
     {
       "file": "0x020D_InterestHint.bin",
@@ -556,7 +600,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 24
+      "payloadLength": 24,
+      "fields": {"EtaMs":4000,"Reason":0,"TargetSector":14}
     },
     {
       "file": "0x0300_PlayerState.bin",
@@ -568,7 +613,8 @@
       "variant": "",
       "lane": 1,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Flags":8,"Hull":250,"NetId":1001,"Pitch":-1000,"Px":6400,"Py":-6400,"Pz":12800,"Roll":500,"SampleTimeUs":5000000,"Sector":12,"Seq":100,"Shield":10,"TargetNetId":1002,"Yaw":1000}
     },
     {
       "file": "0x0301_PlayerShip.bin",
@@ -580,7 +626,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 160
+      "payloadLength": 160,
+      "fields": {"Hull":255,"Idcode":"XYZ-789","LocalComponentId":1234605616436508552,"Name":"Pilot","Pitch":5,"Px":1,"Py":2,"Pz":3,"RequestKey":{"Hi":40,"Lo":13},"Roll":6,"Sector":12,"Shield":255,"ShipMacro":"ship_arg_s_fighter_01_a_macro","Yaw":4}
     },
     {
       "file": "0x0400_Intent_KillClaim.bin",
@@ -592,7 +639,8 @@
       "variant": "KillClaim",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 96
+      "payloadLength": 96,
+      "fields": {"Body":{"type":1,"value":{"Killer":1001,"Target":1002,"WeaponMacroRef":4}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_HitReport.bin",
@@ -604,7 +652,8 @@
       "variant": "HitReport",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 96
+      "payloadLength": 96,
+      "fields": {"Body":{"type":2,"value":{"Hits":[{"HullDamage":12.5,"ShieldDamage":3.25,"Target":1002}]}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_PlayerDeath.bin",
@@ -616,7 +665,8 @@
       "variant": "PlayerDeath",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":3,"value":{"Killer":1002}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_StationBuildRequest.bin",
@@ -628,7 +678,8 @@
       "variant": "StationBuildRequest",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 176
+      "payloadLength": 176,
+      "fields": {"Body":{"type":4,"value":{"ConstructionPlan":"plan_1","LocalComponentId":555,"Macro":"station_gen_factory_macro","Position":{"X":1,"Y":2,"Z":3},"Rotation":{"Pitch":0.25,"Roll":0.125,"Yaw":0.5},"Sector":12}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_TradeReport.bin",
@@ -640,7 +691,8 @@
       "variant": "TradeReport",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 104
+      "payloadLength": 104,
+      "fields": {"Body":{"type":5,"value":{"Amount":-50,"Ship":1001,"Station":1500,"UnitPrice":120,"WareRef":8}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_CaptureReport.bin",
@@ -652,7 +704,8 @@
       "variant": "CaptureReport",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":6,"value":{"NewOwnerRef":6,"Target":1003}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_AssetOrder.bin",
@@ -664,7 +717,8 @@
       "variant": "AssetOrder",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 128
+      "payloadLength": 128,
+      "fields": {"Body":{"type":7,"value":{"Asset":1004,"Immediate":true,"Order":5,"ParamsJson":"{\u0022a\u0022:1}","Position":{"X":5,"Y":6,"Z":7},"Sector":12,"Target":1005}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_AssetRename.bin",
@@ -676,7 +730,8 @@
       "variant": "AssetRename",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 104
+      "payloadLength": 104,
+      "fields": {"Body":{"type":8,"value":{"Asset":1004,"Name":"New name"}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0400_Intent_AssetGift.bin",
@@ -688,7 +743,8 @@
       "variant": "AssetGift",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":9,"value":{"Asset":1004,"ToPlayer":5,"ToTeam":2}},"GameTime":123456.789,"PlayerId":3,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1}}
     },
     {
       "file": "0x0401_IntentResult.bin",
@@ -700,7 +756,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"Detail":"no","PlayerId":3,"Reason":15,"RequestId":17,"RequestKey":{"Hi":4,"Lo":1},"ResultNetId":1500,"Status":1}
     },
     {
       "file": "0x0402_GameEvent_KillEvent.bin",
@@ -712,7 +769,8 @@
       "variant": "KillEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 104
+      "payloadLength": 104,
+      "fields": {"Body":{"type":1,"value":{"Killer":1001,"KillerPlayer":3,"KillerTeam":1,"Victim":1002,"VictimKind":4,"VictimMacroRef":4,"VictimOwnerRef":5,"VictimTeam":2}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_PlayerDiedEvent.bin",
@@ -724,7 +782,8 @@
       "variant": "PlayerDiedEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":2,"value":{"Killer":1002,"KillerPlayer":0,"PlayerId":3}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_PlayerSpawnedEvent.bin",
@@ -736,7 +795,8 @@
       "variant": "PlayerSpawnedEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":3,"value":{"PlayerId":3,"ShipNetId":1001}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_StationBuiltEvent.bin",
@@ -748,7 +808,8 @@
       "variant": "StationBuiltEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":4,"value":{"BuilderPlayer":3,"MacroRef":4,"OwnerRef":6,"Station":1500}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_TradeEvent.bin",
@@ -760,7 +821,8 @@
       "variant": "TradeEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 104
+      "payloadLength": 104,
+      "fields": {"Body":{"type":5,"value":{"Amount":10,"PlayerId":3,"Ship":1001,"Station":1500,"UnitPrice":99,"WareRef":8}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_CaptureEvent.bin",
@@ -772,7 +834,8 @@
       "variant": "CaptureEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":6,"value":{"NewTeam":2,"OldOwnerRef":5,"OldTeam":0,"PlayerId":3,"Target":1003}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_SectorOwnerEvent.bin",
@@ -784,7 +847,8 @@
       "variant": "SectorOwnerEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":7,"value":{"NewOwnerRef":6,"OldOwnerRef":5}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_PlayerConnectionEvent.bin",
@@ -796,7 +860,8 @@
       "variant": "PlayerConnectionEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":8,"value":{"Code":3,"Joined":true,"PlayerId":3}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_CustomEvent.bin",
@@ -808,7 +873,8 @@
       "variant": "CustomEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 104
+      "payloadLength": 104,
+      "fields": {"Body":{"type":9,"value":{"Json":"{\u0022k\u0022:\u0022v\u0022}","Name":"custom"}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_TeamEvent.bin",
@@ -820,7 +886,8 @@
       "variant": "TeamEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":10,"value":{"FromTeam":1,"PlayerId":3,"Relation":1,"TeamA":1,"TeamB":2,"ToTeam":2}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0402_GameEvent_EconomyEvent.bin",
@@ -832,7 +899,8 @@
       "variant": "EconomyEvent",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 112
+      "payloadLength": 112,
+      "fields": {"Body":{"type":11,"value":{"Amount":5000,"FromPlayer":3,"Kind":2,"RefId":{"Hi":43,"Lo":14},"ToPlayer":4}},"EventSeq":900,"GameTime":4321.5,"Sector":12,"ServerTimeUs":5000000}
     },
     {
       "file": "0x0500_ChatSend.bin",
@@ -844,7 +912,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 40
+      "payloadLength": 40,
+      "fields": {"Channel":1,"Text":"hello","ToPlayer":4}
     },
     {
       "file": "0x0501_ChatMessage.bin",
@@ -856,7 +925,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"Channel":4,"FromName":"Alice","FromPlayer":3,"ServerTimeUs":8000000,"Text":"hi team"}
     },
     {
       "file": "0x0502_AdminCommand_KickCmd.bin",
@@ -868,7 +938,8 @@
       "variant": "KickCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":1,"value":{"PlayerId":3,"Reason":"afk"}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_BanCmd.bin",
@@ -880,7 +951,8 @@
       "variant": "BanCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":2,"value":{"DurationS":3600,"PlayerId":3,"Reason":"grief"}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_BroadcastCmd.bin",
@@ -892,7 +964,8 @@
       "variant": "BroadcastCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":3,"value":{"Severity":2,"Text":"notice"}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_SetPausedCmd.bin",
@@ -904,7 +977,8 @@
       "variant": "SetPausedCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Body":{"type":4,"value":{"Paused":true}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_ForceCheckpointCmd.bin",
@@ -916,7 +990,8 @@
       "variant": "ForceCheckpointCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 56
+      "payloadLength": 56,
+      "fields": {"Body":{"type":5,"value":{}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_MigrateAuthorityCmd.bin",
@@ -928,7 +1003,8 @@
       "variant": "MigrateAuthorityCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Body":{"type":6,"value":{"TargetPlayer":2}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_SetTimeScaleCmd.bin",
@@ -940,7 +1016,8 @@
       "variant": "SetTimeScaleCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Body":{"type":7,"value":{"Scale":4.5}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_SetSettingCmd.bin",
@@ -952,7 +1029,8 @@
       "variant": "SetSettingCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":8,"value":{"Key":"k","Value":"v"}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_AssignTeamCmd.bin",
@@ -964,7 +1042,8 @@
       "variant": "AssignTeamCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"Body":{"type":9,"value":{"AssetScope":1,"PlayerId":3,"Role":1,"TeamId":2}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_CreateTeamCmd.bin",
@@ -976,7 +1055,8 @@
       "variant": "CreateTeamCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":10,"value":{"ColorRgb":16711680,"FactionSlot":3,"Locked":true,"MaxMembers":4,"Name":"Red"}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_UpdateTeamCmd.bin",
@@ -988,7 +1068,8 @@
       "variant": "UpdateTeamCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 96
+      "payloadLength": 96,
+      "fields": {"Body":{"type":11,"value":{"ColorRgb":255,"LeaderPlayer":4,"Locked":true,"MaxMembers":6,"Name":"Blue","TeamId":2}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_DeleteTeamCmd.bin",
@@ -1000,7 +1081,8 @@
       "variant": "DeleteTeamCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Body":{"type":12,"value":{"MoveMembersTo":1,"TeamId":2}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_SetRelationCmd.bin",
@@ -1012,7 +1094,8 @@
       "variant": "SetRelationCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"Body":{"type":13,"value":{"Relation":-1,"TeamA":1,"TeamB":2}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_ApplyTeamPresetCmd.bin",
@@ -1024,7 +1107,8 @@
       "variant": "ApplyTeamPresetCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Body":{"type":14,"value":{"Confirm":true,"Preset":"versus"}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_SetCreditModeCmd.bin",
@@ -1036,7 +1120,8 @@
       "variant": "SetCreditModeCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Body":{"type":15,"value":{"Confirm":true,"Mode":2}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_AdjustWalletCmd.bin",
@@ -1048,7 +1133,8 @@
       "variant": "AdjustWalletCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Body":{"type":16,"value":{"Amount":-250,"Reason":"fix","Wallet":{"Kind":1,"OwnerId":1}}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_FreezeEconomyCmd.bin",
@@ -1060,7 +1146,8 @@
       "variant": "FreezeEconomyCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Body":{"type":17,"value":{"Frozen":true,"PlayerId":3}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_CancelTradeCmd.bin",
@@ -1072,7 +1159,8 @@
       "variant": "CancelTradeCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 96
+      "payloadLength": 96,
+      "fields": {"Body":{"type":18,"value":{"Reason":"stuck","TradeId":{"Hi":46,"Lo":15}}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0502_AdminCommand_SetLoanStateCmd.bin",
@@ -1084,7 +1172,8 @@
       "variant": "SetLoanStateCmd",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 104
+      "payloadLength": 104,
+      "fields": {"Body":{"type":19,"value":{"LoanId":{"Hi":49,"Lo":16},"Reason":"admin","State":3}},"RequestId":18,"RequestKey":{"Hi":7,"Lo":2}}
     },
     {
       "file": "0x0503_AdminResult.bin",
@@ -1096,7 +1185,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 44
+      "payloadLength": 44,
+      "fields": {"Message":"done","Ok":true,"RequestId":18}
     },
     {
       "file": "0x0600_NodeStats.bin",
@@ -1108,7 +1198,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 120
+      "payloadLength": 120,
+      "fields": {"ClockOffsetUs":-1234,"Fps":59.5,"FrameMsP95":21.25,"GameTime":3600.25,"Ghosts":1500,"InterpDelayMs":150,"MdHookState":3,"MemoryMb":4096,"PendingMainThreadJobs":3,"RttMs":31.5,"RxBytesPerS":10000,"SuppressedLocal":800,"TcpSendQueueBytes":4096,"TeamSetupState":2,"TxBytesPerS":5000,"UdpActive":true,"UdpRxLossPct":0.5}
     },
     {
       "file": "0x0601_LogForward.bin",
@@ -1120,7 +1211,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Lines":[{"Level":2,"Text":"something","TimeUs":12345678}]}
     },
     {
       "file": "0x0700_TeamTable.bin",
@@ -1132,7 +1224,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 292
+      "payloadLength": 292,
+      "fields": {"Full":true,"Removed":[7,8],"Teams":[{"ColorRgb":16746496,"FactionSlot":1,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 1","PasswordProtected":true,"TeamId":1},{"ColorRgb":16746496,"FactionSlot":2,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 2","PasswordProtected":true,"TeamId":2}],"Version":3}
     },
     {
       "file": "0x0701_TeamRelations.bin",
@@ -1144,7 +1237,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"DefaultRelation":0,"Entries":[{"Relation":-1,"TeamA":1,"TeamB":2},{"Relation":1,"TeamA":1,"TeamB":3}],"Full":true,"Version":4}
     },
     {
       "file": "0x0702_TeamChoice.bin",
@@ -1156,7 +1250,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 56
+      "payloadLength": 56,
+      "fields": {"Password":"010203","RequestKey":{"Hi":61,"Lo":20},"TeamId":2}
     },
     {
       "file": "0x0703_TeamCreateRequest.bin",
@@ -1168,7 +1263,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"ColorRgb":65280,"Name":"Green","RequestKey":{"Hi":64,"Lo":21}}
     },
     {
       "file": "0x0704_TeamChangeRequest.bin",
@@ -1180,7 +1276,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 56
+      "payloadLength": 56,
+      "fields": {"Password":"0405","RequestKey":{"Hi":67,"Lo":22},"TeamId":3}
     },
     {
       "file": "0x0705_RelationChangeRequest.bin",
@@ -1192,7 +1289,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 40
+      "payloadLength": 40,
+      "fields": {"OtherTeam":3,"Relation":1,"RequestKey":{"Hi":70,"Lo":23}}
     },
     {
       "file": "0x0706_TeamRequestResult.bin",
@@ -1204,7 +1302,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Detail":"wait","Reason":7,"RequestKey":{"Hi":70,"Lo":23},"Status":1,"TeamId":3}
     },
     {
       "file": "0x0707_TeamMemberChanged.bin",
@@ -1216,7 +1315,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 36
+      "payloadLength": 36,
+      "fields": {"ByAdmin":true,"FromTeam":1,"PlayerId":3,"Role":1,"TableVersion":9,"ToTeam":2}
     },
     {
       "file": "0x0708_RelationProposal.bin",
@@ -1228,7 +1328,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 28
+      "payloadLength": 28,
+      "fields": {"ExpiresInS":120,"FromTeam":1,"Relation":1,"ToTeam":2}
     },
     {
       "file": "0x0709_ReassignPlayerAssets.bin",
@@ -1240,7 +1341,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 28
+      "payloadLength": 28,
+      "fields": {"FromTeam":1,"PlayerId":3,"Scope":0,"ToTeam":2}
     },
     {
       "file": "0x0800_WalletUpdate.bin",
@@ -1252,7 +1354,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 144
+      "payloadLength": 144,
+      "fields": {"AckedDeltaSeq":55,"Balances":[{"Balance":1000000,"Version":11,"Wallet":{"Kind":0,"OwnerId":3}},{"Balance":-5,"Version":12,"Wallet":{"Kind":2,"OwnerId":1}}],"EffectiveMode":1,"Reason":2,"RefId":{"Hi":91,"Lo":30}}
     },
     {
       "file": "0x0801_CreditDelta.bin",
@@ -1264,7 +1367,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"Amount":-12345,"GameTime":3600.25,"PlayerId":3,"RefEventSeq":9,"RequestKey":{"Hi":94,"Lo":31},"Seq":56,"Source":5,"TeamId":1}
     },
     {
       "file": "0x0802_EconomyResult.bin",
@@ -1276,7 +1380,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 184
+      "payloadLength": 184,
+      "fields": {"Balances":[{"Balance":1000000,"Version":11,"Wallet":{"Kind":0,"OwnerId":3}},{"Balance":-5,"Version":12,"Wallet":{"Kind":2,"OwnerId":1}}],"Detail":"poor","Reason":1,"RefId":{"Hi":100,"Lo":33},"RequestKey":{"Hi":97,"Lo":32},"Status":2}
     },
     {
       "file": "0x0803_CreditTransferRequest.bin",
@@ -1288,7 +1393,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"Amount":1000,"Memo":"thanks","RequestKey":{"Hi":103,"Lo":34},"ToPlayer":4}
     },
     {
       "file": "0x0804_PoolDepositRequest.bin",
@@ -1300,7 +1406,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 40
+      "payloadLength": 40,
+      "fields": {"Amount":2000,"RequestKey":{"Hi":106,"Lo":35}}
     },
     {
       "file": "0x0805_PoolWithdrawRequest.bin",
@@ -1312,7 +1419,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 40
+      "payloadLength": 40,
+      "fields": {"Amount":3000,"RequestKey":{"Hi":109,"Lo":36}}
     },
     {
       "file": "0x0806_DonateRequest.bin",
@@ -1324,7 +1432,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"Amount":4000,"Memo":"gift","RequestKey":{"Hi":112,"Lo":37},"ToPlayer":4}
     },
     {
       "file": "0x0807_LoanOffer.bin",
@@ -1336,7 +1445,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 88
+      "payloadLength": 88,
+      "fields": {"AutoRepayPct":25,"Borrower":4,"DueInS":86400,"Memo":"loan","OfferTtlS":300,"Principal":1000000,"RepayTotal":1100000,"RequestKey":{"Hi":115,"Lo":38}}
     },
     {
       "file": "0x0808_LoanRespond.bin",
@@ -1348,7 +1458,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 56
+      "payloadLength": 56,
+      "fields": {"Accept":true,"LoanId":{"Hi":121,"Lo":40},"RequestKey":{"Hi":118,"Lo":39}}
     },
     {
       "file": "0x0809_LoanRepay.bin",
@@ -1360,7 +1471,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"Amount":500,"LoanId":{"Hi":121,"Lo":40},"RequestKey":{"Hi":124,"Lo":41}}
     },
     {
       "file": "0x080A_LoanForgive.bin",
@@ -1372,7 +1484,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"Amount":0,"LoanId":{"Hi":121,"Lo":40},"RequestKey":{"Hi":127,"Lo":42}}
     },
     {
       "file": "0x080B_LoanCancel.bin",
@@ -1384,7 +1497,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"LoanId":{"Hi":121,"Lo":40},"RequestKey":{"Hi":130,"Lo":43}}
     },
     {
       "file": "0x080C_LoanStatus.bin",
@@ -1396,7 +1510,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 128
+      "payloadLength": 128,
+      "fields": {"Borrower":4,"CreatedTimeUs":1000,"DueTimeUs":2000000,"Forgiven":50,"Lender":3,"LoanId":{"Hi":121,"Lo":40},"Memo":"m","Principal":1000000,"Repaid":100,"RepayTotal":1100000,"State":1}
     },
     {
       "file": "0x080D_TradeProposal.bin",
@@ -1408,7 +1523,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 200
+      "payloadLength": 200,
+      "fields": {"Counterparty":4,"Give":[{"Amount":1234567890123,"Asset":42,"Kind":0,"WareRef":8}],"Memo":"deal","RequestKey":{"Hi":133,"Lo":44},"TtlS":300,"Want":[{"Amount":1234567890123,"Asset":42,"Kind":2,"WareRef":8},{"Amount":1234567890123,"Asset":42,"Kind":1,"WareRef":8}]}
     },
     {
       "file": "0x080E_TradeCounter.bin",
@@ -1420,7 +1536,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 160
+      "payloadLength": 160,
+      "fields": {"BaseVersion":2,"Give":[{"Amount":1234567890123,"Asset":42,"Kind":3,"WareRef":8}],"RequestKey":{"Hi":136,"Lo":45},"TradeId":{"Hi":139,"Lo":46},"Want":[{"Amount":1234567890123,"Asset":42,"Kind":0,"WareRef":8}]}
     },
     {
       "file": "0x080F_TradeAccept.bin",
@@ -1432,7 +1549,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 64
+      "payloadLength": 64,
+      "fields": {"ReceiveIntoAsset":1500,"RequestKey":{"Hi":142,"Lo":47},"TradeId":{"Hi":139,"Lo":46},"Version":3}
     },
     {
       "file": "0x0810_TradeCancel.bin",
@@ -1444,7 +1562,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 48
+      "payloadLength": 48,
+      "fields": {"RequestKey":{"Hi":145,"Lo":48},"TradeId":{"Hi":139,"Lo":46}}
     },
     {
       "file": "0x0811_TradeStatus.bin",
@@ -1456,7 +1575,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 216
+      "payloadLength": 216,
+      "fields": {"Counterparty":{"AcceptedVersion":2,"Give":[{"Amount":1234567890123,"Asset":42,"Kind":2,"WareRef":8}],"PlayerId":4,"TeamId":2},"ExpiresTimeUs":9000000,"Initiator":{"AcceptedVersion":3,"Give":[{"Amount":1234567890123,"Asset":42,"Kind":0,"WareRef":8}],"PlayerId":3,"TeamId":1},"Memo":"m","State":10,"TradeId":{"Hi":139,"Lo":46},"Version":3}
     },
     {
       "file": "0x0812_TradeResult.bin",
@@ -1468,7 +1588,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 80
+      "payloadLength": 80,
+      "fields": {"Detail":"authority timeout","Reason":24,"State":6,"TradeId":{"Hi":139,"Lo":46},"Version":3}
     },
     {
       "file": "0x0813_AssetTransferOrder.bin",
@@ -1480,7 +1601,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 120
+      "payloadLength": 120,
+      "fields": {"DeadlineMs":15000,"Lines":[{"Amount":0,"Asset":1004,"DestAsset":0,"Kind":0,"ToPlayer":4,"ToTeam":2,"WareRef":0},{"Amount":250,"Asset":1500,"DestAsset":1600,"Kind":1,"ToPlayer":0,"ToTeam":0,"WareRef":8}],"TradeId":{"Hi":139,"Lo":46}}
     },
     {
       "file": "0x0814_AssetTransferConfirm.bin",
@@ -1492,7 +1614,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 72
+      "payloadLength": 72,
+      "fields": {"Compensated":true,"Error":"no cargo","FailedLine":1,"Ok":false,"TradeId":{"Hi":139,"Lo":46}}
     },
     {
       "file": "0x0815_TradeQuery.bin",
@@ -1504,7 +1627,8 @@
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 32
+      "payloadLength": 32,
+      "fields": {"TradeId":{"Hi":139,"Lo":46}}
     },
     {
       "file": "repl_moving_ship.bin",
