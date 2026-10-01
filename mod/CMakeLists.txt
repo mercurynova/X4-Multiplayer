@@ -111,8 +111,10 @@ if(X4MP_TESTS)
     tests/test_config.cpp
     tests/test_queue.cpp
     tests/test_net.cpp
+    tests/test_no_env.cpp
     tests/test_session.cpp
     tests/test_version.cpp)
+  target_compile_definitions(x4mp_core_tests PRIVATE X4MP_CORE_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/native/core")
   target_link_libraries(x4mp_core_tests PRIVATE x4mp_core Catch2::Catch2WithMain)
   x4mp_set_warnings(x4mp_core_tests)
   catch_discover_tests(x4mp_core_tests TEST_PREFIX "core." PROPERTIES TIMEOUT 60)
