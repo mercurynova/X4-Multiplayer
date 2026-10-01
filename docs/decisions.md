@@ -14,11 +14,13 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
 
 ### ADR-001 Server stack (Locked)
 - **Context:** need a standalone process with a LAN web GUI and persistence.
-- **Decision:** C# / .NET 8, ASP.NET Core (Kestrel raw TCP `ConnectionHandler` + HTTP),
+- **Decision:** C# / **.NET 10 (LTS, `net10.0`, SDK 10.0.4xx)**, ASP.NET Core (Kestrel raw TCP `ConnectionHandler` + HTTP),
   SignalR for live GUI push, SQLite (`Microsoft.Data.Sqlite` + Dapper), Serilog. GUI is
   React + Vite + TypeScript, built to static files and embedded in a single-file exe (SRV §1, §5.1).
 - **Consequences:** one `x4mp-server.exe` (win-x64 primary, linux-x64 also published).
-  No EF Core, no Blazor. Retarget to .NET 10 LTS later is a props-file change.
+  No EF Core, no Blazor.
+- **Amended 2026-10-01 (user):** originally .NET 8; switched to .NET 10 before any code was written
+  because .NET 8 support ends 10 Nov 2026 (.NET 10 is supported to Nov 2028).
 
 ### ADR-002 Topology: server-centric relay, one authority (Locked)
 - **Context:** X4 cannot run headless; the reference made one game the host.

@@ -17,7 +17,7 @@ understand what was needed, not so we stay compatible (we will not be wire-compa
 
 Notation: "old" = reference mod. "authority" = the X4 instance that simulates the
 universe (the old "host"). "node" = any X4 instance running our mod. "server" = our
-standalone .NET 8 process.
+standalone .NET 10 process.
 
 ---
 

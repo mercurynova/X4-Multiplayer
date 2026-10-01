@@ -14,7 +14,7 @@ Terms:
 
 | Term | Meaning |
 |---|---|
-| **Server (S)** | Standalone C#/.NET 8 process. Owns session, auth, teams, ledger, interest, world mirror, replication, saves, GUI. Never runs X4. |
+| **Server (S)** | Standalone C#/.NET 10 process. Owns session, auth, teams, ledger, interest, world mirror, replication, saves, GUI. Never runs X4. |
 | **Node (N)** | Any X4 instance running our mod and connected to the server. |
 | **Authority (A)** | The one node that simulates the universe. It is the source of truth for NPC entities and assigns every `net_id`. |
 | **Client (C)** | A player node. It simulates its own ship, renders everything else as ghosts, and sends intents and requests. |
@@ -94,7 +94,7 @@ Terms:
 Constraints:
 - **C++ side:** inside an MSVC game DLL loaded by X4Native. No heavy dependencies, no
   static-init surprises, no exceptions across the game boundary.
-- **C# side:** .NET 8 with codegen. It must decode untrusted input safely.
+- **C# side:** .NET 10 with codegen. It must decode untrusted input safely.
 - **Tests:** a Python fake client and fake authority must be able to speak the protocol.
 
 | Option | C++ in a game DLL | C# | Schema evolution | Hot path | Verdict |
