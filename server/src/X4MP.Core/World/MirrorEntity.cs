@@ -92,6 +92,13 @@ public sealed class MirrorEntity
     /// <summary>Latest <c>TimeProvider</c> timestamp the state was written.</summary>
     public long LastUpdateTick { get; internal set; }
 
+    /// <summary>
+    /// Authority game time (seconds) the current state was sampled at: the <c>game_time</c> of the <c>WorldUpdate</c> that last changed it,
+    /// or the latest known authority game time for states that came with a spawn or a player state. Replication turns it into the
+    /// per-entry TIME offset (protocol.md 10.2).
+    /// </summary>
+    public double SampleGameTime { get; internal set; }
+
     /// <summary>Latest cargo snapshot (<c>EntityCargo</c>); null until one arrived.</summary>
     public WareAmount[]? Cargo { get; internal set; }
 
@@ -128,6 +135,7 @@ public sealed class MirrorEntity
         Yaw = Pitch = Roll = Vx = Vy = Vz = 0;
         Version = 0;
         LastUpdateTick = 0;
+        SampleGameTime = 0;
         Cargo = null;
         IsPersistent = false;
         SectorSlot = -1;
