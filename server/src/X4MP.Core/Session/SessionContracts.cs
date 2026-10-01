@@ -135,6 +135,14 @@ public interface ISessionModule
     }
 
     /// <summary>
+    /// The <c>sessions</c> row exists (once per session, before the first node is admitted). <paramref name="sessionId"/>
+    /// is its id, the key of every session-scoped table. Not called when the server runs without persistence.
+    /// </summary>
+    void OnSessionBegun(long sessionId)
+    {
+    }
+
+    /// <summary>
     /// A frame the actor does not handle itself (everything except Ping, Pong, NodeStats, LoadStatus, NodeReady,
     /// Disconnect). Return true when consumed; the first module that does so ends the dispatch.
     /// </summary>

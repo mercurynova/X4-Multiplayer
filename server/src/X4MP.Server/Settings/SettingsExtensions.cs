@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using X4MP.Core.Economy;
 using X4MP.Core.Net;
 using X4MP.Core.Session;
 using X4MP.Core.Settings;
@@ -45,6 +46,7 @@ public static class SettingsExtensions
         services.AddSettingsSection<AlertOptions>();
         services.AddSettingsSection<ModManagementOptions>();
         services.AddSettingsSection<SessionActorOptions>();
+        services.AddSettingsSection<EconomyOptions>();
     }
 
     /// <summary>
