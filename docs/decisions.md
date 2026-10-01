@@ -590,6 +590,36 @@ see players' mod lists is a session setting, `ModListVisibility` = `AdminsOnly` 
 helper can curate the session mod list. All edits go to `audit_log`. This affects the M1-X tasks
 (server setting, permission, GUI) and M2-X (an in-game read-only view when `AllPlayers`).
 
+### ADR-046 On-foot player presence (requirement accepted, design pending spike) (user requirement 2026-10-01)
+- **Context:** the user wants players who are on the same station or ship to see each other's
+  character in the correct position, and maybe interact. X4 interiors are partly static: dock
+  areas, module rooms and bridges come from macros. The rest are dynamic interiors (bar, offices,
+  crew quarters), created lazily by MD from `object.seed` and torn down in low attention. Some are
+  gated by player progress (the bar needs an unlocked black marketeer). Research:
+  [research/on-foot-presence.md](research/on-foot-presence.md).
+- **Decision (draft):** accept the requirement. Build it in tiers on one actor pipeline:
+  - **Tier 0:** a presence list/HUD ("Alice is on this station, in the bar").
+  - **Tier 1:** an "MP lounge". This is a mod-created dynamic interior made only of *vanilla*
+    corridor and room macros (fixed macro, door and seed; private; non-persistent), reached by an
+    MD teleport. Remote players are rendered there as MD cue actors at exact room-local
+    positions, walking with `start_actor_walk`, and with Talk → MP conversation choices.
+  - **Tier 2:** general on-foot presence in any shared room, with a room key
+    (kind, macro, roomtype, container-space anchor) and fallbacks (snap → nearest NPC slot →
+    roster). Enabled only where spike S10.2 proves interiors match.
+  - On-foot state is relayed by the server between players who share a container; the authority
+    is not involved.
+  - Target **M3b = Tiers 0 + 1**, **M3c = Tier 2**, and **M5b = interactions** (credits, team
+    invite, trade, emotes, follow).
+- **Status:** design pending spike block **S10** (session 2, roadmap §4.2). No schema change yet.
+  The proposed messages are `OnFootState`, `PlayerAppearance`, `PresenceRoster` and
+  `PlayerInteraction` (0x0302–0x0305), plus the capability `OnFootPresence`.
+- **Consequences:**
+  - MP actors and lounges join the save-strip path and the load janitor (ADR-023).
+  - mod-design §4.7 needs an exception, so a docked ship stays visible while players walk on its
+    station.
+  - Walking on moving (ghost) ships is out of scope.
+  - Forcing progress-gated rooms to exist on every node needs a separate user decision.
+
 ---
 
 ## Part 2. Open questions for the user
