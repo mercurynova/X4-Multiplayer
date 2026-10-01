@@ -30,6 +30,11 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
         set => _handler = value;
     }
 
+    private volatile int _team;
+
+    /// <summary>The team the server last reported for this node (<c>RosterUpdate</c>); 0 = none yet.</summary>
+    public int Team => _team;
+
     public bool Closed { get; private set; }
 
     public DisconnectCode? DisconnectedBy { get; private set; }
@@ -73,7 +78,10 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
                 foreach (var p in MessageRegistry.Default.Decode<RosterUpdate>(frame).UnPack().Players ?? [])
                 {
                     if (p.PlayerId == PlayerId)
+                    {
                         _phase = p.Phase;
+                        _team = p.TeamId;
+                    }
                 }
                 break;
             case MsgType.Disconnect:
@@ -277,8 +285,9 @@ public static partial class LiveRunner
         NodeLink link, CliOptions o, FakeGalaxy galaxy, LiveNodeStats stats, LiveRunOptions run, string saveDir, string name, SynchronizedWriter lines, CancellationToken ct)
     {
         var world = new FakeWorld(galaxy);
-        var authority = new FakeAuthority(world, new FakeAuthorityOptions { TickRateHz = o.TickRate, Fps = o.Fps });
+        var authority = new FakeAuthority(world, new FakeAuthorityOptions { TickRateHz = o.TickRate, Fps = o.Fps, TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None });
         var captures = new ConcurrentQueue<CaptureSetT>();
+        var intents = new ConcurrentQueue<IntentT>();
 
         // Against a server with a save service the authority also answers RequestSave: it builds a fake save and manifest, uploads them
         // in-band and the session starts from that checkpoint (protocol.md 6.3). Its GalaxyMetadata then travels with the checkpoint, keyed
@@ -301,7 +310,15 @@ public static partial class LiveRunner
         link.Handler = frame =>
         {
             if (frame.Type == MsgType.CaptureSet)
+            {
                 captures.Enqueue(MessageRegistry.Default.Decode<CaptureSet>(frame).UnPack());
+            }
+            else if (frame.Type == MsgType.Intent)
+            {
+                // The server forwards an intent only after its permission checks: the fake authority just counts it and accepts.
+                stats.CountIntentReceived();
+                intents.Enqueue(MessageRegistry.Default.Decode<Intent>(frame).UnPack());
+            }
             else
             {
                 authority.Teams.Handle(frame);
@@ -325,6 +342,19 @@ public static partial class LiveRunner
         {
             if (link.Closed)
                 throw new IOException(link.DisconnectedBy is { } code ? $"server closed the connection ({code})" : "connection closed");
+            while (intents.TryDequeue(out var intent))
+            {
+                var result = new IntentResultT
+                {
+                    RequestKey = intent.RequestKey ?? new Id128T(),
+                    RequestId = intent.RequestId,
+                    PlayerId = intent.PlayerId,
+                    Status = IntentStatus.Accepted,
+                    Detail = string.Empty,
+                };
+                await link.Client.SendPayloadAsync(MsgType.IntentResult, MessageEncoder.EncodePayload(b => IntentResult.Pack(b, result), 96), ct).ConfigureAwait(false);
+            }
+
             long target = (long)(clock.Elapsed.TotalSeconds * o.TickRate);
             if (target - lastTick > 40)
                 lastTick = target - 40; // far behind: skip rather than burst
@@ -385,6 +415,8 @@ public static partial class LiveRunner
 
         link.Handler = frame =>
         {
+            if (frame.Type == MsgType.IntentResult)
+                stats.CountOrderResult(MessageRegistry.Default.Decode<IntentResult>(frame));
             foreach (var reply in session.Handle(frame))
                 outbox.Writer.TryWrite(reply);
             if (saveFrames is not null && IsSaveFrame(frame.Type))
@@ -430,6 +462,8 @@ public static partial class LiveRunner
         var clock = Stopwatch.StartNew();
         long lastTick = -1;
         long nextStale = 0;
+        long nextOrder = (long)FakePlayer.TickRateHz;
+        ulong orderKey = 0;
         while (!ct.IsCancellationRequested)
         {
             if (link.Closed)
@@ -443,6 +477,28 @@ public static partial class LiveRunner
                 lastTick = tick;
                 var state = player.Step(tick);
                 await link.Client.SendAsync(MsgType.PlayerState, b => PlayerState.Pack(b, state), ct).ConfigureAwait(false);
+            }
+
+            if (o.Commander != CommanderMode.None && tick >= nextOrder)
+            {
+                nextOrder = tick + ((long)FakePlayer.TickRateHz / 2); // 2 orders per second
+                if (session.PickAsset(o.Commander, link.Team, link.PlayerId, (int)orderKey) is { } asset)
+                {
+                    ulong key = ++orderKey;
+                    var intent = new IntentT
+                    {
+                        RequestKey = new Id128T { Lo = key, Hi = (ulong)link.PlayerId },
+                        RequestId = (uint)key,
+                        GameTime = tick / FakePlayer.TickRateHz,
+                        Body = IntentBodyUnion.FromAssetOrder(new AssetOrderT { Asset = asset.NetId, Order = OrderKind.MoveTo, Sector = asset.Sector }),
+                    };
+                    await link.Client.SendAsync(MsgType.Intent, b => Intent.Pack(b, intent), ct).ConfigureAwait(false);
+                    stats.CountOrderSent();
+                }
+                else
+                {
+                    stats.CountNoTarget();
+                }
             }
 
             if (tick >= nextStale)

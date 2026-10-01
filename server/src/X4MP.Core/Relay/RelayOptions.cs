@@ -39,4 +39,12 @@ public sealed class RelayOptions
     /// <summary>Rate-limit hits (chat and intents) per minute after which the node is closed with <c>RateLimited</c>.</summary>
     [Setting("Relay rate-limit hits tolerated per minute", Scope = SettingScope.Live, Min = 1, Max = 100000)]
     public int RateLimitHitsPerMinute { get; set; } = 120;
+
+    /// <summary>Largest distance (m) between a player's ship and the target of a <c>KillClaim</c> or <c>HitReport</c> (protocol.md 16.2: 30 km).</summary>
+    [Setting("Kill and hit claims: largest distance to the target (m)", Scope = SettingScope.Live, Min = 100, Max = 1000000)]
+    public int ClaimRangeMetres { get; set; } = 30000;
+
+    /// <summary><c>PermissionDenied</c> events recorded per player per second (the rejections themselves are always answered).</summary>
+    [Setting("PermissionDenied events recorded per player per second", Scope = SettingScope.Live, Min = 1, Max = 1000)]
+    public int PermissionDeniedEventsPerSecond { get; set; } = 5;
 }

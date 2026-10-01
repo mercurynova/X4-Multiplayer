@@ -1,4 +1,5 @@
 using X4MP.Core.Net;
+using X4MP.Core.Permissions;
 using X4MP.Core.Session;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -66,6 +67,12 @@ public sealed partial class RelayModule
             return;
         }
 
+        if (CheckPermissions(node, intent) is { } denied)
+        {
+            Reject(node, intent, denied.Reason, denied.Detail);
+            return;
+        }
+
         intent.PlayerId = (ushort)Math.Clamp(node.PlayerId, 0, ushort.MaxValue); // stamped by the server; ignored from clients
         var forward = Encode(MsgType.Intent, fbb => Intent.Pack(fbb, intent), 256);
         bool queued = TrySend(authority, forward);
@@ -105,6 +112,53 @@ public sealed partial class RelayModule
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The asset permission gate (server-design 2.13). A refusal is answered <c>Rejected</c>, recorded as a rate-limited
+    /// <see cref="PermissionDenied"/> event, and never forwarded; it is not a protocol violation.
+    /// </summary>
+    private PermissionVerdict? CheckPermissions(SessionNode node, IntentT intent)
+    {
+        if (AssetPermissions is not { } gate)
+        {
+            return null;
+        }
+
+        var result = gate.Check(node, intent);
+        if (result.Verdict.Allowed)
+        {
+            return null;
+        }
+
+        Stats.IntentsPermissionDenied++;
+        if (AllowDeniedEvent(node.PlayerId))
+        {
+            Publish(new PermissionDenied(
+                _time.GetUtcNow(), SessionId, node.PlayerId, result.EntityId, result.Action.ToString(), result.Verdict.Reason.ToString(), result.Verdict.Detail));
+        }
+        else
+        {
+            Stats.PermissionDeniedEventsSuppressed++;
+        }
+
+        return result.Verdict;
+    }
+
+    private readonly Dictionary<int, (long WindowStart, int Count)> _deniedWindows = [];
+
+    private bool AllowDeniedEvent(int playerId)
+    {
+        long now = Now;
+        _deniedWindows.TryGetValue(playerId, out var window);
+        if (window.WindowStart == 0 || now - window.WindowStart >= _time.TimestampFrequency)
+        {
+            window = (now, 0);
+        }
+
+        window.Count++;
+        _deniedWindows[playerId] = window;
+        return window.Count <= Opt.PermissionDeniedEventsPerSecond;
     }
 
     // ------------------------------------------------------------------ authority -> client

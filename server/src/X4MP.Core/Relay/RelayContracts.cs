@@ -64,6 +64,16 @@ public sealed record PlayerShipAssigned(DateTimeOffset At, long? Session, long P
     long? IPlayerScoped.PlayerId => PlayerId;
 }
 
+/// <summary>
+/// A client asked for something the asset permission policy refuses (server-design 2.13). Rate limited
+/// (<see cref="RelayOptions.PermissionDeniedEventsPerSecond"/> per player) and never a protocol violation.
+/// </summary>
+public sealed record PermissionDenied(DateTimeOffset At, long? Session, long PlayerId, long EntityId, string Action, string Reason, string? Detail)
+    : DomainEvent(At, Session), IPlayerScoped
+{
+    long? IPlayerScoped.PlayerId => PlayerId;
+}
+
 /// <summary>Counters of what the relay did (diagnostics, tests, the admin API later).</summary>
 public sealed class RelayStats
 {
@@ -80,6 +90,12 @@ public sealed class RelayStats
     public long IntentsForwarded { get; internal set; }
 
     public long IntentsRejected { get; internal set; }
+
+    /// <summary>Intents the asset permission policy refused (not forwarded, answered <c>Rejected</c>); a subset of <see cref="IntentsRejected"/>.</summary>
+    public long IntentsPermissionDenied { get; internal set; }
+
+    /// <summary><c>PermissionDenied</c> events dropped by the per-player rate limit.</summary>
+    public long PermissionDeniedEventsSuppressed { get; internal set; }
 
     public long IntentTimeouts { get; internal set; }
 

@@ -77,6 +77,15 @@ public sealed record FakeAuthorityOptions
 
     /// <summary>Static entities (stations) are re-sent at this interval (seconds) as keepalives.</summary>
     public double StaticKeepaliveSeconds { get; init; } = 10;
+
+    /// <summary>
+    /// Tag ships with team owners (M1-T4): by entity id, 1 mod 4 = team 1 team-common, 2 = team 1 owned by a teammate (player
+    /// <see cref="TeammatePlayerId"/>), 3 = team 2 (a foreign team), 0 = NPC. Stations stay NPC.
+    /// </summary>
+    public bool TeamAssets { get; init; }
+
+    /// <summary>The (made up) player id that owns the "teammate" ships.</summary>
+    public const ushort TeammatePlayerId = 65000;
 }
 
 /// <summary>
@@ -370,6 +379,20 @@ public sealed class FakeAuthority
         Flush();
     }
 
+    /// <summary>The team owner a ship gets under <see cref="FakeAuthorityOptions.TeamAssets"/> (0, 0 = NPC).</summary>
+    public (ushort Team, ushort Player) TeamAssetOwner(int entityId, bool isStation)
+    {
+        if (!_opt.TeamAssets || isStation)
+            return (0, 0);
+        return (entityId % 4) switch
+        {
+            1 => ((ushort)1, (ushort)0),
+            2 => ((ushort)1, FakeAuthorityOptions.TeammatePlayerId),
+            3 => ((ushort)2, (ushort)0),
+            _ => ((ushort)0, (ushort)0),
+        };
+    }
+
     private EntityRecordT MakeRecord(int id, double now, EntityOrigin origin)
     {
         var e = World.Galaxy.Entities[id - 1];
@@ -380,6 +403,8 @@ public sealed class FakeAuthority
             Origin = origin,
             MacroRef = Strings.Index(e.Macro),
             OwnerRef = Strings.Index(World.Galaxy.Factions[e.Faction]),
+            OwnerTeam = TeamAssetOwner(id, e.IsStation).Team,
+            OwnerPlayer = TeamAssetOwner(id, e.IsStation).Player,
             Name = e.Name,
             Idcode = e.IdCode,
             Hull = 255,
