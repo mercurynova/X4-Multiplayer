@@ -119,7 +119,8 @@ public class RelayPlayerTests
 
         var request = Assert.Single(Ships(authority));
         Assert.Equal(5ul, request.RequestKey.Lo);
-        Assert.Equal((ulong)a.PlayerId, request.RequestKey.Hi); // the server says whose avatar it is
+        Assert.Equal((ushort)a.PlayerId, request.PlayerId); // the server says whose avatar it is
+        Assert.Equal(0ul, request.RequestKey.Hi); // request_key stays a pure idempotency key
         Assert.Equal("ship_arg_s_fighter_01_a_macro", request.ShipMacro);
         Assert.Empty(Ships(b));
 
@@ -155,7 +156,24 @@ public class RelayPlayerTests
 
         var request = Assert.Single(Ships(authority));
         Assert.Equal(6ul, request.RequestKey.Lo);
-        Assert.Equal((ulong)a.PlayerId, request.RequestKey.Hi);
+        Assert.Equal((ushort)a.PlayerId, request.PlayerId);
+    }
+
+    [Fact]
+    public async Task AClientSuppliedPlayerIdOnPlayerShipIsOverwrittenByTheServer()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var mallory = await rig.JoinInGameAsync("Mallory");
+        var victim = await rig.JoinInGameAsync("Victim");
+
+        // Mallory claims to be the victim, in player_id and in the request key
+        await rig.SendAsync(mallory, MsgType.PlayerShip, RelayFrames.PlayerShip(key: 9, claimedPlayerId: (ushort)victim.PlayerId, keyHi: (ulong)victim.PlayerId));
+
+        var request = Assert.Single(Ships(authority));
+        Assert.Equal((ushort)mallory.PlayerId, request.PlayerId);
+        Assert.NotEqual((ushort)victim.PlayerId, request.PlayerId);
+        Assert.Equal(9ul, request.RequestKey.Lo); // the idempotency key is passed through untouched
     }
 
     [Fact]

@@ -728,6 +728,60 @@ public class SessionActorTests
         Assert.Same(snapshot, rig.Actor.Settings);
     }
 
+    private static X4MP.Core.Settings.SessionSettingsSnapshot Snapshot(long version, string visibility, int tick) => new(
+        version,
+        new Dictionary<string, System.Text.Json.JsonElement>
+        {
+            ["Mods.ModListVisibility"] = System.Text.Json.JsonSerializer.SerializeToElement(visibility),
+            ["Replication.TickRateHz"] = System.Text.Json.JsonSerializer.SerializeToElement(tick),
+        });
+
+    private static List<(ulong Version, Dictionary<string, string> Values)> SettingsUpdates(JoinedNode node) =>
+        [.. node.Connection.SentOf(MsgType.ServerSettingsUpdate).Select(f =>
+        {
+            var update = f.Decode<ServerSettingsUpdate>().UnPack();
+            return (update.Version, update.Entries.ToDictionary(e => e.Key, e => e.Value));
+        })];
+
+    [Fact]
+    public async Task APushedSettingChangeReachesInGameNodesAsAServerSettingsUpdate()
+    {
+        await using var rig = new ActorRig();
+        var boss = await RunningSessionAsync(rig);
+        var alice = await rig.JoinAsync("Alice");
+        await rig.BringInGameAsync(alice);
+        Assert.Empty(SettingsUpdates(alice)); // nothing pushed yet: no snapshot to send
+
+        var watch = Stopwatch.StartNew();
+        await rig.Actor.PushAsync(Snapshot(1, "AllPlayers", 30), CancellationToken.None);
+        await rig.Actor.FlushAsync();
+        watch.Stop();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1));
+        foreach (var node in new[] { alice, boss })
+        {
+            var update = Assert.Single(SettingsUpdates(node));
+            Assert.Equal(1ul, update.Version);
+            Assert.Equal("AllPlayers", update.Values["Mods.ModListVisibility"]); // enum names travel unquoted
+            Assert.Equal("30", update.Values["Replication.TickRateHz"]);
+        }
+    }
+
+    [Fact]
+    public async Task ANodeThatAttachesLaterGetsTheCurrentSettingsRightAfterItsWelcome()
+    {
+        await using var rig = new ActorRig();
+        await rig.Actor.PushAsync(Snapshot(4, "AdminsOnly", 20), CancellationToken.None);
+        await rig.Actor.FlushAsync();
+
+        var alice = await rig.JoinAsync("Alice");
+        await rig.Actor.FlushAsync();
+
+        var update = Assert.Single(SettingsUpdates(alice));
+        Assert.Equal(4ul, update.Version);
+        Assert.Equal("AdminsOnly", update.Values["Mods.ModListVisibility"]);
+    }
+
     // ------------------------------------------------------------------ threading
 
     [Fact]

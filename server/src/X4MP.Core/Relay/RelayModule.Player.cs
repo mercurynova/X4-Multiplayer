@@ -167,10 +167,9 @@ public sealed partial class RelayModule
     {
         var ship = MessageRegistry.Default.Decode<PlayerShip>(frame.Frame).UnPack();
 
-        // PlayerShip has no player field and the authority must know whose avatar it is: the server stamps the player id into the
-        // key's high half (the low half stays the client's idempotency key).
-        ship.RequestKey ??= new Id128T();
-        ship.RequestKey.Hi = (ulong)node.PlayerId;
+        // The authority must know whose avatar this is: the server stamps the sender's id (a client-supplied value is overwritten).
+        // request_key stays a pure idempotency key.
+        ship.PlayerId = (ushort)node.PlayerId;
         _avatarRequests[node.PlayerId] = ship;
         if (Authority is { } authority)
         {

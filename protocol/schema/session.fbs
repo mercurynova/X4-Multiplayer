@@ -229,3 +229,16 @@ table StringEntry { index:uint; kind:StringKind; value:string; }
 /// A->S (authority allocates indices), S->N (server replays the full table on join),
 /// S->A (full table on authority migration).
 table StringTableAdd { entries:[StringEntry]; }
+
+table SettingEntry {
+  key:string;                    // settings API key, e.g. "Mods.ModListVisibility"
+  value:string;                  // text; enum names unquoted; bool "true"/"false"; numbers invariant; other JSON as raw JSON
+}
+
+/// S->N, Control lane. The live settings flagged node-relevant (PushToNodes), always the FULL set, so a node just
+/// replaces its copy. Sent right after Welcome (with SessionState and the roster) and again whenever one changes.
+/// `version` increases with every change; nodes ignore a version lower than the one they hold.
+table ServerSettingsUpdate {
+  version:ulong;
+  entries:[SettingEntry];
+}

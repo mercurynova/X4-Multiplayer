@@ -3,15 +3,14 @@ using System.Text.Json;
 namespace X4MP.Core.Settings;
 
 /// <summary>
-/// The settings marked <see cref="SettingAttribute.PushToNodes"/> at one moment (the <c>SessionSettings</c> message
-/// of server-design 2.9). <see cref="Version"/> increases with every change.
+/// The settings marked <see cref="SettingAttribute.PushToNodes"/> at one moment (sent to nodes as <c>ServerSettingsUpdate</c>,
+/// server-design 2.9). <see cref="Version"/> increases with every change.
 /// </summary>
 public sealed record SessionSettingsSnapshot(long Version, IReadOnlyDictionary<string, JsonElement> Values);
 
 /// <summary>
-/// Hook for pushing session settings to connected nodes. The protocol message does not exist yet, so the default
-/// implementation does nothing. The session layer registers its own implementation later, and also asks the
-/// settings service for a snapshot when a node is admitted.
+/// Hook for pushing session settings to connected nodes. The session actor implements it (sends <c>ServerSettingsUpdate</c>);
+/// the default does nothing (a host without a session layer).
 /// </summary>
 public interface ISessionSettingsPusher
 {

@@ -100,7 +100,7 @@ TEST_CASE("index.json agrees with the C++ constants", "[golden]") {
 
 TEST_CASE("frame vectors: verify, decode every field, re-encode the header", "[golden][frame]") {
   const auto frames = vectors_of("frame");
-  REQUIRE(frames.size() == 124);
+  REQUIRE(frames.size() == 126);
   std::set<std::string> union_variants_walked;
   std::set<std::uint16_t> types_seen;
 

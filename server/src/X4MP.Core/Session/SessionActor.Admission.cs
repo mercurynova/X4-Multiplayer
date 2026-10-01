@@ -322,6 +322,7 @@ public sealed partial class SessionActor
         slot.Announced = true;
         SendSessionState(slot);
         SendRoster(slot);
+        SendSettings(slot);
         if (!node.Welcome.Resumed)
         {
             BroadcastRosterUpsert(slot, except: slot); // the joiner already got the full roster
