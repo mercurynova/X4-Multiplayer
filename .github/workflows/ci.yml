@@ -12,7 +12,7 @@ on:
 # A newer push to the same PR/branch cancels the older run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -291,6 +291,11 @@ jobs:
           fi
           kill "$pid" 2>/dev/null || true
           wait "$pid" 2>/dev/null || true
+          if [ "$rc" -ne 0 ]; then
+            echo "::group::server stdout/stderr"
+            cat "$RUNNER_TEMP/server.log" || true
+            echo "::endgroup::"
+          fi
           exit "$rc"
       - name: Upload server log
         if: failure()

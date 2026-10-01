@@ -9,7 +9,7 @@ using X4MP.Server.Logging;
 namespace X4MP.Server.Hosting;
 
 /// <summary>Builds the web application: data dir, logging, persistence, embedded SPA, /healthz.</summary>
-public static class ServerHost
+public static partial class ServerHost
 {
     public const int DefaultHttpPort = 47790;
     public const string DefaultServiceName = "X4MP";
@@ -70,13 +70,43 @@ public static class ServerHost
         return app;
     }
 
+    internal const string GuiUnavailableHtml =
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>X4MP</title></head><body>"
+        + "<h1>GUI not available</h1><p>This x4mp-server build does not contain the web GUI. "
+        + "The server itself is running; see <a href=\"/healthz\">/healthz</a>.</p></body></html>";
+
+    /// <summary>The embedded GUI files; never throws (an unreadable or missing manifest yields an empty provider).</summary>
+    internal static IFileProvider CreateGuiProvider(Microsoft.Extensions.Logging.ILogger logger)
+    {
+        try
+        {
+            return new ManifestEmbeddedFileProvider(typeof(ServerHost).Assembly, "wwwroot");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException)
+        {
+            LogGuiProviderFailed(logger, ex);
+            return new NullFileProvider();
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Embedded GUI provider could not be created; the web GUI is unavailable")]
+    private static partial void LogGuiProviderFailed(Microsoft.Extensions.Logging.ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "FATAL: embedded GUI root 'wwwroot/index.html' is missing from the assembly; serving a built-in 'GUI not available' page. /healthz and the API still work.")]
+    private static partial void LogGuiMissing(Microsoft.Extensions.Logging.ILogger logger);
+
     /// <summary>Embedded SPA, cache headers, /healthz and the SPA fallback.</summary>
     public static void MapWeb(WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
         app.UseSerilogRequestLogging();
 
-        var embedded = new ManifestEmbeddedFileProvider(typeof(ServerHost).Assembly, "wwwroot");
+        var embedded = CreateGuiProvider(app.Logger);
+        if (!embedded.GetFileInfo("index.html").Exists)
+        {
+            LogGuiMissing(app.Logger);
+        }
+
         app.UseStaticFiles(new StaticFileOptions
         {
             FileProvider = embedded,
@@ -108,8 +138,7 @@ public static class ServerHost
             var isSpaRoute = HttpMethods.IsGet(context.Request.Method)
                 && !NonSpacePrefixes.Any(p => path.StartsWithSegments(p, StringComparison.OrdinalIgnoreCase))
                 && !path.StartsWithSegments("/assets", StringComparison.OrdinalIgnoreCase); // a missing hashed asset is a 404, not HTML
-            var index = embedded.GetFileInfo("index.html");
-            if (!isSpaRoute || !index.Exists)
+            if (!isSpaRoute)
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
@@ -117,6 +146,13 @@ public static class ServerHost
 
             context.Response.ContentType = "text/html; charset=utf-8";
             context.Response.Headers.CacheControl = "no-cache";
+            var index = embedded.GetFileInfo("index.html");
+            if (!index.Exists)
+            {
+                await context.Response.WriteAsync(GuiUnavailableHtml, context.RequestAborted);
+                return;
+            }
+
             await using var stream = index.CreateReadStream();
             await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
         });
