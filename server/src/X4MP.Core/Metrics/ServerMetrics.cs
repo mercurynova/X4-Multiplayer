@@ -40,6 +40,12 @@ public static class ServerMetrics
     private static readonly Counter<long> CoalescedCounter = Meter.CreateCounter<long>(
         "x4mp.net.coalesced", "{frame}", "Realtime frames replaced by a newer frame with the same key");
 
+    private static readonly Counter<long> InboundCoalescedCounter = Meter.CreateCounter<long>(
+        "x4mp.inbound.coalesced", "{frame}", "Inbound PlayerState frames replaced by a newer one before the session actor ran (latest wins)");
+
+    private static readonly Counter<long> InboundDroppedCounter = Meter.CreateCounter<long>(
+        "x4mp.inbound.dropped", "{frame}", "Inbound frames dropped because the node's queue for the session actor was full");
+
     private static readonly Counter<long> ViolationsCounter = Meter.CreateCounter<long>(
         "x4mp.net.violations", "{violation}", "Protocol or policy violations");
 
@@ -61,6 +67,7 @@ public static class ServerMetrics
     private static readonly long[] BytesInByLane = new long[3];
     private static readonly long[] BytesOutByLane = new long[3];
     private static readonly long[] DroppedByLane = new long[3];
+    private static long _inboundCoalesced, _inboundDropped;
     private static long _framesIn, _framesOut, _coalesced, _violations, _handshakesOk, _handshakesRefused, _disconnects;
     private static long _eventsPublished, _eventsDropped;
 
@@ -109,6 +116,18 @@ public static class ServerMetrics
     {
         Interlocked.Increment(ref _coalesced);
         CoalescedCounter.Add(1);
+    }
+
+    public static void RecordInboundCoalesced()
+    {
+        Interlocked.Increment(ref _inboundCoalesced);
+        InboundCoalescedCounter.Add(1);
+    }
+
+    public static void RecordInboundDropped()
+    {
+        Interlocked.Increment(ref _inboundDropped);
+        InboundDroppedCounter.Add(1);
     }
 
     public static void RecordViolation()
@@ -182,6 +201,12 @@ public static class ServerMetrics
     public static long FramesOut => Interlocked.Read(ref _framesOut);
 
     public static long Coalesced => Interlocked.Read(ref _coalesced);
+
+    /// <summary>Inbound <c>PlayerState</c> frames replaced by a newer one before the actor ran.</summary>
+    public static long InboundCoalesced => Interlocked.Read(ref _inboundCoalesced);
+
+    /// <summary>Inbound frames dropped by the per-node queue bound.</summary>
+    public static long InboundDropped => Interlocked.Read(ref _inboundDropped);
 
     public static long Violations => Interlocked.Read(ref _violations);
 

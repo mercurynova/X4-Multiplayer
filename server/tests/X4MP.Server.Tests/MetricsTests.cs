@@ -68,7 +68,7 @@ public class MetricsTests
         using var collector = new MeasurementCollector();
         Assert.Equal(
             [
-                "x4mp.events.dropped", "x4mp.events.published", "x4mp.net.bytes", "x4mp.net.coalesced", "x4mp.net.connections",
+                "x4mp.events.dropped", "x4mp.events.published", "x4mp.inbound.coalesced", "x4mp.inbound.dropped", "x4mp.net.bytes", "x4mp.net.coalesced", "x4mp.net.connections",
                 "x4mp.net.disconnects", "x4mp.net.dropped", "x4mp.net.frames", "x4mp.net.handshakes", "x4mp.net.send_queue_bytes",
                 "x4mp.net.violations", "x4mp.session.rtt",
             ],
