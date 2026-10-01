@@ -32,6 +32,14 @@ public sealed class OutboundFrame
     /// <summary>0 = never coalesce. Only the Realtime lane coalesces (latest wins per key).</summary>
     public ulong CoalesceKey { get; }
 
+    /// <summary>
+    /// Opaque sender-chosen id (0 = none) the transport hands back when the frame was delivered: the TCP writer calls the
+    /// connection's flush observer (<see cref="INodeConnection.SetFlushObserver"/>) after the flush that carried it, and a UDP
+    /// path calls it when the datagram is acked. Replication uses it to advance per-client baselines (protocol.md 10.3). Set it
+    /// before the first <c>TrySend</c>.
+    /// </summary>
+    public long DeliveryToken { get; set; }
+
     /// <summary>Total framed length in bytes (8-byte header + payload).</summary>
     public int Length => _length;
 

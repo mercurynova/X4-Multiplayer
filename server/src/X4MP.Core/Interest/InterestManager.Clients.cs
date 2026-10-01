@@ -421,21 +421,112 @@ public sealed partial class InterestManager
         SendDespawns(c, DespawnReason.OutOfInterest);
     }
 
-    private static void RemoveHeld(ClientInterest c, uint netId)
+    private void RemoveHeld(ClientInterest c, uint netId, GhostRemoval reason = GhostRemoval.Despawned)
     {
-        if (c.Held.Remove(netId, out bool isPlayer) && !isPlayer)
+        if (c.Held.Remove(netId, out bool isPlayer))
         {
-            c.Ghosts--;
+            if (!isPlayer)
+            {
+                c.Ghosts--;
+            }
+
+            var observers = _ghostObservers;
+            for (int i = 0; i < observers.Length; i++)
+            {
+                observers[i].OnGhostRemoved(c.PlayerId, netId, reason);
+            }
         }
     }
 
-    private static void AddHeld(ClientInterest c, MirrorEntity e)
+    private void AddHeld(ClientInterest c, MirrorEntity e)
     {
         bool isPlayer = e.IsPlayerShip;
-        if (c.Held.TryAdd(e.NetId, isPlayer) && !isPlayer)
+        if (c.Held.TryAdd(e.NetId, isPlayer))
         {
-            c.Ghosts++;
+            if (!isPlayer)
+            {
+                c.Ghosts++;
+            }
+
+            var observers = _ghostObservers;
+            for (int i = 0; i < observers.Length; i++)
+            {
+                observers[i].OnGhostAdded(c.PlayerId, e);
+            }
         }
+    }
+
+    /// <summary>
+    /// The client's view disagrees with the server's (a failed <c>InterestChecksum</c> or local corruption, <c>ResyncRequest</c>):
+    /// forget what it holds in <paramref name="sectors"/> (empty or null = every followed sector) and deliver those sectors again,
+    /// spawns near-first then <c>SectorComplete</c>, exactly like a first delivery. Nothing is despawned (a spawn of a known id
+    /// refreshes the ghost, so nothing flickers). Ghost observers hear <see cref="GhostRemoval.Resync"/> for each entity, then the add
+    /// as its spawn goes out. Returns the number of sectors that restarted.
+    /// </summary>
+    public int Resync(int playerId, IReadOnlyCollection<ushort>? sectors)
+    {
+        if (!_clients.TryGetValue(playerId, out var c) || !c.ReceivesSpawns)
+        {
+            return 0;
+        }
+
+        int restarted = 0;
+        _sectorScratch.Clear();
+        foreach (var sub in c.Subs.Values)
+        {
+            if (sub.Delivery != SectorDelivery.Pending && (sectors is null || sectors.Count == 0 || sectors.Contains(sub.Sector)))
+            {
+                _sectorScratch.Add(sub.Sector);
+            }
+        }
+
+        foreach (ushort sector in _sectorScratch)
+        {
+            var sub = c.Subs[sector];
+            c.Jobs.RemoveAll(j => j.Sector == sector);
+            foreach (var e in _mirror.TransientIn(sector))
+            {
+                if (!e.IsPlayerShip && c.Held.ContainsKey(e.NetId))
+                {
+                    RemoveHeld(c, e.NetId, GhostRemoval.Resync);
+                }
+            }
+
+            sub.Delivery = SectorDelivery.Pending;
+            if (IsCaptureComplete(sector))
+            {
+                BeginDelivery(c, sub);
+            }
+
+            restarted++;
+        }
+
+        _sectorScratch.Clear();
+        if (sectors is null || sectors.Count == 0)
+        {
+            // Player ships are galaxy-wide, not part of any sector delivery: send them again with the rest.
+            var ids = new List<uint>();
+            foreach (var e in _mirror.All)
+            {
+                if (e.IsPlayerShip && !e.IsPersistent && c.Held.ContainsKey(e.NetId))
+                {
+                    ids.Add(e.NetId);
+                }
+            }
+
+            foreach (uint id in ids)
+            {
+                RemoveHeld(c, id, GhostRemoval.Resync);
+            }
+
+            if (ids.Count > 0)
+            {
+                c.Jobs.Add(new SpawnJob(0, ids, sendComplete: false));
+            }
+        }
+
+        PumpJobs(c);
+        return restarted;
     }
 
     /// <summary>Sends queued spawn batches within the per-tick frame budget and the control lane's soft cap, then the sector markers.</summary>
@@ -889,6 +980,11 @@ public sealed partial class InterestManager
         foreach (var c in _clients.Values)
         {
             c.Held.Clear();
+            foreach (var observer in _ghostObservers)
+            {
+                observer.OnGhostsReset(c.PlayerId);
+            }
+
             c.Ghosts = 0;
             c.Jobs.Clear();
             c.Subs.Clear();

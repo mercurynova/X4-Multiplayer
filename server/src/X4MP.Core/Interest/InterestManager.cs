@@ -64,6 +64,7 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
     private readonly NearGrid _grid;
     private readonly Dictionary<ushort, int> _gridRefs = [];
     private IVisibilityFilter _visibility = AllVisible.Instance;
+    private IGhostObserver[] _ghostObservers = [];
     private int _nearRadiusApplied;
 
     public InterestManager(
@@ -89,6 +90,16 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
     }
 
     public InterestStats Stats { get; } = new();
+
+    /// <summary>Hears every ghost the manager adds to or removes from a client's held set (replication, M1-08).</summary>
+    public void AddGhostObserver(IGhostObserver observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        if (Array.IndexOf(_ghostObservers, observer) < 0)
+        {
+            _ghostObservers = [.. _ghostObservers, observer];
+        }
+    }
 
     /// <summary>The fog-of-war hook (ADR-038). The default shows everything to everyone; set it to hide entities per viewer.</summary>
     public IVisibilityFilter VisibilityFilter
@@ -242,6 +253,13 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
         if (_clients.Remove(playerId, out var old))
         {
             SetGridSector(old, 0);
+            if (old.Held.Count > 0)
+            {
+                foreach (var observer in _ghostObservers)
+                {
+                    observer.OnGhostsReset(playerId);
+                }
+            }
         }
     }
 
