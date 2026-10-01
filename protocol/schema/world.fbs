@@ -1,0 +1,210 @@
+// X4MP wire protocol -- entity model, authority capture, server replication, interest, player ship.
+//
+// Two different state paths (protocol.md sections 9-10):
+//   Authority -> Server : WorldUpdate     full quantised EntityState for entities whose state changed
+//                                         (authority-side dead reckoning), only for the CaptureSet.
+//   Server -> Client    : Replication     per-client DELTA against that client's acked baseline
+//                                         (field mask + absolute values), packed codec in a [ubyte].
+include "common.fbs";
+
+namespace X4MP.Proto;
+
+/// Full description of one entity (spawn, catch-up, keyframe).
+table EntityRecord {
+  net_id:uint;                   // authority-assigned
+  kind:EntityKind;
+  origin:EntityOrigin;
+  macro_ref:uint;
+  owner_ref:uint;                // NPC faction id (string table); for team assets the canonical "x4mp_team_<slot>"
+  owner_team:ushort;             // 0 = not a team asset (NPC)
+  owner_player:ushort;           // 0 = team-common / unowned; else the player who bought/built/captured it
+  parent_net_id:uint;            // dock/attach parent; 0 = free in space
+  controller_player:ushort;      // player currently piloting it (player ships); 0 = NPC
+  name:string;
+  idcode:string;                 // GetObjectIDCode(), "ABC-123" -- NOT unique, tie-break only
+  hull:ubyte = 255;
+  shield:ubyte = 255;
+  state:EntityState;
+}
+
+/// Control lane. A->S (authority truth), S->N (filtered by interest).
+/// journal_seq: stamped by the server on forwarded copies of persistent-entity mutations; 0 otherwise.
+table EntitySpawn {
+  journal_seq:ulong;
+  entities:[EntityRecord];
+}
+
+/// Control lane. A->S, S->N.
+table EntityDespawn {
+  journal_seq:ulong;
+  entries:[DespawnEntry];
+}
+
+/// Realtime lane. A->S ONLY. Entities in the CaptureSet whose state changed beyond
+/// the authority's dead-reckoning thresholds, plus keepalives. <= 1150 B per datagram.
+table WorldUpdate {
+  authority_tick:uint;
+  capture_time_us:ulong;         // server clock (authority's estimate) at sample time
+  game_time:double;
+  states:[EntityState];
+}
+
+/// Realtime lane. A->S. On change (>= 1/255), max 1 Hz per entity, 10 s keepalive.
+table EntityStatusBatch {
+  capture_time_us:ulong;
+  statuses:[EntityStatus];
+}
+
+enum ChangeField : ushort (bit_flags) { Owner, OwnerTeam, OwnerPlayer, Name, Parent, Macro, Kind, Controller }
+
+/// Control lane. A->S, S->N. Non-positional attribute change ("AssetOwnershipChanged" in
+/// server-design.md == EntityChange with OwnerTeam/OwnerPlayer bits).
+table EntityChange {
+  journal_seq:ulong;
+  net_id:uint;
+  fields:ChangeField;
+  owner_ref:uint;
+  owner_team:ushort;
+  owner_player:ushort;
+  name:string;
+  parent_net_id:uint;
+  macro_ref:uint;
+  kind:EntityKind;
+  controller_player:ushort;
+  cause_trade_id:Id128;          // set when caused by an escrowed trade / asset transfer
+}
+
+/// Control lane. Full cargo snapshot of one container.
+/// C->S for the sender's own ship only; A->S for anything; S->N filtered.
+table EntityCargo {
+  journal_seq:ulong;
+  net_id:uint;
+  wares:[WareAmount];
+}
+
+// ---------------- authority capture control ----------------
+
+struct CaptureSector { sector:ushort; rate_hz:ubyte; }
+
+table CaptureFocus {
+  sector:ushort;
+  center:Vec3f;
+  radius_m:float;
+  rate_hz:ubyte;
+}
+
+/// S->A, Control lane, at most once per 500 ms after any interest change.
+/// Union over all clients' interest + admin map subscriptions. The authority captures
+/// ONLY these: every entity in `sectors` at rate_hz, entities inside `focus` spheres at their rate,
+/// and the listed player ships' mirrors are driven from relayed PlayerState.
+table CaptureSet {
+  epoch:uint;
+  sectors:[CaptureSector];
+  focus:[CaptureFocus];
+}
+
+/// Marker, Control lane.
+/// A->S: "every entity of `sector` has been sent as EntitySpawn for capture epoch `epoch`"
+///       (sent only after a full index pass of that sector -- fixes the reference's empty-FULL bug).
+/// S->N: "every entity of `sector` in your interest has been sent as EntitySpawn" -- the client
+///       suppresses its local NPC ships in that sector ONLY after this marker.
+table SectorComplete {
+  sector:ushort;
+  epoch:uint;
+  entity_count:uint;
+}
+
+// ---------------- server -> client replication ----------------
+
+/// Realtime lane (UDP, or TCP latest-wins). S->C.
+/// `entries` uses the packed Replication codec (protocol.md 10.2): per entry
+///   u32 net_id | u8 mask | fields present in bit order (SECTOR u16, POS 3xi32, ROT 3xi16,
+///   VEL 3xi16, FLAGS u16, STATUS 2xu8, TIME i16 ms) | (EXT: u8 len + bytes)
+/// Fields are ABSOLUTE values; omitted fields equal the client's baseline.
+table Replication {
+  server_tick:uint;
+  server_time_us:ulong;          // reference time; entry TIME is a signed ms offset from this
+  authority_game_time:double;
+  entry_count:ushort;
+  entries:[ubyte];
+}
+
+/// Control lane, S->C. Informational: the client's interest tiers per sector (server-owned).
+/// The client does not choose these; it uses them for ghost budget, LOD and suppression scope.
+table InterestUpdate {
+  epoch:uint;
+  full:bool;
+  sectors:[SectorTier];
+}
+
+/// Control lane, S->C every 5 s. Desync guard over the client's Near+Sector set.
+table InterestChecksum {
+  server_tick:uint;
+  count:uint;
+  xor_hash:ulong;                // XOR over hash64(net_id ^ version) of entities the server believes the client holds
+}
+
+/// Control lane, C->S. Client's view mismatched (or local corruption): clear baselines and
+/// re-send spawns. sectors empty = whole interest set.
+table ResyncRequest { sectors:[ushort]; reason:string; }
+
+table JournalDespawn { entry:DespawnEntry; }
+
+union WorldMutation { EntityRecord, JournalDespawn, EntityChange, EntityCargo }
+
+table JournalEntry {
+  seq:ulong;
+  body:WorldMutation;
+}
+
+/// Control lane, chunked (<= 256 KiB). S->N after load: persistent-entity mutations since the
+/// checkpoint (or since last_journal_seq on resume). Apply in order before replication starts.
+table WorldCatchUp {
+  checkpoint_id:Id128;
+  entries:[JournalEntry];
+  final:bool;
+}
+
+enum HintReason : ubyte { GateApproach = 0, HighwayEntry, Accelerator, Teleport, Docking }
+
+/// Control lane, C->S, OPTIONAL (InterestHint capability). Server may ignore. See protocol.md
+/// "Open conflicts": the server owns interest; this only lets it prefetch non-adjacent jumps.
+table InterestHint {
+  target_sector:ushort;
+  eta_ms:uint;
+  reason:HintReason;
+}
+
+// ---------------- player ship ----------------
+
+/// Realtime lane, C->S, 20 Hz (5 Hz when stationary/docked). The client is authoritative for
+/// its own ship's motion. NO velocity: X4 exports no velocity getter; the server derives it
+/// from consecutive samples (finite difference over sample_time_us) before replicating.
+table PlayerState {
+  seq:uint;
+  sample_time_us:ulong;          // client's estimate of server clock at sample
+  net_id:uint;                   // own ship (0 until assigned)
+  sector:ushort;
+  flags:ushort;                  // StateFlags (Docked, InHighway, TravelDrive, Boost, Teleport)
+  px:int; py:int; pz:int;        // same quantisation as EntityState
+  yaw:short; pitch:short; roll:short;
+  hull:ubyte = 255;
+  shield:ubyte = 255;
+  target_net_id:uint;
+}
+
+/// Control lane, C->S when the player gets a ship (join, ship change, respawn).
+/// Server forwards to the authority, which assigns the net_id, spawns the mirror, and answers
+/// with EntitySpawn{origin=PlayerShip, controller_player} (relayed to everyone incl. the sender).
+table PlayerShip {
+  request_key:Id128;
+  ship_macro:string;
+  name:string;
+  idcode:string;
+  sector:ushort;
+  px:int; py:int; pz:int;
+  yaw:short; pitch:short; roll:short;
+  hull:ubyte = 255;
+  shield:ubyte = 255;
+  local_component_id:ulong;      // sender's own UniverseID, diagnostics only
+}

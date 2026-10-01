@@ -1,0 +1,77 @@
+// X4MP wire protocol -- in-game admin commands and node telemetry.
+// The web GUI does NOT use these: it talks REST + SignalR (JSON) to the server.
+// AdminCommand exists so an Admin-role node can do the same things from inside X4.
+include "common.fbs";
+include "teams.fbs";
+include "economy.fbs";
+
+namespace X4MP.Proto;
+
+table KickCmd { player_id:ushort; reason:string; }
+table BanCmd { player_id:ushort; reason:string; duration_s:uint; }   // 0 = permanent; bans player_key hash
+table BroadcastCmd { text:string; severity:ubyte; }
+table SetPausedCmd { paused:bool; }
+table ForceCheckpointCmd { }
+table MigrateAuthorityCmd { target_player:ushort; }
+table SetTimeScaleCmd { scale:float; }
+table SetSettingCmd { key:string; value:string; }
+
+// Admin-initiated team/economy variants (same effects as the GUI REST calls).
+table AssignTeamCmd { player_id:ushort; team_id:ushort; role:TeamRole; asset_scope:MoveAssetsScope; }
+table CreateTeamCmd { name:string; color_rgb:uint; faction_slot:ubyte; locked:bool; max_members:ushort; }
+table UpdateTeamCmd { team_id:ushort; name:string; color_rgb:uint; leader_player:ushort; locked:bool; max_members:ushort; }
+table DeleteTeamCmd { team_id:ushort; move_members_to:ushort; }
+table SetRelationCmd { team_a:ushort; team_b:ushort; relation:TeamRelation; }
+table ApplyTeamPresetCmd { preset:string; confirm:bool; }        // "coop" | "allied" | "ffa" | "versus"
+table SetCreditModeCmd { mode:CreditMode; confirm:bool; }         // confirm required while Running (balance migration)
+table AdjustWalletCmd { wallet:WalletRef; amount:long; reason:string; }
+table FreezeEconomyCmd { player_id:ushort; frozen:bool; }
+table CancelTradeCmd { trade_id:Id128; reason:string; }           // rolls back if escrowed
+table SetLoanStateCmd { loan_id:Id128; state:LoanState; reason:string; }
+
+union AdminBody {
+  KickCmd, BanCmd, BroadcastCmd, SetPausedCmd, ForceCheckpointCmd,
+  MigrateAuthorityCmd, SetTimeScaleCmd, SetSettingCmd,
+  AssignTeamCmd, CreateTeamCmd, UpdateTeamCmd, DeleteTeamCmd, SetRelationCmd, ApplyTeamPresetCmd,
+  SetCreditModeCmd, AdjustWalletCmd, FreezeEconomyCmd, CancelTradeCmd, SetLoanStateCmd
+}
+
+/// Control lane. N->S, requires granted Admin role.
+table AdminCommand {
+  request_key:Id128;             // idempotency
+  request_id:uint;
+  body:AdminBody;
+}
+
+/// Control lane. S->N.
+table AdminResult {
+  request_id:uint;
+  ok:bool;
+  message:string;
+}
+
+/// Control lane, every 2 s. N->S. Feeds the GUI dashboard.
+table NodeStats {
+  fps:float;
+  frame_ms_p95:float;
+  game_time:double;
+  ghosts:uint;                   // streamed entities currently materialised
+  suppressed_local:uint;         // local ships hidden in subscribed sectors
+  pending_main_thread_jobs:uint;
+  tcp_send_queue_bytes:uint;
+  udp_rx_loss_pct:float;         // from seq gaps
+  udp_active:bool;               // false = Realtime lane running over TCP
+  rx_bytes_per_s:uint;
+  tx_bytes_per_s:uint;
+  interp_delay_ms:ushort;
+  clock_offset_us:long;
+  rtt_ms:float;
+  memory_mb:uint;
+}
+
+enum LogLevel : ubyte { Debug = 0, Info, Warn, Error }
+
+table LogLine { level:LogLevel; time_us:ulong; text:string; }
+
+/// N->S, LogForward capability, rate limited (<= 50 lines/s, <= 16 KiB/s).
+table LogForward { lines:[LogLine]; }
