@@ -591,6 +591,7 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
 (server setting, permission, GUI) and M2-X (an in-game read-only view when `AllPlayers`).
 
 ### ADR-046 On-foot player presence (requirement accepted, design pending spike) (user requirement 2026-10-01)
+**Status update 2026-10-01: plan APPROVED by the user.** M3b = Tier 0 (HUD presence list) + Tier 1 (MP lounge with full actors and the Talk menu). M3c = Tier 2 (any shared room, with nearest-seat/HUD fallback), gated on the S10 room-matching spike. M5b = Talk-menu economy/team actions (send credits, invite to team, trade).
 - **Context:** the user wants players who are on the same station or ship to see each other's
   character in the correct position, and maybe interact. X4 interiors are partly static: dock
   areas, module rooms and bridges come from macros. The rest are dynamic interiors (bar, offices,
@@ -619,6 +620,49 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
     station.
   - Walking on moving (ghost) ships is out of scope.
   - Forcing progress-gated rooms to exist on every node needs a separate user decision.
+
+### ADR-047 Team diplomacy via X4 diplomacy system (proposal, pending spike) (user idea 2026-10-01)
+- **Context:** the user suggested using the game's diplomacy system ("the 9.0 diplomacy update")
+  for relations between player teams. Research: [research/diplomacy.md](research/diplomacy.md).
+  - Diplomacy arrived in **8.00**; 9.00 only tweaked it. It is a `player`-centric minigame: PHQ
+    embassy, agents, one influence value, and MD effects hard-coded to `faction.player`
+    (`md/diplomacy.xml:3181, 4591`).
+  - Its "events" are crises between two NPC factions. It has no proposals, acceptance or
+    treaties between other factions.
+  - `set_faction_relation_locked` is **faction-wide** (`common.xsd:35358`), not per pair as
+    ADR-016 and MOD §11.6 assume.
+- **Decision (draft):**
+  - The server's relation matrix stays the only source of truth for team↔team relations.
+  - Leaders change it through the existing `RelationChangeRequest` / `RelationProposal`, which
+    are extended into treaty proposals: Alliance, Ceasefire/Peace and Trade agreement are
+    mutual; Break alliance and Declare war are unilateral with a notice period.
+  - A new `RelationChangePolicy=Diplomacy` adds cooldowns.
+  - Every node's MD applies the result as unlock → set → relock, with a lock `reason` text.
+  - **Reuse** the vanilla Diplomacy "Factions and Relations" tab as the read-only view: teams
+    are listed, and the lock reason reads "Set by session diplomacy".
+  - **Build** our own Team Diplomacy screen (vanilla `Helper` style and diplomacy icons) for
+    proposing and answering. A tab inside `DiplomacyMenu` is optional, if spike S11.6 passes.
+  - Vanilla agent actions are **not** repurposed: they need a PHQ and agents, and they change
+    only `player`.
+  - Team factions are kept out of vanilla diplomacy: diplomacy inactive, events not allowed,
+    and an exclusion flag on team pairs.
+  - **Never lock `player`.**
+  - Team↔NPC relations: per team (`NpcReputationMode=PerTeam`) through the M6 reputation sync,
+    with today's fixed copy (ADR-016) until then.
+  - NPC↔NPC relation changes (interference, Protocol Null, story) are replicated from the
+    authority, and client-side diplomacy events are suppressed.
+  - ADR-040 `LoanEnforcement=Diplomacy` becomes a standing score per team pair, plus NPC
+    reputation penalties, shown in the same screen.
+- **Status:** proposal. It depends on spike block **S11** (session 2, roadmap §4.3). No
+  schema change yet. Proposed additions: fields on `RelationChangeRequest`/`RelationProposal`
+  (`kind`, `treaty`, `proposal_id`, `note`, `state`), and new `NpcRelationReport`,
+  `NpcRelations`, `ReputationDelta` and `TeamNpcRelations`.
+- **Consequences:**
+  - ADR-016's wording "lock each pair" changes to a per-faction lock on team factions only.
+  - Targets:
+    - **M5:** minimal in-game proposals.
+    - **M6:** per-team NPC reputation, NPC↔NPC replication and the `Diplomacy` policy.
+    - **Post-v1:** trade agreements, standing/ADR-040, the optional vanilla-menu tab.
 
 ---
 
