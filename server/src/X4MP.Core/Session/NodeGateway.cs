@@ -374,6 +374,7 @@ public sealed partial class NodeGateway
             NegotiatedCaps = hello.ClientCaps & _state.ServerCaps,
             RemoteAddress = ip,
             Welcome = welcome,
+            Nonce = nonce,
         };
 
         AdmittedNode? superseded;

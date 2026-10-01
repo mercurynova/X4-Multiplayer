@@ -134,6 +134,38 @@ public sealed partial class SessionActor
             node.Welcome.ResumeGraceS = (ushort)Math.Clamp(AuthorityResumeSeconds, 0, ushort.MaxValue);
         }
 
+        if (_nodes.TryGetValue(node.PlayerId, out var admitted))
+        {
+            var refusal = AskModulesAboutAdmission(admitted, node.Welcome, hasToken);
+            if (!refusal.Accepted)
+            {
+                LeaveNode(admitted, refusal.Message ?? refusal.Code.ToString(), closeWith: null); // the gateway sends the Disconnect
+                return refusal;
+            }
+        }
+
+        return AdmissionVerdict.Accept;
+    }
+
+    /// <summary>Lets the modules fill the <c>Welcome</c> (teams) or refuse the node, on the actor thread, before the Welcome is sent.</summary>
+    private AdmissionVerdict AskModulesAboutAdmission(SessionNode slot, WelcomeT welcome, bool resumed)
+    {
+        foreach (var module in _modules)
+        {
+            try
+            {
+                var verdict = module.OnNodeAdmitting(slot, welcome, resumed);
+                if (!verdict.Accepted)
+                {
+                    return verdict;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogModuleFailed(module.GetType().Name, nameof(ISessionModule.OnNodeAdmitting), ex);
+            }
+        }
+
         return AdmissionVerdict.Accept;
     }
 
