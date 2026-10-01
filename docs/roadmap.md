@@ -24,6 +24,8 @@ developer). "Deps" lists task ids that must be done first. Tracks: **P** protoco
 
 ## 2. M0 tasks (ordered)
 
+**Status (2026-10-01): all M0 tasks merged to main.** Pending: the first GitHub Actions run, which proves the Linux legs, vcpkg caching and the e2e smoke.
+
 | ID | Track | Title | Deps | Acceptance criteria | Size |
 |---|---|---|---|---|---|
 | M0-01 | C | Repo scaffolding: `README.md`, `.gitignore` (ignores `reference/`, `x4-unpacked/`, build dirs), `.editorconfig`, `global.json` (SDK 10.0.400, rollForward latestFeature), `Directory.Build.props` (net10.0, nullable, warnings as errors, deterministic), `Directory.Packages.props`, `X4MP.sln` with all empty projects from architecture §12, lock files | — | `dotnet build` and `dotnet test` pass on Windows and Linux with zero warnings; project-reference direction test (Protocol ← Core ← Transport/Persistence ← Server) passes | M |
