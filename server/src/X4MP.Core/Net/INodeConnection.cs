@@ -10,8 +10,16 @@ namespace X4MP.Core.Net;
 /// </summary>
 public interface IDatagramPath
 {
-    /// <summary>Returns true if the frame was accepted by the datagram path.</summary>
+    /// <summary>Returns true if the frame was accepted by the datagram path (false: send it on TCP instead, e.g. it does not fit a datagram).</summary>
     bool TrySend(OutboundFrame frame);
+
+    /// <summary>
+    /// The connection's delivery callback (<see cref="INodeConnection.SetFlushObserver"/>), handed over so the path can call it per
+    /// frame (<see cref="OutboundFrame.DeliveryToken"/>) once the datagram that carried it was acknowledged. May be called with null.
+    /// </summary>
+    void SetDeliveryObserver(Action<OutboundFrame>? observer)
+    {
+    }
 }
 
 /// <summary>One node connection (server-design 2.2). Transport-agnostic: TCP, InProc, and later UDP-assisted.</summary>
@@ -60,6 +68,17 @@ public interface INodeConnection : IAsyncDisposable
 
     /// <summary>Optional second path (UDP) bound after the handshake; the Realtime lane prefers it when present.</summary>
     void AttachDatagramPath(IDatagramPath path);
+
+    /// <summary>Removes <paramref name="path"/> (if it is the attached one): Realtime frames go over the TCP lane again.</summary>
+    void DetachDatagramPath(IDatagramPath path)
+    {
+    }
+
+    /// <summary>
+    /// True while Realtime frames go out as UDP datagrams (a path is attached and bound). Replication then confirms deliveries one datagram at
+    /// a time (acks) instead of in TCP order, and may keep several frames in flight (protocol.md 10.3).
+    /// </summary>
+    bool RealtimeOverDatagram => false;
 
     /// <summary>
     /// Registers (or clears with null) a callback invoked for every frame after the flush that carried it completed

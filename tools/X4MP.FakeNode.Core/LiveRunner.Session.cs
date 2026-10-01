@@ -15,8 +15,12 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
     private Task _reader = Task.CompletedTask;
     private volatile NodePhase _phase = NodePhase.Admitted;
     private volatile Action<Frame>? _handler;
+    private readonly object _dispatchGate = new();
 
     public TcpNodeClient Client { get; } = client;
+
+    /// <summary>The UDP Realtime lane when this node asked for it and it is (being) bound; sends use it when <see cref="UdpRealtimeClient.Bound"/>.</summary>
+    public UdpRealtimeClient? Udp { get; set; }
 
     public int PlayerId { get; } = playerId;
 
@@ -62,7 +66,27 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
         }
     }
 
+    /// <summary>A frame that arrived in a datagram: handled exactly like a TCP frame, one at a time with them.</summary>
+    public void DispatchDatagram(Frame frame) => Dispatch(frame);
+
+    /// <summary>
+    /// Sends a Realtime-lane message: as a datagram when the UDP lane is bound and the message fits, otherwise over TCP (the lane is "UDP when
+    /// available, otherwise TCP", protocol.md 3.4).
+    /// </summary>
+    public Task SendRealtimeAsync(MsgType type, byte[] payload, CancellationToken ct)
+    {
+        if (Udp is { Bound: true } udp && udp.TrySend(type, payload))
+            return Task.CompletedTask;
+        return Client.SendPayloadAsync(type, payload, ct);
+    }
+
     private void Dispatch(Frame frame)
+    {
+        lock (_dispatchGate)
+            DispatchLocked(frame);
+    }
+
+    private void DispatchLocked(Frame frame)
     {
         switch (frame.Type)
         {
@@ -331,14 +355,14 @@ public static partial class LiveRunner
                     authority.OnCaptureSet(set, tick);
                 foreach (var message in authority.Tick(tick))
                 {
-                    await link.Client.SendPayloadAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
+                    await link.SendRealtimeAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
                     sentMessages++;
                 }
 
                 if (tick >= nextStats)
                 {
                     nextStats = tick + (2L * o.TickRate);
-                    var nodeStats = authority.BuildNodeStats(tick);
+                    var nodeStats = authority.BuildNodeStats(tick, link.Udp is { Bound: true }, link.Udp?.RxLossPercent ?? 0f);
                     await link.Client.SendPayloadAsync(nodeStats.Type, nodeStats.Payload, ct).ConfigureAwait(false);
                 }
 
@@ -360,7 +384,7 @@ public static partial class LiveRunner
         NodeLink link, CliOptions o, int index, FakeGalaxy galaxy, LiveNodeStats stats, LiveRunOptions run, string saveDir, string name, SynchronizedWriter lines,
         CancellationToken ct)
     {
-        var session = new FakeClientSession(new FakeWorld(galaxy), o.Verify);
+        var session = new FakeClientSession(new FakeWorld(galaxy), o.Verify) { HoldUnknownEntries = o.Udp };
         run.OnClientSession?.Invoke(session);
         stats.AttachSession(session);
         var outbox = Channel.CreateUnbounded<OutMessage>();
@@ -437,7 +461,7 @@ public static partial class LiveRunner
             {
                 lastTick = tick;
                 var state = player.Step(tick);
-                await link.Client.SendAsync(MsgType.PlayerState, b => PlayerState.Pack(b, state), ct).ConfigureAwait(false);
+                await link.SendRealtimeAsync(MsgType.PlayerState, MessageEncoder.EncodePayload(b => PlayerState.Pack(b, state), 128), ct).ConfigureAwait(false);
             }
 
             if (tick >= nextStale)

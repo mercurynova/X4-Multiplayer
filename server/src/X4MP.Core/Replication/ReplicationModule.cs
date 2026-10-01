@@ -37,8 +37,11 @@ public sealed class ReplicationStats
     /// <summary>Client ticks skipped because the Realtime lane was above its low watermark.</summary>
     public long LaneSkips { get; internal set; }
 
-    /// <summary>Frames not confirmed within the timeout: their entities were marked for a full re-send.</summary>
+    /// <summary>Frames not confirmed within the timeout (TCP: their entities were marked for a full re-send; UDP: the fields are simply sent again).</summary>
     public long FramesLost { get; internal set; }
+
+    /// <summary>Datagram mode: frames confirmed by an ack.</summary>
+    public long FramesAcked { get; internal set; }
 
     public long Tombstones { get; internal set; }
 

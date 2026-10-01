@@ -27,6 +27,9 @@ public sealed record CliOptions
     public ClientBehavior Behavior { get; init; } = ClientBehavior.Wander;
     public bool Verify { get; init; }
     public bool Udp { get; init; }
+
+    /// <summary>Failure injection: percent (0..100) of UDP datagrams dropped in each direction (only with --udp).</summary>
+    public double LossPercent { get; init; }
     public int Sectors { get; init; } = 152;
     public int Ships { get; init; } = 10225;
     public int TickRate { get; init; } = 20;
@@ -73,7 +76,8 @@ public static class CliParser
           --name NAME          node name; --name-prefix PREFIX for several
           --behavior wander|patrol|explore
           --verify             check every Replication entry against the fake world's ground truth; exit code 1 on any error
-          --udp                use the UDP realtime lane
+          --udp                use the UDP realtime lane (binds with UdpHello; falls back to TCP after 3 s)
+          --loss PCT           with --udp: drop PCT percent of the UDP datagrams in each direction (failure injection)
           --sectors N --ships N --tick HZ --fps N   universe / authority shape
           --sector ID          inspect: sector index to observe
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
@@ -181,6 +185,10 @@ public static class CliParser
                 return PositiveInt(o, key, value, v => v > ushort.MaxValue ? null : o with { Sector = (ushort)v });
             case "save-mb":
                 return PositiveInt(o, key, value, v => v > 4096 ? null : o with { SaveMb = v });
+            case "loss":
+                string number = value.TrimEnd('%');
+                return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double loss) && loss is >= 0 and <= 100
+                    ? (o with { LossPercent = loss }, null) : (o, $"--loss must be a percentage between 0 and 100 (got '{value}')");
             case "name":
                 return (o with { Name = value }, null);
             case "name-prefix":
