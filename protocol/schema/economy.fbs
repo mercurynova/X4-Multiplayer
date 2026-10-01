@@ -35,6 +35,7 @@ table WalletUpdate {
   reason:LedgerReason;
   ref_id:Id128;                  // transfer / loan / trade id, or request_key
   effective_mode:EffectiveCreditMode;
+  acked_delta_seq:ulong;         // highest CreditDelta.seq of THIS receiver that the ledger has booked (0 = none)
 }
 
 enum CreditSource : ubyte { Trade = 0, Build, Repair, Bounty, Mission, StationIncome, Upkeep, Other }
@@ -50,6 +51,7 @@ table CreditDelta {
   source:CreditSource;
   ref_event_seq:ulong;
   game_time:double;
+  seq:ulong;                     // per sending node, strictly monotonic; echoed in WalletUpdate.acked_delta_seq
 }
 
 enum EconomyStatus : ubyte { Ok = 0, Pending, Rejected }
@@ -86,7 +88,8 @@ table DonateRequest { request_key:Id128; to_player:ushort; amount:long; memo:str
 
 enum LoanState : ubyte { Offered = 0, Active, Repaid, Forgiven, Overdue, Declined, Expired, Cancelled }
 
-/// Lender -> S (loan_scope). Server reserves nothing until accepted; on accept it moves principal.
+/// Lender -> S (loan_scope). The principal is ESCROWED at offer time (ADR-021); on accept it moves
+/// escrow -> borrower, on decline/cancel/expiry it is refunded to the lender.
 table LoanOffer {
   request_key:Id128;
   borrower:ushort;
@@ -94,6 +97,7 @@ table LoanOffer {
   repay_total:long;              // >= principal; flat "interest" agreed up front
   due_in_s:uint;                 // server wall-clock seconds after acceptance; 0 = no due date
   offer_ttl_s:uint = 300;
+  auto_repay_pct:ubyte;          // 0..100: share of the borrower's positive game income diverted to repayment
   memo:string;
 }
 
@@ -141,8 +145,9 @@ table TradeItem {
 enum TradeState : ubyte {
   Proposed = 0, Countered, Accepted,      // waiting for both parties to accept the same version
   Escrowed,                               // credits locked in escrow wallet(s)
-  Transferring,                           // AssetTransferOrder(s) sent; awaiting confirmations
-  Completed, RolledBack, Cancelled, Expired, Rejected
+  Transferring,                           // AssetTransferOrder sent; awaiting confirmation
+  Completed, RolledBack, Cancelled, Expired, Rejected,
+  InDoubt                                 // authority did not confirm in time / connection lost mid-transfer; resolved via TradeQuery
 }
 
 /// Initiator -> S (trade_scope; ships need trade_ships_enabled + allow_asset_transfer if cross-team).
@@ -200,11 +205,8 @@ table TradeResult {
 
 enum AssetTransferKind : ubyte { OwnerChange = 0, WareMove }
 
-/// S->simulating node (authority for NPC-simulated assets; the piloting client for its own
-/// player ship's cargo). Idempotent per (trade_id, line).
-table AssetTransferOrder {
-  trade_id:Id128;
-  line:ubyte;                    // index of this order within the trade
+/// One step of an asset transfer. Idempotent per (trade_id, index in AssetTransferOrder.lines).
+table AssetTransferLine {
   kind:AssetTransferKind;
   asset:uint;                    // ship/station (OwnerChange) or source container (WareMove)
   to_team:ushort;
@@ -212,14 +214,28 @@ table AssetTransferOrder {
   ware_ref:uint;                 // WareMove
   amount:long;                   // WareMove
   dest_asset:uint;               // WareMove destination container
+}
+
+/// S->A ONLY (authority). One order per trade, covering every line; the authority applies all
+/// lines or none (compensating if a later line fails) and answers with one AssetTransferConfirm.
+table AssetTransferOrder {
+  trade_id:Id128;
+  lines:[AssetTransferLine];
   deadline_ms:uint = 15000;
 }
 
-/// Simulating node -> S. ok=false => server rolls the whole trade back.
-/// For OwnerChange the authority ALSO emits EntityChange{OwnerTeam|OwnerPlayer} (journaled).
+/// A->S. ok=false => server rolls the whole trade back. failed_line = index of the first failing
+/// line (-1 if none / not line-specific). compensated = the authority already undid earlier lines.
+/// For OwnerChange lines the authority ALSO emits EntityChange{OwnerTeam|OwnerPlayer} (journaled).
+/// Reply to TradeQuery for an unknown trade: ok=false, failed_line=-1, error="Unknown".
 table AssetTransferConfirm {
   trade_id:Id128;
-  line:ubyte;
   ok:bool;
+  failed_line:short = -1;
+  compensated:bool;
   error:string;
 }
+
+/// S->A (authority). Resolve a trade left InDoubt: the authority answers with AssetTransferConfirm
+/// (final outcome of the order, or error="Unknown" if it never received one).
+table TradeQuery { trade_id:Id128; }

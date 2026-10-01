@@ -193,9 +193,11 @@ table PlayerState {
   target_net_id:uint;
 }
 
-/// Control lane, C->S when the player gets a ship (join, ship change, respawn).
-/// Server forwards to the authority, which assigns the net_id, spawns the mirror, and answers
-/// with EntitySpawn{origin=PlayerShip, controller_player} (relayed to everyone incl. the sender).
+/// Control lane, C->S when the player needs a ship (join, ship change, respawn): request/take over
+/// the player's own persistent AVATAR (ADR-015). Server forwards to the authority, which returns the
+/// player's existing avatar or spawns one (team-owned, x4mp_team_<slot>), assigns the net_id, and
+/// answers with EntitySpawn{origin=PlayerShip, controller_player} (relayed to everyone incl. the
+/// sender, which then takes the avatar over locally).
 table PlayerShip {
   request_key:Id128;
   ship_macro:string;
