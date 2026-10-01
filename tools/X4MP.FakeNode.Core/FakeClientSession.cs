@@ -24,6 +24,11 @@ public sealed class FakeClientSession
     public const double StaleSeconds = 45;
 
     private const double TombstoneSeconds = 5;
+
+    /// <summary>protocol.md 10.2: an entry whose spawn has not arrived is held this long, then dropped.</summary>
+    public const double HoldSeconds = 2;
+
+    private const int MaxHeld = 4096;
     private const int PersistentMismatchLimit = 3;
 
     private sealed class Ghost
@@ -35,7 +40,13 @@ public sealed class FakeClientSession
 
         /// <summary>A full state entry arrived since the (re)spawn: the ghost's baseline is complete.</summary>
         public bool GotFull;
+
+        /// <summary>Server tick of the newest frame that carried an entry of this ghost (an entry of an older frame arrived late and is ignored).</summary>
+        public uint LastTick;
     }
+
+    /// <summary>An entry that arrived before its spawn (UDP Realtime overtakes the Control lane): held up to <see cref="HoldSeconds"/>.</summary>
+    private readonly record struct HeldEntry(ReplicationEntry Entry, double GameTime, uint Tick, double At);
 
     /// <summary>The fields a baseline consists of: an entry that carries all of them can start one.</summary>
     private const ReplicationMask Complete =
@@ -43,6 +54,8 @@ public sealed class FakeClientSession
 
     private readonly Dictionary<uint, Ghost> _ghosts = [];
     private readonly Dictionary<uint, double> _tombstones = [];
+    private readonly Dictionary<uint, List<HeldEntry>> _held = [];
+    private int _heldCount;
     private readonly Func<double> _clock;
     private readonly bool _verify;
     private int _mismatchStreak;
@@ -122,6 +135,21 @@ public sealed class FakeClientSession
 
     public long SectorCompletes { get; private set; }
 
+    /// <summary>
+    /// True for a node whose Realtime lane is UDP: a Replication entry for an id without a spawn is held until its spawn arrives (at most
+    /// <see cref="HoldSeconds"/>) instead of counting as a violation, because the spawn travels on TCP and may be overtaken.
+    /// </summary>
+    public bool HoldUnknownEntries { get; set; }
+
+    /// <summary>Entries held for a spawn that never came within <see cref="HoldSeconds"/> (dropped, as protocol.md 10.2 says).</summary>
+    public long HeldDropped { get; private set; }
+
+    /// <summary>Entries that were held and applied when their spawn arrived.</summary>
+    public long HeldApplied { get; private set; }
+
+    /// <summary>Entries of a frame older than one already applied to the same ghost (a datagram that arrived out of order): ignored.</summary>
+    public long ReorderedEntries { get; private set; }
+
     /// <summary>Test hook: the next checksum is compared against a deliberately wrong ghost count (exercises the resync path).</summary>
     public int ChecksumCountSkew { get; set; }
 
@@ -197,7 +225,52 @@ public sealed class FakeClientSession
             }
 
             SpawnsApplied++;
+            if (_held.Remove(id, out var held))
+                ReplayHeld(id, held);
         }
+    }
+
+    private void ReplayHeld(uint id, List<HeldEntry> held)
+    {
+        _heldCount -= held.Count;
+        double now = _clock();
+        foreach (var h in held)
+        {
+            if (now - h.At > HoldSeconds)
+            {
+                HeldDropped++;
+                continue;
+            }
+
+            var accepted = new List<ReplicationEntry>(1);
+            if (AcceptEntry(h.Entry, h.Tick, now, accepted))
+                HeldApplied++;
+            if (_verify && accepted.Count > 0)
+                Verifier.VerifyEntries(h.GameTime, accepted);
+        }
+    }
+
+    private void DropExpiredHeld(double now)
+    {
+        if (_held.Count == 0)
+            return;
+        List<uint>? gone = null;
+        foreach (var (id, list) in _held)
+        {
+            int expired = list.RemoveAll(h => now - h.At > HoldSeconds);
+            if (expired > 0)
+            {
+                HeldDropped += expired;
+                _heldCount -= expired;
+            }
+
+            if (list.Count == 0)
+                (gone ??= []).Add(id);
+        }
+
+        if (gone is not null)
+            foreach (uint id in gone)
+                _held.Remove(id);
     }
 
     private void ApplyDespawn(EntityDespawn despawn)
@@ -230,30 +303,31 @@ public sealed class FakeClientSession
             return;
         }
 
+        DropExpiredHeld(now);
         var accepted = new List<ReplicationEntry>(entries.Count);
         foreach (var entry in entries)
         {
             ReplicationEntries++;
-            if (_ghosts.TryGetValue(entry.NetId, out var ghost))
+            if (_ghosts.ContainsKey(entry.NetId))
             {
-                ghost.LastEntryAt = now;
-                if ((entry.Mask & Complete) == Complete)
-                {
-                    ghost.GotFull = true;
-                }
-                else if (!ghost.GotFull)
-                {
-                    StaleEntries++;
-                    continue;
-                }
-
-                if ((entry.Mask & ReplicationMask.Sector) != 0)
-                    ghost.Sector = entry.Sector;
-                accepted.Add(entry);
+                AcceptEntry(entry, message.ServerTick, now, accepted);
             }
             else if (_tombstones.TryGetValue(entry.NetId, out double until) && until > now)
             {
                 TombstonedEntries++;
+            }
+            else if (HoldUnknownEntries)
+            {
+                if (_heldCount >= MaxHeld)
+                {
+                    HeldDropped++;
+                    continue;
+                }
+
+                if (!_held.TryGetValue(entry.NetId, out var list))
+                    _held[entry.NetId] = list = [];
+                list.Add(new HeldEntry(entry, message.AuthorityGameTime, message.ServerTick, now));
+                _heldCount++;
             }
             else
             {
@@ -263,6 +337,35 @@ public sealed class FakeClientSession
 
         if (_verify)
             Verifier.VerifyEntries(message.AuthorityGameTime, accepted);
+    }
+
+    /// <summary>Applies one entry to its ghost. False when it is ignored (older than what the ghost already got, or a partial entry before the first full one).</summary>
+    private bool AcceptEntry(ReplicationEntry entry, uint tick, double now, List<ReplicationEntry> accepted)
+    {
+        if (!_ghosts.TryGetValue(entry.NetId, out var ghost))
+            return false;
+        ghost.LastEntryAt = now;
+        if (tick < ghost.LastTick)
+        {
+            ReorderedEntries++; // arrived after a newer frame: applying it would move the ghost back (the server only folds the newest into its baseline)
+            return false;
+        }
+
+        if ((entry.Mask & Complete) == Complete)
+        {
+            ghost.GotFull = true;
+        }
+        else if (!ghost.GotFull)
+        {
+            StaleEntries++;
+            return false;
+        }
+
+        ghost.LastTick = tick;
+        if ((entry.Mask & ReplicationMask.Sector) != 0)
+            ghost.Sector = entry.Sector;
+        accepted.Add(entry);
+        return true;
     }
 
     private IReadOnlyList<OutMessage> CheckChecksum(InterestChecksum checksum)

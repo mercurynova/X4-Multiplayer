@@ -26,6 +26,23 @@ internal struct GhostEntry
     public long LastKeyframeTs;
 
     public Baseline Base;
+
+    // --- datagram (UDP) mode only: what unconfirmed datagrams carried (protocol.md 10.3, "unacked in flight differs") ---
+
+    /// <summary>The value of each field in <see cref="SentMask"/> as the most recent unconfirmed entry carried it.</summary>
+    public Baseline Sent;
+
+    /// <summary>Fields some entry still unconfirmed carried. A field may only be left out of an entry when it equals the baseline and, if it is in this mask, also <see cref="Sent"/>.</summary>
+    public ReplicationMask SentMask;
+
+    /// <summary>The mirror version of the newest entry sent (unchanged since then and still in flight: wait for the ack instead of sending again).</summary>
+    public uint SentVersion;
+
+    /// <summary>Entries of this ghost sent and neither acknowledged nor timed out.</summary>
+    public int InFlight;
+
+    /// <summary>Stamp of the last ack batch that folded an entry of this ghost (the newest entry of a batch wins).</summary>
+    public int FoldBatch;
 }
 
 /// <summary>An entry that went out in a frame whose delivery is not confirmed yet.</summary>
@@ -43,6 +60,12 @@ internal struct PendingEntry
 
     public long PrevKeyframeTs;
 
+    /// <summary>When the frame went out (datagram mode: entries older than the in-flight timeout count as lost).</summary>
+    public long SentTs;
+
+    /// <summary>Datagram mode: 0 = still in flight, 1 = acknowledged, 2 = timed out (set while an ack batch is processed).</summary>
+    public byte State;
+
     public ReplicationEntry Entry;
 }
 
@@ -50,6 +73,9 @@ internal struct PendingEntry
 internal sealed class ClientReplication
 {
     private long _deliveredSeq;
+    private readonly object _ackGate = new();
+    private readonly List<long> _acked = [];
+    private bool _recordAcks;
 
     public ClientReplication(int playerId, SessionNode node, long now)
     {
@@ -101,6 +127,35 @@ internal sealed class ClientReplication
     /// <summary>Highest frame sequence the transport confirmed (TCP flush or UDP ack).</summary>
     public long DeliveredSeq => Interlocked.Read(ref _deliveredSeq);
 
+    /// <summary>True while the client's Realtime lane is UDP: frames are confirmed one by one (acks), several may be in flight, baselines use the per-field rule.</summary>
+    public bool Datagram { get; set; }
+
+    /// <summary>Counts the ack batches folded (see <see cref="GhostEntry.FoldBatch"/>).</summary>
+    public int FoldBatch { get; set; }
+
+    /// <summary>Starts or stops recording the individual tokens <see cref="OnDelivered"/> hears about (datagram mode).</summary>
+    public void SetRecordAcks(bool on)
+    {
+        lock (_ackGate)
+        {
+            _recordAcks = on;
+            _acked.Clear();
+        }
+    }
+
+    /// <summary>Moves the tokens confirmed since the last call into <paramref name="into"/> (appended).</summary>
+    public void DrainAcks(List<long> into)
+    {
+        lock (_ackGate)
+        {
+            if (_acked.Count > 0)
+            {
+                into.AddRange(_acked);
+                _acked.Clear();
+            }
+        }
+    }
+
     /// <summary>
     /// Called by the transport, on any thread, when a frame was delivered. Frames of one lane are delivered in order, but the maximum
     /// is kept anyway so a late or duplicate confirmation can never move it back.
@@ -111,6 +166,14 @@ internal sealed class ClientReplication
         long seen;
         while (token > (seen = Interlocked.Read(ref _deliveredSeq)) && Interlocked.CompareExchange(ref _deliveredSeq, token, seen) != seen)
         {
+        }
+
+        lock (_ackGate)
+        {
+            if (_recordAcks && _acked.Count < 16384)
+            {
+                _acked.Add(token);
+            }
         }
     }
 
