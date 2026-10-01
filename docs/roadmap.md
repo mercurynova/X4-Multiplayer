@@ -136,6 +136,8 @@ SRV §8 where noted.
 
 **Schema change batch (collect, apply once with golden-vector regen), from reviews 2026-10-01:** (a) `PlayerShip` lacks `player_id` (M1-10 currently stamps it into `request_key.Hi`, a hack to remove); (b) general live-settings push message (M1-05 follow-up 2); (c) `OnFootState` (ADR-046, M3b); (d) extension list in `ClientHello` (ADR-044 phase 1, if not already present). One task updates the `.fbs` files, `protocol.md` §20 and golden vectors, then fixes the C#/C++ users.
 
+**Follow-up from M1-08 review (2026-10-01):** replication keeps only one tick's frames in flight per client and skips ticks until the previous one is flushed. On TCP over a high-latency link (VPN/internet, ~100 ms RTT) that caps updates at ~1/RTT (≈10 Hz), below the Near 20 Hz target. M1-09 (UDP, ack-driven) must replace this; if UDP slips, allow N frames in flight on TCP with per-frame baselines.
+
 ### 3.6 Mod net core (headless, parallel track)
 
 | ID | Title | Deps | Acceptance criteria | Size |
