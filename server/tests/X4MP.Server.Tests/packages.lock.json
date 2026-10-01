@@ -117,12 +117,14 @@
       "x4mp.persistence": {
         "type": "Project",
         "dependencies": {
-          "X4MP.Core": "[1.0.0, )",
-          "X4MP.Transport": "[1.0.0, )"
+          "X4MP.Core": "[1.0.0, )"
         }
       },
       "x4mp.protocol": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Google.FlatBuffers": "[25.2.10, )"
+        }
       },
       "x4mp.transport": {
         "type": "Project",
@@ -130,6 +132,12 @@
           "X4MP.Core": "[1.0.0, )",
           "X4MP.Protocol": "[1.0.0, )"
         }
+      },
+      "Google.FlatBuffers": {
+        "type": "CentralTransitive",
+        "requested": "[25.2.10, )",
+        "resolved": "25.2.10",
+        "contentHash": "z3ykbSRsy6oqMzeZ84a+K8rnMJ/ysVikar8r2yUhHz0HSxIjBpj53mZvpu6LjLEm5fLLWQsCdelJwL1nu7lloA=="
       }
     }
   }
