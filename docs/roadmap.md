@@ -201,6 +201,31 @@ Session 2 needs the native DLL from M2 work (S5, S6, V07; see
 | R7 | `GetExtensionList()` in the start menu: `personal`/`isworkshop` values for user-folder and Workshop mods; `GetModifiedBasegameUIFilesExtensions()` names vs ids (V28) | Fields documented in mod-management §1.3 | Native folder scan decides `source` |
 | R8 | `C.OpenWebBrowser` with Nexus https, Workshop https and `steam://url/CommunityFilePage/<id>` (V29) | Each opens something usable | Show URL text only |
 
+### 4.2 Session 2: on-foot presence block S10 (ADR-046)
+
+The full procedures are in [research/on-foot-presence.md](research/on-foot-presence.md) §6. Most
+of S10 needs no native DLL and one PC. A "mirror actor" replays your own walk 3 s later to stand
+in for a remote player. If time is short, run S10.1, S10.3, S10.4, S10.11, S10.12, S10.14, S10.7
+and S10.8 first.
+
+| ID | Experiment | Pass criterion | If it fails |
+|---|---|---|---|
+| S10.1 | Read on-foot state: container, room, room-local position and heading, room/transport events | Container and room resolve everywhere. Position matches MD within 1 cm. `changed_room` fires within 1 frame | MD `player.room`/`relativeposition` via the shim at 10 Hz |
+| S10.2 | Room-key determinism across revisit, reload and (optionally) a second PC | Identical room keys per station | Key on roomtype+macro; accept F2 approximation |
+| S10.3 | Spawn an MP character (`create_cue_actor macro=player.entity.macro`, name, team owner) | Visible, right look, name and title shown, survives 5 min | `<select race tags>` fallback look |
+| S10.4 | Movement modes: teleport 5 Hz / `start_actor_walk` 2–4 Hz / `SetPositionalOffset` per frame | One mode with walk animation, rated ≥ 4/5, p95 error < 1 m | Best available mode; F2 slot mode |
+| S10.5 | Facing and emotes | Yaw ±15°. ≥ 2 body gestures and ≥ 1 face emote | Wave as notification only |
+| S10.6 | Room transitions, transporter, interior teardown, capital-ship bridge | Clean re-placement; 0 leftover actors after `interiors_despawning` | Despawn on unknown rooms; ships out of scope |
+| S10.7 | Talk → custom conversation choices + `open_conversation_menu` | Choices render and dispatch; vanilla comm suppressed | Own menu on a key |
+| S10.8 | Cost of 8 walking actors; save strip, janitor, `temporary` trait | < 0.5 ms/frame; 0 actors after reload | Snap mode; janitor only |
+| S10.9 | Catalogue progress-gated interiors on 5 stations | Info | — |
+| S10.10 | (optional, 2 PCs, M3 build) two-player walk | Right room, < 1 m error, no leftovers | Fallbacks |
+| S10.11 | Create the MP lounge (vanilla corridor + room macros, fixed door and seed, private) | Created on 2 stations; no errors; vanilla interiors unaffected | Other macro/module; reuse a vanilla room |
+| S10.12 | Teleport into and out of the lounge; transporter listing; door | In/out works; listing and door reported | MD teleport only |
+| S10.13 | Lounge slot positions identical across reloads | Identical room-local offsets | Slot snapping |
+| S10.14 | Lounge save safety, incl. loading without the mod | Saves load without the mod; janitor removes the orphan lounge | Always remove lounges before saves |
+| S10.15 | Actors + Talk inside the lounge | As S10.4/S10.7; seats work | Snap mode |
+
 ## 5. Post-v1 backlog (from user decisions 2026-10-01)
 
 - **Shared story/unlocks (ADR-037):** `StoryState`/`UnlockEvent` protocol messages, authority-side unlock capture, client-side apply, join-time snapshot, per-team mission progress. Target M5–M6, depending on S9.
