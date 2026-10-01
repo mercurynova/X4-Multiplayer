@@ -1,10 +1,10 @@
 // X4MP wire protocol -- teams, factions, relations, session settings.
 // Domain model: server-design.md 2.13. Spec: protocol.md section 14.
 //
-// Faction mapping is PER VIEWER and done by the mod, never on the wire:
-//   own team            -> the game's "player" faction
-//   any other team k    -> "x4mp_team_<faction_slot>"
-// The wire only carries team_id / faction_slot. NPC factions travel as owner_ref strings.
+// Faction mapping is SYMMETRIC (ADR-014) and done by the mod, never on the wire:
+//   team with faction_slot k (1..8)  -> faction "x4mp_team_<k>" on EVERY node (authority included)
+//   the game's "player" faction owns only the local human's own avatar
+// The wire only carries team_id / faction_slot (0 = none). NPC factions travel as owner_ref strings.
 include "common.fbs";
 
 namespace X4MP.Proto;
@@ -19,6 +19,7 @@ enum CreditMode : ubyte { Auto = 0, PerPlayer, Shared }
 enum EffectiveCreditMode : ubyte { PerPlayer = 0, Shared }
 enum PoolWithdrawPolicy : ubyte { AnyMember = 0, LeaderOnly, Disabled }
 /// Who a player-to-player economy action may target.
+/// Allied = the sender's own team OR an Allied team (ADR-020). Defaults: donate/loan Teammates, trade Allied.
 enum EconomyScope : ubyte { Off = 0, Teammates, Allied, Anyone }
 /// Who may change inter-team relations at runtime (admins always can).
 enum RelationChangePolicy : ubyte { AdminOnly = 0, LeadersMutualAlly, LeadersUnilateral }
@@ -29,7 +30,7 @@ table TeamInfo {
   team_id:ushort;
   name:string;                   // 1..24 chars, unique per session
   color_rgb:uint;                // 0xRRGGBB
-  faction_slot:ubyte;            // 0..MaxFactionSlots-1 -> x4mp_team_<slot>
+  faction_slot:ubyte;            // 1..8 -> faction x4mp_team_<slot> on every node (ADR-014); 0 = none
   leader_player:ushort;          // 0 = none
   locked:bool;
   max_members:ushort;            // 0 = unlimited
@@ -60,7 +61,7 @@ table TeamPolicy {
   join_mode:TeamJoinMode;
   auto_assign:AutoAssignStrategy;
   allow_create_in_lobby:bool;
-  allow_self_team_change:bool;   // mid-session TeamChangeRequest permitted
+  allow_self_team_change:bool = false;   // mid-session TeamChangeRequest permitted (default off, ADR-020)
   max_teams:ubyte;
   asset_policy:TeamAssetPolicy;
   allow_friendly_fire:bool;
@@ -79,7 +80,7 @@ table EconomySettings {
   allow_allied_transfers:bool;           // teammate transfer extended to Allied teams
   donate_scope:EconomyScope = Teammates;
   loan_scope:EconomyScope = Teammates;
-  trade_scope:EconomyScope = Teammates;
+  trade_scope:EconomyScope = Allied;
   trade_ships_enabled:bool = true;
   trade_stations_enabled:bool;           // later
   max_open_trades_per_player:ubyte = 5;
