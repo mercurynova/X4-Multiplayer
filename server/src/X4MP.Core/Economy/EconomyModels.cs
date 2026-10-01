@@ -127,13 +127,15 @@ public sealed record EconomyCommit(
     EconomyRequestRecord? Request,
     (int PlayerId, ulong Seq)? DeltaSeq,
     EconomyLayout? Layout,
-    DateTimeOffset At);
+    DateTimeOffset At,
+    IReadOnlyList<LoanRecord>? Loans = null);
 
 /// <summary>What <see cref="IEconomyStore.Load"/> returns.</summary>
 public sealed record EconomyLoad(
     IReadOnlyList<WalletState> Wallets,
     IReadOnlyDictionary<int, ulong> DeltaSeqs,
-    EconomyLayout Layout);
+    EconomyLayout Layout,
+    IReadOnlyList<LoanRecord>? Loans = null);
 
 /// <summary>The store's own view of the ledger, for the auditor. Computed from the persisted rows, not from the cache.</summary>
 public sealed record LedgerAuditData(

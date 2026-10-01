@@ -76,6 +76,9 @@ public sealed record PostRequest
 
     /// <summary>Highest <c>CreditDelta.seq</c> of a sending node covered by this posting.</summary>
     public (int PlayerId, ulong Seq)? DeltaSeq { get; init; }
+
+    /// <summary>Loan rows (new or changed) persisted atomically with the transaction. A posting may carry only loans (no entries).</summary>
+    public IReadOnlyList<LoanRecord>? Loans { get; init; }
 }
 
 /// <summary>The result of a posting. A replay carries the identical outcome with <see cref="Replayed"/> set.</summary>
@@ -120,6 +123,7 @@ public sealed class EconomyLedger
     private readonly IEventPublisher? _events;
     private readonly Dictionary<WalletId, WalletState> _wallets = [];
     private readonly Dictionary<int, ulong> _deltaSeqs = [];
+    private readonly Dictionary<long, LoanRecord> _loans = [];
     private readonly Ulid _ulid = new();
     private EconomyLayout _layout = new(null, new Dictionary<int, int?>());
 
@@ -145,6 +149,14 @@ public sealed class EconomyLedger
 
     public IReadOnlyCollection<WalletState> Wallets => _wallets.Values;
 
+    /// <summary>Every loan of the session (open and closed), as committed.</summary>
+    public IReadOnlyCollection<LoanRecord> Loans => _loans.Values;
+
+    /// <summary>Raised after a posting that carried loans is committed and cached: (loan after, loan before or null). Not raised for replays.</summary>
+    public event Action<LoanRecord, LoanRecord?>? LoanCommitted;
+
+    public LoanRecord? FindLoan(long id) => _loans.GetValueOrDefault(id);
+
     /// <summary>Loads the persisted wallets, delta sequences and layout. Call once, before the first posting.</summary>
     public void Load()
     {
@@ -162,6 +174,11 @@ public sealed class EconomyLedger
         }
 
         _layout = loaded.Layout;
+        _loans.Clear();
+        foreach (var loan in loaded.Loans ?? [])
+        {
+            _loans[loan.Id] = loan;
+        }
     }
 
     /// <summary>The wallet, or null if nothing was ever booked to it.</summary>
@@ -222,7 +239,7 @@ public sealed class EconomyLedger
                 return invalid;
             }
         }
-        else if (request.Layout is null && request.DeltaSeq is null)
+        else if (request.Layout is null && request.DeltaSeq is null && request.Loans is null)
         {
             return PostOutcome.Reject(PostReject.InvalidEntries, "empty posting");
         }
@@ -273,7 +290,7 @@ public sealed class EconomyLedger
         var layout = request.Layout;
         try
         {
-            _store.Commit(new EconomyCommit(SessionId, transaction, changed, record, request.DeltaSeq, layout, now));
+            _store.Commit(new EconomyCommit(SessionId, transaction, changed, record, request.DeltaSeq, layout, now, request.Loans));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -301,6 +318,18 @@ public sealed class EconomyLedger
         for (var i = 0; i < changed.Count; i++)
         {
             PublishOverdraft(changed[i], wasOverdrawn[i], now);
+        }
+
+        var committedLoans = new List<(LoanRecord New, LoanRecord? Old)>();
+        foreach (var loan in request.Loans ?? [])
+        {
+            committedLoans.Add((loan, _loans.GetValueOrDefault(loan.Id)));
+            _loans[loan.Id] = loan;
+        }
+
+        foreach (var (loan, old) in committedLoans)
+        {
+            LoanCommitted?.Invoke(loan, old);
         }
 
         return outcome;

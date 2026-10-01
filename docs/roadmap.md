@@ -336,6 +336,25 @@ Open: `ApplyPresetAsync` does not yet guard the authority's membership while Run
   Suggest adding `SameWallet`/`RequestIdReuse` to `EconomyReject` in the next schema wave.
 - Rejected requests are not stored (only committed ones are), so a replay of a rejection is re-evaluated.
 - `EconomyModule` requires session phase Running (else `SessionNotRunning`); the wire `EconomyResult.ref_id` is the request key.
+### Implementation notes: M1-E4 (loans)
+
+- Code: `EconomyService.Loans.cs` (offer, respond, repay, forgive, withdraw, admin forgive/cancel, `ProcessLoanTimers`, `AuditLoans`),
+  `EconomyModule.Loans.cs` (wire requests, `LoanStatus`, `ServerNotice`, 1 s timer throttle), `LoanModels.cs` (`LoanRecord`, `LoanState`,
+  `LoanResult`, `LoanStateChanged` event, `LoanIncomeSplitter`). Migration `0005_loans.sql`.
+- A loan row is written in the same SQLite transaction as the ledger posting that changes it (`PostRequest.Loans` -> `EconomyCommit.Loans`);
+  a posting may carry only loans (forgive, overdue). The ledger caches loans and raises `LoanCommitted`; the service turns that into the
+  `LoanStateChanged` event, `LoanChanged` callback (status frames, notices) for every path, including auto-repay.
+- Escrow wallet owner id is `2^40 + loanId` (`LoanWallets.Escrow`): **M1-E5 must keep trade escrows out of that range** (e.g. plain trade ids).
+- Wire mapping: loan id on the wire is `Id128{lo = id, hi = 0}`; `EconomyResult.ref_id` of loan requests is that id (not the request key).
+  Lender withdraw (`Withdrawn`) shows as `Cancelled` (wire `LoanState` has no Withdrawn). Same-wallet (Shared mode, one team) maps to
+  `NotApplicableInSharedMode`, a non-lender/borrower to `NotParty`, a reused key to `AmountInvalid` (as in M1-E3). No `GameTime` due in v1.
+- Auto-repay rides in the `GameIncome` transaction (extra entries to the lender wallets, merged per wallet, oldest loan first), so there is
+  no separate `LoanAutoRepay` transaction. Refunds (decline, withdraw, expiry, cancel) ignore wallet freezes; a frozen economy postpones the timers.
+- New settings: `LoanScope` (Teammates), `MaxOpenLoansPerPlayer` (5), `MaxLoanPrincipal`, `MaxLoanInterestBp` (5000), `OfferDefaultTtlMinutes` (30);
+  `LoanScope` and `MaxOpenLoansPerPlayer` are pushed in `EconomySettings`.
+- Admin cancel of an Active loan closes it without reversing the disbursement (`reverseDisbursement` waits for the M1-E6 reversal action).
+- Overdue only flags (ADR-040): no penalty, repayment still works; the module runs the timers at most once a second.
+
 ## M1-T4 implementation notes (AssetPermissionPolicy)
 
 - `X4MP.Core/Permissions`: `AssetPermissionPolicy` (pure, table-tested) and `AssetPermissionGate` (looks up sender team/leader, mirror owners, positions, relations). `RelayModule.AssetPermissions` runs it in `OnIntent` after the interest check and before custom validators; `AddRelay()` wires it when a Teams module is registered (no teams = no enforcement).
