@@ -140,3 +140,31 @@ powershell -ExecutionPolicy Bypass -File tools\check-env.ps1
 Then open the folder in Claude Code. It reads `CLAUDE.md` for project context.
 **Claude's memory is per-machine**, so anything important must live in the repo
 (`CLAUDE.md`, `docs/`), not only in memory.
+
+---
+
+## 10. CI (GitHub Actions)
+
+The repo is private with limited Actions minutes, so CI is path-gated and lean
+(`.github/workflows/ci.yml`; Windows minutes bill 2x). A docs-only change runs only the
+tiny `changes` job. Run the same commands locally before pushing.
+
+| Job | Runs on | When | What |
+|---|---|---|---|
+| `web` | ubuntu | `server/web/**` changed | `npm ci`, lint, typecheck, test, build |
+| `dotnet` | ubuntu | `server/**`, `tools/X4MP.*/**`, `tools/flatc/**`, `protocol/**`, `Directory.*.props`, `global.json` | fetch flatc, `dotnet restore --locked-mode`, build `-warnaserror -p:SkipWebBuild=true`, test |
+| `dotnet` (windows) | windows | same paths, **push to main only** | same as above |
+| `protocol-cpp` | windows | `protocol/**`, `tools/flatc/**` | `protocol/cpp/build.ps1` (vcpkg, Catch2, golden vectors) |
+| `mod` | windows | `mod/**` (not `mod/spikes/**`), `protocol/**`, `tools/flatc/**` | `mod/build.ps1` (build, core tests, raw-remove guard, packaging check) |
+| `mod-lint` | ubuntu | same as `mod` | XML well-formedness of `mod/extension/**`; luacheck only if `.lua` files exist |
+| `e2e-smoke` | ubuntu | push to main, or `server/**` changed | publish linux-x64, start with a temp data dir, curl `/healthz` and `/players`, stop |
+
+Everything runs when `ci.yml` itself changes or on manual dispatch. Newer pushes to the same
+ref cancel older runs. Test results and logs upload only on failure. Caches: NuGet, npm,
+`tools/flatc/bin` (keyed on `flatc.lock.json`) and the vcpkg binary cache.
+
+Other workflows: `codeql.yml` (C#, JS/TS; weekly and on push to main only; needs GitHub
+Advanced Security on a private repo; set the repo variable `CODEQL_DISABLED=true` to turn it
+off), `release.yml` (tags `v*`: server exes, mod zip, `SHA256SUMS`, draft release) and
+`dependabot.yml` (weekly, minor/patch grouped; `Google.FlatBuffers` is ignored because it must
+move together with flatc, ADR-041).

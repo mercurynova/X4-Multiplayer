@@ -1,0 +1,129 @@
+# Release skeleton (M0-16): on a `v*` tag, build the win-x64 and linux-x64 single-file servers and the mod
+# package, write SHA256SUMS and create a DRAFT GitHub release. Not run on any PR; first real use is the
+# first tag. TODO: README-server.md, appsettings.json in the server zips, SBOM (CycloneDX) per
+# server-design 7.2.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  server:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/web/package-lock.json
+      - name: Fetch flatc (Linux)
+        if: runner.os == 'Linux'
+        run: tools/flatc/fetch-flatc.sh
+      - name: Fetch flatc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/flatc/fetch-flatc.ps1
+      # Release configuration builds the web GUI (npm ci + npm run build) and embeds it.
+      - run: dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=${{ matrix.rid }}
+      - name: Package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "out/${{ matrix.rid }}/*" -DestinationPath "dist/x4mp-server-$tag-${{ matrix.rid }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.rid }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  mod:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-archives
+          key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
+          restore-keys: vcpkg-mod-${{ runner.os }}-
+      - name: Create vcpkg cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+      - run: powershell -NoProfile -File mod/build.ps1 -Config release
+      - name: Package mod
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $x4n = 'mod/third_party/x4native/v9.0.0-611726'
+          $root = "pkg/x4mp-mod-$tag"
+          # Same layout as mod/tools/deploy.ps1: unzip into <X4>\extensions\ (Protected UI Mode must be off).
+          $ext = "$root/extensions/x4mp"
+          New-Item -ItemType Directory -Force "$ext/native" | Out-Null
+          Copy-Item -Recurse -Force mod/extension/x4mp/* $ext
+          Copy-Item mod/build/msvc-x64-release/x4mp.dll "$ext/native/x4mp.dll"
+          $n = "$root/extensions/x4native"
+          New-Item -ItemType Directory -Force $n | Out-Null
+          Copy-Item -Recurse -Force "$x4n/x4native/*" $n
+          Copy-Item "$x4n/LICENSE" "$n/LICENSE"
+          Copy-Item "$x4n/VERSION" "$n/VERSION"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "$root/*" -DestinationPath "dist/x4mp-mod-$tag.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mod
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  draft-release:
+    needs: [server, mod]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: dist
+        run: sha256sum ./*.zip | sed 's|\./||' | tee SHA256SUMS
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "${{ github.ref_name }}" dist/* --draft --generate-notes --title "${{ github.ref_name }}"

@@ -1,0 +1,302 @@
+# CI for X4MP (M0-16). Kept LEAN on purpose: the repo is private, so Actions minutes are limited
+# (Windows minutes bill at 2x, macOS is never used). Every heavy job is gated on changed paths,
+# so a docs-only change runs only the tiny `changes` job.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same PR/branch cancels the older run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  VCPKG_DISABLE_METRICS: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # Decide which heavy jobs are needed from the changed files. Plain git + grep (no third-party
+  # action). workflow_dispatch, a new branch push and a changed ci.yml run everything.
+  # ---------------------------------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.f.outputs.web }}
+      dotnet: ${{ steps.f.outputs.dotnet }}
+      protocol_cpp: ${{ steps.f.outputs.protocol_cpp }}
+      mod: ${{ steps.f.outputs.mod }}
+      e2e: ${{ steps.f.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          all=false
+          files=""
+          if [ "$EVENT" = "pull_request" ]; then
+            files="$(git diff --name-only "$PR_BASE...$PR_HEAD")" || all=true
+          elif [ "$EVENT" = "push" ]; then
+            if git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+              files="$(git diff --name-only "$PUSH_BEFORE" "$PUSH_AFTER")" || all=true
+            else
+              all=true   # new branch or force-push: the before-sha is unknown
+            fi
+          else
+            all=true     # workflow_dispatch
+          fi
+          echo "Changed files:"; echo "$files" | sed 's/^/  /'
+          has() { if echo "$files" | grep -Eq "$1"; then echo true; else echo false; fi; }
+          # A change to ci.yml runs everything, so CI edits are validated by CI.
+          if [ "$(has '^\.github/workflows/ci\.yml$')" = true ]; then all=true; fi
+
+          web=$(has '^server/web/')
+          dotnet=$(has '^(server/|tools/X4MP\.|tools/flatc/|protocol/|Directory\..*\.props$|global\.json$|X4MP\.sln$)')
+          protocol_cpp=$(has '^(protocol/|tools/flatc/)')
+          # mod/spikes/** alone must not trigger the mod job.
+          if echo "$files" | grep -Ev '^mod/spikes/' | grep -Eq '^(mod/|protocol/|tools/flatc/)'; then mod=true; else mod=false; fi
+          e2e=$(has '^server/')
+          if [ "$EVENT" = "push" ]; then e2e=true; fi   # a push to main always smoke-tests the exe
+          if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; fi
+          {
+            echo "web=$web"; echo "dotnet=$dotnet"; echo "protocol_cpp=$protocol_cpp"
+            echo "mod=$mod"; echo "e2e=$e2e"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------------------------
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  # ---------------------------------------------------------------------------------------------
+  # .NET on ubuntu for every relevant change; windows only on push to main (2x billing).
+  # The web build is skipped (-p:SkipWebBuild=true): the server embeds a placeholder page, and the
+  # real GUI is covered by the `web` job and the release build.
+  # ---------------------------------------------------------------------------------------------
+  dotnet:
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/main' && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Fetch flatc (Linux)
+        if: runner.os == 'Linux'
+        run: tools/flatc/fetch-flatc.sh
+      - name: Fetch flatc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/flatc/fetch-flatc.ps1
+      - run: dotnet restore --locked-mode
+      - run: dotnet build -c Release --no-restore -warnaserror -p:SkipWebBuild=true
+      - run: dotnet test -c Release --no-build -p:SkipWebBuild=true --logger "trx;LogFileName=results.trx" --results-directory TestResults
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: TestResults
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------------------------
+  protocol-cpp:
+    needs: changes
+    if: needs.changes.outputs.protocol_cpp == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-archives
+          key: vcpkg-protocol-${{ runner.os }}-${{ hashFiles('protocol/cpp/vcpkg.json') }}
+          restore-keys: vcpkg-protocol-${{ runner.os }}-
+      - name: Create vcpkg cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+      - run: powershell -NoProfile -File protocol/cpp/build.ps1
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-cpp-logs
+          path: protocol/cpp/build/**/Testing/Temporary/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------------------------
+  mod:
+    needs: changes
+    if: needs.changes.outputs.mod == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-archives
+          key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
+          restore-keys: vcpkg-mod-${{ runner.os }}-
+      - name: Create vcpkg cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+      # Builds x4mp.dll, runs the Catch2 tests, the raw-remove guard and the packaging check (all via ctest).
+      - run: powershell -NoProfile -File mod/build.ps1
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-logs
+          path: mod/build/**/Testing/Temporary/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------------------------
+  # Cheap static checks on the extension files (ubuntu, seconds). Runs with the mod job's trigger.
+  # ---------------------------------------------------------------------------------------------
+  mod-lint:
+    needs: changes
+    if: needs.changes.outputs.mod == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: XML well-formedness (mod/extension)
+        run: |
+          python3 -c "import glob, xml.dom.minidom as m; fs = sorted(glob.glob('mod/extension/**/*.xml', recursive=True)); [(print(f), m.parse(f)) for f in fs]; print('well-formed:', len(fs), 'files')"
+      - name: Detect Lua files
+        id: lua
+        run: |
+          if [ -n "$(find mod/extension -name '*.lua' -print -quit)" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No .lua files under mod/extension; skipping luacheck."
+          fi
+      - name: luacheck
+        if: steps.lua.outputs.present == 'true'
+        run: |
+          sudo apt-get install -y --no-install-recommends luarocks >/dev/null
+          sudo luarocks install luacheck >/dev/null
+          luacheck mod/extension --no-color
+
+  # ---------------------------------------------------------------------------------------------
+  # Publish the linux-x64 single-file exe, start it on a temp data dir, probe it, stop it.
+  # ---------------------------------------------------------------------------------------------
+  e2e-smoke:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - run: tools/flatc/fetch-flatc.sh
+      - run: dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=linux-x64 -p:SkipWebBuild=true
+      - name: Smoke test the published server
+        run: |
+          set -u
+          data="$(mktemp -d)"
+          out/linux-x64/x4mp-server --data-dir "$data" > "$RUNNER_TEMP/server.log" 2>&1 &
+          pid=$!
+          ok=false
+          for _ in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:47790/healthz -o "$RUNNER_TEMP/healthz.json"; then ok=true; break; fi
+            kill -0 "$pid" 2>/dev/null || { echo "server exited early"; break; }
+            sleep 1
+          done
+          rc=0
+          if [ "$ok" = true ]; then
+            cat "$RUNNER_TEMP/healthz.json"; echo
+            grep -q '"status":"ok"' "$RUNNER_TEMP/healthz.json" || { echo "healthz is not ok"; rc=1; }
+            # /players is a GUI route today (served by the SPA fallback); it becomes a REST check later.
+            curl -fsS -o /dev/null -w "players: HTTP %{http_code}\n" http://127.0.0.1:47790/players || rc=1
+          else
+            rc=1
+          fi
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          exit "$rc"
+      - name: Upload server log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-server-log
+          path: ${{ runner.temp }}/server.log
+          if-no-files-found: ignore
+          retention-days: 7

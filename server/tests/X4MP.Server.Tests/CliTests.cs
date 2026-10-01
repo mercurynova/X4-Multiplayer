@@ -59,7 +59,7 @@ public class CliTests
     {
         var text = new ServerInfo().DescribeVersion();
         Assert.Contains("x4mp-server 0.1.0", text, StringComparison.Ordinal);
-        Assert.Contains("protocol: 1..1", text, StringComparison.Ordinal);
+        Assert.Contains("protocol: 0.1", text, StringComparison.Ordinal);
         Assert.Contains("build: ", text, StringComparison.Ordinal);
     }
 }
