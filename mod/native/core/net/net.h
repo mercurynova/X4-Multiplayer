@@ -51,6 +51,8 @@ enum class Transport : std::uint8_t { Tcp, Udp };
 
 // DisconnectCode values (common.fbs) the net layer sends or cares about.
 inline constexpr std::uint16_t kDisconnectClientQuit = 1;
+inline constexpr std::uint16_t kDisconnectClientReload = 6;
+inline constexpr std::uint16_t kDisconnectResumeExpired = 19;
 inline constexpr std::uint16_t kDisconnectMalformedMessage = 31;
 inline constexpr std::uint16_t kDisconnectHeartbeatTimeout = 30;
 // True for server Disconnect codes after which reconnecting is pointless (Kicked, Banned, Superseded, the
@@ -98,7 +100,12 @@ struct NetStatus {
   std::uint64_t bytes_in = 0;
   std::uint64_t bytes_out = 0;
   std::uint64_t realtime_dropped_in = 0;    // inbound Realtime frames dropped because the inbox was full
-  std::uint64_t outbox_dropped = 0;         // frames discarded (not connected, or evicted by the outbox cap)
+  std::uint64_t outbox_dropped = 0;         // frames discarded (not connected and not retainable, or evicted by the outbox cap)
+  std::uint32_t control_retained_frames = 0;  // Control frames held for a resume right now (see NetOptions)
+  std::uint64_t control_retained_bytes = 0;
+  std::uint64_t control_retention_overflow = 0;  // Control frames refused because the retention cap was full
+  std::uint64_t control_replayed = 0;       // retained frames sent after a resume (release_outbox(true))
+  std::uint64_t control_discarded_fresh = 0;  // retained frames dropped because the join was fresh (release_outbox(false))
   std::uint64_t write_buffer_bytes = 0;     // currently queued to the socket
 };
 
@@ -124,6 +131,13 @@ class HookContext {
   virtual ~HookContext() = default;
   // Queue a frame for sending (net-thread side; same framing as NetClient::send). False if it cannot be queued.
   virtual bool send(Lane lane, std::uint16_t type, std::span<const std::uint8_t> payload) = 0;
+  // Opens the per-connection send gate (NetOptions::gate_outbox_until_released). Control frames the main thread
+  // queued while the link was down or the handshake was running are held in order; with replay_control they are
+  // sent now (before anything queued later), otherwise they are discarded (a fresh join). Returns how many frames
+  // were replayed / discarded. Call it from the Welcome. A no-op returning 0 if the gate is already open.
+  virtual std::size_t release_outbox(bool replay_control) = 0;
+  // The frame being hooked is handled entirely by the hook: do not queue it to the inbox (bulk save chunks).
+  virtual void consume_frame() = 0;
 };
 
 struct NetOptions {
@@ -137,6 +151,18 @@ struct NetOptions {
   std::int64_t backoff_reset_after_ms = 5000;        // a connection that lasted this long resets the schedule
   int send_buffer_bytes = 0;                         // SO_SNDBUF (0 = system default); a test knob
   std::int64_t poll_timeout_ms = 5;
+  // Reliable-Control retention (M1-N3, roadmap follow-up). Control frames the main thread queues while the link is
+  // down (Connecting / Backoff / Halted) or while the send gate is closed are kept, in order, up to these caps and
+  // replayed after a successful resume. Over a cap the NEW frame is refused and counted
+  // (NetStatus::control_retention_overflow): keeping the oldest prefix keeps the stream in order. Realtime and Bulk
+  // frames are never retained.
+  std::size_t control_retention_bytes = 1u << 20;
+  std::size_t control_retention_frames = 512;
+  // When true every new connection starts with the send gate CLOSED: main-thread frames are held (Control) or
+  // dropped (Realtime/Bulk) until the frame_hook calls HookContext::release_outbox(). Frames sent through
+  // HookContext::send are never gated. The session layer sets this so nothing can precede ClientHello. False (the
+  // default) keeps M1-N2 behaviour: frames flow as soon as the TCP connection is up.
+  bool gate_outbox_until_released = false;
   // Monotonic microseconds. nullptr = steady_clock. Injectable so tests control backoff and heartbeat timing.
   std::function<std::int64_t()> clock;
   // Optional net-thread hook (see header comment). Must not throw.
@@ -175,8 +201,9 @@ class NetClient {
   std::size_t poll_inbox(std::vector<InboundEvent>& out, std::size_t max_events = 256);
 
   // Frames `payload` as (type, lane) and queues it. Non-blocking. The payload must be a complete FlatBuffers
-  // buffer; the net layer does not interpret it. While not connected, queued frames are discarded (counted in
-  // NetStatus::outbox_dropped): a reconnect always starts a new handshake.
+  // buffer; the net layer does not interpret it. While not connected (or gated), Control frames are retained for a
+  // resume (NetOptions::control_retention_*); everything else is discarded and counted in
+  // NetStatus::outbox_dropped.
   SendResult send(Lane lane, std::uint16_t type, std::span<const std::uint8_t> payload);
 
   // Latest published status (never torn). Before the net thread publishes anything: all defaults (Stopped).
@@ -187,6 +214,11 @@ class NetClient {
   // treats any frame other than ClientHello as UnexpectedMessage before the handshake completes, so pings must not
   // start earlier. Reset on every new connection. Answering the server's Pings is always on.
   void enable_heartbeat() noexcept;
+
+  // The Disconnect code of the best-effort goodbye frame stop() sends on a live connection. Default
+  // kDisconnectClientQuit (1); the session layer sets kDisconnectClientReload (6) for a planned extension
+  // unload. Set it before stop().
+  void set_goodbye_code(std::uint16_t code) noexcept;
 
   // Skips the remaining backoff wait / leaves Halted and resets the schedule to 1 s: attempt now.
   void reconnect_now() noexcept;
