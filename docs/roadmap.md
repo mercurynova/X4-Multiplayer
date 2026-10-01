@@ -132,6 +132,8 @@ SRV §8 where noted.
 5. Mod (M1-N3): Control frames queued while briefly disconnected must be kept and replayed after resume (the M1-N2 outbox currently discards them).
 6. Accepted deviation: the authority's resume window equals the 120 s grace (clients keep 60 s).
 
+**Follow-ups from M1-06/07 review (2026-10-01):** (1) `SqliteWorldStore` finds its session through a GUID in `sessions.settings_json`; switch to `ISessionModule.OnSessionBegun(sessionId)` (added by M1-E2 in parallel). (2) `Welcome.max_ghosts` isn't yet set from `InterestOptions.MaxGhosts`; set it in the gateway/actor Welcome path. (3) The module order (Teams first) is pinned by `TeamsHostingTests`; keep it when adding modules.
+
 ### 3.6 Mod net core (headless, parallel track)
 
 | ID | Title | Deps | Acceptance criteria | Size |
