@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Addon registration, same structure as vanilla ui/addons/*/ui.xml (e.g. ego_chatwindow) and as an
+     extension-level ui.xml. Needs Settings > Extensions > Protected UI mode OFF. -->
+<addon name="x4mp_spike">
+  <environment type="menus">
+    <file name="ui/x4mp_spike.lua" />
+  </environment>
+</addon>

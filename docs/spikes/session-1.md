@@ -54,6 +54,15 @@ native DLL and come in session 2.
      **load that save again**. The spike logs the persistence check on load.
 7. Quit X4.
 
+Technical notes (from the built extension, see `mod/spikes/README.md`):
+
+- The whole automatic run takes about 8 minutes after the save loads; step 6 (ghosts) alone is about 3 minutes.
+- Log lines have the form `[X4MP-SPIKE] <step> <PASS|FAIL|INFO|MEASURE> key=value ...`. The log file name given by
+  `-logfile` is created in the X4 user folder shown above. `-debug all` is needed for the MD lines.
+- On the second load (step 6 of "Running it") the extension does not repeat the steps. It prints `VERIFY` lines
+  (V12 variable survival, factions after reload, unlocked sector still known, no leaked ghosts).
+- The extension moves you into a spawned ship at step 5 and back after 15 s.
+
 ## What to send back
 
 - `x4mp_spike.log` (or every line containing `[X4MP-SPIKE]`).
