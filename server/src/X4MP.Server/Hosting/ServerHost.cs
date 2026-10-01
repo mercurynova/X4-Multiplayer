@@ -4,6 +4,7 @@ using Microsoft.Extensions.FileProviders;
 using Serilog;
 using X4MP.Persistence;
 using X4MP.Server.Api;
+using X4MP.Server.Auth;
 using X4MP.Server.Logging;
 
 namespace X4MP.Server.Hosting;
@@ -57,6 +58,7 @@ public static partial class ServerHost
         builder.Services.AddSingleton(new DataDirInfo(dataDir));
         builder.Services.AddHostedService<DatabaseStartup>();
         builder.Services.AddHostedService<StartupBanner>();
+        builder.Services.AddAdminAuth(builder.Configuration); // after DatabaseStartup: the bootstrap needs the migrated schema
 
         var admin = builder.Configuration.GetSection("X4MP:Admin");
         var port = cli.Port ?? admin.GetValue("Port", DefaultHttpPort);
@@ -66,6 +68,7 @@ public static partial class ServerHost
         builder.Services.Configure<JsonOptions>(o => o.SerializerOptions.TypeInfoResolverChain.Insert(0, ApiJsonContext.Default));
 
         var app = builder.Build();
+        app.UseAdminAuth();
         MapWeb(app);
         return app;
     }
