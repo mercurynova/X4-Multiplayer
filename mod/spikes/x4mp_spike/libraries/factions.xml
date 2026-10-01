@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike: test factions x4mp_team_1 .. x4mp_team_8 (SPIKE S1, verifies V01 / V08).
+  Format modelled on the vanilla faction entries (libraries/factions.xml, e.g. id="player" and the DLC
+  diffs extensions/ego_dlc_boron/libraries/factions.xml: <add sel="/factions">).
+  active="0": inert until MD set_faction_active (vanilla does the same for faction "trinity").
+  <color r= g= b= glow=> is allowed by libraries/factions.xsd (complexType "color"), so each team gets its
+  own colour here. libraries/colors.xml additionally maps "faction_<id>" the way vanilla does.
+  Name text refs: page 90444 (t/0001-l044.xml): {90444,N*10+1} name, +2 description, +3 short name, +4 prefix.
+-->
+<diff>
+  <add sel="/factions">
+    <faction id="x4mp_team_1" name="{90444,101}" description="{90444,102}" shortname="{90444,103}" prefixname="{90444,104}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="128" b="0" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+    <faction id="x4mp_team_2" name="{90444,201}" description="{90444,202}" shortname="{90444,203}" prefixname="{90444,204}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="0" g="255" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+    <faction id="x4mp_team_3" name="{90444,301}" description="{90444,302}" shortname="{90444,303}" prefixname="{90444,304}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="255" b="0" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+    <faction id="x4mp_team_4" name="{90444,401}" description="{90444,402}" shortname="{90444,403}" prefixname="{90444,404}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="0" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+    <faction id="x4mp_team_5" name="{90444,501}" description="{90444,502}" shortname="{90444,503}" prefixname="{90444,504}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="255" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+    <faction id="x4mp_team_6" name="{90444,601}" description="{90444,602}" shortname="{90444,603}" prefixname="{90444,604}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="140" g="60" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+    <faction id="x4mp_team_7" name="{90444,701}" description="{90444,702}" shortname="{90444,703}" prefixname="{90444,704}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="0" g="170" b="90" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+    <faction id="x4mp_team_8" name="{90444,801}" description="{90444,802}" shortname="{90444,803}" prefixname="{90444,804}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="105" b="180" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+    </faction>
+  </add>
+</diff>
