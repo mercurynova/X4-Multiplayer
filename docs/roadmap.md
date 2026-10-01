@@ -134,6 +134,8 @@ SRV §8 where noted.
 
 **Follow-ups from M1-06/07 review (2026-10-01):** (1) `SqliteWorldStore` finds its session through a GUID in `sessions.settings_json`; switch to `ISessionModule.OnSessionBegun(sessionId)` (added by M1-E2 in parallel). (2) `Welcome.max_ghosts` isn't yet set from `InterestOptions.MaxGhosts`; set it in the gateway/actor Welcome path. (3) The module order (Teams first) is pinned by `TeamsHostingTests`; keep it when adding modules.
 
+**Schema change batch (collect, apply once with golden-vector regen), from reviews 2026-10-01:** (a) `PlayerShip` lacks `player_id` (M1-10 currently stamps it into `request_key.Hi`, a hack to remove); (b) general live-settings push message (M1-05 follow-up 2); (c) `OnFootState` (ADR-046, M3b); (d) extension list in `ClientHello` (ADR-044 phase 1, if not already present). One task updates the `.fbs` files, `protocol.md` §20 and golden vectors, then fixes the C#/C++ users.
+
 ### 3.6 Mod net core (headless, parallel track)
 
 | ID | Title | Deps | Acceptance criteria | Size |
