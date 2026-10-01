@@ -7,6 +7,7 @@ using X4MP.Server.Api;
 using X4MP.Server.Auth;
 using X4MP.Server.Logging;
 using X4MP.Server.Net;
+using X4MP.Server.Settings;
 
 namespace X4MP.Server.Hosting;
 
@@ -68,9 +69,11 @@ public static partial class ServerHost
             kestrel.Listen(allowRemote ? IPAddress.Any : IPAddress.Loopback, port));
         builder.Services.Configure<JsonOptions>(o => o.SerializerOptions.TypeInfoResolverChain.Insert(0, ApiJsonContext.Default));
         builder.Services.AddNodeNetworking(builder.Configuration);
+        builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();
         app.UseAdminAuth();
+        app.MapSettingsApi();
         MapWeb(app);
         return app;
     }
