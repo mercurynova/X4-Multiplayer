@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net;
+using X4MP.Core.Metrics;
 using X4MP.Core.Net;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -60,6 +61,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         _maxInboundFrameBytes = options.MaxFrameBytes;
         _queue = new SendQueue(SendQueueOptions.From(options), _time, Stats, OnOverflow);
         _slowTimer = _time.CreateTimer(static s => ((SendQueue)s!).CheckSlowConsumer(), _queue, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        ServerMetrics.TrackConnection(this);
         _ = RunWriterAsync();
     }
 
@@ -108,6 +110,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
             return;
         }
 
+        ServerMetrics.RecordDisconnect(reason);
         try
         {
             var final = ControlFrames.Disconnect(reason, detail, expected, retryAfterMs);
@@ -194,6 +197,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         }
 
         TryCompleteInput();
+        ServerMetrics.UntrackConnection(this);
         _completion.TrySetResult();
         _onClosed?.Invoke(this);
     }
@@ -292,7 +296,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
                     var payload = new byte[parsed.PayloadLength];
                     buffer.Slice(FrameCodec.HeaderSize, parsed.PayloadLength).CopyTo(payload);
                     reader.AdvanceTo(buffer.GetPosition(total));
-                    Stats.AddReceived((int)total);
+                    Stats.AddReceived((int)total, parsed.Lane);
                     return new InboundFrame(new Frame(parsed.Type, parsed.Flags, parsed.Lane, payload), _time.GetTimestamp());
                 }
             }
