@@ -42,7 +42,7 @@ flowchart LR
     C_LUA["Lua UI: Join · HUD · Chat · Economy"] --- C_DLL["x4mp.dll<br/>Client pipeline<br/>ghosts · matching · interpolation"]
     C_DLL --- C_X4N["X4Native"]
   end
-  subgraph SRV["x4mp-server (.NET 8, single exe)"]
+  subgraph SRV["x4mp-server (.NET 10, single exe)"]
     GW["NodeGateway<br/>handshake · auth · roles"] --> ACT["SessionActor<br/>teams · ledger · mirror<br/>interest · replication · journal"]
     ACT --> BUS["EventBus"]
     BUS --> DB[("SQLite<br/>x4mp.db")]

@@ -39,7 +39,7 @@ run `gh auth switch -u mercurynova`.
 
 ## Locked product decisions (details in docs/decisions.md)
 - Web dashboard GUI; server-centric relay; Windows-first mod.
-- Server stack: C#/.NET (8 locked; **switch to 10 recommended**, pending user answer),
+- Server stack: C#/.NET 10 (`net10.0`, SDK 10.0.4xx),
   ASP.NET Core + SignalR + SQLite; React/Vite/TS frontend embedded in the exe.
 - Ports: TCP 47780 (control + bulk), UDP 47781 (realtime), HTTP 47790 (GUI + save fallback).
 - Teams: up to 8, factions `x4mp_team_1..8`; players share a faction or are on separate

@@ -65,7 +65,7 @@ for what it *learned*, not for its code.
 
 ## Decisions (locked)
 - **GUI:** web dashboard served by the server (browser, LAN-accessible).
-- **Server stack:** C# / .NET 8 (ASP.NET Core + SignalR for live GUI, SQLite).
+- **Server stack:** C# / .NET 10 (switched from .NET 8 on 2026-10-01; ASP.NET Core + SignalR for live GUI, SQLite).
 - **Platform:** Windows first for the mod; keep the native code portable.
 - **Topology:** server-centric relay; every X4 instance (authority included) is a
   client of the standalone server.

@@ -38,11 +38,9 @@ Checked on this PC on 2026-10-01:
 | flatc | schema codegen | Missing; **fetched automatically** by task M0-02's pinned script |
 | git, gh, Python 3.12 | repo, CI, tooling | OK |
 
-**Decision needed: .NET 8 vs .NET 10.** ADR/PLAN lock .NET 8, but .NET 8 LTS support
-ends **10 Nov 2026**, about 6 weeks from now. .NET 10 is the current LTS (supported to
-Nov 2028), and its runtime is already installed here. Recommendation: **switch to .NET 10**
-(`net10.0`, SDK 10.0.1xx). The designs use nothing .NET 8-specific, so the change only
-touches `global.json`/`Directory.Build.props` and the ADR text.
+**Decided 2026-10-01: .NET 10** (`net10.0`, SDK 10.0.400 pinned, `latestFeature`), because
+.NET 8 support ends 10 Nov 2026. All prerequisites were installed on the dev machine on
+2026-10-01 (SDK 10.0.401, VS 2022 Build Tools + C++ workload with CMake and vcpkg).
 
 Suggested install commands (run by the user, admin rights needed):
 ```
@@ -138,7 +136,7 @@ Report back (≤ 250 words): what was built, files touched, test results (counts
 
 ## 7. Open items for the user
 
-1. Install prerequisites (§2).
-2. .NET 8 → .NET 10? (recommended yes)
+1. ~~Install prerequisites~~ Done on the dev machine (repeat per machine via dev-setup.md).
+2. ~~.NET version~~ Done: .NET 10.
 3. ~~GitHub repo~~ Done: private https://github.com/mercurynova/X4-Multiplayer (2026-10-01).
 4. When to schedule the first in-game spike session (S1/S2/S4/S5, ~1–2 hours of play-testing).
