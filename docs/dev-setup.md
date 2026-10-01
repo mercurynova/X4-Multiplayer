@@ -57,6 +57,18 @@ The exact SDK version is pinned in `global.json` once M0-01 lands. The SDK must 
 Build from a **"Developer PowerShell for VS 2022"** (or run `vcvars64.bat` first) so `cl`
 and the Windows SDK are on PATH.
 
+**Long paths (do this once per machine, admin PowerShell).** vcpkg build trees, especially
+inside agent worktrees under `.claude/worktrees/`, create paths longer than Windows' 260-character
+limit. Without these settings, git can't delete or check out those folders ("Filename too
+long"), and some tools fail to build:
+```
+git config --system core.longpaths true
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force
+```
+The registry change takes effect for newly started programs (sign out/in to be safe). If a
+folder still can't be deleted, use the long-path form:
+`Remove-Item -LiteralPath "\\?\C:\full\path" -Recurse -Force`.
+
 **X4Native** (eg3r, MIT) is **vendored in the repo** at the pinned release
 `v9.0.0-611726` (see `mod-design.md`). Don't install it separately. Its `version_db/`
 folder must ship with the mod, or the MD hooks silently do nothing.
