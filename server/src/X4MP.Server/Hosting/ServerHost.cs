@@ -6,6 +6,7 @@ using X4MP.Persistence;
 using X4MP.Server.Api;
 using X4MP.Server.Auth;
 using X4MP.Server.Logging;
+using X4MP.Server.Net;
 
 namespace X4MP.Server.Hosting;
 
@@ -66,6 +67,7 @@ public static partial class ServerHost
         builder.WebHost.ConfigureKestrel(kestrel =>
             kestrel.Listen(allowRemote ? IPAddress.Any : IPAddress.Loopback, port));
         builder.Services.Configure<JsonOptions>(o => o.SerializerOptions.TypeInfoResolverChain.Insert(0, ApiJsonContext.Default));
+        builder.Services.AddNodeNetworking(builder.Configuration);
 
         var app = builder.Build();
         app.UseAdminAuth();
