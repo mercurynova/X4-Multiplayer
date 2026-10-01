@@ -148,7 +148,7 @@ public sealed partial class NodeGateway
     public async Task HandleAsync(INodeConnection connection, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(connection);
-        var address = NormalizeAddress(connection.RemoteEndPoint);
+        var address = NetAddress.Normalize(connection.RemoteEndPoint);
 
         if (!TryRegister(connection, address))
         {
@@ -170,7 +170,7 @@ public sealed partial class NodeGateway
             return;
         }
 
-        var reader = new NodeFrameReader(connection);
+        var reader = new NodeFrameReader(connection, _options, _time, _bans, _logger);
         connection.MaxInboundFrameBytes = Math.Min(_options.HandshakeMaxFrameBytes, _options.MaxFrameBytes);
 
         var nonce = RandomNumberGenerator.GetBytes(NonceLength);
@@ -247,6 +247,7 @@ public sealed partial class NodeGateway
         }
 
         ushort negotiatedMinor = Math.Min(hello.ProtocolMinor, ProtocolConstants.ProtocolMinor);
+        reader.PeerMinor = hello.ProtocolMinor;
         var authority = _state.Authority;
 
         // 2. Mod version (pinned, else the authority's) and build (strict)
@@ -611,16 +612,6 @@ public sealed partial class NodeGateway
             _tokens -= 1;
             return true;
         }
-    }
-
-    private static IPAddress? NormalizeAddress(EndPoint endPoint)
-    {
-        if (endPoint is not IPEndPoint ip)
-        {
-            return null;
-        }
-
-        return ip.Address.IsIPv4MappedToIPv6 ? ip.Address.MapToIPv4() : ip.Address;
     }
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "conn {ConnectionId}: admitted {Name} (player {PlayerId}) as {Roles}")]
