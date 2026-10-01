@@ -131,7 +131,7 @@ jobs:
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       - name: Fetch flatc (Linux)
         if: runner.os == 'Linux'
-        run: tools/flatc/fetch-flatc.sh
+        run: bash tools/flatc/fetch-flatc.sh
       - name: Fetch flatc (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -266,7 +266,7 @@ jobs:
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
-      - run: tools/flatc/fetch-flatc.sh
+      - run: bash tools/flatc/fetch-flatc.sh
       - run: dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=linux-x64 -p:SkipWebBuild=true
       - name: Smoke test the published server
         run: |

@@ -41,7 +41,7 @@ jobs:
           cache-dependency-path: server/web/package-lock.json
       - name: Fetch flatc (Linux)
         if: runner.os == 'Linux'
-        run: tools/flatc/fetch-flatc.sh
+        run: bash tools/flatc/fetch-flatc.sh
       - name: Fetch flatc (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
