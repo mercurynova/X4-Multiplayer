@@ -90,6 +90,13 @@ public static class DatagramCodec
     public static List<(MsgType Type, int Offset, int Length)> ReadSubMessages(ReadOnlySpan<byte> datagram)
     {
         var result = new List<(MsgType, int, int)>();
+        ReadSubMessages(datagram, result);
+        return result;
+    }
+
+    /// <summary>Like <see cref="ReadSubMessages(ReadOnlySpan{byte})"/> but appends to a caller-owned list (a receive loop reuses one list, no allocation per datagram).</summary>
+    public static void ReadSubMessages(ReadOnlySpan<byte> datagram, List<(MsgType Type, int Offset, int Length)> result)
+    {
         int p = HeaderSize;
         while (p < datagram.Length)
         {
@@ -104,7 +111,6 @@ public static class DatagramCodec
             result.Add((type, p + SubMessageHeaderSize, len));
             p += SubMessageSize(len);
         }
-        return result;
     }
 
     /// <summary>Builds a datagram: header plus padded sub-messages, never exceeding 1200 bytes.</summary>

@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net;
+using System.Threading.Channels;
 using X4MP.Core.Metrics;
 using X4MP.Core.Net;
 using X4MP.Proto;
@@ -39,6 +40,8 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
     private volatile Action<OutboundFrame>? _flushObserver;
     private int _maxInboundFrameBytes;
     private readonly byte[] _headerBuffer = new byte[FrameCodec.HeaderSize]; // single reader
+    private readonly Channel<InboundFrame> _datagramInbound = Channel.CreateBounded<InboundFrame>(
+        new BoundedChannelOptions(2048) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
 
     public PipeNodeConnection(
         IDuplexPipe pipe,
@@ -82,15 +85,60 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         set => Volatile.Write(ref _maxInboundFrameBytes, value);
     }
 
-    public bool CanAcceptRealtime => _queue.CanAcceptRealtime;
+    public bool CanAcceptRealtime => _datagram is not null || _queue.CanAcceptRealtime;
 
     public bool ControlOverSoftCap => _queue.ControlOverSoftCap;
 
     public long QueuedBytes(Lane lane) => _queue.PendingBytes(lane);
 
-    public void AttachDatagramPath(IDatagramPath path) => _datagram = path;
+    public bool RealtimeOverDatagram => _datagram is not null;
 
-    public void SetFlushObserver(Action<OutboundFrame>? observer) => _flushObserver = observer;
+    public void AttachDatagramPath(IDatagramPath path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        path.SetDeliveryObserver(_flushObserver);
+        _datagram = path;
+    }
+
+    public void DetachDatagramPath(IDatagramPath path)
+    {
+        if (ReferenceEquals(_datagram, path))
+        {
+            _datagram = null;
+        }
+
+        path.SetDeliveryObserver(null);
+    }
+
+    public void SetFlushObserver(Action<OutboundFrame>? observer)
+    {
+        _flushObserver = observer;
+        _datagram?.SetDeliveryObserver(observer);
+    }
+
+    /// <summary>
+    /// Hands a frame that arrived in a datagram to the reader loop (<see cref="ReadAsync"/>), which returns it like a TCP frame, so the gateway's
+    /// policy checks and the session see no difference. False when the inbound backlog is full (the frame is dropped; UDP is lossy anyway).
+    /// </summary>
+    public bool EnqueueDatagramFrame(InboundFrame frame)
+    {
+        if (!_datagramInbound.Writer.TryWrite(frame))
+        {
+            return false;
+        }
+
+        Stats.AddReceived(frame.Frame.Payload.Length + FrameCodec.HeaderSize, Lane.Realtime);
+        try
+        {
+            _pipe.Input.CancelPendingRead(); // wake the reader if it waits for TCP bytes
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            // input already completed: the connection is closing
+        }
+
+        return true;
+    }
 
     public SendResult TrySend(OutboundFrame frame)
     {
@@ -261,6 +309,11 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
             if (Volatile.Read(ref _state) != StateOpen)
             {
                 return null;
+            }
+
+            if (_datagramInbound.Reader.TryRead(out var fromDatagram))
+            {
+                return fromDatagram;
             }
 
             ReadResult result;

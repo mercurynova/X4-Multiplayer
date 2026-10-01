@@ -77,6 +77,12 @@ public sealed class LiveNodeStats(string name, Role role)
     public TimeSpan AvgRtt => Pings == 0 ? TimeSpan.Zero : TimeSpan.FromTicks(Interlocked.Read(ref _rttTicks) / Pings);
     public string? LastError { get; private set; }
 
+    /// <summary>"off" (UDP not asked for or not offered), "binding", "bound" or "fallback" (no ack within 3 s: Realtime on TCP).</summary>
+    public string UdpState { get; internal set; } = "off";
+
+    /// <summary>The node's UDP lane (null when it has none).</summary>
+    public UdpRealtimeClient? Udp { get; internal set; }
+
     /// <summary>The receiving half of a client in session mode (null for the authority and for ping-only nodes).</summary>
     public FakeClientSession? Session => _session;
 
@@ -219,6 +225,15 @@ public static partial class LiveRunner
         long verifyErrors = stats.Sum(s => s.VerifyErrors);
         if (o.Verify)
             await WriteVerifySummaryAsync(stats, lines).ConfigureAwait(false);
+        if (o.Udp)
+        {
+            var lanes = stats.Where(s => s.Udp is not null).ToList();
+            await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                $"udp: nodes={stats.Count} bound={stats.Count(s => s.UdpState == "bound")} fallback={stats.Count(s => s.UdpState == "fallback")} " +
+                $"off={stats.Count(s => s.UdpState == "off")} datagrams-rx={lanes.Sum(s => s.Udp!.DatagramsReceived)} datagrams-tx={lanes.Sum(s => s.Udp!.DatagramsSent)} " +
+                $"simulated-drops={lanes.Sum(s => s.Udp!.SimulatedDrops)} rx-loss-max={(lanes.Count == 0 ? 0 : lanes.Max(s => s.Udp!.RxLossPercent)):F1}%")).ConfigureAwait(false);
+        }
+
         long errors = stats.Sum(s => s.Errors) + verifyErrors;
         await lines.WriteAsync($"summary: nodes={stats.Count} joined={stats.Count(s => s.Pings > 0)} errors={errors} pings={stats.Sum(s => s.Pings)} " +
                                $"rtt avg={Ms(Average(stats))} max={Ms(stats.Count == 0 ? TimeSpan.Zero : stats.Max(s => s.MaxRtt))} " +
@@ -297,6 +312,7 @@ public static partial class LiveRunner
             PlayerKey = DeriveKey(o.Seed, plan.Name),
             Password = o.Password,
             RequestedRoles = plan.Role,
+            ClientCaps = o.Udp ? (ulong)Capability.UdpRealtime : 0,
         };
 
         TcpNodeClient client;
@@ -329,6 +345,7 @@ public static partial class LiveRunner
             var link = new NodeLink(client, w.PlayerId);
             using var readerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             link.Start(readerCts.Token);
+            Task? udpBind = StartUdp(o, link, stats, lines, plan.Name, ct);
             try
             {
                 // Against a session actor the node plays its role; against a bare gateway it only keeps the socket alive.
@@ -354,11 +371,55 @@ public static partial class LiveRunner
             {
                 await readerCts.CancelAsync().ConfigureAwait(false);
                 await link.StopAsync().ConfigureAwait(false);
+                if (link.Udp is { } udpLane)
+                    await udpLane.DisposeAsync().ConfigureAwait(false);
+                if (udpBind is not null)
+                    await udpBind.ConfigureAwait(false);
                 client.PongReceived -= stats.RecordRtt;
             }
         }
 
         stats.MarkDisconnected();
+    }
+
+    /// <summary>
+    /// <c>--udp</c>: binds the UDP Realtime lane in the background (UdpHello every 250 ms, 3 s at most). The node keeps working over TCP meanwhile
+    /// and for good when the bind fails (server without UDP, packets that never arrive). Returns the bind task (null when UDP is not used).
+    /// </summary>
+    private static Task? StartUdp(CliOptions o, NodeLink link, LiveNodeStats stats, SynchronizedWriter lines, string name, CancellationToken ct)
+    {
+        if (!o.Udp)
+            return null;
+        var w = link.Client.Welcome;
+        if (w.UdpPort == 0 || (w.NegotiatedCaps & (ulong)Capability.UdpRealtime) == 0)
+        {
+            stats.UdpState = "off";
+            _ = lines.WriteAsync($"[{name}] udp: the server offers no UDP lane (udp_port={w.UdpPort}); Realtime stays on TCP");
+            return null;
+        }
+
+        int seed = BitConverter.ToInt32(DeriveKey(o.Seed, name), 0);
+        var udp = new UdpRealtimeClient(o.Host, w.UdpPort, w.ConnId, w.UdpToken, o.LossPercent / 100.0, seed);
+        udp.FrameReceived = link.DispatchDatagram;
+        link.Udp = udp;
+        stats.Udp = udp;
+        stats.UdpState = "binding";
+        return Task.Run(async () =>
+        {
+            var watch = Stopwatch.StartNew();
+            try
+            {
+                bool bound = await udp.BindAsync(UdpRealtimeClient.BindTimeout, ct).ConfigureAwait(false);
+                stats.UdpState = bound ? "bound" : "fallback";
+                await lines.WriteAsync(bound
+                    ? $"[{name}] udp: bound to :{w.UdpPort} after {watch.ElapsedMilliseconds} ms"
+                    : $"[{name}] udp: no UdpHelloAck within {UdpRealtimeClient.BindTimeout.TotalSeconds:F0} s; Realtime stays on TCP").ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // the run ended while binding
+            }
+        }, CancellationToken.None);
     }
 
     private static async Task ReportLoopAsync(List<LiveNodeStats> stats, LiveRunOptions run, SynchronizedWriter lines, Stopwatch clock, CancellationToken ct)

@@ -27,6 +27,13 @@ public sealed partial class ReplicationModule
     private static readonly Comparison<Candidate> ByPriorityDescending = static (a, b) => b.Priority.CompareTo(a.Priority);
 
     private Candidate[] _candidates = new Candidate[512];
+    private readonly List<long> _ackScratch = new(64);
+
+    /// <summary>Datagram mode: an entry that did not change since it was sent is sent again only after this long without an ack (it was probably lost).</summary>
+    private const double ResendAfterSeconds = 0.25;
+
+    /// <summary>Datagram mode: no new frames while this many entries are unconfirmed (a dead path must not grow the list without bound).</summary>
+    private const int MaxEntriesInFlight = 30000;
 
     private void TickClient(ClientReplication c, long now, ReplicationOptions opt)
     {
@@ -39,7 +46,21 @@ public sealed partial class ReplicationModule
         double dt = Math.Clamp(ToSeconds(now - c.LastTickTs), 0, 1);
         c.LastTickTs = now;
 
-        CommitDelivered(c, now, opt);
+        bool datagram = _transport.UsesDatagram(c.PlayerId);
+        if (datagram != c.Datagram)
+        {
+            SwitchMode(c, datagram);
+        }
+
+        if (datagram)
+        {
+            CommitDatagram(c, now, opt);
+        }
+        else
+        {
+            CommitDelivered(c, now, opt);
+        }
+
         PurgeTombstones(c, now);
         MaybeSendChecksum(c, now, opt);
 
@@ -48,9 +69,17 @@ public sealed partial class ReplicationModule
         double maxCredit = Math.Max(bytesPerSecond * 0.1, opt.MaxFramePayloadBytes + ReplicationMath.FrameOverheadBytes);
         c.Credit = Math.Min(c.Credit + (bytesPerSecond * dt), maxCredit);
 
-        if (c.Pending.Count > 0)
+        if (datagram)
         {
-            Stats.InFlightSkips++; // one tick of frames in flight at a time (protocol.md 10.3, "changed then reverted")
+            if (c.Pending.Count > MaxEntriesInFlight)
+            {
+                Stats.InFlightSkips++; // the path stopped acknowledging anything
+                return;
+            }
+        }
+        else if (c.Pending.Count > 0)
+        {
+            Stats.InFlightSkips++; // TCP: one tick of frames in flight at a time (protocol.md 10.3, "changed then reverted")
             return;
         }
 
@@ -96,6 +125,7 @@ public sealed partial class ReplicationModule
             _candidates = new Candidate[Math.Max(entries.Length, _candidates.Length * 2)];
         }
 
+        bool datagram = c.Datagram;
         bool hasShip = _mirror.TryGetPlayerShip(pid, out var ship);
         long nearUnits = (long)interestOptions.NearRadiusM * 64;
         int count = 0;
@@ -125,6 +155,11 @@ public sealed partial class ReplicationModule
             }
 
             double age = ToSeconds(now - g.LastSentTs);
+            if (datagram && g.InFlight > 0 && e.Version == g.SentVersion && age < ResendAfterSeconds)
+            {
+                continue; // nothing new since the entry that is on its way: wait for its ack before sending it again
+            }
+
             int rate = ReplicationMath.RateHz(interestOptions, tier, e.IsPlayerShip);
             if (!full && !ReplicationMath.IsDue(age, rate))
             {
@@ -132,6 +167,21 @@ public sealed partial class ReplicationModule
             }
 
             var mask = full ? ReplicationMath.FullMask : ReplicationMath.DeltaMask(g.Base, e);
+            if (datagram && !full && g.InFlight > 0 && g.SentMask != ReplicationMask.None)
+            {
+                // "Unacked in flight differs" (protocol.md 10.3): a field equal to the baseline is still sent when a datagram that may yet
+                // arrive carried another value for it (changed, then reverted).
+                var hole = ReplicationMath.DeltaMask(g.Sent, e) & g.SentMask & ~ReplicationMask.Time;
+                if (hole != ReplicationMask.None)
+                {
+                    mask |= hole;
+                    if ((mask & ReplicationMath.Timed) != 0)
+                    {
+                        mask |= ReplicationMask.Time;
+                    }
+                }
+            }
+
             if (mask == ReplicationMask.None)
             {
                 g.BaseVersion = e.Version; // the version moved but nothing visible on the wire changed
@@ -235,6 +285,7 @@ public sealed partial class ReplicationModule
                 Full = cand.Full,
                 PrevSentTs = g.LastSentTs,
                 PrevKeyframeTs = g.LastKeyframeTs,
+                SentTs = now,
                 Entry = entry,
             });
             g.LastSentTs = now;
@@ -281,6 +332,23 @@ public sealed partial class ReplicationModule
             if (c.PendingSinceTs == 0)
             {
                 c.PendingSinceTs = now;
+            }
+
+            if (c.Datagram)
+            {
+                var ghosts = CollectionsMarshal.AsSpan(c.Entries);
+                for (int p = pendingStart; p < c.Pending.Count; p++)
+                {
+                    var pending = c.Pending[p];
+                    if (c.Index.TryGetValue(pending.Entry.NetId, out int index) && ghosts[index].Generation == pending.Generation)
+                    {
+                        ref var g = ref ghosts[index];
+                        g.InFlight++;
+                        g.SentVersion = pending.Version;
+                        g.Sent.Apply(in pending.Entry);
+                        g.SentMask |= pending.Entry.Mask & ~ReplicationMask.Time;
+                    }
+                }
             }
 
             Stats.FramesSent++;
@@ -363,6 +431,148 @@ public sealed partial class ReplicationModule
             c.PendingSinceTs = 0;
             Stats.FramesLost++;
         }
+    }
+
+    /// <summary>
+    /// Datagram mode (protocol.md 10.3, UDP): folds the entries of every acknowledged datagram into the baselines and retires the entries that
+    /// were not acknowledged within the in-flight timeout. Several frames are in flight at once and acks arrive in any order, so:
+    /// <list type="bullet">
+    /// <item>an entry is folded only if it is not older than what the baseline holds (older data never overwrites newer);</item>
+    /// <item>of the acked entries of one ghost in the same batch only the newest is folded: the client may have received them out of order and
+    /// ignored the older one, so the fields only it carried stay "not known to be held" and are simply sent again;</item>
+    /// <item>a timed-out entry changes nothing: the baseline was not advanced, so whatever still differs is sent again by the normal delta
+    /// (and the "in flight differs" rule covers a reverted value until the entry is retired).</item>
+    /// </list>
+    /// </summary>
+    private void CommitDatagram(ClientReplication c, long now, ReplicationOptions opt)
+    {
+        var acked = _ackScratch;
+        acked.Clear();
+        c.DrainAcks(acked);
+        if (c.Pending.Count == 0)
+        {
+            return;
+        }
+
+        long timeout = Seconds(opt.InFlightTimeoutMs / 1000.0);
+        if (acked.Count == 0 && now - c.Pending[0].SentTs <= timeout)
+        {
+            return;
+        }
+
+        acked.Sort();
+        var pending = CollectionsMarshal.AsSpan(c.Pending);
+        var ghosts = CollectionsMarshal.AsSpan(c.Entries);
+        int a = 0;
+        bool anyDone = false;
+        for (int i = 0; i < pending.Length; i++)
+        {
+            ref var p = ref pending[i];
+            while (a < acked.Count && acked[a] < p.FrameSeq)
+            {
+                a++;
+            }
+
+            if (a < acked.Count && acked[a] == p.FrameSeq)
+            {
+                p.State = 1;
+                anyDone = true;
+            }
+            else if (now - p.SentTs > timeout)
+            {
+                p.State = 2;
+                anyDone = true;
+            }
+        }
+
+        if (!anyDone)
+        {
+            return;
+        }
+
+        int batch = ++c.FoldBatch;
+        for (int i = pending.Length - 1; i >= 0; i--)
+        {
+            ref var p = ref pending[i];
+            if (p.State != 1 || !c.Index.TryGetValue(p.Entry.NetId, out int index) || ghosts[index].Generation != p.Generation)
+            {
+                continue;
+            }
+
+            ref var g = ref ghosts[index];
+            if (g.FoldBatch == batch)
+            {
+                continue; // a newer entry of this ghost was acked in the same batch
+            }
+
+            g.FoldBatch = batch;
+            if (p.Version >= g.BaseVersion)
+            {
+                g.Base.Apply(in p.Entry);
+                g.BaseVersion = p.Version;
+                if (p.Full)
+                {
+                    g.NeedsFull = false;
+                }
+            }
+        }
+
+        int kept = 0;
+        long lastLostFrame = 0;
+        for (int i = 0; i < pending.Length; i++)
+        {
+            var p = pending[i];
+            if (p.State == 0)
+            {
+                pending[kept++] = p;
+                continue;
+            }
+
+            if (c.Index.TryGetValue(p.Entry.NetId, out int index) && ghosts[index].Generation == p.Generation)
+            {
+                ref var g = ref ghosts[index];
+                if (g.InFlight > 0 && --g.InFlight == 0)
+                {
+                    g.SentMask = ReplicationMask.None;
+                }
+            }
+
+            if (p.State == 2 && p.FrameSeq != lastLostFrame)
+            {
+                lastLostFrame = p.FrameSeq;
+                Stats.FramesLost++;
+            }
+        }
+
+        c.Pending.RemoveRange(kept, c.Pending.Count - kept);
+        Stats.FramesAcked += acked.Count;
+    }
+
+    /// <summary>
+    /// The client's Realtime lane changed between TCP and UDP. What was in flight on the old path may or may not still arrive, so its ghosts restart
+    /// with a full entry, and the per-field in-flight state starts over.
+    /// </summary>
+    private static void SwitchMode(ClientReplication c, bool datagram)
+    {
+        var ghosts = CollectionsMarshal.AsSpan(c.Entries);
+        foreach (var p in c.Pending)
+        {
+            if (c.Index.TryGetValue(p.Entry.NetId, out int index) && ghosts[index].Generation == p.Generation)
+            {
+                ghosts[index].NeedsFull = true;
+            }
+        }
+
+        c.Pending.Clear();
+        c.PendingSinceTs = 0;
+        for (int i = 0; i < ghosts.Length; i++)
+        {
+            ghosts[i].InFlight = 0;
+            ghosts[i].SentMask = ReplicationMask.None;
+        }
+
+        c.Datagram = datagram;
+        c.SetRecordAcks(datagram);
     }
 
     private static void PurgeTombstones(ClientReplication c, long now)
