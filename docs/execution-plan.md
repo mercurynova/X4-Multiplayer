@@ -58,7 +58,7 @@ winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passi
 - Every Sonnet task runs with `isolation: "worktree"` on branch `task/<ID>-<slug>`.
   Opus reviews it, then merges to `main` (fast-forward or squash). Parallel agents never
   share a working tree.
-- GitHub remote (needed for CI from M0-16): **user decision**: create a private repo
+- GitHub remote: **https://github.com/mercurynova/X4-Multiplayer** (private, `origin`). Implementers do not push; Opus merges and pushes after review.
   (e.g. `x4mp`) and push, or keep it local until M1. CI tasks can be written before a
   remote exists; they just can't run.
 
@@ -140,5 +140,5 @@ Report back (≤ 250 words): what was built, files touched, test results (counts
 
 1. Install prerequisites (§2).
 2. .NET 8 → .NET 10? (recommended yes)
-3. Create a private GitHub repo now, or stay local until M1?
+3. ~~GitHub repo~~ Done: private https://github.com/mercurynova/X4-Multiplayer (2026-10-01).
 4. When to schedule the first in-game spike session (S1/S2/S4/S5, ~1–2 hours of play-testing).
