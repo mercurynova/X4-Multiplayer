@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      nuget-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Google.FlatBuffers must move in lockstep with the pinned flatc (tools/flatc/flatc.lock.json,
+      # ADR-041): bump both together by hand, never via Dependabot.
+      - dependency-name: "Google.FlatBuffers"
+
+  - package-ecosystem: npm
+    directory: "/server/web"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
