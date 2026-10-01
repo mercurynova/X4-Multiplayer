@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
@@ -22,6 +23,7 @@
     <ProjectReference Include="../../src/X4MP.Persistence/X4MP.Persistence.csproj" />
     <ProjectReference Include="../../src/X4MP.Protocol/X4MP.Protocol.csproj" />
     <ProjectReference Include="../../../tools/X4MP.FakeNode/X4MP.FakeNode.csproj" />
+    <ProjectReference Include="../../../tools/X4MP.TsContractGenerator/X4MP.TsContractGenerator.csproj" />
   </ItemGroup>
 
 </Project>
