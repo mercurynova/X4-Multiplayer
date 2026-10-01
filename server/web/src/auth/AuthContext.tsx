@@ -1,19 +1,84 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ApiError, http, postJson } from '../api/http';
+import type { MeDto } from '../generated/generated';
 
 export interface AuthState {
+  /** `loading` until the first `/api/auth/me` answer arrives. */
+  status: 'loading' | 'anonymous' | 'authenticated';
+  me: MeDto | null;
   isAuthenticated: boolean;
-  login: () => void;
-  logout: () => void;
+  mustChangePassword: boolean;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  changePassword: (current: string, next: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
-/** Stub provider: no backend yet (M1-W1 replaces this). */
-export function AuthProvider({ children, initial = false }: { children: ReactNode; initial?: boolean }) {
-  const [isAuthenticated, setAuthenticated] = useState(initial);
+async function fetchMe(): Promise<MeDto | null> {
+  try {
+    return await http<MeDto>('/api/auth/me');
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 401 || e.status === 403)) return null;
+    throw e;
+  }
+}
+
+/**
+ * Session state backed by `/api/auth/me`. Pass `initialMe` (a MeDto or null) to skip the initial request,
+ * which is what tests do.
+ */
+export function AuthProvider({ children, initialMe }: { children: ReactNode; initialMe?: MeDto | null }) {
+  const [me, setMe] = useState<MeDto | null>(initialMe ?? null);
+  const [loading, setLoading] = useState(initialMe === undefined);
+
+  useEffect(() => {
+    if (initialMe !== undefined) return;
+    let cancelled = false;
+    fetchMe()
+      .then((m) => {
+        if (!cancelled) setMe(m);
+      })
+      .catch(() => {
+        if (!cancelled) setMe(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialMe]);
+
+  const login = useCallback(async (username: string, password: string) => {
+    await postJson('/api/auth/login', { username, password });
+    setMe(await fetchMe());
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await postJson('/api/auth/logout');
+    } finally {
+      setMe(null);
+    }
+  }, []);
+
+  const changePassword = useCallback(async (current: string, next: string) => {
+    await postJson('/api/auth/change-password', { current, new: next });
+    setMe(await fetchMe());
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ isAuthenticated, login: () => setAuthenticated(true), logout: () => setAuthenticated(false) }),
-    [isAuthenticated],
+    () => ({
+      status: loading ? 'loading' : me ? 'authenticated' : 'anonymous',
+      me,
+      isAuthenticated: me !== null,
+      mustChangePassword: me?.mustChangePassword ?? false,
+      login,
+      logout,
+      changePassword,
+    }),
+    [loading, me, login, logout, changePassword],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
