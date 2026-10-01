@@ -18,6 +18,7 @@ table ServerHello {
   server_caps:ulong;             // Capability bits enabled on this server
   phase:SessionPhase;
   required_game_build:string;    // authority's build ("900-611726"); empty if no authority yet
+  supported_game_builds:[string];// builds this server accepts (pinned: "900-611726"); client must also equal required_game_build
   required_mod_version:string;   // empty = server does not pin
   extensions_hash:[ubyte];       // authority's extension-set hash; empty if no authority yet
 }
@@ -71,7 +72,7 @@ table Welcome {
   // --- teams (protocol.md section 14) ---
   team_id:ushort;                // 0 = not yet assigned (AwaitingTeam: lobby or admin-assign)
   team_role:TeamRole;
-  faction_slot:ubyte;            // slot of own team; own team is the local "player" faction
+  faction_slot:ubyte;            // 1..8 -> faction x4mp_team_<slot> on every node, symmetric (ADR-014); 0 = none
   teams:TeamTable;               // full roster: teams, slots, colours, members
   relations:TeamRelations;       // full relation matrix
   settings:SessionSettings;      // team policy + economy (CreditMode etc.)

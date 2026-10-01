@@ -18,7 +18,7 @@ table SetSettingCmd { key:string; value:string; }
 
 // Admin-initiated team/economy variants (same effects as the GUI REST calls).
 table AssignTeamCmd { player_id:ushort; team_id:ushort; role:TeamRole; asset_scope:MoveAssetsScope; }
-table CreateTeamCmd { name:string; color_rgb:uint; faction_slot:ubyte; locked:bool; max_members:ushort; }
+table CreateTeamCmd { name:string; color_rgb:uint; faction_slot:ubyte /* 1..8, 0 = auto */; locked:bool; max_members:ushort; }
 table UpdateTeamCmd { team_id:ushort; name:string; color_rgb:uint; leader_player:ushort; locked:bool; max_members:ushort; }
 table DeleteTeamCmd { team_id:ushort; move_members_to:ushort; }
 table SetRelationCmd { team_a:ushort; team_b:ushort; relation:TeamRelation; }
@@ -50,6 +50,8 @@ table AdminResult {
   message:string;
 }
 
+enum FeatureState : ubyte { Unknown = 0, Off, Starting, Ok, Failed }
+
 /// Control lane, every 2 s. N->S. Feeds the GUI dashboard.
 table NodeStats {
   fps:float;
@@ -67,6 +69,8 @@ table NodeStats {
   clock_offset_us:long;
   rtt_ms:float;
   memory_mb:uint;
+  md_hook_state:FeatureState;    // Mission Director hooks (Capability.MdHooks)
+  team_setup_state:FeatureState; // x4mp_team_<slot> factions + relations applied (Capability.TeamFactions)
 }
 
 enum LogLevel : ubyte { Debug = 0, Info, Warn, Error }
