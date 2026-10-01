@@ -246,6 +246,24 @@ save with a PHQ embassy and at least one agent is best; without one, S11.4(a) is
 | S11.6 | Inject a "Teams" tab into `DiplomacyMenu` (wrap `menu.createLeftBar`/`createInfoFrame` via `Menus`; also `require("debug")` for `config.leftBar`) | Tab renders; switching tabs works; no Lua errors | Standalone Team Diplomacy screen only |
 | S11.7 | NPC↔NPC relation change detection (`argon↔teladi` set + restore; `event_faction_relation_changed`, `event_player_relation_changed`) | Events fire with faction ids and value | Authority polls relations every 10 s (`x4n::faction::get_relation`) |
 
+### 4.4 Session 2: per-team HQ and research block S12 (ADR-048)
+
+The full procedures are in [research/team-hq-research.md](research/team-hq-research.md) §6. The
+block is MD + Lua only, so no native DLL is needed, on one PC, in about 30–45 minutes. It needs
+save A (PHQ with research unlocked, ideally one research in progress) and save B (early, no PHQ).
+If time is short, run S12.1, S12.2, S12.3 and S12.6 first.
+
+| ID | Experiment | Pass criterion | If it fails |
+|---|---|---|---|
+| S12.1 | Read research state: `HasResearched` and `IsKnownItem("researchables")` per research ware, `CanResearch()`, `GetHQs("player")`, `player.headquarters`, `$x4ep1_hq_research_unlocked`, `UnlockResearch.state`, active research progress | All readable; completed list matches the vanilla research menu | Read via MD `ware.research.unlocked` only |
+| S12.2 | Grant and revoke via MD (`add_research`/`remove_research`) for teleportation, `research_mod_weapon_mk1`, `research_module_dock`; teleport reason, crafting, scan drops; event; save/reload; cancel refund | Both directions take effect immediately and persist; event and cancel behaviour documented | Grant-only; reconcile via fresh checkpoint on team change |
+| S12.3 | HQ ownership: re-own the PHQ to `x4mp_team_1` and back; `set_faction_headquarters` on a team; spawn HQ-macro stations for `x4mp_team_2` and a second `player` one; `GetHQs` counts | No crash; `player.headquarters`/`GetHQs`/research state documented; team-owned spawn works | Inherited PHQ stays `player`-owned on the authority (ADR-033 exception) |
+| S12.4 | Team HQ as the local player's HQ (player-view): locally re-own a team HQ to `player`, open the vanilla research menu, re-own back | Menu opens with the module, no errors or stray MD | Own Team Research panel only (v1 plan) |
+| S12.5 | `StartResearch` on a team-owned (non-player) research module | Documented (expected: nothing runs) | Confirms server-run timer |
+| S12.6 | Blueprints: read `player.blueprints`, `add_blueprints`, confirm no remove; build a module on a team-faction station without the `player` blueprint | Team construction doesn't need `player` blueprints (or the dependency is documented) | Temporary `player` grant on the authority during team builds |
+| S12.7 | Licences on team factions: `add_licence`/`remove_licence faction=x4mp_team_1`, `haslicence`, `heldlicences` | Both work | Licences mirrored only on local `player` |
+| S12.8 | Encyclopedia reveal: `add_research` + `add_encyclopedia_entry researchables` for a root and a successor | Entries appear with the right state | Own panel shows the full catalogue |
+
 ## 5. Post-v1 backlog (from user decisions 2026-10-01)
 
 - **Shared story/unlocks (ADR-037):** `StoryState`/`UnlockEvent` protocol messages, authority-side unlock capture, client-side apply, join-time snapshot, per-team mission progress. Target M5–M6, depending on S9.
