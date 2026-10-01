@@ -21,7 +21,13 @@ switch (options.Command)
         return 0;
 
     default:
-        // Part 2 wires these to TcpNodeClient + FakeAuthority/FakePlayer once the M1-03 server exists.
-        Console.Error.WriteLine($"fakenode {options.Command.ToString().ToLowerInvariant()}: requires M1-03 server (TCP listener + handshake); not available yet.");
-        return 3;
+        using (var cts = new CancellationTokenSource())
+        {
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true; // finish the summary instead of dying mid-write
+                cts.Cancel();
+            };
+            return await LiveRunner.RunAsync(options, Console.Out, null, cts.Token);
+        }
 }

@@ -161,6 +161,9 @@ public sealed class TcpHarness : NetHarness
 
     public override string Kind => "tcp";
 
+    /// <summary>The ephemeral port the node listener is bound to.</summary>
+    public int Port => _port;
+
     public override NodeListenerBase Listener { get; }
 
     public static async Task<NetHarness> StartAsync(
