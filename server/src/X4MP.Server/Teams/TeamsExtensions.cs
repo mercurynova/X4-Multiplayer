@@ -63,6 +63,8 @@ public static class TeamsExtensions
         MaxTransferAmount = options.MaxSingleTransfer,
         AllowAlliedTransfers = options.AllowAlliedTransfers,
         DonateScope = options.DonateScope,
+        LoanScope = options.LoanScope,
+        MaxOpenLoansPerPlayer = (byte)Math.Clamp(options.MaxOpenLoansPerPlayer, 0, byte.MaxValue),
     };
 }
 
