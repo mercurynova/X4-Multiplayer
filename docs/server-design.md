@@ -10,7 +10,7 @@ Scope: the standalone server process (`server/`), its embedded web admin GUI, th
 FakeNode simulator (`tools/`), and the M0/M1 work to build them. The X4 mod is out of
 scope apart from the contracts the server needs from it.
 
-Locked inputs (from `PLAN.md`): C# / .NET 8, ASP.NET Core + SignalR for the live GUI,
+Locked inputs (from `PLAN.md`): C# / .NET 10 (ADR-001, amended from .NET 8), ASP.NET Core + SignalR for the live GUI,
 SQLite persistence, web dashboard served by the server and reachable on the LAN,
 server-centric relay. Every X4 instance connects to the server. One instance is the
 **authority** and simulates the universe. The others are **clients**. The server never
@@ -37,8 +37,8 @@ answer each of these:
 
 ```
 X4MP/
-├─ global.json                      # pins .NET SDK 8.0.4xx, rollForward: latestFeature
-├─ Directory.Build.props            # net8.0, Nullable, ImplicitUsings, LangVersion latest,
+├─ global.json                      # pins .NET SDK 10.0.400, rollForward: latestFeature
+├─ Directory.Build.props            # net10.0, Nullable, ImplicitUsings, LangVersion latest,
 │                                   # TreatWarningsAsErrors, InvariantGlobalization, Deterministic
 ├─ Directory.Packages.props         # Central Package Management (one version per package)
 ├─ X4MP.sln
@@ -83,10 +83,10 @@ FakeNode -> Protocol (+ Core types for the deterministic sim helpers only)
 
 ### 1.2 Target framework
 
-- All C# projects target `net8.0` (LTS until Nov 2026; plan to retarget to `net10.0` LTS
-  as a separate task once it ships, since that only touches `Directory.Build.props`).
+- All C# projects target `net10.0` (LTS, supported to Nov 2028; switched from .NET 8 on
+  2026-10-01, see ADR-001).
 - `X4MP.Protocol` also targets `netstandard2.1` **only if** the protocol agent wants to
-  reuse it elsewhere. Otherwise `net8.0` only.
+  reuse it elsewhere. Otherwise `net10.0` only.
 - RIDs we publish: `win-x64` (primary) and `linux-x64` (the server is cross-platform even
   though the mod is Windows-first).
 
@@ -160,7 +160,7 @@ Web (`server/web/package.json`):
   placeholder `index.html` that says "GUI not built". The server still runs.
 - Command: `dotnet publish server/src/X4MP.Server -c Release -r win-x64 -o out/win-x64`.
   The result is one `x4mp-server.exe`, expected around 45 to 60 MB compressed.
-- AOT is not used, because SignalR and Dapper are not AOT-friendly in .NET 8.
+- AOT is not used, because SignalR and Dapper are not AOT-friendly (revisit on .NET 10 if startup size matters).
 
 ### 1.5 Runtime modes and CLI
 
@@ -2086,7 +2086,7 @@ deterministically.
 | Load | `X4MP.LoadTests` | 16 clients / 20k entities for 10 min; gates from 2.12; BenchmarkDotNet micro-benchmarks for ingest and replication encode | nightly + manual |
 | Soak | FakeNode swarm, 4 h with `--disconnect-every` and the slow reader | memory growth < 5%, no handle leaks | weekly / pre-release |
 
-Conventions: the tests own `TimeProvider` (a .NET 8 abstraction). `SessionActor`, timers
+Conventions: the tests own `TimeProvider` (built into .NET 8+). `SessionActor`, timers
 and grace periods use an injected `TimeProvider`, so tests use a fake clock and run state
 machines without sleeping.
 
