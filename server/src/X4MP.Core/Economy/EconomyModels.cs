@@ -51,6 +51,7 @@ public enum TxKind : byte
     TeamMove,
     StartingCredits,
     SaveMoney,
+    Transfer,
 }
 
 /// <summary>One signed line of a transaction; <see cref="BalanceAfter"/> is the wallet balance after this line.</summary>

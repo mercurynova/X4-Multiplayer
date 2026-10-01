@@ -71,7 +71,7 @@ public interface IIncomeSplitter
 /// the team pool, mode and team-move migrations with preview/confirm, <c>CreditDelta</c> booking with per-node
 /// <c>seq</c> dedupe, and the overdraft rules. Runs on the actor thread.
 /// </summary>
-public sealed class EconomyService
+public sealed partial class EconomyService
 {
     private readonly EconomyLedger _ledger;
     private readonly IEconomyStore _store;
@@ -81,6 +81,7 @@ public sealed class EconomyService
     private readonly IEventPublisher? _events;
     private readonly Func<SessionPhase> _phase;
     private readonly Func<int, int?> _leaderOf;
+    private readonly EconomyRateLimiter _rate;
     private bool _pendingAlertRaised;
 
     /// <param name="teams">The team directory; null means a single implicit team 1 containing everybody (no team module).</param>
@@ -106,6 +107,7 @@ public sealed class EconomyService
         _events = events;
         _phase = phase ?? (() => SessionPhase.Idle);
         _leaderOf = leaderOf ?? DefaultLeader;
+        _rate = new EconomyRateLimiter(_time);
     }
 
     public EconomyLedger Ledger => _ledger;
@@ -261,6 +263,12 @@ public sealed class EconomyService
 
     public EconomyActionResult PoolDeposit(int playerId, string requestKey, long amount)
     {
+        var hash = PayloadHasher.Hash("PoolDeposit", amount);
+        if (IsStoredRequest(playerId, requestKey))
+        {
+            return Finish(_ledger.Post(Build(TxKind.PoolDeposit, "PoolDeposit", playerId, requestKey, hash, [], null)), LedgerReason.PoolDeposit, requestKey, null);
+        }
+
         var gate = PoolGate(playerId, amount, out var team);
         if (gate is not null)
         {
@@ -280,14 +288,26 @@ public sealed class EconomyService
             PlayerId = playerId,
             RequestId = requestKey,
             RequestType = "PoolDeposit",
-            PayloadHash = PayloadHasher.Hash("PoolDeposit", team, amount),
+            PayloadHash = hash,
             Entries = [new(WalletId.Player(playerId), -amount), new(WalletId.TeamPool(team), amount)],
         });
-        return Finish(outcome, LedgerReason.PoolDeposit, requestKey, null);
+        var result = Finish(outcome, LedgerReason.PoolDeposit, requestKey, null);
+        if (outcome.Ok && !outcome.Replayed)
+        {
+            PublishCompleted("PoolDeposit", playerId, null, amount, outcome, requestKey);
+        }
+
+        return result;
     }
 
     public EconomyActionResult PoolWithdraw(int playerId, string requestKey, long amount)
     {
+        var hash = PayloadHasher.Hash("PoolWithdraw", amount);
+        if (IsStoredRequest(playerId, requestKey))
+        {
+            return Finish(_ledger.Post(Build(TxKind.PoolWithdraw, "PoolWithdraw", playerId, requestKey, hash, [], null)), LedgerReason.PoolWithdraw, requestKey, null);
+        }
+
         var gate = PoolGate(playerId, amount, out var team);
         if (gate is not null)
         {
@@ -303,7 +323,7 @@ public sealed class EconomyService
 
         // A replay must return the stored result even when the daily limit has been used up since.
         var limit = options.PoolWithdrawDailyLimitPerPlayer;
-        if (limit > 0 && _store.FindRequest(_ledger.SessionId, playerId, requestKey) is null)
+        if (limit > 0)
         {
             var used = _store.SumInflow(_ledger.SessionId, TxKind.PoolWithdraw, Actor(playerId), _time.GetUtcNow() - TimeSpan.FromHours(24));
             if (used + amount > limit)
@@ -319,11 +339,20 @@ public sealed class EconomyService
             PlayerId = playerId,
             RequestId = requestKey,
             RequestType = "PoolWithdraw",
-            PayloadHash = PayloadHasher.Hash("PoolWithdraw", team, amount),
+            PayloadHash = hash,
             Entries = [new(WalletId.TeamPool(team), -amount), new(WalletId.Player(playerId), amount)],
         });
-        return Finish(outcome, LedgerReason.PoolWithdraw, requestKey, null);
+        var result = Finish(outcome, LedgerReason.PoolWithdraw, requestKey, null);
+        if (outcome.Ok && !outcome.Replayed)
+        {
+            PublishCompleted("PoolWithdraw", playerId, null, amount, outcome, requestKey);
+        }
+
+        return result;
     }
+
+    private bool IsStoredRequest(int playerId, string requestKey) =>
+        _store.FindRequest(_ledger.SessionId, playerId, requestKey) is not null;
 
     private EconomyActionResult? PoolGate(int playerId, long amount, out int team)
     {
@@ -333,9 +362,14 @@ public sealed class EconomyService
             return EconomyActionResult.Rejected(EconomyReject.EconomyFrozen, _ledger.FreezeReason);
         }
 
-        if (amount <= 0 || amount > _options().MaxSingleTransfer)
+        if (amount <= 0)
         {
             return EconomyActionResult.Rejected(EconomyReject.AmountInvalid);
+        }
+
+        if (amount > _options().MaxSingleTransfer)
+        {
+            return EconomyActionResult.Rejected(EconomyReject.OverMaxAmount);
         }
 
         if (!IsKnown(playerId))
