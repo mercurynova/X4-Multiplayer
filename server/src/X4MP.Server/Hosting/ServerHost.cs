@@ -73,6 +73,7 @@ public static partial class ServerHost
         builder.Services.AddNodeNetworking(builder.Configuration);
         builder.Services.AddServerMetrics();
         builder.Services.AddEventBus();
+        builder.Services.AddSessionActor();
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();

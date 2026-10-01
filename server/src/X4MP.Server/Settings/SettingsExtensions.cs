@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using X4MP.Core.Net;
+using X4MP.Core.Session;
 using X4MP.Core.Settings;
 using X4MP.Persistence;
 using X4MP.Server.Api;
@@ -43,6 +44,7 @@ public static class SettingsExtensions
         services.AddSettingsSection<ReplicationOptions>();
         services.AddSettingsSection<AlertOptions>();
         services.AddSettingsSection<ModManagementOptions>();
+        services.AddSettingsSection<SessionActorOptions>();
     }
 
     /// <summary>
