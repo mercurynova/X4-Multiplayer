@@ -645,7 +645,7 @@ entry := net_id:u32  mask:u8  [fields in bit order]
   - moving ship (POS, VEL, TIME): 25 B;
   - turning ship (adds ROT): 31 B;
   - status-only: 7 B;
-  - full keyframe: 39 B.
+  - full keyframe: 37 B (38 B with an empty EXT block); corrected from 39 B in M0-05, the field layout is authoritative.
 - An entry whose `net_id` is unknown to the client (its spawn has not arrived yet) is
   held for up to 2 s, then dropped.
 - After `EntityDespawn`, the id is tombstoned for 5 s.
@@ -1195,7 +1195,7 @@ Assumptions:
 | Sector (5 Hz) | 340 × 0.40 × 5 × 27 B | ~18.4 KB/s |
 | Adjacent (1 Hz) | 1200 × 0.60 × 1 × 27 B | ~19.4 KB/s |
 | Other players (≥ 2 Hz galaxy-wide, 20 Hz when near) | 7 × ~10 Hz × 27 B | ~1.9 KB/s |
-| Keyframes (every 5 or 15 s, 39 B) | 400/5 + 1200/15 = 160/s × 39 B | ~6.2 KB/s |
+| Keyframes (every 5 or 15 s, 39 B) | 400/5 + 1200/15 = 160/s × 37 B | ~5.9 KB/s |
 | Control (spawns on change, events, chat, wallets, ping) | — | ~2 KB/s |
 | **Total** | | **≈ 58 KB/s ≈ 0.5 Mbit/s** |
 
