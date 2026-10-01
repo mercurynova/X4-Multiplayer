@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\X4MP.Core\X4MP.Core.csproj" />
     <ProjectReference Include="..\X4MP.Transport\X4MP.Transport.csproj" />
     <ProjectReference Include="..\X4MP.Persistence\X4MP.Persistence.csproj" />
