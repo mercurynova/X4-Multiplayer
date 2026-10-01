@@ -82,7 +82,7 @@ folder must ship with the mod, or the MD hooks silently do nothing.
 | Protected UI mode | **OFF** | Settings → Extensions. Without this, X4Native's Lua can't load the DLL. |
 | VC++ 2015–2022 x64 redistributable | installed | `winget install Microsoft.VCRedist.2015+.x64` (the mod DLL may link statically; X4Native needs it) |
 | Mark-of-the-Web | stripped from downloaded mod files | `Get-ChildItem -Recurse <mod dir> \| Unblock-File`. The installer/Check Install will do this (M6). |
-| Third-party mods | **disabled** during dev/testing | Keep `Documents\Egosoft\X4\<steamid>\extensions` empty, or disable those extensions in-game. |
+| Third-party mods | **disabled** during dev/testing, **except** the compatibility pass (below) | Mods come from three places: `<X4 install>\extensions\`, `Documents\Egosoft\X4\extensions\` and the Steam Workshop folder (`<steam library>\steamapps\workshop\content\392160\<id>\`, id `ws_<id>`). Enable state is per profile in `Documents\Egosoft\X4\<steamid>\content.xml`. Disable them in-game (Settings → Extensions) or unsubscribe. `tools/check-env.ps1` lists all three and flags stale `content.xml` entries. |
 | Mod install location | `<X4 install>\extensions\x4mp\` (and vendored `x4native\`) | until the M6 installer exists, the dev build script copies them there |
 
 ### Paths (dev machine; yours may differ)
@@ -93,6 +93,8 @@ folder must ship with the mod, or the MD hooks silently do nothing.
 | User data (saves, config, logs) | `%USERPROFILE%\Documents\Egosoft\X4\<steam-user-id>\` (e.g. `...\X4\<steam-user-id>\`) |
 | Saves | `...\<steam-user-id>\save\*.xml.gz` (load by name **without** `.xml.gz`) |
 | User extensions | `%USERPROFILE%\Documents\Egosoft\X4\extensions\` |
+| Profile extension enable state | `...\<steam-user-id>\content.xml` (`<extension id="..." enabled="true\|false">`) |
+| Steam Workshop mods | `<steam library>\steamapps\workshop\content\392160\<workshop-id>\` (library folders from `steamapps\libraryfolders.vdf`) |
 | Game log (debug) | launch X4 with `-debug all -logfile debuglog.txt` → written to the user data folder |
 
 **OneDrive note:** if Documents is redirected to OneDrive (as on the dev machine:
@@ -103,6 +105,24 @@ Consider pausing OneDrive during sessions.
 
 The mod reads its config from a **file**, not environment variables, because Steam
 relaunches X4 and drops the environment (see `requirements.md` PIT list).
+
+### Compatibility pass (before each mod release)
+
+X4MP depends on no library mod (ADR-043), but many players run them, so each release is
+checked against the two common ones:
+
+- **SirNukes Mod Support APIs**: Steam Workshop 2042901274 or Nexus 503.
+- **kuertee UI Extensions and HUD**: Nexus 552 or Steam Workshop 3477279743, version 9.0.0.x.
+
+Install them into `<X4 install>\extensions\` (or subscribe). Run the self-test and the
+Join/chat test script in four configurations: none, SirNukes only, UIX only, both. For each
+configuration, record the adapter's `source=` value from the
+`X4MP ui: optionsmenu adapter` log line, whether X4Native's Settings → Extensions →
+X4 Multiplayer page still appears, and whether chat round-trips (including a SirNukes
+`/command` when it is installed). Disable both again afterwards.
+
+There is no player-facing install step. The player README says: "Works with or without
+kuertee UI Extensions and SirNukes Mod Support APIs."
 
 ## 6. Local-only folders (not in git): regenerate on each machine
 

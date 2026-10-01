@@ -255,7 +255,7 @@ server sends `Disconnect(HandshakeTimeout)`.
 | Protocol | `major` must be equal. The session uses the lower `minor`. | `ProtocolMismatch` |
 | Mod | Equal to `required_mod_version` if pinned, else to the authority's. `mod_build` is compared in strict mode. | `ModVersionMismatch` |
 | Game build | In `supported_game_builds` (pinned `900-611726`) **and** equal to the authority's `game_build`. Always enforced (ADR-004). | `GameVersionMismatch` |
-| Extensions | `extensions_hash` equal to the authority's. The list is echoed for a diff. This can be downgraded to a warning. | `ExtensionsMismatch` |
+| Extensions | Fast path: `extensions_hash` equal to the authority's. The hash covers enabled DLCs and enabled `Sim`-class extensions only; the client-only library allowlist (`kuerteeUIExtensionsAndHUD`, `ws_3477279743`, `ws_2042901274`, `ws_3514258146`) and `x4native`/`x4mp` are excluded (ADR-043). On a mismatch the server evaluates the full `extensions:[ExtensionInfo]` list against the session `ModPolicy` (Required / Allowed / Blocked, default for unknown mods; [mod-management.md](mod-management.md) §3) and rejects only if the policy is violated. Library differences are info only. The policy's `enforcement` can downgrade a violation to a warning. | `ExtensionsMismatch` + `ModPolicyViolation` detail |
 | Auth | Valid `auth_proof` (when a password is set). Failures are delayed 1 s; limit 5 per minute per IP. | `AuthFailed` |
 | Ban | `SHA-256(player_key)` and source IP not banned | `Banned` |
 | Name | 3–24 chars. The name stays bound to the first key seen with it. | `NameTaken` |
@@ -1146,7 +1146,7 @@ side.
 | 10 | ProtocolMismatch | S | Show `expected` |
 | 11 | ModVersionMismatch | S | Show `expected` |
 | 12 | GameVersionMismatch | S | Show the expected build |
-| 13 | ExtensionsMismatch | S | Show the extension diff |
+| 13 | ExtensionsMismatch | S | Show the structured `ModPolicyViolation` (install / enable / disable / update lists, mod-management.md §3.5) |
 | 14 | AuthFailed | S | Ask for the password again |
 | 15 | SessionFull | S | Retry later |
 | 16 | NameTaken | S | Rename |

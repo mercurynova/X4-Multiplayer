@@ -17,7 +17,40 @@ function Report([string]$area, [string]$item, [bool]$ok, [string]$detail, [strin
     Write-Host ("[{0}] {1,-8} {2,-34} {3}" -f $mark, $area, $item, $detail) -ForegroundColor $color
     if (-not $ok) { $script:fail++; if ($fix) { Write-Host "         fix: $fix" -ForegroundColor DarkGray } }
 }
+function Info([string]$area, [string]$item, [string]$detail) {
+    Write-Host ("[INFO] {0,-8} {1,-34} {2}" -f $area, $item, $detail) -ForegroundColor Cyan
+}
 function Cmd([string]$name) { Get-Command $name -ErrorAction SilentlyContinue }
+# Extension id from <dir>\content.xml (falls back to $fallback).
+function ExtId([string]$dir, [string]$fallback) {
+    $cx = Join-Path $dir "content.xml"
+    if (Test-Path $cx) {
+        try {
+            $head = Get-Content $cx -TotalCount 40 -ErrorAction Stop | Out-String
+            if ($head -match '<content\b[^>]*?\sid="([^"]+)"') { return $Matches[1] }
+        } catch {}
+    }
+    return $fallback
+}
+# Steam library roots: Steam install path from the registry + libraryfolders.vdf entries.
+function SteamLibraries {
+    $roots = @()
+    foreach ($k in @(@("HKCU:\Software\Valve\Steam", "SteamPath"), @("HKLM:\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"), @("HKLM:\SOFTWARE\Valve\Steam", "InstallPath"))) {
+        $v = (Get-ItemProperty $k[0] -Name $k[1] -ErrorAction SilentlyContinue).($k[1])
+        if ($v) { $roots += ($v -replace '/', '\') }
+    }
+    $libs = @()
+    foreach ($r in ($roots | Select-Object -Unique)) {
+        $libs += $r
+        $vdf = Join-Path $r "steamapps\libraryfolders.vdf"
+        if (Test-Path $vdf) {
+            foreach ($line in (Get-Content $vdf -ErrorAction SilentlyContinue)) {
+                if ($line -match '^\s*"path"\s+"([^"]+)"') { $libs += ($Matches[1] -replace '\\\\', '\') }
+            }
+        }
+    }
+    $libs | Where-Object { Test-Path $_ } | ForEach-Object { (Resolve-Path $_).Path.TrimEnd('\') } | Sort-Object -Unique
+}
 
 $root = Split-Path -Parent $PSScriptRoot
 
@@ -73,6 +106,45 @@ $userX4 = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Egosoft\X4"
 $userExt = Join-Path $userX4 "extensions"
 $thirdParty = @(Get-ChildItem $userExt -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @("x4mp", "x4native") })
 Report "game" "no third-party user mods" ($thirdParty.Count -eq 0) $(if ($thirdParty) { ($thirdParty.Name -join ", ") } else { $userExt }) "disable them in-game or move them out while testing"
+
+# Extensions on disk, by source (ids are what the profile content.xml refers to).
+$present = @{}
+if ($hasX4) {
+    foreach ($d in @(Get-ChildItem (Join-Path $X4Dir "extensions") -Directory -ErrorAction SilentlyContinue)) { $present[(ExtId $d.FullName $d.Name)] = "install" }
+    $instMods = @(Get-ChildItem (Join-Path $X4Dir "extensions") -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "ego_*" -and $_.Name -notin @("x4mp", "x4native") })
+    Info "game" "mods in X4 install folder" $(if ($instMods) { ($instMods.Name -join ", ") } else { "none" })
+}
+foreach ($d in @(Get-ChildItem $userExt -Directory -ErrorAction SilentlyContinue)) { $present[(ExtId $d.FullName $d.Name)] = "user" }
+$wsMods = @()
+foreach ($lib in @(SteamLibraries)) {
+    $wsDir = Join-Path $lib "steamapps\workshop\content\392160"
+    foreach ($d in @(Get-ChildItem $wsDir -Directory -ErrorAction SilentlyContinue)) {
+        $id = ExtId $d.FullName ("ws_" + $d.Name)
+        $present[$id] = "workshop"; $present["ws_" + $d.Name] = "workshop"
+        $wsMods += "$id"
+    }
+}
+Info "game" "Steam Workshop mods (392160)" $(if ($wsMods) { "$($wsMods.Count): " + ($wsMods -join ", ") } else { "none (libraries: " + (@(SteamLibraries) -join "; ") + ")" })
+
+# Profile content.xml: enabled entries, and stale entries (enabled but not on disk).
+foreach ($p in @(Get-ChildItem $userX4 -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName "content.xml") })) {
+    $cx = Join-Path $p.FullName "content.xml"
+    $enabled = @()
+    try {
+        $xml = [xml](Get-Content $cx -Raw -ErrorAction Stop)
+        $enabled = @($xml.content.extension | Where-Object { $_.enabled -eq "true" -or $_.enabled -eq "1" } | ForEach-Object { $_.id })
+    } catch {
+        Info "game" "profile $($p.Name) content.xml" "could not parse: $($_.Exception.Message)"
+        continue
+    }
+    $third = @($enabled | Where-Object { $_ -notlike "ego_*" -and $_ -notin @("x4mp", "x4native") })
+    Info "game" "profile $($p.Name): enabled entries" $(if ($enabled) { "$($enabled.Count): " + ($enabled -join ", ") } else { "none" })
+    $live = @($third | Where-Object { $present.ContainsKey($_) })
+    Report "game" "no enabled third-party mods" ($live.Count -eq 0) $(if ($live) { ($live | ForEach-Object { "$_ ($($present[$_]))" }) -join ", " } else { "profile $($p.Name)" }) "disable them in Settings > Extensions while testing"
+    $stale = @($enabled | Where-Object { -not $present.ContainsKey($_) })
+    if ($stale) { Info "game" "stale content.xml entries" ("$($stale.Count) enabled but not on disk (harmless): " + ($stale -join ", ")) }
+}
+
 $saveDirs = @(Get-ChildItem $userX4 -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName "save") })
 Report "game" "user data / saves folder" ($saveDirs.Count -gt 0) $(if ($saveDirs) { ($saveDirs | ForEach-Object { Join-Path $_.FullName "save" }) -join "; " } else { "" }) "launch X4 once"
 Write-Host "         note: Protected UI mode must be OFF (Settings > Extensions); this script can't check it." -ForegroundColor DarkGray

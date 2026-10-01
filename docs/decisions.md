@@ -47,6 +47,9 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
   (`ModVersionMismatch`). `extensions_hash` (enabled DLC + extensions) must match
   (`ExtensionsMismatch`; admin may downgrade to a warning). `RequireSameGameBuild` is
   removed as a setting; it is always on.
+  **Amended 2026-10-01 (ADR-043, ADR-044):** the hash covers enabled DLCs and
+  simulation-affecting extensions only; a client-only library allowlist is excluded, and a
+  hash mismatch is resolved against the session mod policy instead of failing outright.
 - **Consequences:** every X4 patch needs a new X4Native release and a new mod release. The
   supported-build list lives in one constant shared by mod and server (generated from
   `protocol/schema/common.fbs` constants or a shared JSON in `protocol/`).
@@ -511,8 +514,74 @@ NuGet versions equal (`tools/flatc/flatc.lock.json`).
   itself uses for its settings menu, and the spike didn't test it. Menu injection keeps the guarded
   probe-first design (mod-design §7.2). Probe order: `require("debug")`, then native `lua_getupvalue`
   through the X4Native-provided `lua_State`, then the standalone menu. V20 is retested in session 2.
+  (Probe order superseded by ADR-043: UIX accessor first, row append before the standalone menu.)
 - **Destroy:** MD/self-destruct leave wrecks. Use them for kill visuals. Ghost despawn goes through
   the guarded remove.
+
+### ADR-043 Library mods: SirNukes reference only, kuertee UIX optional at runtime (user decision 2026-10-01)
+**Context:** research in [research/library-mods.md](research/library-mods.md). SirNukes Mod
+Support APIs (MIT, ~77k Workshop subscribers, no 9.00 release) and kuertee UI Extensions
+(no license, two content ids, 9.00-compatible) are the two common X4 library mods. Neither
+uses the Lua `debug` library. SirNukes wraps `OptionsMenu.displayOptions` late (after its MD
+`Lua_Loader` Ready), which hides the `config` upvalue, and replaces the chat globals
+`OnlineSendChatMessage` / `OnlineGetChatMessages` / `OnlineGetUserName`.
+**Decision:**
+- **SirNukes: reference only, mandatory coexistence.** We take no dependency. We may
+  reimplement its upvalue-free row-append technique (MIT, attribution if code is copied).
+  X4MP must work with it installed.
+- **UIX: optional, detected at runtime, narrow use.** Only `OptionsMenu.uix_getConfig()`
+  as `config` source 1. Nothing in `content.xml`, no install step, no kHUD or callbacks, no
+  copied code, never redistributed.
+- **Menu (MOD §7.2):** capture `config` at file load; search several vanilla functions
+  (`displayOptions`, `createOptionsFrame`, `displayOption`) and validate the candidate
+  (`optionDefinitions.main` array + numeric `optionsLayer`). Source order: UIX accessor →
+  `require("debug")` → native `lua_getupvalue` → upvalue-free row append → standalone menu.
+  The adapter logs `source=uix|debug|native|append`.
+- **Chat (MOD §7.6):** wrappers capture the *current* global at wrap time, delegate, merge
+  with the previous `OnlineGetChatMessages`, pass `/…` text through, re-wrap on identity
+  change, and unwrap only if the global is still ours. **Join (MOD §7.4):** ignore
+  placeholder `OnlineGetUserName()` values; the Join dialog stays in Lua (never SirNukes'
+  MD Simple Menu, which routes field values through the MD blackboard).
+- **Handshake (PROTO §4.2, MOD §6.4):** `extensions_hash` covers enabled DLCs and
+  simulation-affecting extensions only. A shipped **client-only library allowlist**
+  (`kuerteeUIExtensionsAndHUD`, `ws_3477279743`, `ws_2042901274`, `ws_3514258146`) and
+  `x4native`/`x4mp` are excluded. The full list is still sent; library differences show
+  as info, never `ExtensionsMismatch`.
+- **Testing:** a compatibility pass before each mod release (dev-setup §5) in four
+  configurations: none, SirNukes, UIX, both.
+**Consequences:** amends ADR-004 and ADR-042 (probe order). The allowlist lives in the
+shared constants file. Session-2 retest items in roadmap §4.1.
+
+### ADR-044 Server-side mod management (user decision 2026-10-01)
+**Context:** the user wants the server to track each player's mods at connect, to choose
+which mods a session uses (enable/disable), and to make installing them easy for friends.
+Modded-game support is wanted later. Extension changes need a game restart, so syncing
+must happen before X4 starts. Hosting third-party mods is a licensing and security problem.
+**Decision** (design in [mod-management.md](mod-management.md)):
+- **X4MP never hosts, downloads or installs mods.** Each session mod entry carries optional
+  **source links**: a Nexus page (validated `nexusmods.com/x4foundations/mods/<n>`) and/or a
+  Steam Workshop id (URLs derived). Our GUI, the in-game rejection screen and the launcher
+  only show and open those links.
+- **Phase 1, committed to M1 (server/FakeNode) and M2 (mod):** every node reports its full
+  extension list (`ExtensionInfo`: id, name, version, source, enabled, content hash, DLL /
+  base-game-replacement flags, class hint) at `ClientHello`; the server stores it per player;
+  each session has a mod list/policy (Required / Allowed / Blocked per mod, an enable/disable
+  switch, a default for unknown mods, Strict or Warn); mods are classified `Dlc | Sim |
+  ClientOnly | Unknown` (unknown = sim); rejections carry a structured `ModPolicyViolation`
+  (install / enable / disable / update, with links); "Import from authority" fills the list;
+  the session save's `<patches>` is shown as "required by save"; GUI Sessions → Mods page and
+  a Players → Mods tab.
+- **Phase 2, committed to M6 (launcher):** HTTP session mod manifest; the launcher toggles
+  enable state in the profile `content.xml` **only for mods already installed**, with backup,
+  journal and restore after the session, warns before enabling mods with DLLs or base-game
+  replacements, and opens Workshop/Nexus links for missing mods. It never fetches mods.
+- **Phase 3, backlog:** modded-game support (compatibility classes, authority-only MD for
+  state-changing mods, extension settings sync, saves that require mods, test plan).
+**Consequences:** protocol additions (`ExtensionInfo`, `ModPolicy`, `ModPolicyChanged`,
+`Disconnect.mod_violation`; `ClientHello.extensions:[string]` deprecated) go into an M1
+schema delta. New tables `player_extension_reports`, `session_mod_policy`,
+`session_mod_entries`, `mod_catalog`. Open questions MM1–MM9 in mod-management.md §10 use
+their recommended defaults until the user answers.
 
 ---
 
@@ -550,6 +619,9 @@ unless you say otherwise.
 | Q12, Q13 | Not asked separately; defaults stand. |
 | Q14 | Accepted default (LAN/VPN only). |
 | Q15 | Default for v1, plus later enforcement options (auto-collect, penalties, reputation/diplomacy loss) → ADR-040. |
+
+**Mod management (ADR-044):** open questions MM1–MM9 with recommended defaults are in
+[mod-management.md](mod-management.md) §10.
 
 ---
 
@@ -595,3 +667,6 @@ milestone feature; **P2** is polish/UX. "Fallback" is what we do if the answer i
 | V24 | P2 | `SetOrderParam` param layouts for Attack/MoveTo/DockAt. | API 2.8, MOD 11.6 | Internal `SetOrderParamInternal` |
 | V25 | P2 | `set_faction_identity` runtime rename; licences and docking for team ships at NPC stations; `SetComponentName` on ghosts; `ConvertMoneyString`. | MOD 4.7, 11.10.7-9, 12.9.7 | Placeholder names; own formatter |
 | V26 | P2 | Save copied from another machine loads without warnings/blocks. | API 2.9 | (reference did this over scp) |
+| V27 | P1 | Coexistence with SirNukes Mod Support APIs and kuertee UIX (ADR-043): which `config` source wins; X4Native's Settings → Extensions page still appears with SirNukes; chat round-trip and SirNukes `/command` with our wrappers. | MOD 7.2, 7.6; research/library-mods §4, §6 | Standalone menu; own chat menu |
+| V28 | P1 | Extension-list fields in the start menu (`GetExtensionList()`): meaning of `personal` for user-folder vs Workshop mods; `GetModifiedBasegameUIFilesExtensions()` returns names or ids; whether X4 rewrites the profile `content.xml` on exit. | mod-management 1.2, 1.3 | Native folder scan only; launcher refuses while X4 runs |
+| V29 | P2 | `C.OpenWebBrowser(url)` with https Nexus/Workshop URLs and `steam://` links (overlay vs external browser). | mod-management 3.5 | Show the URL as text |

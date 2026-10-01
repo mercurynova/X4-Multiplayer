@@ -50,6 +50,9 @@ run `gh auth switch -u mercurynova`.
 - Story/universe unlocks are session-global (no team gets extra sectors); story is
   played together per team (ADR-037). Fog of war later (ADR-038). Loan enforcement
   options later (ADR-040).
+- Mods: server tracks each player's mods and a per-session mod list (Required/Allowed/Blocked);
+  X4MP never hosts or installs mods, only links to Nexus/Workshop and toggles enable state
+  (ADR-044, docs/mod-management.md). Library mods: SirNukes reference-only, kuertee UIX optional (ADR-043).
 
 ## Layout
 `docs/` design + knowledge base · `protocol/schema/` FlatBuffers schema ·

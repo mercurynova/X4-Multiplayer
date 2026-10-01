@@ -372,7 +372,9 @@ Retention: events/chat 30 days; unpinned unreferenced saves beyond 10 deleted.
   (ADR-004). Each X4 patch ⇒ new X4Native tag ⇒ new mod release (+ CI check that
   `version_db/internal_functions.json` covers every supported build).
 - **Mod:** `mod_version` + `mod_build` must equal the authority's. **Extensions/DLC:**
-  `extensions_hash` must match (admin can downgrade to warning).
+  `extensions_hash` (DLC + simulation-affecting mods; client-only libraries excluded) must
+  match, else the full list is judged by the session mod policy (ADR-043, ADR-044,
+  `mod-management.md`); admin can downgrade to warning.
 - **Save:** SHA-256 identity; manifest match policy (unmatched stations ≤ 0.5%).
 - **Server DB:** embedded ordered migrations with `schema_version`, tested from empty and
   from the previous version.
