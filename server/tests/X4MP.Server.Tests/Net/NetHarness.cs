@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using X4MP.Core.Net;
+using X4MP.Core.Session;
 using X4MP.Proto;
 using X4MP.Protocol;
 using X4MP.Server.Net;
@@ -47,14 +48,48 @@ public abstract class NetHarness : IAsyncDisposable
 {
     public abstract string Kind { get; }
 
+    /// <summary>Set when created with <c>withGateway</c>: the gateway under test and its collaborators.</summary>
+    public NodeGateway? Gateway { get; protected set; }
+
+    public GatewayState? State { get; protected set; }
+
+    public InMemoryNodeStore? Store { get; protected set; }
+
+    public NetOptions Options { get; protected set; } = new();
+
     public abstract NodeListenerBase Listener { get; }
 
     public abstract Task<ClientHandle> ConnectAsync(IPAddress? remoteIp = null);
 
     public abstract ValueTask DisposeAsync();
 
-    public static Task<NetHarness> CreateAsync(string kind, NetOptions? options = null, TimeProvider? time = null) =>
-        kind == "tcp" ? TcpHarness.StartAsync(options ?? new NetOptions(), time) : Task.FromResult<NetHarness>(new InProcHarness(options ?? new NetOptions(), time));
+    /// <param name="withGateway">Run a real <see cref="NodeGateway"/> over the listener (in-memory identity stores).</param>
+    /// <param name="store">Identity/ban store for the gateway (default: a fresh <see cref="InMemoryNodeStore"/>).</param>
+    /// <param name="handler">Admission handler factory (default: <see cref="DefaultAdmissionHandler"/>).</param>
+    public static async Task<NetHarness> CreateAsync(
+        string kind, NetOptions? options = null, TimeProvider? time = null, bool withGateway = false,
+        InMemoryNodeStore? store = null, Func<GatewayState, IAdmissionHandler>? handler = null)
+    {
+        options ??= new NetOptions();
+        NetHarness harness;
+        if (kind == "tcp")
+        {
+            harness = await TcpHarness.StartAsync(options, time, withGateway, store, handler).ConfigureAwait(false);
+        }
+        else
+        {
+            var inproc = new InProcHarness(options, time);
+            if (withGateway)
+            {
+                inproc.StartGateway(store ?? new InMemoryNodeStore(), handler);
+            }
+
+            harness = inproc;
+        }
+
+        harness.Options = options;
+        return harness;
+    }
 
     /// <summary>Accepts connections and runs <paramref name="handler"/> for each until disposed.</summary>
     public Task Serve(Func<INodeConnection, Task> handler, CancellationToken ct)
@@ -78,8 +113,18 @@ public abstract class NetHarness : IAsyncDisposable
 public sealed class InProcHarness(NetOptions options, TimeProvider? time) : NetHarness
 {
     private readonly InProcListener _listener = new(options, time);
+    private readonly CancellationTokenSource _stop = new();
+    private Task? _gatewayLoop;
 
     public override string Kind => "inproc";
+
+    public void StartGateway(InMemoryNodeStore store, Func<GatewayState, IAdmissionHandler>? handler)
+    {
+        Store = store;
+        State = GatewayState.FromOptions(options);
+        Gateway = new NodeGateway(options, State, store, store, handler?.Invoke(State), time);
+        _gatewayLoop = Gateway.RunAsync(_listener, _stop.Token);
+    }
 
     public override NodeListenerBase Listener => _listener;
 
@@ -89,7 +134,17 @@ public sealed class InProcHarness(NetOptions options, TimeProvider? time) : NetH
         return Task.FromResult(new ClientHandle(client.GetStream(), client));
     }
 
-    public override ValueTask DisposeAsync() => _listener.DisposeAsync();
+    public override async ValueTask DisposeAsync()
+    {
+        await _stop.CancelAsync();
+        if (_gatewayLoop is not null)
+        {
+            await _gatewayLoop;
+        }
+
+        await _listener.DisposeAsync();
+        _stop.Dispose();
+    }
 }
 
 public sealed class TcpHarness : NetHarness
@@ -108,7 +163,8 @@ public sealed class TcpHarness : NetHarness
 
     public override NodeListenerBase Listener { get; }
 
-    public static async Task<NetHarness> StartAsync(NetOptions options, TimeProvider? time)
+    public static async Task<NetHarness> StartAsync(
+        NetOptions options, TimeProvider? time, bool withGateway, InMemoryNodeStore? store, Func<GatewayState, IAdmissionHandler>? handler)
     {
         int port = FreePort();
         var builder = WebApplication.CreateBuilder();
@@ -117,6 +173,18 @@ public sealed class TcpHarness : NetHarness
         {
             ["X4MP:Net:NodeTcpEndpoint"] = $"127.0.0.1:{port}",
         });
+        InMemoryNodeStore? memory = null;
+        if (withGateway)
+        {
+            memory = store ?? new InMemoryNodeStore();
+            builder.Services.AddSingleton<IPlayerStore>(memory);
+            builder.Services.AddSingleton<IBanStore>(memory);
+            if (handler is not null)
+            {
+                builder.Services.AddSingleton(sp => handler(sp.GetRequiredService<GatewayState>()));
+            }
+        }
+
         builder.Services.AddNodeNetworking(builder.Configuration);
         // Tests tune the options the extension bound (queue caps, frame size...).
         var bound = builder.Services.Single(d => d.ServiceType == typeof(NetOptions)).ImplementationInstance as NetOptions;
@@ -126,9 +194,26 @@ public sealed class TcpHarness : NetHarness
             builder.Services.AddSingleton(time);
         }
 
+        if (!withGateway)
+        {
+            // Transport-only tests consume the listener themselves; keep the gateway out of the way.
+            foreach (var d in builder.Services.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType?.Name == "NodeGatewayService").ToList())
+            {
+                builder.Services.Remove(d);
+            }
+        }
+
         var app = builder.Build();
+        var harness = new TcpHarness(app, port);
+        if (withGateway)
+        {
+            harness.Store = memory;
+            harness.State = app.Services.GetRequiredService<GatewayState>();
+            harness.Gateway = app.Services.GetRequiredService<NodeGateway>();
+        }
+
         await app.StartAsync().ConfigureAwait(false);
-        return new TcpHarness(app, port);
+        return harness;
     }
 
     private static void CopyInto(NetOptions from, NetOptions to)

@@ -6,7 +6,7 @@ namespace X4MP.Core.Net;
 /// Boot-time networking settings (server-design 2.9 NetOptions plus the gateway and send-queue knobs).
 /// Bound from <c>X4MP:Net</c>. Defaults follow ADR-026 and protocol.md section 4.
 /// </summary>
-public sealed class NetOptions
+public sealed record NetOptions
 {
     public const string SectionName = "X4MP:Net";
 
