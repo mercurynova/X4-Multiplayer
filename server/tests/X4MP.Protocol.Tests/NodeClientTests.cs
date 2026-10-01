@@ -250,6 +250,36 @@ public sealed class NodeClientTests
     }
 
     [Fact]
+    public async Task SendPingDoesNotBlockAndItsPongIsReportedWhileTheReceiveLoopRuns()
+    {
+        var (client, _, serverTask) = await Connect(null, null);
+        await using (client)
+        {
+            var rtts = new List<TimeSpan>();
+            client.PongReceived += rtts.Add;
+            await client.SendPingAsync();
+            await client.SendPingAsync();
+
+            // the receive loop (the only reader) swallows Pongs and raises the event; nothing else arrives
+            using var cts = new CancellationTokenSource(Timeout);
+            var received = client.ReceiveAsync(cts.Token);
+            while (true)
+            {
+                int count;
+                lock (rtts)
+                    count = rtts.Count;
+                if (count >= 2)
+                    break;
+                await Task.Delay(10, cts.Token);
+            }
+            Assert.All(rtts, r => Assert.True(r >= TimeSpan.Zero));
+            await cts.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await received);
+        }
+        await serverTask;
+    }
+
+    [Fact]
     public async Task ResumeTokenIsKeptAndReusedOnReconnect()
     {
         var (client, _, serverTask) = await Connect(null, null);

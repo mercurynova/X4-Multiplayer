@@ -24,6 +24,7 @@ public sealed class TcpNodeClient : IAsyncDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly TcpClient? _tcp;
     private uint _pingSeq;
+    private readonly Dictionary<uint, ulong> _pingsInFlight = [];
 
     private TcpNodeClient(Stream stream, NodeClientOptions options, TcpClient? tcp)
     {
@@ -41,6 +42,12 @@ public sealed class TcpNodeClient : IAsyncDisposable
 
     /// <summary>Resume token from the last <c>Welcome</c> (placeholder: the server decides what it means).</summary>
     public Id128T? ResumeToken => Welcome.ResumeToken;
+
+    /// <summary>
+    /// Raised from <see cref="ReceiveAsync"/> (on the reading thread) with the round trip of a ping sent by <see cref="SendPingAsync"/> when
+    /// its Pong arrives. Lets a node that has a receive loop of its own measure RTT without <see cref="PingAsync"/> taking over the reading.
+    /// </summary>
+    public event Action<TimeSpan>? PongReceived;
 
     /// <summary>Local monotonic clock in microseconds (what Ping/Pong carry).</summary>
     public ulong NowUs => (ulong)(_clock.Elapsed.TotalMilliseconds * 1000.0);
@@ -199,7 +206,16 @@ public sealed class TcpNodeClient : IAsyncDisposable
                 continue;
             }
             if (f.Value.Type == MsgType.Pong)
+            {
+                var pong = MessageRegistry.Default.Decode<Pong>(f.Value).UnPack();
+                ulong sent;
+                bool known;
+                lock (_pingsInFlight)
+                    known = _pingsInFlight.Remove(pong.Seq, out sent);
+                if (known)
+                    PongReceived?.Invoke(TimeSpan.FromMicroseconds(NowUs - sent));
                 continue;
+            }
             return f;
         }
     }
@@ -241,6 +257,25 @@ public sealed class TcpNodeClient : IAsyncDisposable
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// Sends a Ping without waiting: its Pong is consumed by <see cref="ReceiveAsync"/> and reported through <see cref="PongReceived"/>.
+    /// Do not mix with <see cref="PingAsync"/> on the same client.
+    /// </summary>
+    public Task SendPingAsync(CancellationToken ct = default)
+    {
+        uint seq;
+        ulong sent = NowUs;
+        lock (_pingsInFlight)
+        {
+            seq = ++_pingSeq;
+            _pingsInFlight[seq] = sent;
+            if (_pingsInFlight.Count > 64)
+                _pingsInFlight.Remove(seq - 64); // an unanswered ping that is long gone
+        }
+        var ping = new PingT { Seq = seq, SendTimeUs = sent };
+        return SendAsync(MsgType.Ping, b => Ping.Pack(b, ping), ct);
     }
 
     /// <summary>Sends <c>Disconnect(ClientQuit)</c> (best effort) and closes the stream.</summary>
