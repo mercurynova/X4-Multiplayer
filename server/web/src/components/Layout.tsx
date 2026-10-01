@@ -3,13 +3,14 @@ import { useAuth } from '../auth/AuthContext';
 import { screens } from '../screens';
 
 export function Layout() {
-  const { logout } = useAuth();
+  const { logout, me } = useAuth();
   return (
     <div className="shell">
       <header className="topbar">
         <strong>X4MP</strong>
         <span className="spacer" />
-        <button type="button" onClick={logout}>
+        <span className="muted">{me?.username}</span>
+        <button type="button" onClick={() => void logout()}>
           Sign out
         </button>
       </header>

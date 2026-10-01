@@ -1,6 +1,17 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router';
+import { ApiError } from '../api/http';
 import { useAuth } from '../auth/AuthContext';
+
+function messageFor(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 401) return 'Invalid username or password.';
+    if (e.status === 429) return 'Too many attempts. Wait a minute and try again.';
+    if (e.status === 403) return 'Access from this network is not allowed.';
+    return e.message;
+  }
+  return 'Could not reach the server.';
+}
 
 export function Login() {
   const { isAuthenticated, login } = useAuth();
@@ -8,14 +19,20 @@ export function Login() {
   const location = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const from = (location.state as { from?: string } | null)?.from ?? '/';
 
   if (isAuthenticated) return <Navigate to={from} replace />;
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    login(); // stub: no backend yet
-    void navigate(from, { replace: true });
+    setBusy(true);
+    setError(null);
+    login(username, password)
+      .then(() => navigate(from, { replace: true }))
+      .catch((err: unknown) => setError(messageFor(err)))
+      .finally(() => setBusy(false));
   };
 
   return (
@@ -36,7 +53,10 @@ export function Login() {
             required
           />
         </label>
-        <button type="submit">Sign in</button>
+        {error && <p role="alert">{error}</p>}
+        <button type="submit" disabled={busy}>
+          Sign in
+        </button>
       </form>
     </main>
   );
