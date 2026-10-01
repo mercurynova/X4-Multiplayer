@@ -191,20 +191,20 @@ public sealed class SaveAcceptanceTests(ITestOutputHelper output)
         byte[] plain = Encoding.UTF8.GetBytes("this is not a savegame");
         var response = await CompleteUploadAsync(http, plain, announcedSha: Convert.ToHexStringLower(SHA256.HashData(plain)));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal("NotASave", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("error").GetString());
+        Assert.Equal("NotASave", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("code").GetString());
 
         // gzip of something else
         var otherDir = Path.Combine(server.Dir, "scratch");
         var notASave = FakeSaveGenerator.CreateSave(otherDir, 1, 1, 4096, flavor: FakeSaveFlavor.GzipNotASave);
         response = await CompleteUploadAsync(http, File.ReadAllBytes(notASave.Path), notASave.ShaHex);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal("NotASave", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("error").GetString());
+        Assert.Equal("NotASave", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("code").GetString());
 
         // announced hash differs from the content
         var valid = FakeSaveGenerator.CreateSave(otherDir, 1, 2, 64 * 1024);
         response = await CompleteUploadAsync(http, File.ReadAllBytes(valid.Path), new string('0', 64));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal("HashMismatch", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("error").GetString());
+        Assert.Equal("HashMismatch", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("code").GetString());
 
         Assert.Empty(StoredFiles(server));
     }
