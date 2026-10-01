@@ -3,9 +3,26 @@
   <PropertyGroup>
     <AssemblyName>x4mp-server</AssemblyName>
     <RootNamespace>X4MP.Server</RootNamespace>
+    <Version>0.1.0</Version>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <WebDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', 'web'))</WebDir>
+  </PropertyGroup>
+
+  <!-- Single-file, self-contained publish (server-design 1.4). Active whenever a RuntimeIdentifier is given
+       (publish profiles win-x64 / linux-x64, or `dotnet publish -r <rid>`). Not trimmed: SignalR, Dapper and
+       Serilog configuration binding use reflection. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="Serilog.AspNetCore" />
   </ItemGroup>
 
@@ -15,5 +32,48 @@
     <ProjectReference Include="..\X4MP.Persistence\X4MP.Persistence.csproj" />
     <ProjectReference Include="..\X4MP.Protocol\X4MP.Protocol.csproj" />
   </ItemGroup>
+
+  <!-- Build hash for `x4mp-server version` (surfaces in InformationalVersion as +<hash>). -->
+  <Target Name="SetSourceRevisionId" BeforeTargets="InitializeSourceControlInformation" Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse --short=10 HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" ContinueOnError="true">
+      <Output PropertyName="SourceRevisionId" TaskParameter="ConsoleOutput" />
+    </Exec>
+  </Target>
+
+  <!-- Web GUI build (M0-10). Skipped with -p:SkipWebBuild=true; in Debug it is also skipped when dist already exists.
+       Release/publish always runs it (incrementally). -->
+  <PropertyGroup>
+    <WebDistIndex>$(WebDir)dist\index.html</WebDistIndex>
+    <WebInstallStamp>$(WebDir)node_modules\.package-lock.json</WebInstallStamp>
+  </PropertyGroup>
+  <ItemGroup>
+    <WebInput Include="$(WebDir)src\**;$(WebDir)index.html;$(WebDir)package.json;$(WebDir)package-lock.json;$(WebDir)vite.config.ts;$(WebDir)tsconfig*.json" />
+  </ItemGroup>
+
+  <Target Name="NpmInstall" Inputs="$(WebDir)package-lock.json" Outputs="$(WebInstallStamp)">
+    <Exec Command="npm ci" WorkingDirectory="$(WebDir)" />
+  </Target>
+
+  <Target Name="BuildWeb" BeforeTargets="BeforeBuild" DependsOnTargets="NpmInstall" Condition="'$(SkipWebBuild)' != 'true' And ('$(Configuration)' == 'Release' Or !Exists('$(WebDistIndex)'))" Inputs="@(WebInput)" Outputs="$(WebDistIndex)">
+    <Exec Command="npm run build" WorkingDirectory="$(WebDir)" />
+  </Target>
+
+  <!-- Embeds web/dist (or a placeholder page when it is missing) as wwwroot/** for ManifestEmbeddedFileProvider. -->
+  <Target Name="EmbedWebDist" BeforeTargets="BeforeBuild" DependsOnTargets="BuildWeb">
+    <ItemGroup>
+      <WebDistFile Include="$(WebDir)dist\**\*" />
+    </ItemGroup>
+    <PropertyGroup>
+      <WebPlaceholderDir>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)web-placeholder\</WebPlaceholderDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(WebPlaceholderDir)" Condition="'@(WebDistFile)' == ''" />
+    <WriteLinesToFile File="$(WebPlaceholderDir)index.html" Lines="&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;X4MP&lt;/title&gt;&lt;/head&gt;&lt;body&gt;&lt;h1&gt;GUI not built&lt;/h1&gt;&lt;p&gt;Run npm ci &amp;amp;&amp;amp; npm run build in server/web, then rebuild the server.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;" Overwrite="true" Condition="'@(WebDistFile)' == ''" />
+    <ItemGroup Condition="'@(WebDistFile)' == ''">
+      <WebDistFile Include="$(WebPlaceholderDir)index.html" />
+    </ItemGroup>
+    <ItemGroup>
+      <EmbeddedResource Include="@(WebDistFile)" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" Condition="'@(WebDistFile)' != '' And '$(WebPlaceholderDir)' != ''" />
+    </ItemGroup>
+  </Target>
 
 </Project>
