@@ -412,8 +412,9 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
 
     /// <summary>
     /// <see cref="ISessionSettingsPusher"/>: the settings service calls this after a change. The actor keeps the snapshot
-    /// and tells its modules; there is no wire message for these settings yet (the protocol's SessionSettings table
-    /// carries the team and economy policy that M1-T1/E1 own), so nothing is sent to nodes here.
+    /// and tells its modules, then sends the full node-relevant set to every announced node as <c>ServerSettingsUpdate</c>
+    /// (a node that attaches later gets it from <see cref="OnAttach"/>). The protocol's <c>SessionSettings</c> table stays the
+    /// team and economy policy owned by M1-T1/E1.
     /// </summary>
     public ValueTask PushAsync(SessionSettingsSnapshot snapshot, CancellationToken cancellationToken)
     {
@@ -421,6 +422,7 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
         Post(() =>
         {
             Volatile.Write(ref _settings, snapshot);
+            BroadcastSettings(snapshot);
             foreach (var module in _modules)
             {
                 try

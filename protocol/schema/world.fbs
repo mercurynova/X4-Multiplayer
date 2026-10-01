@@ -209,4 +209,42 @@ table PlayerShip {
   hull:ubyte = 255;
   shield:ubyte = 255;
   local_component_id:ulong;      // sender's own UniverseID, diagnostics only
+  player_id:ushort;              // SERVER-STAMPED when forwarding to the authority (any client value is overwritten); 0 = unset
+}
+
+// ---------------- on foot (ADR-046, M3b; schema only until the relay lands) ----------------
+
+enum OnFootMode : ubyte { None = 0, Walking, Seated, InTransit, Conversation, Menu }
+enum OnFootAnim : ubyte { Idle = 0, Walk, Run, Crouch, Jump, Sit, Talk, Emote }
+enum RoomKind : ubyte { Unknown = 0, Static, Dynamic, Platform, Lounge }
+
+/// Which room of a container the actor stands in (16 B). `roomtype` 21 = none. `anchor_*` is the room origin in
+/// container space, decimetres. `path_hash` is FNV-1a of the macro chain, truncated.
+struct RoomKey {
+  macro_ref:uint;                // string table (_ref convention)
+  anchor_x:short;
+  anchor_y:short;
+  anchor_z:short;
+  path_hash:ushort;
+  kind:RoomKind;
+  roomtype:ubyte;
+}
+
+/// Realtime lane, C->S, 10 Hz while moving, 1 Hz idle (docs/research/on-foot-presence.md 3.1). The server
+/// stamps `player_id` (client value ignored). Sent instead of PlayerState while on foot.
+table OnFootState {
+  player_id:ushort;              // SERVER-STAMPED
+  seq:uint;                      // latest-wins
+  sample_time_us:ulong;          // client's estimate of server clock at sample
+  mode:OnFootMode;
+  container_net_id:uint;         // innermost container (station or ship)
+  outer_container_net_id:uint;   // station when the container is a docked ship, else 0
+  room:RoomKey;                  // absent when Seated in a cockpit
+  px:int; py:int; pz:int;        // room-local, 1/1024 m
+  cx:int; cy:int; cz:int;        // container-local, 1/64 m (validation / rough placement)
+  yaw:short;
+  look_pitch:ubyte;
+  anim:OnFootAnim;
+  emote_id:ubyte;
+  flags:ubyte;                   // bit0 Teleport (snap), bit1 Keyframe
 }

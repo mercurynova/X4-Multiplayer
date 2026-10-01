@@ -46,6 +46,7 @@ enum MsgType : ushort {
   GalaxyMetadata       = 0x0113,
   StringTableAdd       = 0x0114,
   GalaxySummary        = 0x0115,
+  ServerSettingsUpdate = 0x0116,   // session.fbs table
 
   // world.fbs
   EntitySpawn          = 0x0200,
@@ -66,6 +67,7 @@ enum MsgType : ushort {
   // world.fbs (player)
   PlayerState          = 0x0300,
   PlayerShip           = 0x0301,
+  OnFootState          = 0x0302,   // world.fbs table; ADR-046, relay in M3b
 
   // events.fbs
   Intent               = 0x0400,
