@@ -672,6 +672,61 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
     - **M6:** per-team NPC reputation, NPC↔NPC replication and the `Diplomacy` policy.
     - **Post-v1:** trade agreements, standing/ADR-040, the optional vanilla-menu tab.
 
+### ADR-048 Per-team HQ and research (requirement accepted, design pending spike) (user requirement 2026-10-01)
+- **Context:** the user wants *"each faction should be able to have their own HQ and research"*,
+  where faction means team. Research: [research/team-hq-research.md](research/team-hq-research.md).
+  - The PHQ is an ordinary station of macro `station_pla_headquarters_base_01_macro`. The engine
+    allows several copies and non-`player` owners. The HQ plot hands it over with `set_owner`.
+  - Research is a `player` singleton: `add_research`/`remove_research` (`common.xsd:19956-19976`),
+    `HasResearched`, `research.unlocked`. It only runs on a `player`-owned HQ research module, with
+    resources from HQ storage.
+  - Its effects are mostly local capabilities: teleport, mod crafting, module-blueprint scanning.
+  - Blueprints are `player`-only and **add-only** (no MD or native remove). Licences are per
+    faction (`add_licence faction=`).
+- **Decision (draft):**
+  - A server-owned **TeamProgression** record per team covers research, blueprints, licences and
+    the Team HQ (`ResearchScope=PerTeam`, `Shared` as an option).
+  - Every node applies its own team's set to its local `player` at join, on team change and on
+    deltas: research, licences and encyclopedia entries are diffed both ways, blueprints are
+    add-only. The server DB is the truth.
+  - **Team HQ:** at most one per team, owned by `x4mp_team_k` on the authority. The inherit team
+    gets the save's PHQ (ADR-033). Other teams get a spawned PHQ-macro station
+    (`TeamHqMode=GrantAtStart` default). Optionally `set_faction_headquarters`.
+  - The **server runs research timers.** The authority consumes resources from the team HQ cargo
+    all or nothing (`HqResourceOrder`/`HqResourceConfirm`, the ADR-022 compensate pattern).
+    Leaders start research (`ResearchPermission=Leader`).
+  - Research catalogue classes:
+    - `Team`;
+    - `Global`: Xenon crisis (ADR-037);
+    - `Authority`: HQ warp, post-v1;
+    - `Disabled`: SETA (Q4) and diplomacy-agent research (ADR-047);
+    - `AllTeams`: venture modules and hidden gamestart items.
+  - Blueprints per team are enforced by **server validation of station plans and builds**; local
+    extras are cosmetic. Licences are held by team factions and mirrored to `player`.
+  - v1 UI: our own Team Research panel. The vanilla research menu through a locally re-owned
+    (player-view) HQ comes later.
+  - Terraforming and HQ warp are unavailable in sessions until post-v1. Ventures stay client-local.
+    Timelines scenarios are out of scope.
+- **Status:** proposal. Depends on spike block **S12** (session 2, roadmap §4.4). No schema
+  change yet. Proposed messages (block `0x0900`): `ProgressionCatalog`, `TeamProgression`,
+  `TeamProgressionDelta`, `ResearchRequest`/`ResearchResult`, `HqResourceOrder`/`HqResourceConfirm`,
+  `HqProvision`, `ProgressionReport`, `HqRequest`, and the capability `TeamProgression`.
+  Open questions HQ-1..HQ-9 (research doc §8) use their recommended defaults until the user
+  answers.
+- **Consequences:**
+  - ADR-033 gains a step: record the save's PHQ and `player` research/blueprints for the inherit
+    team *before* the re-own.
+  - New tables: `progression_catalog`, `team_hq`, `team_research`, `team_blueprints`,
+    `team_licences`, `team_progression_version`.
+  - The M5 station-build path must validate blueprints.
+  - Targets:
+    - **M5:** catalogue, snapshot/delta, apply-on-join reconcile, inherited PHQ as the team HQ,
+      admin grant/revoke, blueprint reports and plan validation.
+    - **M6:** HQ spawn for every team, Team Research panel with server timer and HQ resources,
+      per-team licences (with ADR-047 reputation), blueprint fan-out.
+    - **Post-v1:** player-view vanilla research menu, trickle resources, HQ warp, team
+      terraforming, `OnRequest` HQs.
+
 ---
 
 ## Part 2. Open questions for the user
