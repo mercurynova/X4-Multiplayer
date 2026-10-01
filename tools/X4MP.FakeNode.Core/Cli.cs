@@ -57,10 +57,10 @@ public static class CliParser
         usage: fakenode <command> [options]
 
         commands:
-          authority   connect as the X4 authority node (handshake + keepalive; replication needs M1-05..08)
-          client      connect as a fake player node        (handshake + keepalive; replication needs M1-05..08)
+          authority   connect as the X4 authority node: runs the fake world, honours CaptureSet, streams WorldUpdate
+          client      connect as a fake player node: joins, flies, sends PlayerState, receives Replication (--verify checks it)
           swarm       --clients K client nodes in one process (+ an authority with --with-authority)
-          inspect     observer printing a sector           (requires M1-05..08; not available yet)
+          inspect     observer printing a sector           (not available yet)
           galaxy      offline: generate the galaxy and print its stats
 
         options:
@@ -69,7 +69,7 @@ public static class CliParser
           --clients K          swarm: number of fake clients (also --count)
           --name NAME          node name; --name-prefix PREFIX for several
           --behavior wander|patrol|explore
-          --verify             verify replication against ground truth
+          --verify             check every Replication entry against the fake world's ground truth; exit code 1 on any error
           --udp                use the UDP realtime lane
           --sectors N --ships N --tick HZ --fps N   universe / authority shape
           --sector ID          inspect: sector index to observe

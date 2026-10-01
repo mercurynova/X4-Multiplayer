@@ -136,6 +136,18 @@ public sealed class ReplicationVerifier
     public long MessagesChecked { get; private set; }
     public long EntriesChecked { get; private set; }
 
+    /// <summary>
+    /// Entries for net_ids above the fake galaxy (player ships and anything the authority allocated at runtime, see
+    /// <see cref="AllowRuntimeEntities"/>): there is no ground truth for them, so they are counted, not checked.
+    /// </summary>
+    public long ForeignEntries { get; private set; }
+
+    /// <summary>
+    /// True: net_ids above the galaxy are runtime entities (a live server relays player ships next to the fake world) and are counted in
+    /// <see cref="ForeignEntries"/>. False (default): they are errors, since an offline replicator never produces them.
+    /// </summary>
+    public bool AllowRuntimeEntities { get; init; }
+
     /// <summary>Total violations (the stored list is capped).</summary>
     public long Errors { get; private set; }
 
@@ -148,6 +160,10 @@ public sealed class ReplicationVerifier
 
     public void Reset() => _baseline.Clear();
 
+    /// <summary>Forgets what a client knows of one entity (it despawned): its next entry must be complete again.</summary>
+    public void Forget(uint netId) => _baseline.Remove(netId);
+
+
     private void Fail(string kind, uint netId, double time, string detail)
     {
         Errors++;
@@ -158,7 +174,6 @@ public sealed class ReplicationVerifier
     /// <summary>Verifies one decoded Replication table.</summary>
     public void Verify(ReplicationT message)
     {
-        MessagesChecked++;
         List<ReplicationEntry> entries;
         try
         {
@@ -166,12 +181,20 @@ public sealed class ReplicationVerifier
         }
         catch (ProtocolViolation ex)
         {
+            MessagesChecked++;
             Fail("malformed", 0, message.AuthorityGameTime, ex.Message);
             return;
         }
 
+        VerifyEntries(message.AuthorityGameTime, entries);
+    }
+
+    /// <summary>Verifies already decoded entries of one Replication message (reference game time = <c>authority_game_time</c>).</summary>
+    public void VerifyEntries(double referenceGameTime, IReadOnlyList<ReplicationEntry> entries)
+    {
+        MessagesChecked++;
         foreach (var e in entries)
-            VerifyEntry(message.AuthorityGameTime, e);
+            VerifyEntry(referenceGameTime, e);
     }
 
     /// <summary>Verifies a Replication frame (decodes it first).</summary>
@@ -187,6 +210,11 @@ public sealed class ReplicationVerifier
         EntriesChecked++;
         double time = referenceGameTime + ((e.Mask & ReplicationMask.Time) != 0 ? e.TimeMs / 1000.0 : 0);
         int entityId = FakeNetIds.ToEntityId(e.NetId);
+        if (AllowRuntimeEntities && entityId > _world.Galaxy.Entities.Count)
+        {
+            ForeignEntries++;
+            return;
+        }
         if (entityId < 1 || entityId > _world.Galaxy.Entities.Count)
         {
             Fail("unknown-entity", e.NetId, time, "net_id is not part of the fake galaxy");
