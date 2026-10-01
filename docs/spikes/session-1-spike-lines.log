@@ -1,0 +1,366 @@
+﻿[=ERROR=] 6.89 [X4MP-SPIKE] LUA INFO what=x4mp_spike_lua_loaded timer=GetCurRealTime cdef_issues=0 err=
+[=ERROR=] 0.00 [X4MP-SPIKE] LUA INFO what=x4mp_spike_lua_loaded timer=GetCurRealTime cdef_issues=0 err=
+[General] 4.92 [X4MP-SPIKE] BOOT INFO mode=full run=1 age=4.915 systime=2026-10-01 13:01:23 t1=15 tend=450
+[=ERROR=] 14.92 [X4MP-SPIKE] LUA INFO what=globals GetPlayerMoney=function TransferPlayerMoneyTo=function GetComponentData=function ConvertStringTo64Bit=function ConvertStringToLuaID=function SetComponentName=function getElapsedTime=function GetCurRealTime=function GetCurTime=function SetScript=function RegisterEvent=function AddUITriggeredEvent=function IsValidComponent=function GetUISafeModeOption=function DebugError=function Menus=table GetFactionData=function GetVersionString=function
+[=ERROR=] 14.92 [X4MP-SPIKE] LUA INFO timer=GetCurRealTime cdef_issues=0 ffi_os=Windows ffi_arch=x64 jit=none coroutine=table os_clock=none debug=nil debug_getupvalue=none
+[=ERROR=] 14.92 [X4MP-SPIKE] LUA INFO protected_ui_mode=err md_trigger=md
+[=ERROR=] 14.92 [X4MP-SPIKE] LUA INFO game_version=9.00_(611726)
+[General] 14.93 [X4MP-SPIKE] LUA INFO lua_to_md_bridge=ok control=hello_ack value=ok
+[General] 19.92 [X4MP-SPIKE] S7 INFO begin age=19.9182
+[General] 19.92 [X4MP-SPIKE] S7 MEASURE sectors_found=152 (target at least 140 with DLC)
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_409_sector001_macro owner=freesplit known=0 gates=cluster_410_sector001_macro,cluster_421_sector001_macro,cluster_407_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_43_sector001_macro owner=teladi known=0 gates=cluster_42_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_42_sector002_macro owner=ownerless known=0 gates= gates_active=0 highways=cluster_42_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_42_sector001_macro owner=teladi known=0 gates=cluster_19_sector001_macro,cluster_43_sector001_macro, gates_active=2 highways=cluster_42_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_18_sector001_macro owner=paranid known=0 gates=cluster_19_sector001_macro,cluster_10_sector001_macro,cluster_09_sector001_macro,cluster_47_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_417_sector001_macro owner=argon known=0 gates=cluster_416_sector002_macro,cluster_406_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_05_sector001_macro owner=teladi known=0 gates=cluster_725_sector001_macro,cluster_01_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_37_sector001_macro owner=paranid known=0 gates=cluster_22_sector001_macro,cluster_38_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_33_sector001_macro owner=xenon known=0 gates=cluster_32_sector002_macro,cluster_112_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_410_sector001_macro owner=freesplit known=0 gates=cluster_409_sector001_macro,cluster_411_sector001_macro,cluster_412_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_08_sector001_macro owner=argon known=1 gates=cluster_44_sector001_macro,cluster_02_sector001_macro,cluster_704_sector001_macro,cluster_501_sector001_macro,cluster_34_sector001_macro,cluster_29_sector001_macro, gates_active=6 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_50_sector002_macro owner=ownerless known=0 gates=null,cluster_21_sector002_macro,cluster_20_sector001_macro, gates_active=2 highways=cluster_50_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_50_sector001_macro owner=ownerless known=0 gates= gates_active=0 highways=cluster_50_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_740_sector001_macro owner=ownerless known=0 gates=cluster_725_sector001_macro, gates_active=0 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_12_sector001_macro owner=holyorder known=1 gates=cluster_24_sector001_macro,cluster_13_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_49_sector001_macro owner=ownerless known=0 gates=cluster_720_sector001_macro,cluster_26_sector001_macro,cluster_27_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_415_sector001_macro owner=xenon known=0 gates=cluster_414_sector001_macro,cluster_404_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_423_sector001_macro owner=paranid known=0 gates=cluster_424_sector001_macro,cluster_422_sector001_macro, gates_active=2 highways=cluster_423_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_423_sector002_macro owner=paranid known=0 gates= gates_active=0 highways=cluster_423_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_02_sector001_macro owner=teladi known=0 gates=cluster_03_sector001_macro,cluster_501_sector001_macro,cluster_08_sector001_macro,cluster_01_sector003_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_40_sector001_macro owner=antigone known=0 gates=cluster_41_sector001_macro,cluster_13_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_408_sector001_macro owner=freesplit known=0 gates=cluster_407_sector001_macro,cluster_15_sector002_macro, gates_active=2 highways=cluster_408_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_408_sector002_macro owner=freesplit known=0 gates= gates_active=0 highways=cluster_408_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_30_sector001_macro owner=argon known=0 gates=cluster_29_sector001_macro,cluster_31_sector001_macro,cluster_46_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_604_sector001_macro owner=boron known=0 gates=cluster_48_sector001_macro,cluster_603_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_405_sector001_macro owner=split known=0 gates=cluster_406_sector001_macro,cluster_419_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_606_sector003_macro owner=boron known=0 gates=cluster_605_sector001_macro, gates_active=0 highways=cluster_606_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_606_sector001_macro owner=boron known=0 gates= gates_active=0 highways=cluster_606_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_606_sector002_macro owner=boron known=0 gates=cluster_607_sector001_macro, gates_active=1 highways=cluster_606_sector003_macro,cluster_606_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_406_sector001_macro owner=split known=0 gates=cluster_417_sector001_macro,cluster_404_sector001_macro,cluster_405_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_701_sector001_macro owner=ownerless known=0 gates=cluster_702_sector001_macro,cluster_15_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_404_sector001_macro owner=split known=0 gates=cluster_406_sector001_macro,cluster_415_sector001_macro,cluster_418_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_723_sector001_macro owner=ownerless known=0 gates=null,cluster_709_sector001_macro,cluster_722_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_602_sector001_macro owner=boron known=0 gates=cluster_601_sector001_macro,null,cluster_603_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_416_sector001_macro owner=argon known=0 gates=cluster_420_sector001_macro, gates_active=1 highways=cluster_416_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_416_sector002_macro owner=argon known=0 gates=cluster_417_sector001_macro, gates_active=1 highways=cluster_416_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_41_sector001_macro owner=antigone known=0 gates=cluster_40_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_601_sector001_macro owner=ownerless known=0 gates=cluster_602_sector001_macro,cluster_31_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_704_sector001_macro owner=argon known=0 gates=null,null,cluster_08_sector001_macro,null, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_111_sector001_macro owner=terran known=0 gates=cluster_116_sector001_macro,cluster_110_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_500_sector001_macro owner=scavenger known=0 gates= gates_active=0 highways=cluster_500_sector003_macro,cluster_500_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_500_sector003_macro owner=scavenger known=0 gates=cluster_502_sector001_macro, gates_active=1 highways=cluster_500_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_500_sector002_macro owner=scavenger known=0 gates= gates_active=0 highways=cluster_500_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_110_sector001_macro owner=terran known=0 gates=cluster_115_sector001_macro,cluster_109_sector001_macro,cluster_111_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_703_sector001_macro owner=ownerless known=0 gates=cluster_702_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_112_sector002_macro owner=xenon known=0 gates=cluster_48_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_112_sector001_macro owner=xenon known=0 gates=cluster_33_sector001_macro, gates_active=1 highways=cluster_112_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_104_sector001_macro owner=terran known=0 gates= gates_active=0 highways=cluster_104_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_104_sector002_macro owner=terran known=0 gates=cluster_102_sector001_macro, gates_active=1 highways=cluster_104_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_605_sector001_macro owner=ownerless known=0 gates=cluster_606_sector003_macro,cluster_603_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_19_sector001_macro owner=teladi known=0 gates=cluster_42_sector001_macro,cluster_18_sector001_macro, gates_active=2 highways=cluster_19_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_19_sector002_macro owner=teladi known=0 gates=cluster_20_sector001_macro, gates_active=1 highways=cluster_19_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_31_sector001_macro owner=ownerless known=0 gates=cluster_30_sector001_macro,cluster_403_sector001_macro,cluster_601_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_420_sector001_macro owner=teladi known=0 gates=cluster_419_sector001_macro,cluster_416_sector001_macro,cluster_34_sector001_macro,cluster_421_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_48_sector001_macro owner=ownerless known=0 gates=cluster_112_sector002_macro,cluster_100_sector001_macro,cluster_604_sector001_macro,cluster_27_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_403_sector001_macro owner=split known=0 gates=cluster_400_sector001_macro,cluster_422_sector001_macro,cluster_31_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_102_sector001_macro owner=terran known=0 gates=cluster_104_sector002_macro,cluster_101_sector001_macro,cluster_106_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_724_sector001_macro owner=ownerless known=0 gates=cluster_115_sector001_macro,null,cluster_722_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_113_sector001_macro owner=pioneers known=0 gates=cluster_114_sector001_macro,cluster_28_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_101_sector001_macro owner=terran known=0 gates=cluster_102_sector001_macro,cluster_100_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_501_sector001_macro owner=loanshark known=0 gates=cluster_502_sector001_macro,cluster_02_sector001_macro,cluster_08_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_730_sector001_macro owner=ownerless known=0 gates=cluster_720_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_27_sector001_macro owner=antigone known=0 gates=cluster_13_sector001_macro,cluster_49_sector001_macro,cluster_28_sector001_macro,cluster_48_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_418_sector001_macro owner=split known=0 gates=cluster_419_sector001_macro,cluster_404_sector001_macro,cluster_401_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_419_sector001_macro owner=teladi known=0 gates=cluster_418_sector001_macro,cluster_420_sector001_macro,cluster_405_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_01_sector002_macro owner=teladi known=0 gates=cluster_06_sector002_macro, gates_active=1 highways=cluster_01_sector001_macro,cluster_01_sector003_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_01_sector003_macro owner=teladi known=0 gates=cluster_02_sector001_macro, gates_active=1 highways=cluster_01_sector001_macro,cluster_01_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_01_sector001_macro owner=teladi known=0 gates=cluster_05_sector001_macro,cluster_04_sector002_macro, gates_active=2 highways=cluster_01_sector003_macro,cluster_01_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_26_sector001_macro owner=xenon known=0 gates=cluster_49_sector001_macro, gates_active=1 highways=cluster_26_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_26_sector002_macro owner=xenon known=0 gates=cluster_715_sector001_macro,cluster_25_sector002_macro, gates_active=2 highways=cluster_26_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_108_sector003_macro owner=terran known=0 gates= gates_active=0 highways=cluster_108_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_108_sector002_macro owner=terran known=0 gates= gates_active=0 highways=cluster_108_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_108_sector001_macro owner=terran known=0 gates=cluster_109_sector001_macro,cluster_107_sector001_macro, gates_active=2 highways=cluster_108_sector002_macro,cluster_108_sector003_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_25_sector002_macro owner=xenon known=0 gates=cluster_26_sector002_macro, gates_active=1 highways=cluster_25_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_25_sector001_macro owner=xenon known=0 gates=cluster_24_sector001_macro, gates_active=1 highways=cluster_25_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_03_sector001_macro owner=teladi known=0 gates=cluster_02_sector001_macro,cluster_09_sector001_macro,cluster_39_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_20_sector001_macro owner=teladi known=0 gates=cluster_50_sector002_macro,cluster_19_sector002_macro,cluster_21_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_114_sector001_macro owner=pioneers known=0 gates=cluster_113_sector001_macro,cluster_115_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_425_sector001_macro owner=ownerless known=0 gates=cluster_411_sector001_macro, gates_active=0 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_710_sector001_macro owner=ownerless known=0 gates=cluster_711_sector001_macro,null,cluster_709_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_715_sector001_macro owner=ownerless known=0 gates=cluster_26_sector002_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_412_sector001_macro owner=freesplit known=0 gates=cluster_410_sector001_macro,cluster_413_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_502_sector001_macro owner=loanshark known=0 gates=cluster_503_sector001_macro,cluster_500_sector003_macro,cluster_501_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_17_sector001_macro owner=xenon known=0 gates=cluster_16_sector001_macro,cluster_421_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_424_sector002_macro owner=xenon known=0 gates= gates_active=0 highways=cluster_424_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_424_sector001_macro owner=xenon known=0 gates=cluster_423_sector001_macro, gates_active=1 highways=cluster_424_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_407_sector001_macro owner=freesplit known=0 gates=cluster_409_sector001_macro,cluster_421_sector001_macro,cluster_16_sector001_macro,cluster_408_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_44_sector001_macro owner=ownerless known=0 gates=cluster_45_sector001_macro,cluster_08_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_711_sector001_macro owner=ownerless known=0 gates=cluster_710_sector001_macro,cluster_712_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_709_sector001_macro owner=paranid known=0 gates=cluster_23_sector001_macro,cluster_710_sector001_macro,cluster_723_sector001_macro,null, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_705_sector001_macro owner=ownerless known=0 gates=cluster_706_sector001_macro,null,null, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_702_sector001_macro owner=ownerless known=0 gates=cluster_701_sector001_macro,cluster_703_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_24_sector001_macro owner=holyorder known=0 gates=cluster_12_sector001_macro,cluster_25_sector001_macro,cluster_11_sector001_macro,cluster_36_sector001_macro,cluster_725_sector001_macro, gates_active=5 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_16_sector001_macro owner=xenon known=0 gates=cluster_15_sector001_macro,cluster_407_sector001_macro,cluster_17_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_116_sector001_macro owner=terran known=0 gates=cluster_111_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_608_sector001_macro owner=boron known=0 gates=cluster_721_sector001_macro,cluster_607_sector001_macro,cluster_609_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_106_sector001_macro owner=terran known=0 gates=cluster_102_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_22_sector001_macro owner=paranid known=0 gates=cluster_04_sector002_macro,cluster_37_sector001_macro,cluster_10_sector001_macro,cluster_23_sector001_macro,cluster_38_sector001_macro,cluster_11_sector001_macro, gates_active=6 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_422_sector001_macro owner=paranid known=0 gates=cluster_403_sector001_macro,cluster_423_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_603_sector001_macro owner=boron known=0 gates=cluster_602_sector001_macro,cluster_604_sector001_macro,cluster_605_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_421_sector001_macro owner=freesplit known=0 gates=cluster_17_sector001_macro,cluster_420_sector001_macro,cluster_407_sector001_macro,cluster_409_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_107_sector001_macro owner=terran known=0 gates=cluster_100_sector001_macro,cluster_108_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_609_sector001_macro owner=boron known=0 gates=cluster_608_sector001_macro,cluster_607_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_503_sector001_macro owner=loanshark known=0 gates=cluster_502_sector001_macro,cluster_06_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_34_sector001_macro owner=teladi known=1 gates=cluster_08_sector001_macro,cluster_420_sector001_macro,cluster_09_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_411_sector001_macro owner=freesplit known=0 gates=cluster_425_sector001_macro,cluster_410_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_13_sector001_macro owner=antigone known=1 gates=cluster_06_sector001_macro,cluster_14_sector001_macro,cluster_27_sector001_macro,cluster_12_sector001_macro,cluster_40_sector001_macro, gates_active=5 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_46_sector001_macro owner=argon known=0 gates=cluster_30_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_607_sector001_macro owner=boron known=0 gates=cluster_606_sector002_macro,cluster_608_sector001_macro,cluster_609_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_23_sector001_macro owner=paranid known=0 gates=cluster_709_sector001_macro,cluster_22_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_413_sector001_macro owner=xenon known=0 gates=cluster_412_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_721_sector001_macro owner=ownerless known=0 gates=cluster_720_sector001_macro,null,cluster_608_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_14_sector001_macro owner=argon known=1 gates=cluster_13_sector001_macro,cluster_706_sector001_macro,cluster_07_sector001_macro,cluster_29_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_100_sector001_macro owner=terran known=0 gates=cluster_101_sector001_macro,cluster_107_sector001_macro,cluster_48_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_115_sector001_macro owner=pioneers known=0 gates=cluster_114_sector001_macro,cluster_724_sector001_macro,cluster_110_sector001_macro,null, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_11_sector001_macro owner=holyorder known=0 gates=cluster_24_sector001_macro,cluster_22_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_29_sector002_macro owner=argon known=1 gates= gates_active=0 highways=cluster_29_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_29_sector001_macro owner=hatikvah known=1 gates=cluster_08_sector001_macro,cluster_32_sector001_macro,cluster_30_sector001_macro,cluster_14_sector001_macro, gates_active=4 highways=cluster_29_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_28_sector001_macro owner=antigone known=0 gates=cluster_27_sector001_macro,cluster_113_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_32_sector002_macro owner=xenon known=0 gates=cluster_33_sector001_macro, gates_active=1 highways=cluster_32_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_32_sector001_macro owner=xenon known=0 gates=cluster_708_sector001_macro,cluster_401_sector001_macro,cluster_29_sector001_macro, gates_active=3 highways=cluster_32_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_504_sector001_macro owner=ownerless known=0 gates= gates_active=0 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_713_sector001_macro owner=teladi known=0 gates=null,cluster_39_sector001_macro,cluster_712_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_35_sector001_macro owner=holyorder known=0 gates=cluster_36_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_706_sector001_macro owner=ownerless known=0 gates=cluster_14_sector001_macro,cluster_705_sector001_macro,null, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_712_sector001_macro owner=ownerless known=0 gates=cluster_713_sector001_macro,cluster_711_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_720_sector001_macro owner=ownerless known=0 gates=cluster_722_sector001_macro,cluster_730_sector001_macro,cluster_49_sector001_macro,cluster_721_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_414_sector001_macro owner=xenon known=0 gates=cluster_402_sector001_macro,cluster_415_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_09_sector001_macro owner=teladi known=0 gates=cluster_18_sector001_macro,cluster_34_sector001_macro,cluster_15_sector001_macro,cluster_03_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_401_sector001_macro owner=split known=0 gates=cluster_402_sector001_macro,cluster_32_sector001_macro,cluster_418_sector001_macro,cluster_400_sector001_macro, gates_active=4 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_38_sector001_macro owner=paranid known=0 gates=cluster_37_sector001_macro,cluster_22_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_47_sector001_macro owner=paranid known=0 gates=cluster_18_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_39_sector001_macro owner=teladi known=0 gates=cluster_03_sector001_macro,cluster_713_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_10_sector001_macro owner=paranid known=0 gates=cluster_18_sector001_macro,cluster_22_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_708_sector001_macro owner=xenon known=0 gates=cluster_32_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_36_sector001_macro owner=holyorder known=0 gates=cluster_35_sector001_macro,cluster_24_sector001_macro,cluster_714_sector001_macro, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_725_sector001_macro owner=ownerless known=0 gates=cluster_05_sector001_macro,cluster_06_sector002_macro,cluster_24_sector001_macro,cluster_740_sector001_macro,null, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_21_sector001_macro owner=xenon known=0 gates=cluster_20_sector001_macro, gates_active=1 highways=cluster_21_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_21_sector002_macro owner=xenon known=0 gates=cluster_50_sector002_macro, gates_active=1 highways=cluster_21_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_714_sector001_macro owner=ownerless known=0 gates=cluster_36_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_45_sector001_macro owner=ownerless known=0 gates=cluster_44_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_07_sector001_macro owner=argon known=1 gates=cluster_14_sector001_macro, gates_active=1 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_06_sector001_macro owner=argon known=0 gates=cluster_503_sector001_macro,cluster_13_sector001_macro, gates_active=2 highways=cluster_06_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_06_sector002_macro owner=argon known=0 gates=cluster_01_sector002_macro,cluster_725_sector001_macro, gates_active=2 highways=cluster_06_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_722_sector001_macro owner=ownerless known=0 gates=cluster_723_sector001_macro,cluster_720_sector001_macro,cluster_724_sector001_macro,null, gates_active=3 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_402_sector001_macro owner=split known=0 gates=cluster_414_sector001_macro,cluster_401_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_04_sector001_macro owner=ownerless known=0 gates= gates_active=0 highways=cluster_04_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_04_sector002_macro owner=ownerless known=0 gates=cluster_22_sector001_macro,cluster_01_sector001_macro, gates_active=2 highways=cluster_04_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_109_sector001_macro owner=terran known=0 gates=cluster_110_sector001_macro,cluster_108_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_400_sector001_macro owner=split known=0 gates=cluster_403_sector001_macro,cluster_401_sector001_macro, gates_active=2 highways=
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_15_sector001_macro owner=teladi known=0 gates=cluster_701_sector001_macro,cluster_09_sector001_macro,cluster_16_sector001_macro, gates_active=2 highways=cluster_15_sector002_macro,
+[General] 19.92 [X4MP-SPIKE] S7 INFO sector=cluster_15_sector002_macro owner=teladi known=0 gates=cluster_408_sector001_macro, gates_active=1 highways=cluster_15_sector001_macro,
+[General] 19.92 [X4MP-SPIKE] S7 MEASURE md_find_ship_all ships=10103 systime_before=13:01:41 systime_after=13:01:41
+[=ERROR=] 19.92 [X4MP-SPIKE] S7 INFO lua_probe_sector=405408 md_macro=cluster_29_sector002_macro macro=cluster_29_sector002_macro name=Hatikvah's_Choice_III owner=argon isplayerowned=ERR:false
+[=ERROR=] 19.92 [X4MP-SPIKE] S7 INFO lua_probe_sector_cname=Hatikvah's_Choice_III
+[=ERROR=] 22.93 [X4MP-SPIKE] S7 MEASURE enum=GetAllFactionShips include_hidden=false factions=33 ships_total=10225 ships_unique=10225 api_ms=0 dedupe_ms=0 top5=xenon:1973,terran:1171,split:1018,argon:917,teladi:882
+[=ERROR=] 22.93 [X4MP-SPIKE] S7 MEASURE enum=GetAllFactionShips include_hidden=true factions=140 ships_total=207562 ships_unique=10262 api_ms=0 dedupe_ms=0 top5=visitor076:1973,visitor069:1973,visitor068:1973,visitor066:1973,visitor064:1973
+[General] 22.97 [X4MP-SPIKE] LUA INFO md_received control=s7_enum_done value=ok age=22.9658
+[General] 50.02 [X4MP-SPIKE] S4 INFO md_player_money_start=1000000 formatted=10,000 (money type is cents)
+[=ERROR=] 50.02 [X4MP-SPIKE] S4 INFO lua_money_start=10000 lua_type=number md_money_raw=1000000 md_money_ct=1000000 ratio_md_ct_over_lua=100
+[General] 50.04 [X4MP-SPIKE] S4 INFO event_player_money_updated n=1 old=1000000 new=1000100
+[General] 50.64 [X4MP-SPIKE] S4 INFO event_player_money_updated n=2 old=1000100 new=1000000
+[=ERROR=] 51.23 [X4MP-SPIKE] S4 INFO probe_add_units=100 call_ok=true delta_lua=1 after_undo_delta=0 unit=AddPlayerMoney=cents(1/100cr),GetPlayerMoney=credits
+[General] 51.24 [X4MP-SPIKE] S4 INFO event_player_money_updated n=3 old=1000000 new=1100000
+[=ERROR=] 51.84 [X4MP-SPIKE] S4 PASS what=add_plus_1000cr delta_lua=1000
+[General] 51.85 [X4MP-SPIKE] S4 INFO event_player_money_updated n=4 old=1100000 new=1000000
+[=ERROR=] 52.44 [X4MP-SPIKE] S4 PASS what=add_minus_1000cr_back delta_lua_vs_start=0
+[General] 52.45 [X4MP-SPIKE] S4 INFO event_player_money_updated n=5 old=1000000 new=0
+[=ERROR=] 53.25 [X4MP-SPIKE] S4 INFO what=overdraw requested_delta_cr=-15000 balance_after=0 went_negative=false clamped_at_zero=true
+[General] 53.25 [X4MP-SPIKE] LUA INFO md_received control=s4_overdrawn value=0 age=53.2532
+[General] 53.25 [X4MP-SPIKE] S4 INFO md_player_money_while_overdrawn=0 lua_balance=0
+[General] 54.76 [X4MP-SPIKE] S4 INFO event_player_money_updated n=6 old=0 new=1000000
+[=ERROR=] 55.55 [X4MP-SPIKE] S4 PASS what=restore_original start=10000 now=10000
+[General] 55.56 [X4MP-SPIKE] LUA INFO md_received control=s4_lua_done value=ok age=55.5624
+[General] 62.03 [X4MP-SPIKE] S4 INFO md_before_transfers player=1000000 team1=0 argon=101567361167360
+[General] 62.03 [X4MP-SPIKE] S4 INFO transfer_money player_to_team1 requested=1000Cr result=-100000 player=900000 team1=100000
+[General] 62.03 [X4MP-SPIKE] S4 INFO transfer_money team1_to_player requested=1000Cr result=-100000 player=1000000 team1=0
+[General] 62.03 [X4MP-SPIKE] S4 INFO transfer_money player_to_npc(argon) requested=1000Cr result=-100000 player=900000 argon=110422436589568
+[General] 62.03 [X4MP-SPIKE] S4 INFO transfer_money npc(argon)_to_player requested=1000Cr result=-100000 player=1000000 argon=117531366633472
+[General] 62.03 [X4MP-SPIKE] S4 INFO transfer_money overdraw_team1_account(0cr)_to_player requested=999999Cr result=0 (0 means refused or clamped)
+[General] 62.04 [X4MP-SPIKE] S4 INFO event_player_money_updated n=7 old=1000000 new=900000
+[General] 62.04 [X4MP-SPIKE] S4 INFO event_player_money_updated n=8 old=900000 new=1000000
+[General] 62.04 [X4MP-SPIKE] S4 INFO event_player_money_updated n=9 old=1000000 new=900000
+[General] 62.04 [X4MP-SPIKE] S4 INFO event_player_money_updated n=10 old=900000 new=1000000
+[General] 68.03 [X4MP-SPIKE] S4 PASS what=balance_restored_end_of_step md_start=1000000 md_now=1000000 money_events_seen=10
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_1 name=MP Team 1 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_1 isactive_after=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_2 name=MP Team 2 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_2 isactive_after=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_3 name=MP Team 3 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_3 isactive_after=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_4 name=MP Team 4 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_4 isactive_after=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_5 name=MP Team 5 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_5 isactive_after=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_6 name=MP Team 6 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_6 isactive_after=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_7 name=MP Team 7 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_7 isactive_after=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=faction_resolves id=x4mp_team_8 name=MP Team 8 isactive_before=0 hasownaccount=1 known=1
+[General] 84.92 [X4MP-SPIKE] S1 PASS what=set_faction_active id=x4mp_team_8 isactive_after=1
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 INFO lua_factions_hidden_incl=140 lua_factions_visible=33
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_1 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_2 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_3 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_4 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_5 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_6 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_7 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[=ERROR=] 84.92 [X4MP-SPIKE] S1 PASS lua_faction=x4mp_team_8 listed_in_GetAllFactions=true ally_to_player=false enemy_to_player=false hostile_to_player=false
+[General] 87.93 [X4MP-SPIKE] S1 INFO relations_set team1_to_player=0.8 player_to_team1=0.8 team2_to_player=-0.5 player_to_team2=-0.5 (wanted 0.8 and -0.5)
+[General] 87.93 [X4MP-SPIKE] S1 INFO relation_locked team1=1 team2=1
+[General] 87.93 [X4MP-SPIKE] S1 INFO set_relation_while_locked wanted=0.3 team1_to_player_now=0.8 (0.8 means the lock blocked MD)
+[General] 87.93 [X4MP-SPIKE] S1 PASS what=create_ship_for_team team=1 ship=0x1633b8 exists=1 owner=x4mp_team_1 macro=ship_arg_s_trans_container_01_a_macro dist_m=4998 name=MP Team 1
+[General] 87.93 [X4MP-SPIKE] S1 PASS what=create_ship_for_team team=2 ship=0x163409 exists=1 owner=x4mp_team_2 macro=ship_arg_s_trans_container_01_a_macro dist_m=4998 name=MP Team 2
+[General] 87.93 [X4MP-SPIKE] S1 INFO set_faction_identity team3 before=MP Team 3 after=MP Team 3 renamed renamed_flag=1
+[General] 99.94 [X4MP-SPIKE] S1 INFO ship_state team=1 owner=x4mp_team_1 relation_to_player=0.8 sector=cluster_29_sector002_macro known=1
+[General] 99.94 [X4MP-SPIKE] S1 INFO ship_state team=2 owner=x4mp_team_2 relation_to_player=-0.5 sector=cluster_29_sector002_macro known=1
+[General] 99.94 [X4MP-SPIKE] S1 INFO ask_user targeting_colour_and_status_of_ships_MP_Team_1_and_MP_Team_2
+[General] 134.92 [X4MP-SPIKE] S8 INFO cargo_start ship=0x1633b8 ware=energycells count=0 free_all=1960
+[General] 134.92 [X4MP-SPIKE] S8 PASS what=add_cargo exact=37 result=37 count_now=37
+[General] 134.92 [X4MP-SPIKE] S8 PASS what=remove_cargo exact=12 result=12 count_now=25 (expect 25)
+[General] 134.92 [X4MP-SPIKE] S8 INFO what=remove_cargo_more_than_present exact=1000 result=25 count_now=0 (expect result 25 and count 0)
+[General] 134.92 [X4MP-SPIKE] S8 INFO what=add_cargo_over_capacity exact=100000 result=1960 count_now=1960
+[General] 134.92 [X4MP-SPIKE] S8 INFO what=cargo_cleanup removed=1960 count_now=0
+[General] 134.92 [X4MP-SPIKE] S8 INFO what=station_cargo station=ARG Food Ration Factory I add1_result=1 remove1_result=1
+[General] 134.92 [X4MP-SPIKE] S8 INFO owner_before md_owner=x4mp_team_1 trueowner=x4mp_team_1
+[General] 134.92 [X4MP-SPIKE] S8 PASS what=set_owner_md before=x4mp_team_1 after=x4mp_team_3 trueowner=x4mp_team_3
+[=ERROR=] 134.92 [X4MP-SPIKE] S8 INFO lua_cargo_of=1455032 stage=after_add37 entries=0 list=empty
+[=ERROR=] 134.94 [X4MP-SPIKE] S8 PASS what=SetComponentOwner_lua ship=1455032 before=x4mp_team_3 requested=x4mp_team_1 after=x4mp_team_1 call_ok=true err=
+[General] 134.95 [X4MP-SPIKE] LUA INFO md_received control=s8_owner_done value=x4mp_team_1 age=134.949
+[General] 137.92 [X4MP-SPIKE] S8 PASS what=owner_after_lua_SetComponentOwner md_view_owner=x4mp_team_1 trueowner=x4mp_team_1
+[=ERROR=] 138.42 [X4MP-SPIKE] S8 MEASURE lua_md_lua_roundtrip=AddUITriggeredEvent+raise_lua_event pings=10 rt_ms_avg=8.519 rt_ms_min=7.489 rt_ms_max=9.538 frames_avg=0
+[General] 138.43 [X4MP-SPIKE] LUA INFO md_received control=s8_ping_done value=ok age=138.431
+[General] 169.92 [X4MP-SPIKE] S2 PASS what=create_player_owned_ship ship=0x171d96 owner=player isplayerowned=1 macro=ship_arg_s_fighter_01_a_macro md_canteleportto=0 player_ship_before=0x64108 occupiedship_before=0x64108
+[=ERROR=] 169.92 [X4MP-SPIKE] S2 INFO new_ship=1514902 old_occupied=409864 old_controlled=409864 new_valid=true new_owner=player
+[=ERROR=] 169.92 [X4MP-SPIKE] S2 INFO can_teleport_no_control=research can_teleport_control=research can_teleport_control_force=granted
+[=ERROR=] 169.92 [X4MP-SPIKE] S2 INFO what=TeleportPlayerTo(ship,true,true,true) call_ok=true returned=true
+[=ERROR=] 172.42 [X4MP-SPIKE] S2 PASS what=teleport_result occupied_now=1514902 controlled_now=1514902 is_new_ship=true controlling_new=true
+[=ERROR=] 172.42 [X4MP-SPIKE] S2 INFO what=old_ship_removable_check old_valid=true old_still_occupied=false old_still_controlled=false removal_would_be_possible=true note=not_removed_by_spike
+[General] 172.43 [X4MP-SPIKE] LUA INFO md_received control=s2_teleported value=ok age=172.429
+[General] 177.92 [X4MP-SPIKE] S2 INFO md_view_after_teleport player_ship=0x171d96 occupiedship=0x171d96 avatar=0x171d96 avatar_is_player_ship=1 ask_user=control_hud_camera
+[=ERROR=] 189.92 [X4MP-SPIKE] S2 PASS what=teleport_back_to_old_ship call_ok=true returned=true occupied_now=409864 is_old_ship=true
+[General] 189.93 [X4MP-SPIKE] LUA INFO md_received control=s2_done value=ok age=189.935
+[General] 199.93 [X4MP-SPIKE] S2 INFO md_view_end player_ship=0x64108 occupiedship=0x64108 avatar_exists=1
+[General] 214.92 [X4MP-SPIKE] S3 INFO md_begin team2_ships_in_sector=1 sector=cluster_29_sector002_macro age=214.917
+[=ERROR=] 214.92 [X4MP-SPIKE] S3 INFO what=start tiers=100,250,500 perframe=40 secs=20 dmin=3000 dmax=8000 owner=x4mp_team_2 macro=ship_arg_s_scout_01_a_macro macro_found=true timer=GetCurRealTime
+[=ERROR=] 214.97 [X4MP-SPIKE] S3 INFO tier=100 what=spawned ok=100 failed=0 owner=x4mp_team_2 frames=3 spawn_ms_per_frame_avg=0 spawn_ms_per_frame_max=0 spawn_total_s=0.049
+[=ERROR=] 214.97 [X4MP-SPIKE] S3 INFO tier=100 what=ActivateObject_false ok=100 failed=0
+[General] 214.98 [X4MP-SPIKE] S3 INFO md_sees_ghosts_in_sector=101 lua_reported=100
+[=ERROR=] 227.98 [X4MP-SPIKE] S3 INFO tier=100 what=velocity_probe ghost=1541842 expected_speed_ms=47.795 velocity=nil speed=nil
+[=ERROR=] 227.98 [X4MP-SPIKE] S3 INFO tier=100 what=velocity_probe ghost=1541919 expected_speed_ms=73.890 velocity=nil speed=nil
+[=ERROR=] 227.98 [X4MP-SPIKE] S3 INFO tier=100 what=velocity_probe ghost=1541998 expected_speed_ms=24.997 velocity=nil speed=nil
+[=ERROR=] 237.99 [X4MP-SPIKE] S3 MEASURE ghosts=100 move_ms_avg=0 move_ms_p95=0 move_ms_max=0 frame_ms_avg=10.633 frame_ms_p95=12.965 frame_ms_max=19.503 idle_frame_ms_avg=9.481 frames=1882 move_cost_per_ghost_us=0 seconds=20 timer=GetCurRealTime
+[=ERROR=] 237.99 [X4MP-SPIKE] S3 INFO tier=100 what=drift_check_vs_commanded_m avg_drift_m=0.026
+[=ERROR=] 237.99 [X4MP-SPIKE] S3 INFO tier=100 what=destroy_issued md_destroy_object=50 lua_SelfDestructComponent=50
+[General] 238.00 [X4MP-SPIKE] S3 INFO md_destroy_object_issued=50 skipped=0
+[=ERROR=] 243.99 [X4MP-SPIKE] S3 INFO tier=100 what=destroy_result_after_6s md_half_still_valid=50 md_half_wrecked=50 lua_half_still_valid=50 lua_half_wrecked=50
+[=ERROR=] 243.99 [X4MP-SPIKE] S3 INFO tier=100 what=cleanup_RemoveComponent_survivors removed=100
+[=ERROR=] 247.13 [X4MP-SPIKE] S3 INFO tier=250 what=spawned ok=250 failed=0 owner=x4mp_team_2 frames=7 spawn_ms_per_frame_avg=0 spawn_ms_per_frame_max=0 spawn_total_s=0.140
+[=ERROR=] 247.13 [X4MP-SPIKE] S3 INFO tier=250 what=ActivateObject_false ok=250 failed=0
+[General] 247.15 [X4MP-SPIKE] S3 INFO md_sees_ghosts_in_sector=251 lua_reported=250
+[=ERROR=] 260.16 [X4MP-SPIKE] S3 INFO tier=250 what=velocity_probe ghost=1574988 expected_speed_ms=42.173 velocity=nil speed=nil
+[=ERROR=] 260.16 [X4MP-SPIKE] S3 INFO tier=250 what=velocity_probe ghost=1575067 expected_speed_ms=26.449 velocity=nil speed=nil
+[=ERROR=] 260.16 [X4MP-SPIKE] S3 INFO tier=250 what=velocity_probe ghost=1575146 expected_speed_ms=21.433 velocity=nil speed=nil
+[=ERROR=] 270.16 [X4MP-SPIKE] S3 MEASURE ghosts=250 move_ms_avg=0 move_ms_p95=0 move_ms_max=0 frame_ms_avg=15.370 frame_ms_p95=17.819 frame_ms_max=37.970 idle_frame_ms_avg=13.435 frames=1302 move_cost_per_ghost_us=0 seconds=20 timer=GetCurRealTime
+[=ERROR=] 270.16 [X4MP-SPIKE] S3 INFO tier=250 what=drift_check_vs_commanded_m avg_drift_m=0.103
+[=ERROR=] 270.16 [X4MP-SPIKE] S3 INFO tier=250 what=destroy_issued md_destroy_object=125 lua_SelfDestructComponent=125
+[General] 270.17 [X4MP-SPIKE] S3 INFO md_destroy_object_issued=125 skipped=0
+[=ERROR=] 276.16 [X4MP-SPIKE] S3 INFO tier=250 what=destroy_result_after_6s md_half_still_valid=125 md_half_wrecked=125 lua_half_still_valid=125 lua_half_wrecked=125
+[=ERROR=] 276.16 [X4MP-SPIKE] S3 INFO tier=250 what=cleanup_RemoveComponent_survivors removed=250
+[=ERROR=] 279.48 [X4MP-SPIKE] S3 INFO tier=500 what=spawned ok=500 failed=0 owner=x4mp_team_2 frames=13 spawn_ms_per_frame_avg=0 spawn_ms_per_frame_max=0 spawn_total_s=0.301
+[=ERROR=] 279.48 [X4MP-SPIKE] S3 INFO tier=500 what=ActivateObject_false ok=500 failed=0
+[General] 279.51 [X4MP-SPIKE] S3 INFO md_sees_ghosts_in_sector=501 lua_reported=500
+[=ERROR=] 292.52 [X4MP-SPIKE] S3 INFO tier=500 what=velocity_probe ghost=1625829 expected_speed_ms=40.705 velocity=nil speed=nil
+[=ERROR=] 292.52 [X4MP-SPIKE] S3 INFO tier=500 what=velocity_probe ghost=1625908 expected_speed_ms=25.598 velocity=nil speed=nil
+[=ERROR=] 292.52 [X4MP-SPIKE] S3 INFO tier=500 what=velocity_probe ghost=1625987 expected_speed_ms=45.633 velocity=nil speed=nil
+[=ERROR=] 302.51 [X4MP-SPIKE] S3 MEASURE ghosts=500 move_ms_avg=0 move_ms_p95=0 move_ms_max=0 frame_ms_avg=25.176 frame_ms_p95=28.582 frame_ms_max=36.016 idle_frame_ms_avg=21.666 frames=795 move_cost_per_ghost_us=0 seconds=20 timer=GetCurRealTime
+[=ERROR=] 302.51 [X4MP-SPIKE] S3 INFO tier=500 what=drift_check_vs_commanded_m avg_drift_m=0.379
+[=ERROR=] 302.51 [X4MP-SPIKE] S3 INFO tier=500 what=destroy_issued md_destroy_object=250 lua_SelfDestructComponent=250
+[General] 302.54 [X4MP-SPIKE] S3 INFO md_destroy_object_issued=250 skipped=0
+[=ERROR=] 308.53 [X4MP-SPIKE] S3 INFO tier=500 what=destroy_result_after_6s md_half_still_valid=250 md_half_wrecked=250 lua_half_still_valid=250 lua_half_wrecked=250
+[=ERROR=] 308.53 [X4MP-SPIKE] S3 INFO tier=500 what=cleanup_RemoveComponent_survivors removed=500
+[=ERROR=] 311.54 [X4MP-SPIKE] S3 INFO what=final_sweep ghosts_ever_spawned=850 removed_in_final_sweep=0
+[General] 311.56 [X4MP-SPIKE] LUA INFO md_received control=s3_done value=ok age=311.556
+[General] 389.92 [X4MP-SPIKE] S3 PASS what=md_leftover_check team2_ships_now=1 before_run=1 leftovers_destroyed=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO md_global BoronQueendomReturned=unset BoronGate1_Open=unset ArgonAllianceFailed=unset TerranGateDND=0 BoronGateDND=0 StoryMentors=set
+[General] 404.92 [X4MP-SPIKE] S9 MEASURE sectors_known=8 sectors_unknown=144
+[General] 404.92 [X4MP-SPIKE] S9 MEASURE inactive_gates=31
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_50_sector002_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_740_sector001_macro dest_sector=cluster_725_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_604_sector001_macro dest_sector=cluster_48_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_606_sector003_macro dest_sector=cluster_605_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_701_sector001_macro dest_sector=cluster_15_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_723_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_602_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_601_sector001_macro dest_sector=cluster_31_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_704_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_704_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_704_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_605_sector001_macro dest_sector=cluster_606_sector003_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_31_sector001_macro dest_sector=cluster_601_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_48_sector001_macro dest_sector=cluster_604_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_724_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_425_sector001_macro dest_sector=cluster_411_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_710_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_709_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_705_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_705_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_608_sector001_macro dest_sector=cluster_721_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_411_sector001_macro dest_sector=cluster_425_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_721_sector001_macro dest_sector=null known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_721_sector001_macro dest_sector=cluster_608_sector001_macro known=0
+[General] 404.92 [X4MP-SPIKE] S9 INFO inactive_gate in_sector=cluster_115_sector001_macro dest_sector=null known=0
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_604_sector001_macro owner=boron known=0 gates=cluster_48_sector001_macro:inactive,cluster_603_sector001_macro:active,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_606_sector001_macro owner=boron known=0 gates=
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_602_sector001_macro owner=boron known=0 gates=cluster_601_sector001_macro:active,null:inactive,cluster_603_sector001_macro:active,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_601_sector001_macro owner=ownerless known=0 gates=cluster_602_sector001_macro:active,cluster_31_sector001_macro:inactive,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_605_sector001_macro owner=ownerless known=0 gates=cluster_606_sector003_macro:inactive,cluster_603_sector001_macro:active,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_31_sector001_macro owner=ownerless known=0 gates=cluster_30_sector001_macro:active,cluster_403_sector001_macro:active,cluster_601_sector001_macro:inactive,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_608_sector001_macro owner=boron known=0 gates=cluster_721_sector001_macro:inactive,cluster_607_sector001_macro:active,cluster_609_sector001_macro:active,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_603_sector001_macro owner=boron known=0 gates=cluster_602_sector001_macro:active,cluster_604_sector001_macro:active,cluster_605_sector001_macro:active,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_609_sector001_macro owner=boron known=0 gates=cluster_608_sector001_macro:active,cluster_607_sector001_macro:active,
+[General] 407.92 [X4MP-SPIKE] S9 INFO boron_sector=cluster_607_sector001_macro owner=boron known=0 gates=cluster_606_sector002_macro:active,cluster_608_sector001_macro:active,cluster_609_sector001_macro:active,
+[General] 407.92 [X4MP-SPIKE] S9 PASS what=set_known_sector sector=cluster_409_sector001_macro known_before=0 known_after=1 (revert: set_known known=false; left applied to test the save reload)
+[General] 429.92 [X4MP-SPIKE] MISC INFO what=set_netid_on_ship ship=0x1633b8 netid_readback=null owner=x4mp_team_1
+[General] 429.92 [X4MP-SPIKE] MISC INFO what=set_netid_on_station station=ARG Food Ration Factory I netid_readback=null
+[=ERROR=] 429.92 [X4MP-SPIKE] MISC FAIL what=debug.getupvalue_available debug_table=false getupvalue=nil getinfo=n/a setupvalue=n/a
+[General] 454.92 [X4MP-SPIKE] DONE INFO spike_complete age=454.917 systime=2026-10-01 13:10:24
+[=ERROR=] 2.98 [X4MP-SPIKE] LUA INFO what=x4mp_spike_lua_loaded timer=GetCurRealTime cdef_issues=0 err=
+[=ERROR=] 0.00 [X4MP-SPIKE] LUA INFO what=x4mp_spike_lua_loaded timer=GetCurRealTime cdef_issues=0 err=
+[General] 460.38 [X4MP-SPIKE] BOOT INFO mode=verify run=2 age=460.383 systime=2026-10-01 13:11:33 t1=15 tend=450
+[=ERROR=] 470.39 [X4MP-SPIKE] LUA INFO what=globals GetPlayerMoney=function TransferPlayerMoneyTo=function GetComponentData=function ConvertStringTo64Bit=function ConvertStringToLuaID=function SetComponentName=function getElapsedTime=function GetCurRealTime=function GetCurTime=function SetScript=function RegisterEvent=function AddUITriggeredEvent=function IsValidComponent=function GetUISafeModeOption=function DebugError=function Menus=table GetFactionData=function GetVersionString=function
+[=ERROR=] 470.39 [X4MP-SPIKE] LUA INFO timer=GetCurRealTime cdef_issues=0 ffi_os=Windows ffi_arch=x64 jit=none coroutine=table os_clock=none debug=nil debug_getupvalue=none
+[=ERROR=] 470.39 [X4MP-SPIKE] LUA INFO protected_ui_mode=err md_trigger=md
+[=ERROR=] 470.39 [X4MP-SPIKE] LUA INFO game_version=9.00_(611726)
+[General] 470.40 [X4MP-SPIKE] LUA INFO lua_to_md_bridge=ok control=hello_ack value=ok
+[General] 475.39 [X4MP-SPIKE] S7 INFO skipped mode=verify
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO begin run=2 age=480.384
+[General] 480.38 [X4MP-SPIKE] VERIFY FAIL what=V12_ship_object_variable_via_md_global_ref exists=1 netid=null owner=x4mp_team_1
+[General] 480.38 [X4MP-SPIKE] VERIFY FAIL what=V12_netid_found_by_find_ship_search team1_ships=1 with_netid_4242=0
+[General] 480.38 [X4MP-SPIKE] VERIFY FAIL what=V12_station_object_variable exists=1 netid=null
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_1 isactive=1 relation_to_player=0.8 locked=1 name=MP Team 1
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_2 isactive=1 relation_to_player=-0.5 locked=1 name=MP Team 2
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_3 isactive=1 relation_to_player=0 locked=0 name=MP Team 3 renamed
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_4 isactive=1 relation_to_player=0 locked=0 name=MP Team 4
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_5 isactive=1 relation_to_player=0 locked=0 name=MP Team 5
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_6 isactive=1 relation_to_player=0 locked=0 name=MP Team 6
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_7 isactive=1 relation_to_player=0 locked=0 name=MP Team 7
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=x4mp_team_8 isactive=1 relation_to_player=0 locked=0 name=MP Team 8
+[General] 480.38 [X4MP-SPIKE] VERIFY PASS what=S9_set_known_survived sector=cluster_409_sector001_macro known=1
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=S2_avatar_ship_after_reload exists=1 isplayerowned=1 player_ship=0x215d101
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO what=pollution_check team2_ships_in_galaxy=1 (expected 1: the S1 ship; more means ghosts leaked into the save)
+[General] 480.38 [X4MP-SPIKE] VERIFY INFO end
+[General] 505.38 [X4MP-SPIKE] S4 INFO skipped mode=verify
+[General] 540.39 [X4MP-SPIKE] S1 INFO skipped mode=verify
