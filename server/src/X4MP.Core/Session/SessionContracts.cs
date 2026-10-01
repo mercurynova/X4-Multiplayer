@@ -207,6 +207,21 @@ public interface ISessionNodeDriver
 
     /// <summary>Kicks a player: sends <c>Disconnect{code}</c> and frees the slot.</summary>
     Task<bool> RemoveNodeAsync(int playerId, DisconnectCode code, string reason);
+
+    /// <summary>
+    /// Raises an external session trigger (<see cref="SessionTrigger.CheckpointStored"/>, <see cref="SessionTrigger.StopCompleted"/>).
+    /// Actor thread only (call it from a module callback or from inside <see cref="CallAsync{T}"/>).
+    /// </summary>
+    TransitionResult RaiseSessionTrigger(SessionTrigger trigger, string? reason) =>
+        TransitionResult.Failed(string.Empty, "not supported by this driver");
+
+    /// <summary>
+    /// The session's current checkpoint changed (the save service, M1-12): the actor puts it into every <c>SessionState</c>
+    /// (<c>current_save_sha256</c>) and broadcasts it. An empty array clears it. Actor thread only.
+    /// </summary>
+    void SetCurrentSave(byte[] sha256, double gameTime)
+    {
+    }
 }
 
 /// <summary>A module that wants the <see cref="ISessionNodeDriver"/> (called once, when the actor is constructed).</summary>

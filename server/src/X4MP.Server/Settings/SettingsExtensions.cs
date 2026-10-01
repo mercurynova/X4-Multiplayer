@@ -50,6 +50,7 @@ public static class SettingsExtensions
         services.AddSettingsSection<TeamOptions>();
         services.AddSettingsSection<EconomyOptions>();
         services.AddSettingsSection<X4MP.Core.Interest.InterestOptions>();
+        services.AddSettingsSection<X4MP.Core.Saves.SaveOptions>();
         services.AddSettingsSection<X4MP.Core.Relay.RelayOptions>();
     }
 

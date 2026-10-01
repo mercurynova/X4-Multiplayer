@@ -19,6 +19,23 @@ public sealed partial class SessionActor
     private long _dbSessionId;
     private string _sessionName = string.Empty;
     private long _snapshotVersion;
+    private byte[] _currentSaveSha = [];
+    private double _currentSaveGameTime;
+
+    /// <inheritdoc />
+    public TransitionResult RaiseSessionTrigger(SessionTrigger trigger, string? reason) =>
+        SessionTransitions.IsExternal(trigger)
+            ? Transition(trigger, reason)
+            : TransitionResult.Failed(_phase.ToString(), $"{trigger} is raised by the session itself");
+
+    /// <inheritdoc />
+    public void SetCurrentSave(byte[] sha256, double gameTime)
+    {
+        ArgumentNullException.ThrowIfNull(sha256);
+        _currentSaveSha = sha256;
+        _currentSaveGameTime = gameTime;
+        BroadcastSessionState();
+    }
 
     private string SessionDisplayName =>
         !string.IsNullOrEmpty(_sessionName) ? _sessionName
@@ -127,6 +144,8 @@ public sealed partial class SessionActor
             _gateway.SessionId = _sessionGuid;
             _dbSessionId = 0;
             _sessionName = string.Empty;
+            _currentSaveSha = [];
+            _currentSaveGameTime = 0;
         }
 
         return new TransitionResult(true, from.ToString(), to.ToString(), null);
