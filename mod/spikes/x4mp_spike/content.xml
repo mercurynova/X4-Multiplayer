@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Throwaway in-game spike extension for X4MP (session 1). XML + Lua only, no native DLL.
+     save="0": the extension is not required to load the savegame (same as the reference's content.xml format). -->
+<content id="x4mp_spike" name="X4MP Spike (test)" description="Throwaway in-game test extension for X4MP spike session 1. Remove after use." author="X4MP" version="900" date="2026-10-01" save="0" enabled="1">
+  <text language="44" name="X4MP Spike (test)" description="Throwaway in-game test extension for X4MP spike session 1. Remove after use."/>
+</content>

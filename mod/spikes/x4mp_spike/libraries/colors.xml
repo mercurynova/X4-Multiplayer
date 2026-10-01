@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- x4mp_spike: colours + faction_<id> mappings, same scheme as vanilla libraries/colors.xml (<mappings> faction_player etc.). -->
+<diff>
+  <add sel="/colormap/colors">
+    <color id="x4mp_team_1_glow" r="255" g="128" b="0" a="255" glow="0.05"/>
+    <color id="x4mp_team_2_glow" r="0" g="255" b="255" a="255" glow="0.05"/>
+    <color id="x4mp_team_3_glow" r="255" g="255" b="0" a="255" glow="0.05"/>
+    <color id="x4mp_team_4_glow" r="255" g="0" b="255" a="255" glow="0.05"/>
+    <color id="x4mp_team_5_glow" r="255" g="255" b="255" a="255" glow="0.05"/>
+    <color id="x4mp_team_6_glow" r="140" g="60" b="255" a="255" glow="0.05"/>
+    <color id="x4mp_team_7_glow" r="0" g="170" b="90" a="255" glow="0.05"/>
+    <color id="x4mp_team_8_glow" r="255" g="105" b="180" a="255" glow="0.05"/>
+  </add>
+  <add sel="/colormap/mappings">
+    <mapping id="faction_x4mp_team_1" ref="x4mp_team_1_glow"/>
+    <mapping id="faction_x4mp_team_2" ref="x4mp_team_2_glow"/>
+    <mapping id="faction_x4mp_team_3" ref="x4mp_team_3_glow"/>
+    <mapping id="faction_x4mp_team_4" ref="x4mp_team_4_glow"/>
+    <mapping id="faction_x4mp_team_5" ref="x4mp_team_5_glow"/>
+    <mapping id="faction_x4mp_team_6" ref="x4mp_team_6_glow"/>
+    <mapping id="faction_x4mp_team_7" ref="x4mp_team_7_glow"/>
+    <mapping id="faction_x4mp_team_8" ref="x4mp_team_8_glow"/>
+  </add>
+</diff>

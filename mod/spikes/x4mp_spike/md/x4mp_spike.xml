@@ -1,0 +1,670 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike : MD orchestration of the X4MP in-game spike session 1 (steps 1 to 8).
+
+  Flow: Boot (game loaded) -> wait InitialDelay -> StepN cues, each its own cue, so a failure in one step cannot block
+  the others -> Finish. If the savegame already contains md.$X4MP_Done (second load, after the user saved), only the
+  Verify cue runs (persistence checks V12 etc.).
+
+  Log lines:  [X4MP-SPIKE] <step> <PASS|FAIL|INFO|MEASURE> key=value ...   (debug_text, filter "general", visible with -debug all)
+  The Lua side (ui/x4mp_spike.lua) writes the same format with DebugError.
+
+  Sources for syntax (all under x4-unpacked/):
+    cue skeleton, instantiate/namespace, event_game_loaded : md/cover.xml:4-10, md/crisis_manager.xml
+    <delay> between actions blocks, check_age semantics    : libraries/md.xsd:4687-4696, md/boarding.xml:1546-1551
+    event_ui_triggered (param=screen, param2=control, param3=value) : libraries/common.xsd:12023
+    raise_lua_event name/param                              : md/cover.xml:397, libraries/common.xsd:31309
+    show_notification                                       : md/diplomacy.xml:2452, libraries/common.xsd:36951
+    create_ship + owner + loadout + safepos                  : md/scenario_tutorials.xml:10334-10341, md/gm_board_ship.xml:588
+    set_faction_active / set_faction_relation / _locked      : md/story_paranid.xml:19542, md/diplomacy.xml:147, common.xsd:35318,35358
+    set_faction_identity                                     : common.xsd:20215
+    transfer_money / add_cargo / remove_cargo / set_owner    : md/*.xml (see grep in README), common.xsd:33392,19413,19434,35552
+    find_sector / find_gate / find_highway_entry_gate / find_ship / find_station : common.xsd:28259..28460, md/factionlogic.xml:968
+    set_known                                               : common.xsd:20401, md/*.xml (set_known object known)
+    md.$name globals (persist in the save)                   : md/cover.xml:12, md/setup (md.$BoronQueendomReturned)
+    cancel_cue cue="namespace"                              : md/encounters.xml:321
+    expression properties used (libraries/scriptproperties.xml): player.age/money/ship/occupiedship/container/sector/galaxy/
+      systemtime.{fmt}/canteleportto.{ship}, faction.isactive/money/relationto.{faction}/isrelationlocked/hasownaccount/name,
+      object.exists/owner/trueowner/macro/sector/isplayerowned/isknown/cargo.{ware}.count, gate.isactive/destination
+-->
+<mdscript name="X4MP_Spike" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <!-- =====================================================================================================
+         Lua -> MD bridge. Always active. Lua calls AddUITriggeredEvent("X4MP_Spike", control, value).
+         ===================================================================================================== -->
+    <cue name="OnLua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike'"/>
+      </conditions>
+      <actions>
+        <set_value name="$ctl" exact="event.param2"/>
+
+        <do_if value="$ctl == 'ping'">
+          <!-- S8 latency: answer immediately, Lua measures the round trip -->
+          <raise_lua_event name="'X4MP_Spike_pong'" param="event.param3"/>
+        </do_if>
+        <do_elseif value="$ctl == 'hello_ack'">
+          <debug_text text="'[X4MP-SPIKE] LUA INFO lua_to_md_bridge=ok control=hello_ack value=' + event.param3" filter="general" context="false"/>
+        </do_elseif>
+        <do_elseif value="$ctl == 's7_enum_done' or $ctl == 's4_lua_done' or $ctl == 's8_owner_done' or $ctl == 's8_ping_done' or $ctl == 's2_teleported' or $ctl == 's2_done' or $ctl == 's3_done' or $ctl == 's4_overdrawn'">
+          <debug_text text="'[X4MP-SPIKE] LUA INFO md_received control=' + $ctl + ' value=' + event.param3 + ' age=' + player.age" filter="general" context="false"/>
+          <do_if value="$ctl == 's4_overdrawn'">
+            <!-- MD view of the balance while Lua has driven it negative (units: money type, cents) -->
+            <debug_text text="'[X4MP-SPIKE] S4 INFO md_player_money_while_overdrawn=' + player.money + ' lua_balance=' + event.param3" filter="general" context="false"/>
+          </do_if>
+        </do_elseif>
+        <do_elseif value="$ctl == 's3_spawned'">
+          <find_ship name="$Seen" space="player.sector" owner="faction.x4mp_team_2" multiple="true"/>
+          <debug_text text="'[X4MP-SPIKE] S3 INFO md_sees_ghosts_in_sector=' + $Seen.count + ' lua_reported=' + event.param3" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: step 6/8 ghosts - ' + event.param3 + ' ghost ships are now moving. Watch your FPS counter and note the number.'" timeout="25s" priority="5"/>
+        </do_elseif>
+        <do_elseif value="$ctl == 's3_destroy_list'">
+          <!-- MD half of the destroy test (V16): destroy_object explosion="true". Never touches the player's ship. -->
+          <set_value name="$N" exact="0"/>
+          <set_value name="$Skipped" exact="0"/>
+          <do_for_each name="$O" in="event.param3">
+            <do_if value="$O and $O.exists and $O != player.ship and $O != player.occupiedship and $O != player.container">
+              <destroy_object object="$O" explosion="true"/>
+              <set_value name="$N" exact="$N + 1"/>
+            </do_if>
+            <do_else>
+              <set_value name="$Skipped" exact="$Skipped + 1"/>
+            </do_else>
+          </do_for_each>
+          <debug_text text="'[X4MP-SPIKE] S3 INFO md_destroy_object_issued=' + $N + ' skipped=' + $Skipped" filter="general" context="false"/>
+        </do_elseif>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] LUA INFO md_unknown_control=' + $ctl" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- S4: log every money update while a money test is running (event_player_money_updated, common.xsd:15840) -->
+    <cue name="S4_MoneyEvent" instantiate="true">
+      <conditions>
+        <event_player_money_updated/>
+        <check_value value="@md.$X4MP_S4Active"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_S4Events" exact="md.$X4MP_S4Events + 1"/>
+        <do_if value="md.$X4MP_S4Events le 40">
+          <debug_text text="'[X4MP-SPIKE] S4 INFO event_player_money_updated n=' + md.$X4MP_S4Events + ' old=' + event.param + ' new=' + event.param2" filter="general" context="false"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- =====================================================================================================
+         Boot: runs on every load (event_game_loaded) and on a new game (event_game_started).
+         ===================================================================================================== -->
+    <cue name="Boot" instantiate="true" namespace="this">
+      <conditions>
+        <check_any>
+          <event_game_loaded/>
+          <event_game_started/>
+        </check_any>
+      </conditions>
+      <actions>
+        <!-- ===================================== CONFIG BLOCK (edit here) =====================================
+             Stored in md.$X4MP_Cfg so every step cue reads the same values.
+             Times use s units; distances are plain metres (multiplied by 1m where an attribute needs a length). -->
+        <set_value name="md.$X4MP_Cfg" exact="table[
+          $S7 = true,
+          $S4 = true,
+          $S1 = true,
+          $S8 = true,
+          $S2 = true,
+          $S3 = true,
+          $S9 = true,
+          $Misc = true,
+          $GhostTiers = '100,250,500',
+          $GhostPerFrame = 40,
+          $GhostSeconds = 20,
+          $GhostDistMin = 3000,
+          $GhostDistMax = 8000,
+          $GhostOwner = 'x4mp_team_2',
+          $TeamShipDist = 5000,
+          $S2Dist = 1500,
+          $S2ReturnAfter = 15,
+          $ForceFullRun = false,
+          $InitialDelay = 15s,
+          $Gap = 10s,
+          $Dur1 = 20s,
+          $Dur2 = 25s,
+          $Dur3 = 40s,
+          $Dur4 = 25s,
+          $Dur5 = 35s,
+          $Dur6 = 180s,
+          $Dur7 = 15s,
+          $Dur8 = 15s
+        ]"/>
+        <!-- ================================== END CONFIG BLOCK ============================================ -->
+
+        <!-- Teams list, index 1..8 (kept in md.$ globals so every step cue sees them without relying on cue namespaces) (static faction lookups, resolved against libraries/factions.xml of this extension) -->
+        <set_value name="md.$X4MP_Teams" exact="[faction.x4mp_team_1, faction.x4mp_team_2, faction.x4mp_team_3, faction.x4mp_team_4, faction.x4mp_team_5, faction.x4mp_team_6, faction.x4mp_team_7, faction.x4mp_team_8]"/>
+
+        <!-- Mode: second load of a save made after a completed run -> verify only -->
+        <set_value name="md.$X4MP_Mode" exact="'full'"/>
+        <do_if value="(@md.$X4MP_Done) and not md.$X4MP_Cfg.$ForceFullRun">
+          <set_value name="md.$X4MP_Mode" exact="'verify'"/>
+        </do_if>
+        <set_value name="md.$X4MP_Runs" exact="if md.$X4MP_Runs? then md.$X4MP_Runs + 1 else 1"/>
+        <set_value name="md.$X4MP_S4Active" exact="false"/>
+
+        <!-- Step start offsets: InitialDelay, then each step duration plus gap -->
+        <set_value name="md.$X4MP_T1" exact="md.$X4MP_Cfg.$InitialDelay"/>
+        <set_value name="md.$X4MP_T2" exact="md.$X4MP_T1 + md.$X4MP_Cfg.$Dur1 + md.$X4MP_Cfg.$Gap"/>
+        <set_value name="md.$X4MP_T3" exact="md.$X4MP_T2 + md.$X4MP_Cfg.$Dur2 + md.$X4MP_Cfg.$Gap"/>
+        <set_value name="md.$X4MP_T4" exact="md.$X4MP_T3 + md.$X4MP_Cfg.$Dur3 + md.$X4MP_Cfg.$Gap"/>
+        <set_value name="md.$X4MP_T5" exact="md.$X4MP_T4 + md.$X4MP_Cfg.$Dur4 + md.$X4MP_Cfg.$Gap"/>
+        <set_value name="md.$X4MP_T6" exact="md.$X4MP_T5 + md.$X4MP_Cfg.$Dur5 + md.$X4MP_Cfg.$Gap"/>
+        <set_value name="md.$X4MP_T7" exact="md.$X4MP_T6 + md.$X4MP_Cfg.$Dur6 + md.$X4MP_Cfg.$Gap"/>
+        <set_value name="md.$X4MP_T8" exact="md.$X4MP_T7 + md.$X4MP_Cfg.$Dur7 + md.$X4MP_Cfg.$Gap"/>
+        <set_value name="md.$X4MP_TEnd" exact="md.$X4MP_T8 + md.$X4MP_Cfg.$Dur8 + md.$X4MP_Cfg.$Gap"/>
+
+        <debug_text text="'[X4MP-SPIKE] BOOT INFO mode=' + md.$X4MP_Mode + ' run=' + md.$X4MP_Runs + ' age=' + player.age + ' systime=' + player.systemtime.{'%Y-%m-%d %H:%M:%S'} + ' t1=' + md.$X4MP_T1 + ' tend=' + md.$X4MP_TEnd" filter="general" context="false"/>
+      </actions>
+      <cues>
+
+        <!-- ============================ STEP 0: hello (Lua environment probe) ============================ -->
+        <cue name="Step0_Hello">
+          <delay exact="md.$X4MP_Cfg.$InitialDelay - 5s"/>
+          <actions>
+            <raise_lua_event name="'X4MP_Spike_cmd'" param="'hello;src=md'"/>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 1: S7 sectors, gates, ship enumeration ============================ -->
+        <cue name="Step1_S7">
+          <delay exact="md.$X4MP_T1"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S7">
+              <show_notification text="'X4MP spike: step 1/8 sector list and ship enumeration (S7). Nothing to do, expect a short hitch.'" timeout="15s" priority="5"/>
+              <debug_text text="'[X4MP-SPIKE] S7 INFO begin age=' + player.age" filter="general" context="false"/>
+              <!-- all sectors: find_sector multiple (common.xsd:28259); default scope is the galaxy, normal clusters only -->
+              <find_sector name="$Sectors" multiple="true"/>
+              <debug_text text="'[X4MP-SPIKE] S7 MEASURE sectors_found=' + $Sectors.count + ' (target at least 140 with DLC)'" filter="general" context="false"/>
+              <do_for_each name="$Sec" in="$Sectors" counter="$I">
+                <set_value name="$GateList" exact="''"/>
+                <set_value name="$GateActive" exact="0"/>
+                <find_gate name="$Gates" space="$Sec" multiple="true"/>
+                <do_for_each name="$Gate" in="$Gates">
+                  <do_if value="$Gate.isactive">
+                    <set_value name="$GateActive" exact="$GateActive + 1"/>
+                  </do_if>
+                  <set_value name="$GateList" exact="$GateList + (@$Gate.destination.sector.macro.id) + ','"/>
+                </do_for_each>
+                <!-- superhighway entry gates (md/factionlogic.xml:968 pattern) -->
+                <set_value name="$HwList" exact="''"/>
+                <find_highway_entry_gate name="$Hw" space="$Sec" superhighwaygate="true" multiple="true"/>
+                <do_for_each name="$HwGate" in="$Hw">
+                  <set_value name="$HwList" exact="$HwList + (@$HwGate.destination.sector.macro.id) + ','"/>
+                </do_for_each>
+                <debug_text text="'[X4MP-SPIKE] S7 INFO sector=' + $Sec.macro.id + ' owner=' + (@$Sec.owner.id) + ' known=' + $Sec.isknown + ' gates=' + $GateList + ' gates_active=' + $GateActive + ' highways=' + $HwList" filter="general" context="false"/>
+              </do_for_each>
+              <!-- Lua side: GetComponentData(sector, 'macro') cross-check (V09) -->
+              <raise_lua_event name="'X4MP_Spike_obj'" param="player.sector"/>
+              <raise_lua_event name="'X4MP_Spike_cmd'" param="'s7_probe;md_macro=' + player.sector.macro.id"/>
+              <set_value name="$SysT0" exact="player.systemtime.{'%H:%M:%S'}"/>
+              <set_value name="$AgeT0" exact="player.age"/>
+              <!-- full ship enumeration through MD (only whole seconds are visible here; Lua gives the precise number) -->
+              <find_ship name="$AllShips" space="player.galaxy" multiple="true"/>
+              <debug_text text="'[X4MP-SPIKE] S7 MEASURE md_find_ship_all ships=' + $AllShips.count + ' systime_before=' + $SysT0 + ' systime_after=' + player.systemtime.{'%H:%M:%S'}" filter="general" context="false"/>
+              <remove_value name="$AllShips"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S7 INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+          <delay exact="3s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S7">
+              <!-- Lua: GetAllFactionShips pass over all factions, precise timing -->
+              <raise_lua_event name="'X4MP_Spike_cmd'" param="'s7_enum'"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 2: S4 money ============================ -->
+        <cue name="Step2_S4">
+          <delay exact="md.$X4MP_T2"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S4">
+              <show_notification text="'X4MP spike: step 2/8 money (S4). Your credits change briefly and are restored. Compare the HUD balance with the log.'" timeout="20s" priority="5"/>
+              <set_value name="md.$X4MP_S4Events" exact="0"/>
+              <set_value name="md.$X4MP_S4Active" exact="true"/>
+              <set_value name="$M0" exact="player.money"/>
+              <set_value name="md.$X4MP_S4Start" exact="player.money"/>
+              <debug_text text="'[X4MP-SPIKE] S4 INFO md_player_money_start=' + player.money + ' formatted=' + player.money.formatted.default + ' (money type is cents)'" filter="general" context="false"/>
+              <raise_lua_event name="'X4MP_Spike_cmd'" param="'s4_run;md_money_raw=' + player.money"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S4 INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+          <delay exact="12s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S4">
+              <!-- MD transfer_money (common.xsd:33392): player <-> x4mp_team_1 <-> NPC faction (argon) -->
+              <debug_text text="'[X4MP-SPIKE] S4 INFO md_before_transfers player=' + player.money + ' team1=' + faction.x4mp_team_1.money + ' argon=' + faction.argon.money" filter="general" context="false"/>
+              <transfer_money from="faction.player" to="faction.x4mp_team_1" amount="1000Cr" result="$R1"/>
+              <debug_text text="'[X4MP-SPIKE] S4 INFO transfer_money player_to_team1 requested=1000Cr result=' + $R1 + ' player=' + player.money + ' team1=' + faction.x4mp_team_1.money" filter="general" context="false"/>
+              <transfer_money from="faction.x4mp_team_1" to="faction.player" amount="1000Cr" result="$R2"/>
+              <debug_text text="'[X4MP-SPIKE] S4 INFO transfer_money team1_to_player requested=1000Cr result=' + $R2 + ' player=' + player.money + ' team1=' + faction.x4mp_team_1.money" filter="general" context="false"/>
+              <transfer_money from="faction.player" to="faction.argon" amount="1000Cr" result="$R3"/>
+              <debug_text text="'[X4MP-SPIKE] S4 INFO transfer_money player_to_npc(argon) requested=1000Cr result=' + $R3 + ' player=' + player.money + ' argon=' + faction.argon.money" filter="general" context="false"/>
+              <transfer_money from="faction.argon" to="faction.player" amount="1000Cr" result="$R4"/>
+              <debug_text text="'[X4MP-SPIKE] S4 INFO transfer_money npc(argon)_to_player requested=1000Cr result=' + $R4 + ' player=' + player.money + ' argon=' + faction.argon.money" filter="general" context="false"/>
+              <!-- overdraw via MD: transfer more than the account holds -->
+              <transfer_money from="faction.x4mp_team_1" to="faction.player" amount="999999Cr" result="$R5"/>
+              <debug_text text="'[X4MP-SPIKE] S4 INFO transfer_money overdraw_team1_account(0cr)_to_player requested=999999Cr result=' + $R5 + ' (0 means refused or clamped)'" filter="general" context="false"/>
+            </do_if>
+          </actions>
+          <delay exact="6s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S4">
+              <set_value name="md.$X4MP_S4Active" exact="false"/>
+              <debug_text text="'[X4MP-SPIKE] S4 ' + (if player.money == md.$X4MP_S4Start then 'PASS' else 'FAIL') + ' what=balance_restored_end_of_step md_start=' + md.$X4MP_S4Start + ' md_now=' + player.money + ' money_events_seen=' + md.$X4MP_S4Events" filter="general" context="false"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 3: S1 factions ============================ -->
+        <cue name="Step3_S1">
+          <delay exact="md.$X4MP_T3"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S1">
+              <show_notification text="'X4MP spike: step 3/8 factions. Two ships appear about 5 km away. TARGET the ship marked MP Team 1 and the one marked MP Team 2 and note colour and friendly/enemy status.'" timeout="45s" priority="5"/>
+              <set_value name="md.$X4MP_TeamShips" exact="[null, null]"/>
+              <do_for_each name="$F" in="md.$X4MP_Teams" counter="$K">
+                <do_if value="$F">
+                  <debug_text text="'[X4MP-SPIKE] S1 PASS what=faction_resolves id=' + $F.id + ' name=' + $F.name + ' isactive_before=' + $F.isactive + ' hasownaccount=' + $F.hasownaccount + ' known=' + $F.knowntoplayer" filter="general" context="false"/>
+                  <set_faction_active faction="$F" active="true"/>
+                  <debug_text text="'[X4MP-SPIKE] S1 ' + (if $F.isactive then 'PASS' else 'FAIL') + ' what=set_faction_active id=' + $F.id + ' isactive_after=' + $F.isactive" filter="general" context="false"/>
+                </do_if>
+                <do_else>
+                  <debug_text text="'[X4MP-SPIKE] S1 FAIL what=faction_resolves index=' + $K + ' result=null'" filter="general" context="false"/>
+                </do_else>
+              </do_for_each>
+              <!-- Lua view: is it listed by GetAllFactions(true)? -->
+              <raise_lua_event name="'X4MP_Spike_cmd'" param="'s1_lua'"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S1 INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+          <delay exact="3s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S1">
+              <!-- relations first, so the ships appear with the right status: team 1 allied (0.8), team 2 hostile (-0.5) -->
+              <set_faction_relation faction="faction.x4mp_team_1" otherfaction="faction.player" value="0.8"/>
+              <set_faction_relation faction="faction.x4mp_team_2" otherfaction="faction.player" value="-0.5"/>
+              <debug_text text="'[X4MP-SPIKE] S1 INFO relations_set team1_to_player=' + faction.x4mp_team_1.relationto.{faction.player} + ' player_to_team1=' + faction.player.relationto.{faction.x4mp_team_1} + ' team2_to_player=' + faction.x4mp_team_2.relationto.{faction.player} + ' player_to_team2=' + faction.player.relationto.{faction.x4mp_team_2} + ' (wanted 0.8 and -0.5)'" filter="general" context="false"/>
+              <set_faction_relation_locked faction="faction.x4mp_team_1" locked="true"/>
+              <set_faction_relation_locked faction="faction.x4mp_team_2" locked="true"/>
+              <debug_text text="'[X4MP-SPIKE] S1 INFO relation_locked team1=' + faction.x4mp_team_1.isrelationlocked + ' team2=' + faction.x4mp_team_2.isrelationlocked" filter="general" context="false"/>
+              <!-- does a lock stop a script from changing it? try, log, restore -->
+              <set_faction_relation faction="faction.x4mp_team_1" otherfaction="faction.player" value="0.3"/>
+              <debug_text text="'[X4MP-SPIKE] S1 INFO set_relation_while_locked wanted=0.3 team1_to_player_now=' + faction.x4mp_team_1.relationto.{faction.player} + ' (0.8 means the lock blocked MD)'" filter="general" context="false"/>
+              <set_faction_relation faction="faction.x4mp_team_1" otherfaction="faction.player" value="0.8"/>
+
+              <!-- one inexpensive vanilla Argon S ship, no pilot: argon courier. index/macros.xml:1650-1968 area -->
+              <do_all exact="2" counter="$K">
+                <set_value name="$Sx" exact="if $K == 1 then md.$X4MP_Cfg.$TeamShipDist else (0 - md.$X4MP_Cfg.$TeamShipDist)"/>
+                <create_ship name="$Ship" macro="macro.ship_arg_s_trans_container_01_a_macro" sector="player.sector">
+                  <owner exact="md.$X4MP_Teams.{$K}"/>
+                  <loadout>
+                    <level exact="0.5"/>
+                  </loadout>
+                  <safepos object="player.ship" x="$Sx * 1m" y="0m" z="0m"/>
+                </create_ship>
+                <do_if value="$Ship">
+                  <set_object_name object="$Ship" name="'MP Team ' + $K"/>
+                  <set_known object="$Ship" known="true"/>
+                  <set_value name="md.$X4MP_TeamShips.{$K}" exact="$Ship"/>
+                  <debug_text text="'[X4MP-SPIKE] S1 PASS what=create_ship_for_team team=' + $K + ' ship=' + $Ship + ' exists=' + $Ship.exists + ' owner=' + $Ship.owner.id + ' macro=' + $Ship.macro.id + ' dist_m=' + (player.ship.distanceto.{$Ship} / 1m) + ' name=' + $Ship.name" filter="general" context="false"/>
+                </do_if>
+                <do_else>
+                  <debug_text text="'[X4MP-SPIKE] S1 FAIL what=create_ship_for_team team=' + $K + ' result=null'" filter="general" context="false"/>
+                </do_else>
+              </do_all>
+
+              <!-- V25: runtime rename of a faction -->
+              <set_value name="$NameBefore" exact="faction.x4mp_team_3.name"/>
+              <set_faction_identity faction="faction.x4mp_team_3" name="'MP Team 3 renamed'"/>
+              <debug_text text="'[X4MP-SPIKE] S1 INFO set_faction_identity team3 before=' + $NameBefore + ' after=' + faction.x4mp_team_3.name + ' renamed_flag=' + faction.x4mp_team_3.hasbeenrenamed" filter="general" context="false"/>
+            </do_if>
+          </actions>
+          <delay exact="12s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S1">
+              <!-- police / hostility feedback: what do the two ships think of the player (owner relation) -->
+              <do_all exact="2" counter="$K">
+                <set_value name="$Sh" exact="md.$X4MP_TeamShips.{$K}"/>
+                <do_if value="$Sh and $Sh.exists">
+                  <debug_text text="'[X4MP-SPIKE] S1 INFO ship_state team=' + $K + ' owner=' + $Sh.owner.id + ' relation_to_player=' + $Sh.relationto.{faction.player} + ' sector=' + $Sh.sector.macro.id + ' known=' + $Sh.isknown" filter="general" context="false"/>
+                </do_if>
+              </do_all>
+              <debug_text text="'[X4MP-SPIKE] S1 INFO ask_user targeting_colour_and_status_of_ships_MP_Team_1_and_MP_Team_2'" filter="general" context="false"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 4: S8 cargo, owner, latency ============================ -->
+        <cue name="Step4_S8">
+          <delay exact="md.$X4MP_T4"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S8">
+              <show_notification text="'X4MP spike: step 4/8 cargo, ownership and Lua/MD latency (S8). Nothing to do.'" timeout="15s" priority="5"/>
+              <set_value name="$Ship" exact="@md.$X4MP_TeamShips.{1}"/>
+              <do_if value="not ($Ship and $Ship.exists)">
+                <debug_text text="'[X4MP-SPIKE] S8 INFO no_team1_ship_from_S1_creating_one'" filter="general" context="false"/>
+                <create_ship name="$Ship" macro="macro.ship_arg_s_trans_container_01_a_macro" sector="player.sector">
+                  <owner exact="faction.x4mp_team_1"/>
+                  <loadout>
+                    <level exact="0.5"/>
+                  </loadout>
+                  <safepos object="player.ship" x="4000m" y="0m" z="0m"/>
+                </create_ship>
+                <do_if value="$Ship">
+                  <set_object_name object="$Ship" name="'MP Team 1'"/>
+                  <set_value name="md.$X4MP_TeamShips" exact="[$Ship, null]"/>
+                </do_if>
+              </do_if>
+              <do_if value="$Ship">
+                <set_value name="$Ware" exact="ware.energycells"/>
+                <debug_text text="'[X4MP-SPIKE] S8 INFO cargo_start ship=' + $Ship + ' ware=energycells count=' + $Ship.cargo.{$Ware}.count + ' free_all=' + $Ship.cargo.free.all" filter="general" context="false"/>
+                <add_cargo object="$Ship" ware="$Ware" exact="37" result="$Ra"/>
+                <debug_text text="'[X4MP-SPIKE] S8 ' + (if $Ra == 37 then 'PASS' else 'INFO') + ' what=add_cargo exact=37 result=' + $Ra + ' count_now=' + $Ship.cargo.{$Ware}.count" filter="general" context="false"/>
+                <raise_lua_event name="'X4MP_Spike_obj'" param="$Ship"/>
+                <raise_lua_event name="'X4MP_Spike_cmd'" param="'s8_cargo;stage=after_add37'"/>
+                <remove_cargo object="$Ship" ware="$Ware" exact="12" result="$Rr"/>
+                <debug_text text="'[X4MP-SPIKE] S8 ' + (if $Rr == 12 then 'PASS' else 'INFO') + ' what=remove_cargo exact=12 result=' + $Rr + ' count_now=' + $Ship.cargo.{$Ware}.count + ' (expect 25)'" filter="general" context="false"/>
+                <remove_cargo object="$Ship" ware="$Ware" exact="1000" result="$Rr2"/>
+                <debug_text text="'[X4MP-SPIKE] S8 INFO what=remove_cargo_more_than_present exact=1000 result=' + $Rr2 + ' count_now=' + $Ship.cargo.{$Ware}.count + ' (expect result 25 and count 0)'" filter="general" context="false"/>
+                <add_cargo object="$Ship" ware="$Ware" exact="100000" result="$Ra2"/>
+                <debug_text text="'[X4MP-SPIKE] S8 INFO what=add_cargo_over_capacity exact=100000 result=' + $Ra2 + ' count_now=' + $Ship.cargo.{$Ware}.count" filter="general" context="false"/>
+                <remove_cargo object="$Ship" ware="$Ware" exact="$Ship.cargo.{$Ware}.count" result="$Rr3"/>
+                <debug_text text="'[X4MP-SPIKE] S8 INFO what=cargo_cleanup removed=' + $Rr3 + ' count_now=' + $Ship.cargo.{$Ware}.count" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] S8 FAIL what=no_ship_for_cargo_test'" filter="general" context="false"/>
+              </do_else>
+
+              <!-- station variant: add and remove one unit on any station in the sector -->
+              <find_station name="$Stations" space="player.sector" multiple="true"/>
+              <do_if value="$Stations.count gt 0">
+                <set_value name="$St" exact="$Stations.{1}"/>
+                <add_cargo object="$St" ware="ware.energycells" exact="1" result="$Rs1"/>
+                <remove_cargo object="$St" ware="ware.energycells" exact="1" result="$Rs2"/>
+                <debug_text text="'[X4MP-SPIKE] S8 INFO what=station_cargo station=' + $St.knownname + ' add1_result=' + $Rs1 + ' remove1_result=' + $Rs2" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] S8 INFO what=station_cargo result=no_station_in_sector'" filter="general" context="false"/>
+              </do_else>
+
+              <!-- ownership change through MD: set_owner (common.xsd:35552) -->
+              <do_if value="$Ship">
+                <debug_text text="'[X4MP-SPIKE] S8 INFO owner_before md_owner=' + $Ship.owner.id + ' trueowner=' + $Ship.trueowner.id" filter="general" context="false"/>
+                <set_owner object="$Ship" faction="faction.x4mp_team_3"/>
+                <debug_text text="'[X4MP-SPIKE] S8 ' + (if $Ship.owner == faction.x4mp_team_3 then 'PASS' else 'FAIL') + ' what=set_owner_md before=x4mp_team_1 after=' + $Ship.owner.id + ' trueowner=' + $Ship.trueowner.id" filter="general" context="false"/>
+                <!-- ownership change through Lua: SetComponentOwner back to team 1 -->
+                <raise_lua_event name="'X4MP_Spike_obj'" param="$Ship"/>
+                <raise_lua_event name="'X4MP_Spike_cmd'" param="'s8_owner;faction=x4mp_team_1'"/>
+              </do_if>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S8 INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+          <delay exact="3s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S8">
+              <set_value name="$Ship" exact="@md.$X4MP_TeamShips.{1}"/>
+              <do_if value="$Ship">
+                <debug_text text="'[X4MP-SPIKE] S8 ' + (if $Ship.owner == faction.x4mp_team_1 then 'PASS' else 'FAIL') + ' what=owner_after_lua_SetComponentOwner md_view_owner=' + $Ship.owner.id + ' trueowner=' + $Ship.trueowner.id" filter="general" context="false"/>
+              </do_if>
+              <raise_lua_event name="'X4MP_Spike_cmd'" param="'s8_ping;n=10'"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 5: S2 avatar takeover ============================ -->
+        <cue name="Step5_S2">
+          <delay exact="md.$X4MP_T5"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S2">
+              <show_notification text="'X4MP spike: step 5/8 avatar takeover. In a moment you are moved into a new ship. Check control, HUD and camera. You return to your old ship automatically.'" timeout="25s" priority="5"/>
+              <create_ship name="$NewShip" macro="macro.ship_arg_s_fighter_01_a_macro" sector="player.sector">
+                <owner exact="faction.player"/>
+                <loadout>
+                  <level exact="0.5"/>
+                </loadout>
+                <safepos object="player.ship" x="md.$X4MP_Cfg.$S2Dist * 1m" y="0m" z="0m"/>
+              </create_ship>
+              <do_if value="$NewShip">
+                <set_object_name object="$NewShip" name="'MP Avatar'"/>
+                <set_known object="$NewShip" known="true"/>
+                <set_value name="md.$X4MP_AvatarShip" exact="$NewShip"/>
+                <debug_text text="'[X4MP-SPIKE] S2 PASS what=create_player_owned_ship ship=' + $NewShip + ' owner=' + $NewShip.owner.id + ' isplayerowned=' + $NewShip.isplayerowned + ' macro=' + $NewShip.macro.id + ' md_canteleportto=' + player.canteleportto.{$NewShip} + ' player_ship_before=' + player.ship + ' occupiedship_before=' + player.occupiedship" filter="general" context="false"/>
+                <raise_lua_event name="'X4MP_Spike_obj'" param="$NewShip"/>
+                <raise_lua_event name="'X4MP_Spike_cmd'" param="'s2_teleport;returnafter=' + md.$X4MP_Cfg.$S2ReturnAfter"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] S2 FAIL what=create_player_owned_ship result=null'" filter="general" context="false"/>
+              </do_else>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S2 INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+          <delay exact="8s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S2">
+              <debug_text text="'[X4MP-SPIKE] S2 INFO md_view_after_teleport player_ship=' + player.ship + ' occupiedship=' + player.occupiedship + ' avatar=' + @md.$X4MP_AvatarShip + ' avatar_is_player_ship=' + (player.ship == @md.$X4MP_AvatarShip) + ' ask_user=control_hud_camera'" filter="general" context="false"/>
+            </do_if>
+          </actions>
+          <delay exact="22s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S2">
+              <debug_text text="'[X4MP-SPIKE] S2 INFO md_view_end player_ship=' + player.ship + ' occupiedship=' + player.occupiedship + ' avatar_exists=' + (@md.$X4MP_AvatarShip.exists)" filter="general" context="false"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 6: S3 ghost cost ============================ -->
+        <cue name="Step6_S3">
+          <delay exact="md.$X4MP_T6"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S3">
+              <show_notification text="'X4MP spike: step 6/8 ghost ships (S3), the heavy one. Stay in space. Ghost counts ' + md.$X4MP_Cfg.$GhostTiers + '. Watch FPS at each count; the game may stutter.'" timeout="30s" priority="5"/>
+              <!-- make sure the ghost faction is active even if step 3 was disabled -->
+              <set_faction_active faction="faction.x4mp_team_2" active="true"/>
+              <find_ship name="$Before" space="player.sector" owner="faction.x4mp_team_2" multiple="true"/>
+              <set_value name="md.$X4MP_S3Before" exact="$Before.count"/>
+              <debug_text text="'[X4MP-SPIKE] S3 INFO md_begin team2_ships_in_sector=' + $Before.count + ' sector=' + player.sector.macro.id + ' age=' + player.age" filter="general" context="false"/>
+              <raise_lua_event name="'X4MP_Spike_cmd'" param="'s3_run;tiers=' + md.$X4MP_Cfg.$GhostTiers + ';perframe=' + md.$X4MP_Cfg.$GhostPerFrame + ';secs=' + md.$X4MP_Cfg.$GhostSeconds + ';dmin=' + md.$X4MP_Cfg.$GhostDistMin + ';dmax=' + md.$X4MP_Cfg.$GhostDistMax + ';owner=' + md.$X4MP_Cfg.$GhostOwner"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S3 INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+          <delay exact="md.$X4MP_Cfg.$Dur6 - 5s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S3">
+              <!-- leftover check: anything of team 2 in this sector besides the S1 ship is a ghost that survived -->
+              <find_ship name="$After" space="player.sector" owner="faction.x4mp_team_2" multiple="true"/>
+              <set_value name="$Keep" exact="@md.$X4MP_TeamShips.{2}"/>
+              <set_value name="$Left" exact="0"/>
+              <do_for_each name="$G" in="$After">
+                <do_if value="$G != $Keep and $G != player.ship and $G != player.occupiedship and $G != player.container">
+                  <set_value name="$Left" exact="$Left + 1"/>
+                  <destroy_object object="$G" explosion="false"/>
+                </do_if>
+              </do_for_each>
+              <debug_text text="'[X4MP-SPIKE] S3 ' + (if $Left == 0 then 'PASS' else 'INFO') + ' what=md_leftover_check team2_ships_now=' + $After.count + ' before_run=' + md.$X4MP_S3Before + ' leftovers_destroyed=' + $Left" filter="general" context="false"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 7: S9 plot / unlock state ============================ -->
+        <cue name="Step7_S9">
+          <delay exact="md.$X4MP_T7"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S9">
+              <show_notification text="'X4MP spike: step 7/8 story and unlock state (S9). Read-only first, then one sector is marked known. Nothing to do.'" timeout="15s" priority="5"/>
+              <!-- Read-only indicators first. Vanilla stores story/unlock state as md.$ globals, cue states and object active flags.
+                   See README (S9) for the file list. -->
+              <debug_text text="'[X4MP-SPIKE] S9 INFO md_global BoronQueendomReturned=' + (if md.$BoronQueendomReturned? then 'set' else 'unset') + ' BoronGate1_Open=' + (if md.$BoronGate1_Open? then 'set' else 'unset') + ' ArgonAllianceFailed=' + (if md.$ArgonAllianceFailed? then 'set' else 'unset') + ' TerranGateDND=' + (if md.$TerranGateDND? then md.$TerranGateDND.count else 'unset') + ' BoronGateDND=' + (if md.$BoronGateDND? then md.$BoronGateDND.count else 'unset') + ' StoryMentors=' + (if md.$StoryMentors? then 'set' else 'unset')" filter="general" context="false"/>
+              <find_sector name="$KnownS" known="true" multiple="true"/>
+              <find_sector name="$UnknownS" known="false" multiple="true"/>
+              <debug_text text="'[X4MP-SPIKE] S9 MEASURE sectors_known=' + $KnownS.count + ' sectors_unknown=' + $UnknownS.count" filter="general" context="false"/>
+              <!-- gates that are currently switched off (set_object_active false by story cues, e.g. md setup_dlc_boron.xml) -->
+              <find_gate name="$InactiveGates" space="player.galaxy" active="false" multiple="true"/>
+              <debug_text text="'[X4MP-SPIKE] S9 MEASURE inactive_gates=' + $InactiveGates.count" filter="general" context="false"/>
+              <set_value name="$GI" exact="0"/>
+              <do_for_each name="$IG" in="$InactiveGates">
+                <set_value name="$GI" exact="$GI + 1"/>
+                <do_if value="$GI le 25">
+                  <debug_text text="'[X4MP-SPIKE] S9 INFO inactive_gate in_sector=' + (@$IG.sector.macro.id) + ' dest_sector=' + (@$IG.destination.sector.macro.id) + ' known=' + $IG.isknown" filter="general" context="false"/>
+                </do_if>
+              </do_for_each>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S9 INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+          <delay exact="3s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$S9">
+              <!-- Boron DLC sectors (macros as listed in extensions/ego_dlc_boron/md/setup_dlc_boron.xml:226-237) -->
+              <set_value name="$BoronIds" exact="['cluster_601_sector001_macro', 'cluster_602_sector001_macro', 'cluster_603_sector001_macro', 'cluster_604_sector001_macro', 'cluster_605_sector001_macro', 'cluster_606_sector001_macro', 'cluster_607_sector001_macro', 'cluster_608_sector001_macro', 'cluster_609_sector001_macro', 'cluster_31_sector001_macro']"/>
+              <find_sector name="$AllSec" multiple="true"/>
+              <do_for_each name="$S" in="$AllSec">
+                <do_if value="$BoronIds.indexof.{$S.macro.id}">
+                  <set_value name="$BG" exact="''"/>
+                  <find_gate name="$BGates" space="$S" multiple="true"/>
+                  <do_for_each name="$G" in="$BGates">
+                    <set_value name="$BG" exact="$BG + (@$G.destination.sector.macro.id) + (if $G.isactive then ':active' else ':inactive') + ','"/>
+                  </do_for_each>
+                  <debug_text text="'[X4MP-SPIKE] S9 INFO boron_sector=' + $S.macro.id + ' owner=' + (@$S.owner.id) + ' known=' + $S.isknown + ' gates=' + $BG" filter="general" context="false"/>
+                </do_if>
+              </do_for_each>
+
+              <!-- ONE reversible unlock: mark a currently unknown sector as known (common.xsd:20401 set_known) -->
+              <find_sector name="$Unk" known="false" multiple="true"/>
+              <do_if value="$Unk.count gt 0">
+                <set_value name="$Target" exact="$Unk.{1}"/>
+                <set_value name="$KnownBefore" exact="$Target.isknown"/>
+                <set_known object="$Target" known="true"/>
+                <set_value name="md.$X4MP_S9Sector" exact="$Target"/>
+                <debug_text text="'[X4MP-SPIKE] S9 ' + (if $Target.isknown then 'PASS' else 'FAIL') + ' what=set_known_sector sector=' + $Target.macro.id + ' known_before=' + $KnownBefore + ' known_after=' + $Target.isknown + ' (revert: set_known known=false; left applied to test the save reload)'" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] S9 INFO what=set_known_sector result=no_unknown_sector_left_in_this_save'" filter="general" context="false"/>
+              </do_else>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ============================ STEP 8: misc (V12 netid variable, V20 debug.getupvalue) ============================ -->
+        <cue name="Step8_Misc">
+          <delay exact="md.$X4MP_T8"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full' and md.$X4MP_Cfg.$Misc">
+              <show_notification text="'X4MP spike: step 8/8 variable persistence and Lua probes (V12, V20). Nothing to do.'" timeout="15s" priority="5"/>
+              <set_value name="$Ship" exact="@md.$X4MP_TeamShips.{1}"/>
+              <do_if value="$Ship and $Ship.exists">
+                <set_value name="$Ship.$x4mp_netid" exact="4242"/>
+                <set_value name="md.$X4MP_PersistShip" exact="$Ship"/>
+                <debug_text text="'[X4MP-SPIKE] MISC INFO what=set_netid_on_ship ship=' + $Ship + ' netid_readback=' + @$Ship.$x4mp_netid + ' owner=' + $Ship.owner.id" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] MISC FAIL what=set_netid_on_ship result=no_ship'" filter="general" context="false"/>
+              </do_else>
+              <find_station name="$MStations" space="player.sector" multiple="true"/>
+              <do_if value="$MStations.count gt 0">
+                <set_value name="$MSt" exact="$MStations.{1}"/>
+                <set_value name="$MSt.$x4mp_netid" exact="7"/>
+                <set_value name="md.$X4MP_PersistStation" exact="$MSt"/>
+                <debug_text text="'[X4MP-SPIKE] MISC INFO what=set_netid_on_station station=' + $MSt.knownname + ' netid_readback=' + @$MSt.$x4mp_netid" filter="general" context="false"/>
+              </do_if>
+              <raise_lua_event name="'X4MP_Spike_cmd'" param="'debug_probe'"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] MISC INFO skipped mode=' + md.$X4MP_Mode" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <!-- ============================ FINISH ============================ -->
+        <cue name="Finish">
+          <delay exact="md.$X4MP_TEnd"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'full'">
+              <set_value name="md.$X4MP_Done" exact="true"/>
+              <debug_text text="'[X4MP-SPIKE] DONE INFO spike_complete age=' + player.age + ' systime=' + player.systemtime.{'%Y-%m-%d %H:%M:%S'}" filter="general" context="false"/>
+              <show_notification text="'X4MP spike complete. Now SAVE to a NEW slot, quit to the main menu and LOAD that save again (checks that data survives). Then send the log.'" timeout="60s" priority="9"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] DONE INFO verify_mode_finished'" filter="general" context="false"/>
+            </do_else>
+            <cancel_cue cue="namespace"/>
+          </actions>
+        </cue>
+
+        <!-- ============================ VERIFY (second load of a saved, completed run) ============================ -->
+        <cue name="Verify">
+          <delay exact="20s"/>
+          <actions>
+            <do_if value="md.$X4MP_Mode == 'verify'">
+              <show_notification text="'X4MP spike: verifying what survived the save and load. Nothing to do.'" timeout="20s" priority="5"/>
+              <debug_text text="'[X4MP-SPIKE] VERIFY INFO begin run=' + md.$X4MP_Runs + ' age=' + player.age" filter="general" context="false"/>
+              <!-- V12: object variable survival -->
+              <set_value name="$PS" exact="@md.$X4MP_PersistShip"/>
+              <do_if value="$PS">
+                <debug_text text="'[X4MP-SPIKE] VERIFY ' + (if (@$PS.$x4mp_netid) == 4242 then 'PASS' else 'FAIL') + ' what=V12_ship_object_variable_via_md_global_ref exists=' + $PS.exists + ' netid=' + (@$PS.$x4mp_netid) + ' owner=' + (@$PS.owner.id)" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] VERIFY FAIL what=V12_md_global_ship_reference_lost'" filter="general" context="false"/>
+              </do_else>
+              <!-- ... and by searching, without using our stored reference -->
+              <find_ship name="$Found" space="player.galaxy" owner="faction.x4mp_team_1" multiple="true"/>
+              <set_value name="$FoundNetId" exact="0"/>
+              <do_for_each name="$FS" in="$Found">
+                <do_if value="(@$FS.$x4mp_netid) == 4242">
+                  <set_value name="$FoundNetId" exact="$FoundNetId + 1"/>
+                </do_if>
+              </do_for_each>
+              <debug_text text="'[X4MP-SPIKE] VERIFY ' + (if $FoundNetId gt 0 then 'PASS' else 'FAIL') + ' what=V12_netid_found_by_find_ship_search team1_ships=' + $Found.count + ' with_netid_4242=' + $FoundNetId" filter="general" context="false"/>
+              <set_value name="$PSt" exact="@md.$X4MP_PersistStation"/>
+              <do_if value="$PSt">
+                <debug_text text="'[X4MP-SPIKE] VERIFY ' + (if (@$PSt.$x4mp_netid) == 7 then 'PASS' else 'FAIL') + ' what=V12_station_object_variable exists=' + $PSt.exists + ' netid=' + (@$PSt.$x4mp_netid)" filter="general" context="false"/>
+              </do_if>
+              <!-- V01: factions still exist in the reloaded save, state of activation and relations -->
+              <do_for_each name="$F" in="md.$X4MP_Teams" counter="$K">
+                <debug_text text="'[X4MP-SPIKE] VERIFY INFO what=V01_faction_after_reload id=' + $F.id + ' isactive=' + $F.isactive + ' relation_to_player=' + $F.relationto.{faction.player} + ' locked=' + $F.isrelationlocked + ' name=' + $F.name" filter="general" context="false"/>
+              </do_for_each>
+              <!-- S9: unlocked sector still known -->
+              <set_value name="$S9S" exact="@md.$X4MP_S9Sector"/>
+              <do_if value="$S9S">
+                <debug_text text="'[X4MP-SPIKE] VERIFY ' + (if $S9S.isknown then 'PASS' else 'FAIL') + ' what=S9_set_known_survived sector=' + $S9S.macro.id + ' known=' + $S9S.isknown" filter="general" context="false"/>
+              </do_if>
+              <!-- S2: avatar ship -->
+              <set_value name="$AV" exact="@md.$X4MP_AvatarShip"/>
+              <do_if value="$AV">
+                <debug_text text="'[X4MP-SPIKE] VERIFY INFO what=S2_avatar_ship_after_reload exists=' + $AV.exists + ' isplayerowned=' + $AV.isplayerowned + ' player_ship=' + player.ship" filter="general" context="false"/>
+              </do_if>
+              <!-- pollution check: ghosts that must not exist any more -->
+              <find_ship name="$T2s" space="player.galaxy" owner="faction.x4mp_team_2" multiple="true"/>
+              <debug_text text="'[X4MP-SPIKE] VERIFY INFO what=pollution_check team2_ships_in_galaxy=' + $T2s.count + ' (expected 1: the S1 ship; more means ghosts leaked into the save)'" filter="general" context="false"/>
+              <debug_text text="'[X4MP-SPIKE] VERIFY INFO end'" filter="general" context="false"/>
+            </do_if>
+          </actions>
+        </cue>
+
+      </cues>
+    </cue>
+
+  </cues>
+</mdscript>
