@@ -5,7 +5,7 @@ using X4MP.Server.Hosting;
 
 namespace X4MP.Server.Auth;
 
-/// <summary><c>/api/auth/{login,logout,me,change-password}</c>. Every outcome is written to <c>audit_log</c>.</summary>
+/// <summary><c>/api/v1/auth/{login,logout,me,change-password}</c>. Every outcome is written to <c>audit_log</c>.</summary>
 internal static class AuthEndpoints
 {
     private const int MaxPasswordLength = 256;
@@ -15,7 +15,7 @@ internal static class AuthEndpoints
 
     public static void Map(IEndpointRouteBuilder routes)
     {
-        var group = routes.MapGroup("/api/auth");
+        var group = routes.MapGroup("/api/v1/auth");
         group.MapPost("/login", LoginAsync).AllowAnonymous();
         group.MapPost("/logout", LogoutAsync).RequireAuthorization(AdminPolicies.Session);
         group.MapGet("/me", Me).RequireAuthorization(AdminPolicies.Authenticated);
@@ -35,13 +35,23 @@ internal static class AuthEndpoints
         LoginRequest? body, HttpContext ctx, AdminStore store, LoginThrottle throttle, AdminAuthOptions options)
     {
         var ip = Ip(ctx);
-        if (body is null || string.IsNullOrWhiteSpace(body.Username) || string.IsNullOrEmpty(body.Password)
-            || body.Username.Length > 64 || body.Password.Length > MaxPasswordLength)
+        var invalid = new Dictionary<string, string[]>();
+        if (body is null || string.IsNullOrWhiteSpace(body.Username) || body.Username.Length > 64)
         {
-            return AdminAuthExtensions.Problem(StatusCodes.Status400BadRequest, "ValidationFailed", "Username and password are required.");
+            invalid["username"] = ["A username (up to 64 characters) is required."];
         }
 
-        var username = body.Username.Trim();
+        if (body is null || string.IsNullOrEmpty(body.Password) || body.Password.Length > MaxPasswordLength)
+        {
+            invalid["password"] = [$"A password (up to {MaxPasswordLength} characters) is required."];
+        }
+
+        if (invalid.Count > 0)
+        {
+            return Problems.Validation(invalid);
+        }
+
+        var username = body!.Username.Trim();
         if (!throttle.TryAcquireAttempt(ip, out var ipRetry))
         {
             store.Audit(username, "auth.login.throttled", username, ip);
@@ -72,15 +82,13 @@ internal static class AuthEndpoints
                 await Task.Delay(delay, ctx.RequestAborted);
             }
 
-            return Results.Json(
-                new ApiProblem("Invalid username or password.", StatusCodes.Status401Unauthorized, "InvalidCredentials", null),
-                ApiJsonContext.Default.ApiProblem, "application/problem+json", StatusCodes.Status401Unauthorized);
+            return Problems.Result(StatusCodes.Status401Unauthorized, "InvalidCredentials", "Invalid username or password.");
         }
 
         throttle.RecordSuccess(username);
         if (user.Iterations < options.Pbkdf2Iterations)
         {
-            store.SetPassword(user.Id, body.Password, options.Pbkdf2Iterations, user.MustChange); // upgrade work factor
+            store.SetPassword(user.Id, body.Password, options.Pbkdf2Iterations, user.MustChange); // upgrade work factor; sessions stay valid
         }
 
         await ctx.SignInAsync(AdminAuthExtensions.CookieScheme, AdminPrincipal.ForUser(user));
@@ -107,10 +115,20 @@ internal static class AuthEndpoints
         ChangePasswordRequest? body, HttpContext ctx, AdminStore store, LoginThrottle throttle, AdminAuthOptions options, DataDirInfo dataDir)
     {
         var ip = Ip(ctx);
-        if (body is null || string.IsNullOrEmpty(body.Current) || string.IsNullOrEmpty(body.New)
-            || body.Current.Length > MaxPasswordLength || body.New.Length > MaxPasswordLength)
+        var invalid = new Dictionary<string, string[]>();
+        if (body is null || string.IsNullOrEmpty(body.Current) || body.Current.Length > MaxPasswordLength)
         {
-            return AdminAuthExtensions.Problem(StatusCodes.Status400BadRequest, "ValidationFailed", "Current and new password are required.");
+            invalid["current"] = ["The current password is required."];
+        }
+
+        if (body is null || string.IsNullOrEmpty(body.New) || body.New.Length > MaxPasswordLength)
+        {
+            invalid["new"] = [$"A new password (up to {MaxPasswordLength} characters) is required."];
+        }
+
+        if (invalid.Count > 0)
+        {
+            return Problems.Validation(invalid);
         }
 
         var user = AdminPrincipal.UserId(ctx.User) is { } id ? store.FindUser(id) : null;
@@ -125,7 +143,7 @@ internal static class AuthEndpoints
             return TooManyRequests(ctx, "AccountLocked", lockRetry);
         }
 
-        if (!AdminPasswordHasher.Verify(body.Current, user.PasswordSalt, user.PasswordHash, user.Iterations))
+        if (!AdminPasswordHasher.Verify(body!.Current, user.PasswordSalt, user.PasswordHash, user.Iterations))
         {
             var failures = throttle.RecordFailure(user.Username);
             store.Audit(user.Username, "auth.password.failure", user.Username, ip, new Dictionary<string, string?> { ["reason"] = "wrong current password" });
@@ -140,18 +158,21 @@ internal static class AuthEndpoints
 
         if (body.New.Length < options.MinPasswordLength)
         {
-            return AdminAuthExtensions.Problem(StatusCodes.Status400BadRequest, "ValidationFailed", $"The new password must be at least {options.MinPasswordLength} characters.");
+            return Problems.Validation("new", $"The new password must be at least {options.MinPasswordLength} characters.");
         }
 
         if (body.New == body.Current)
         {
-            return AdminAuthExtensions.Problem(StatusCodes.Status400BadRequest, "ValidationFailed", "The new password must differ from the current one.");
+            return Problems.Validation("new", "The new password must differ from the current one.");
         }
 
         throttle.RecordSuccess(user.Username);
-        store.SetPassword(user.Id, body.New, options.Pbkdf2Iterations, mustChange: false);
+
+        // The change ends every other browser session (their cookies carry the old pw_version) and revokes the API tokens this user
+        // minted; the session that made the change gets a fresh cookie below and carries on.
+        var changed = store.ChangePassword(user.Id, body.New, options.Pbkdf2Iterations);
         AdminBootstrap.DeleteInitialPasswordFile(dataDir.Path);
-        await ctx.SignInAsync(AdminAuthExtensions.CookieScheme, AdminPrincipal.ForUser(user with { MustChange = false }));
+        await ctx.SignInAsync(AdminAuthExtensions.CookieScheme, AdminPrincipal.ForUser(changed));
         store.Audit(user.Username, "auth.password.change", user.Username, ip, new Dictionary<string, string?> { ["forced"] = user.MustChange ? "true" : "false" });
         return Results.NoContent();
     }

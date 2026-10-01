@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.FileProviders;
 using Serilog;
 using X4MP.Persistence;
+using X4MP.Server.Admin;
 using X4MP.Server.Api;
 using X4MP.Server.Auth;
 using X4MP.Server.Economy;
@@ -87,13 +88,16 @@ public static partial class ServerHost
         builder.Services.AddReplication();
         builder.Services.AddSaves();
         builder.Services.AddRelay(); // after the world mirror and the interest manager: it reads what they apply
+        builder.Services.AddAdminApi();
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();
+        app.UseApiProblems(); // before auth: it also shapes the 401/403 the authorization layer produces
         app.UseAdminAuth();
         app.MapSettingsApi();
         app.MapMetricsApi();
         app.MapSaveApi();
+        app.MapAdminApi();
         MapWeb(app);
         return app;
     }

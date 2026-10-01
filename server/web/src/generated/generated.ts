@@ -2,10 +2,69 @@
 // Do not edit by hand. Regenerate with: dotnet run --project tools/X4MP.TsContractGenerator
 
 export interface ApiProblem {
+  type: string;
   title: string;
   status: number;
   code: string;
   detail: string | null;
+  errors: Record<string, string[]> | null;
+  errorCodes: Record<string, string> | null;
+  receivedBytes: number | null;
+}
+
+export interface ApiTokenCreatedDto {
+  id: number;
+  name: string;
+  role: string;
+  token: string;
+}
+
+export interface ApiTokenDto {
+  id: number;
+  name: string;
+  role: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revoked: boolean;
+  owner: string | null;
+}
+
+export interface AuditEntryDto {
+  id: number;
+  at: string;
+  actor: string;
+  action: string;
+  target: string | null;
+  reason: string | null;
+  data: Record<string, string> | null;
+  remoteIp: string | null;
+}
+
+export interface AuthorityStatusDto {
+  playerId: number;
+  name: string | null;
+  status: string;
+  graceRemainingSeconds: number | null;
+  gameBuild: string | null;
+  modVersion: string | null;
+}
+
+export interface BanDto {
+  id: number;
+  playerId: number | null;
+  playerName: string | null;
+  ipCidr: string | null;
+  reason: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string | null;
+  active: boolean;
+}
+
+export interface BeginUploadRequest {
+  fileName: string | null;
+  size: number;
+  sha256: string | null;
 }
 
 export interface ChangePasswordRequest {
@@ -13,11 +72,116 @@ export interface ChangePasswordRequest {
   new: string;
 }
 
+export interface ChatMessageDto {
+  id: number;
+  at: string;
+  from: string;
+  fromAdmin: boolean;
+  channel: string;
+  text: string;
+}
+
+export interface ChatSentDto {
+  delivered: number;
+}
+
+export interface ClusterDto {
+  id: number;
+  macro: string;
+}
+
+export interface ConnectionStatsDto {
+  connectionId: number;
+  player: string | null;
+  roles: string;
+  transport: string;
+  remote: string;
+  ageSeconds: number;
+  rttMs: number;
+  bytesIn: number;
+  bytesOut: number;
+  framesIn: number;
+  framesOut: number;
+  coalesced: number;
+  dropped: number;
+  violations: number;
+  inboundDropped: number;
+  flushAvgMs: number;
+  flushMaxMs: number;
+  control: LaneStatsDto;
+  realtime: LaneStatsDto;
+  bulk: LaneStatsDto;
+}
+
+export interface CreateBanRequest {
+  playerId: number | null;
+  keyHash: string | null;
+  ipCidr: string | null;
+  reason: string | null;
+  durationMinutes: number | null;
+}
+
+export interface CreateSessionRequest {
+  name: string | null;
+  saveId: string | null;
+  settings: Record<string, unknown> | null;
+}
+
+export interface CreateTokenRequest {
+  name: string | null;
+  role: string | null;
+}
+
+export interface DashboardSnapshotDto {
+  at: string;
+  session: SessionSummaryDto | null;
+  playersOnline: number;
+  maxPlayers: number;
+  authority: AuthorityStatusDto | null;
+  players: PlayerLiveDto[];
+  entitiesInMirror: number;
+}
+
+export interface GalaxyDto {
+  saveSha256: string;
+  clusters: ClusterDto[];
+  sectors: SectorDto[];
+  links: GateLinkDto[];
+}
+
+export interface GateLinkDto {
+  fromSector: number;
+  toSector: number;
+  kind: string;
+}
+
 export interface HealthzResponse {
   status: string;
   version: string;
   protocol: ProtocolRangeDto;
   uptimeSeconds: number;
+}
+
+export interface KickRequest {
+  reason: string | null;
+}
+
+export interface LaneStatsDto {
+  bytesIn: number;
+  bytesOut: number;
+  dropped: number;
+  coalesced: number;
+  maxQueuedBytes: number;
+}
+
+export interface LogEntryDto {
+  seq: number;
+  at: string;
+  level: string;
+  source: string;
+  message: string;
+  exception: string | null;
+  props: Record<string, string> | null;
 }
 
 export interface LoginRequest {
@@ -40,15 +204,164 @@ export interface MetricSeriesDto {
   samples: number[];
 }
 
+export interface MuteRequest {
+  minutes: number | null;
+  reason: string | null;
+}
+
+export interface PatchPlayerRequest {
+  notes: string | null;
+  releaseName: boolean | null;
+}
+
+export interface PatchSaveRequest {
+  displayName: string | null;
+  pinned: boolean | null;
+}
+
+export interface PlayerDetailDto {
+  player: PlayerDto;
+  keyHash: string;
+  live: PlayerLiveDto | null;
+  history: PlayerSessionDto[];
+  bans: BanDto[];
+}
+
+export interface PlayerDto {
+  id: number;
+  name: string;
+  firstSeen: string;
+  lastSeen: string;
+  totalPlaytimeSeconds: number;
+  online: boolean;
+  muted: boolean;
+  mutedUntil: string | null;
+  activeBan: BanDto | null;
+  lastIp: string | null;
+  notes: string | null;
+}
+
+export interface PlayerLiveDto {
+  playerId: number;
+  connectionId: number | null;
+  name: string;
+  roles: string;
+  phase: string;
+  connected: boolean;
+  remoteAddress: string | null;
+  rttMs: number;
+  fps: number;
+  connectedSeconds: number;
+  muted: boolean;
+}
+
+export interface PlayerSessionDto {
+  sessionId: number;
+  sessionName: string;
+  joinedAt: string;
+  leftAt: string | null;
+  leaveReason: string | null;
+  role: string;
+}
+
 export interface ProtocolRangeDto {
   min: number;
   max: number;
 }
 
-export interface SettingErrorDto {
-  key: string;
-  code: string;
-  message: string;
+export interface SaveDto {
+  sha256: string;
+  sizeBytes: number;
+  displayName: string;
+  source: string;
+  uploadedAt: string;
+  gameVersion: string | null;
+  saveTime: string | null;
+  playerName: string | null;
+  pinned: boolean;
+  ghostsCleaned: boolean;
+  current: boolean;
+}
+
+export interface SectorDetailDto {
+  sector: SectorDto;
+  neighbors: number[];
+  ships: number | null;
+  stations: number | null;
+  players: SectorPlayerDto[];
+}
+
+export interface SectorDto {
+  id: number;
+  macro: string;
+  name: string;
+  clusterId: number;
+  mapPos: Vec2Dto;
+  ownerFaction: string | null;
+}
+
+export interface SectorPlayerDto {
+  playerId: number;
+  name: string;
+  shipNetId: number;
+}
+
+export interface SendChatRequest {
+  text: string | null;
+  channel: string | null;
+  toPlayerId: number | null;
+  asBroadcast: boolean | null;
+}
+
+export interface ServerInfoDto {
+  name: string;
+  version: string;
+  protocolRange: ProtocolRangeDto;
+  buildHash: string;
+  startedAt: string;
+  uptimeSeconds: number;
+  nodeEndpoints: string[];
+  adminUrls: string[];
+  https: boolean;
+}
+
+export interface SessionDetailDto {
+  id: number;
+  name: string;
+  state: string;
+  saveName: string | null;
+  saveSha256: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  endReason: string | null;
+  uptimeSeconds: number;
+  players: number;
+  live: boolean;
+  phaseSince: string | null;
+  authority: AuthorityStatusDto | null;
+  nodes: PlayerLiveDto[];
+}
+
+export interface SessionEventDto {
+  id: number;
+  at: string;
+  type: string;
+  playerId: number | null;
+  sectorId: number | null;
+  serverSeq: number | null;
+  data: string | null;
+}
+
+export interface SessionSummaryDto {
+  id: number;
+  name: string;
+  state: string;
+  saveName: string | null;
+  saveSha256: string | null;
+  startedAt: string | null;
+  uptimeSeconds: number;
+  players: number;
 }
 
 export interface SettingSchemaDto {
@@ -73,14 +386,36 @@ export interface SettingsDto {
   overrides: string[];
 }
 
-export interface SettingsProblem {
-  title: string;
-  status: number;
-  code: string;
-  detail: string | null;
-  errors: SettingErrorDto[];
-}
-
 export interface SettingsSchemaDto {
   settings: SettingSchemaDto[];
+}
+
+export interface StartSessionRequest {
+  authorityPlayerId: number | null;
+}
+
+export interface StopSessionRequest {
+  requestFinalSave: boolean | null;
+  message: string | null;
+}
+
+export interface TraceRequest {
+  enabled: boolean;
+  sampleEvery: number;
+}
+
+export interface UploadProgressDto {
+  receivedBytes: number;
+  size: number;
+}
+
+export interface UploadStartedDto {
+  uploadId: string;
+  chunkSize: number;
+  receivedBytes: number;
+}
+
+export interface Vec2Dto {
+  x: number;
+  y: number;
 }

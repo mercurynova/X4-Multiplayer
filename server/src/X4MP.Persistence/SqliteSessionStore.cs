@@ -40,6 +40,9 @@ public sealed class SqliteSessionStore(SqliteConnectionFactory factory, Persiste
             """,
             new { id = sessionId, state = phase.ToString(), authority = authorityPlayerId, at = Stamp(at), reason });
 
+    public void RenameSession(long sessionId, string name) =>
+        writer.TryEnqueue("UPDATE sessions SET name = @name WHERE id = @id", new { id = sessionId, name });
+
     public void PlayerJoined(long sessionId, int playerId, Role roles, DateTimeOffset at) =>
         writer.TryEnqueue(
             "INSERT INTO session_players (session_id, player_id, joined_at, role) VALUES (@sessionId, @playerId, @at, @role)",

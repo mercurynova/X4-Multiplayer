@@ -7,6 +7,8 @@ using Microsoft.Net.Http.Headers;
 using X4MP.Core.Events;
 using X4MP.Core.Saves;
 using X4MP.Proto;
+using X4MP.Server.Admin;
+using X4MP.Server.Api;
 using X4MP.Server.Auth;
 using X4MP.Server.Hosting;
 
@@ -59,8 +61,22 @@ public static class SaveEndpoints
         return routes;
     }
 
+    /// <summary>An RFC 7807 problem whose <c>code</c> is <paramref name="error"/> (<c>receivedBytes</c> is the resume point of a failed chunk).</summary>
     private static IResult Error(int status, string error, string? detail = null, long? received = null) =>
-        Results.Json(new SaveErrorDto(error, detail, received), SavesJsonContext.Default.SaveErrorDto, "application/json", status);
+        Problems.Result(
+            status,
+            error,
+            status switch
+            {
+                StatusCodes.Status400BadRequest => "The request is invalid.",
+                StatusCodes.Status404NotFound => "Not found.",
+                StatusCodes.Status409Conflict => "Conflict.",
+                StatusCodes.Status413PayloadTooLarge => "The upload is too large.",
+                StatusCodes.Status422UnprocessableEntity => "The file is not an acceptable save.",
+                _ => "The request failed.",
+            },
+            detail,
+            receivedBytes: received);
 
     // ------------------------------------------------------------------ downloads
 
@@ -117,9 +133,14 @@ public static class SaveEndpoints
     {
         sha = sha.ToLowerInvariant();
         var body = await ReadBodyAsync(ctx, SavesJsonContext.Default.PatchSaveRequest).ConfigureAwait(false);
-        if (body is null || (body.DisplayName is null && body.Pinned is null) || body.DisplayName is { Length: 0 or > 128 })
+        if (body is null || (body.DisplayName is null && body.Pinned is null))
         {
-            return Error(StatusCodes.Status400BadRequest, "ValidationFailed", "Send displayName (1 to 128 characters) and/or pinned.");
+            return Problems.Validation("body", "Send displayName (1 to 128 characters) and/or pinned.");
+        }
+
+        if (body.DisplayName is { Length: 0 or > 128 })
+        {
+            return Problems.Validation("displayName", "The display name must be 1 to 128 characters.");
         }
 
         if (!saves.Catalog.Update(sha, body.DisplayName, body.Pinned))
@@ -136,22 +157,23 @@ public static class SaveEndpoints
         }, saves.Status.CurrentSha256), SavesJsonContext.Default.SaveDto);
     }
 
-    private static IResult Delete(string sha, HttpContext ctx, SaveService saves, HttpUploads uploads, IEventPublisher events, TimeProvider time)
+    private static IResult Delete(
+        string sha, HttpContext ctx, SaveService saves, HttpUploads uploads, AdminSessions sessions, IEventPublisher events, TimeProvider time)
     {
         sha = sha.ToLowerInvariant();
         if (!SaveFileStore.IsValidSha(sha))
         {
-            return Error(StatusCodes.Status400BadRequest, "ValidationFailed", "Not a SHA-256.");
+            return Problems.Validation("sha", "Not a SHA-256.");
         }
 
         if (saves.Catalog.Find(sha) is null)
         {
-            return Error(StatusCodes.Status404NotFound, "NotFound");
+            return Problems.NotFound("The save");
         }
 
-        if (saves.ProtectedSha256().Contains(sha) || saves.Catalog.ReferencedSha256().Contains(sha) || uploads.IsBusy(sha))
+        if (saves.ProtectedSha256().Contains(sha) || saves.Catalog.ReferencedSha256().Contains(sha) || uploads.IsBusy(sha) || sessions.IsSelected(sha))
         {
-            return Error(StatusCodes.Status409Conflict, "InUse", "A running session uses this save.");
+            return Error(StatusCodes.Status409Conflict, "InUse", "A session uses this save.");
         }
 
         foreach (var manifest in saves.Catalog.Delete(sha))
@@ -170,9 +192,32 @@ public static class SaveEndpoints
     {
         var body = await ReadBodyAsync(ctx, SavesJsonContext.Default.BeginUploadRequest).ConfigureAwait(false);
         string sha = body?.Sha256?.ToLowerInvariant() ?? string.Empty;
-        if (body is null || !SaveFileStore.IsValidSha(sha) || body.Size <= 0)
+        var invalid = new Dictionary<string, string[]>();
+        if (body is null)
         {
-            return Error(StatusCodes.Status400BadRequest, "ValidationFailed", "fileName, size and a 64-digit sha256 are required.");
+            invalid["body"] = ["Send fileName, size and sha256."];
+        }
+        else
+        {
+            if (!SaveFileStore.IsValidSha(sha))
+            {
+                invalid["sha256"] = ["A 64-digit hex SHA-256 is required."];
+            }
+
+            if (body.Size <= 0)
+            {
+                invalid["size"] = ["The size must be positive."];
+            }
+        }
+
+        if (invalid.Count > 0)
+        {
+            return Problems.Validation(invalid);
+        }
+
+        if (body is null)
+        {
+            return Problems.Validation("body", "Send fileName, size and sha256.");
         }
 
         if (body.Size > options.CurrentValue.MaxSaveBytes)
@@ -215,7 +260,7 @@ public static class SaveEndpoints
 
         if (!TryParseContentRange(ctx.Request.Headers.ContentRange.ToString(), out long start, out long end, out long total) || total != upload.Size || end >= total)
         {
-            return Error(StatusCodes.Status400BadRequest, "ValidationFailed", "Send Content-Range: bytes a-b/size matching the announced size.");
+            return Problems.Validation("Content-Range", "Send Content-Range: bytes a-b/size matching the announced size.");
         }
 
         string part = saves.Files.PartPathOf(upload.Sha256, UploadKind.Save);

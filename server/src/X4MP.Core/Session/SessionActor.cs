@@ -334,8 +334,11 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
     /// <summary>Completes once every input queued before this call has been processed (tests, graceful stops).</summary>
     public Task FlushAsync() => CallAsync(() => true);
 
-    /// <summary>Admin start (Idle to WaitingForAuthority); <paramref name="sessionName"/> overrides the configured name.</summary>
-    public Task<TransitionResult> StartAsync(string? sessionName = null) => CallAsync(async () =>
+    /// <summary>
+    /// Admin start (Idle to WaitingForAuthority); <paramref name="sessionName"/> overrides the configured name.
+    /// <paramref name="designatedAuthorityPlayerId"/> (a persistent player id) may claim the Authority role even while another node holds it.
+    /// </summary>
+    public Task<TransitionResult> StartAsync(string? sessionName = null, int? designatedAuthorityPlayerId = null) => CallAsync(async () =>
     {
         if (_phase != SessionPhase.Idle)
         {
@@ -348,8 +351,40 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
         }
 
         await EnsureSessionAsync().ConfigureAwait(false);
+        if (designatedAuthorityPlayerId is > 0)
+        {
+            _gateway.DesignatedAuthorityPlayerId = designatedAuthorityPlayerId.Value;
+        }
+
         return Transition(SessionTrigger.Start, "admin start");
     });
+
+    /// <summary>
+    /// Admin create: gives the idle session its name and its <c>sessions</c> row now (the row is otherwise created by the first start or
+    /// join) and returns the row id (the id the admin API shows; -1 when the server runs without persistence). Only an <see cref="SessionPhase.Idle"/> session
+    /// can be created or renamed; the phase stays Idle.
+    /// </summary>
+    public Task<(bool Ok, long SessionId, string? Error)> CreateSessionAsync(string name) => CallAsync(async () =>
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (_phase != SessionPhase.Idle)
+        {
+            return (false, 0L, $"the session is {_phase}");
+        }
+
+        _sessionName = name.Trim();
+        await EnsureSessionAsync().ConfigureAwait(false);
+        if (_dbSessionId > 0)
+        {
+            _store.RenameSession(_dbSessionId, _sessionName);
+        }
+
+        PublishSnapshot();
+        return (true, _dbSessionId, (string?)null);
+    });
+
+    /// <summary>The <c>sessions</c> row id of the current session (0 before it exists, -1 without persistence). Runs on the actor thread.</summary>
+    public Task<long> GetStoreSessionIdAsync() => CallAsync(() => _dbSessionId);
 
     /// <summary>
     /// Raises an admin-level trigger (pause, resume, stop, checkpoint stored, ...). Triggers the actor raises
