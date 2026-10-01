@@ -42,8 +42,10 @@ endfunction()
 add_library(x4mp_core STATIC
   native/core/log/log.cpp
   native/core/config/config.cpp
+  native/core/crypto/crypto.cpp
   native/core/net/net.cpp
   native/core/session/session.cpp
+  native/core/session/save_download.cpp
   native/core/version/version.cpp)
 target_include_directories(x4mp_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native")
 target_compile_features(x4mp_core PUBLIC cxx_std_23)
@@ -51,7 +53,7 @@ target_compile_definitions(x4mp_core PRIVATE
   X4MP_VERSION_STRING="${PROJECT_VERSION}"
   X4MP_GAME_BUILD_PIN="${X4MP_GAME_BUILD_PIN}")
 find_package(nlohmann_json CONFIG REQUIRED)
-target_link_libraries(x4mp_core PUBLIC x4mp::wire PRIVATE nlohmann_json::nlohmann_json ws2_32)
+target_link_libraries(x4mp_core PUBLIC x4mp::wire PRIVATE nlohmann_json::nlohmann_json ws2_32 bcrypt)
 set_target_properties(x4mp_core PROPERTIES CXX_EXTENSIONS OFF)
 x4mp_set_warnings(x4mp_core)
 
@@ -114,6 +116,10 @@ if(X4MP_TESTS)
     tests/test_net_socket.cpp
     tests/test_no_env.cpp
     tests/test_session.cpp
+    tests/test_crypto.cpp
+    tests/test_retention.cpp
+    tests/test_save_download.cpp
+    tests/test_session_handshake.cpp
     tests/test_version.cpp)
   target_compile_definitions(x4mp_core_tests PRIVATE X4MP_CORE_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/native/core")
   target_link_libraries(x4mp_core_tests PRIVATE x4mp_core Catch2::Catch2WithMain)
@@ -135,7 +141,15 @@ if(X4MP_TESTS)
   add_test(NAME smoke.netprobe_real_server COMMAND netprobe --from-env)
   set_tests_properties(smoke.netprobe_real_server PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
 
-  foreach(_t x4mp_core x4mp_game x4mp_core_tests x4mp_game_tests netprobe)
+  # x4mp-headless: joins a real server with the Session layer (join, ping, ClientReload + resume, save download).
+  add_executable(x4mp-headless tools/headless/headless.cpp)
+  target_link_libraries(x4mp-headless PRIVATE x4mp_core)
+  x4mp_set_warnings(x4mp-headless)
+  # Skipped unless X4MP_TEST_SERVER=host:port is set (joins, pings, ClientReload + resume).
+  add_test(NAME smoke.headless_real_server COMMAND x4mp-headless --from-env --reload)
+  set_tests_properties(smoke.headless_real_server PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+
+  foreach(_t x4mp_core x4mp_game x4mp_core_tests x4mp_game_tests netprobe x4mp-headless)
     x4mp_assert_no_sdk(${_t})
   endforeach()
 

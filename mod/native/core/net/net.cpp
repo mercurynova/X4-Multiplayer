@@ -143,6 +143,7 @@ struct NetClient::Impl final : HookContext {
   std::atomic<bool> reconnect_flag{false};
   std::atomic<bool> outbox_overflow{false};
   std::atomic<bool> heartbeat_enabled{false};
+  std::atomic<std::uint16_t> goodbye_code{kDisconnectClientQuit};
   std::atomic<std::uint64_t> outbox_evicted{0};
   std::atomic<bool> started{false};
   std::thread thread;
@@ -168,6 +169,11 @@ struct NetClient::Impl final : HookContext {
   std::size_t bulk_bytes = 0;
   std::deque<InboundEvent> pending;
   std::vector<OutFrame> drain_batch;
+  // Reliable-Control retention (NetOptions::control_retention_*): only used in gated mode.
+  std::deque<OutFrame> retained;
+  std::size_t retained_bytes = 0;
+  bool gate_open = true;
+  bool consume_current = false;
 
   std::uint32_t ping_seq = 0;
   std::int64_t next_ping_us = 0;
@@ -194,6 +200,8 @@ struct NetClient::Impl final : HookContext {
     st.clock_valid = sync.has_offset() ? 1 : 0;
     st.clock_offset_us = sync.applied_offset_us();
     st.write_buffer_bytes = pending_write_bytes();
+    st.control_retained_frames = static_cast<std::uint32_t>(retained.size());
+    st.control_retained_bytes = retained_bytes;
     st.outbox_dropped = dropped_not_connected + outbox_evicted.load(std::memory_order_relaxed);
     status_slot.publish(st);
     dirty = false;
@@ -238,6 +246,46 @@ struct NetClient::Impl final : HookContext {
     if (phase != ConnState::Connected || !build_frame(f, lane, type, payload, opt.max_frame_bytes)) return false;
     return append_frame(std::move(f));
   }
+
+  [[nodiscard]] bool gating() const noexcept { return opt.gate_outbox_until_released; }
+
+  // Keeps a Control frame for a later resume if the caps allow, else refuses it (counted).
+  void retain(OutFrame&& f) {
+    const std::size_t bytes = f.bytes.size();
+    if (retained.size() >= opt.control_retention_frames || retained_bytes + bytes > opt.control_retention_bytes) {
+      ++st.control_retention_overflow;
+      ++dropped_not_connected;
+      dirty = true;
+      return;
+    }
+    retained_bytes += bytes;
+    retained.push_back(std::move(f));
+    dirty = true;
+  }
+
+  void discard_retained() {
+    dropped_not_connected += retained.size();
+    retained.clear();
+    retained_bytes = 0;
+  }
+
+  // HookContext
+  std::size_t release_outbox(bool replay_control) override {
+    if (gate_open) return 0;
+    gate_open = true;
+    const std::size_t n = retained.size();
+    if (replay_control) {
+      for (auto& f : retained) (void)append_frame(std::move(f));
+      st.control_replayed += n;
+    } else {
+      st.control_discarded_fresh += n;
+    }
+    retained.clear();
+    retained_bytes = 0;
+    dirty = true;
+    return n;
+  }
+  void consume_frame() override { consume_current = true; }
 
   void send_disconnect_frame(std::uint16_t code, const std::string& message) {
     flatbuffers::FlatBufferBuilder fbb(128);
@@ -398,11 +446,19 @@ struct NetClient::Impl final : HookContext {
     got_remote_disconnect = false;
     remote_code = 0;
     remote_retry_ms = 0;
-    // Anything queued before the connection existed belongs to a dead handshake.
-    drain_batch.clear();
-    outbox.take_all(drain_batch);
-    dropped_not_connected += drain_batch.size();
-    drain_batch.clear();
+    consume_current = false;
+    if (gating()) {
+      // Frames queued before this connection (retained, or still in the outbox) wait behind the closed gate until
+      // the session layer decides between replay (resume) and discard (fresh join).
+      gate_open = false;
+    } else {
+      // M1-N2 behaviour: anything queued before the connection existed belongs to a dead handshake.
+      gate_open = true;
+      drain_batch.clear();
+      outbox.take_all(drain_batch);
+      dropped_not_connected += drain_batch.size();
+      drain_batch.clear();
+    }
     outbox_overflow.store(false);
     InboundEvent ev;
     ev.kind = InboundEvent::Kind::Connected;
@@ -469,8 +525,10 @@ struct NetClient::Impl final : HookContext {
     drain_batch.clear();
     outbox.take_all(drain_batch);
     for (auto& f : drain_batch) {
-      if (connected) {
+      if (connected && gate_open) {
         (void)append_frame(std::move(f));
+      } else if (gating() && f.lane == Lane::Control) {
+        retain(std::move(f));
       } else {
         ++dropped_not_connected;
       }
@@ -612,7 +670,12 @@ struct NetClient::Impl final : HookContext {
       remote_code = static_cast<std::uint16_t>(d->code());
       remote_retry_ms = d->retry_after_ms();
     }
+    consume_current = false;
     if (opt.frame_hook) opt.frame_hook(type, frame.header.lane, frame.payload, *this);
+    if (consume_current) {
+      consume_current = false;
+      return;
+    }
     if (frame.header.lane == Lane::Realtime && pending.size() >= kPendingLimit) {
       ++st.realtime_dropped_in;
       return;
@@ -742,11 +805,12 @@ struct NetClient::Impl final : HookContext {
     }
     // Shutdown: say goodbye on a live connection, then close. The socket is closed here and nowhere else.
     if (phase == ConnState::Connected) {
-      goodbye(kDisconnectClientQuit, "client stopping");
+      goodbye(goodbye_code.load(), "client stopping");
       finish_connection(DisconnectReason::Requested, "stop requested", 0, clock());
     } else {
       sock.close();
     }
+    discard_retained();
     phase = ConnState::Stopped;
     flush_pending();
     publish(clock());
@@ -818,6 +882,10 @@ NetStatus NetClient::status() const noexcept {
 
 void NetClient::enable_heartbeat() noexcept {
   if (impl_) impl_->heartbeat_enabled.store(true);
+}
+
+void NetClient::set_goodbye_code(std::uint16_t code) noexcept {
+  if (impl_) impl_->goodbye_code.store(code);
 }
 
 void NetClient::reconnect_now() noexcept {
