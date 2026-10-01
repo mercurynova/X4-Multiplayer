@@ -1,5 +1,7 @@
 # X4MP
 
+[![CI](https://github.com/mercurynova/X4-Multiplayer/actions/workflows/ci.yml/badge.svg)](https://github.com/mercurynova/X4-Multiplayer/actions/workflows/ci.yml)
+
 Multiplayer for X4: Foundations: a .NET 10 dedicated server, a native mod, and a web admin GUI.
 
 - Documentation index: [docs/README.md](docs/README.md)
