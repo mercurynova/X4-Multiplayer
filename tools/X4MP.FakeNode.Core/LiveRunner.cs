@@ -41,6 +41,15 @@ public sealed record LiveRunOptions
 
     /// <summary>How long a client waits for the whole save pipeline (the authority's first checkpoint, the download, the match) against a server with a save service.</summary>
     public TimeSpan SaveTimeout { get; init; } = TimeSpan.FromMinutes(3);
+
+    /// <summary>Test hook: called with the fake authority when it is created (M1-F3: read its owners, hostility and reassign log).</summary>
+    public Action<FakeAuthority>? OnAuthority { get; init; }
+
+    /// <summary>Test hook: called with a client's handle once it is in game (M1-F3: send a targeted order, read its team).</summary>
+    public Action<FakeClientHandle>? OnClientReady { get; init; }
+
+    /// <summary>How long a client waits for the server's answer to a lobby team request.</summary>
+    public TimeSpan TeamRequestTimeout { get; init; } = TimeSpan.FromSeconds(3);
 }
 
 /// <summary>Counters of one connected (or failed) node; read by the reporter, written by the node's loop.</summary>
@@ -90,6 +99,52 @@ public sealed class LiveNodeStats(string name, Role role)
     public long VerifyErrors => _session?.Errors ?? 0;
 
     internal void AttachSession(FakeClientSession session) => _session = session;
+
+    // ---- M1-F3: teams
+    private int _teamId;
+    private long _lobbyRequests;
+    private long _lobbyRejections;
+    private long _reassigns;
+    private long _assetsMoved;
+
+    /// <summary>The team the server last reported for this client (0 = none).</summary>
+    public int TeamId
+    {
+        get => Volatile.Read(ref _teamId);
+        internal set => Volatile.Write(ref _teamId, value);
+    }
+
+    /// <summary>The wish this client had and what the lobby answered (empty when it had no wish).</summary>
+    public string TeamNote { get; internal set; } = string.Empty;
+
+    /// <summary><c>TeamChoice</c>, <c>TeamCreateRequest</c> and <c>TeamChangeRequest</c> messages this client sent.</summary>
+    public long LobbyRequests => Interlocked.Read(ref _lobbyRequests);
+
+    public long LobbyRejections => Interlocked.Read(ref _lobbyRejections);
+
+    /// <summary><c>ReassignPlayerAssets</c> messages this node (the authority) applied.</summary>
+    public long Reassigns => Interlocked.Read(ref _reassigns);
+
+    /// <summary>Assets the authority re-owned (one <c>EntityChange</c> each).</summary>
+    public long AssetsMoved => Interlocked.Read(ref _assetsMoved);
+
+    internal void CountTeamStep(TeamStepResult step)
+    {
+        Interlocked.Add(ref _lobbyRequests, step.Requests);
+        Interlocked.Add(ref _lobbyRejections, step.Rejections);
+    }
+
+    internal void CountReassign(int assets)
+    {
+        Interlocked.Increment(ref _reassigns);
+        Interlocked.Add(ref _assetsMoved, assets);
+    }
+
+    /// <summary>The fake authority behind this node (null for clients).</summary>
+    public FakeAuthority? Authority { get; internal set; }
+
+    /// <summary>The client's handle (null for the authority and for ping-only nodes).</summary>
+    public FakeClientHandle? Handle { get; internal set; }
 
     // ---- M1-T4: commander orders (clients) and forwarded intents (authority)
     private long _ordersSent;
@@ -222,6 +277,7 @@ public static partial class LiveRunner
             s.Session!.CheckStale();
         if (o.Commander != CommanderMode.None)
             await WriteCommanderSummaryAsync(o, stats, lines).ConfigureAwait(false);
+        await WriteTeamSummaryAsync(o, stats, lines).ConfigureAwait(false);
         long verifyErrors = stats.Sum(s => s.VerifyErrors);
         if (o.Verify)
             await WriteVerifySummaryAsync(stats, lines).ConfigureAwait(false);
@@ -264,6 +320,47 @@ public static partial class LiveRunner
         await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
             $"commander({o.Commander.ToString().ToLowerInvariant()}): orders-sent={sent} accepted={accepted} rejected={rejected} forwarded-to-authority={forwarded} " +
             $"no-target-ticks={stats.Sum(s => s.OrderTicksWithoutTarget)} reasons=[{reasons}]")).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The M1-F3 results: where the clients ended up (<c>teams:</c>, when they had a team wish), what the fake NPC AI makes of the relation matrix
+    /// (<c>npc-hostility:</c>) and what the authority did for moved players (<c>reassign:</c>).
+    /// </summary>
+    private static async Task WriteTeamSummaryAsync(CliOptions o, List<LiveNodeStats> stats, SynchronizedWriter lines)
+    {
+        var clients = stats.Where(s => s.Role == Role.Client && s.Session is not null).ToList();
+        bool wished = o.Team is not null || o.TeamPick != TeamPickMode.None || o.EffectiveTeams > 0;
+        if (wished && clients.Count > 0)
+        {
+            string relations = o.Relations != RelationsPreset.None
+                ? $" relations={o.Relations.ToString().ToLowerInvariant()} server-settings=[{string.Join(' ', TeamLayout.ServerSettings(o.Relations))}]"
+                : string.Empty;
+            var spread = string.Join(",", clients.Where(s => s.TeamId != 0).GroupBy(s => s.TeamId).OrderBy(g => g.Key).Select(g => $"{g.Key}:{g.Count()}"));
+            await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                $"teams: clients={clients.Count} placed={clients.Count(s => s.TeamId != 0)} unplaced={clients.Count(s => s.TeamId == 0)} " +
+                $"teams-used={clients.Where(s => s.TeamId != 0).Select(s => s.TeamId).Distinct().Count()} spread=[{spread}] " +
+                $"requests={clients.Sum(s => s.LobbyRequests)} rejected={clients.Sum(s => s.LobbyRejections)}{relations}")).ConfigureAwait(false);
+            foreach (var s in clients.Where(s => s.TeamId == 0))
+                await lines.WriteAsync($"[{s.Name}] no team: {s.TeamNote}").ConfigureAwait(false);
+        }
+
+        foreach (var authority in stats.Where(s => s.Authority is not null))
+        {
+            var a = authority.Authority!;
+            if (a.RelationChangesApplied > 0 || a.OwnershipChanges.Count > 0 || wished)
+            {
+                var h = a.Hostility();
+                await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                    $"npc-hostility: relation-changes={a.RelationChangesApplied} hostile-team-pairs=[{string.Join(',', h.HostileTeamPairs.Select(p => $"{p.TeamA}-{p.TeamB}"))}] " +
+                    $"engaged-ship-pairs={h.EngagedShipPairs} ships-at-war={h.ShipsAtWar} sectors-with-fights={h.SectorsWithFights}")).ConfigureAwait(false);
+            }
+
+            if (authority.Reassigns > 0)
+            {
+                await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                    $"reassign: requests={authority.Reassigns} assets-moved={authority.AssetsMoved} owner-changes-seen-by-clients={clients.Sum(s => s.Session!.OwnerChanges)}")).ConfigureAwait(false);
+            }
+        }
     }
 
     private sealed record NodePlan(string Name, Role Role);

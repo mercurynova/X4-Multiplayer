@@ -84,8 +84,14 @@ public sealed record FakeAuthorityOptions
     /// </summary>
     public bool TeamAssets { get; init; }
 
-    /// <summary>The (made up) player id that owns the "teammate" ships.</summary>
+    /// <summary>The (made up) player id that owns the "teammate" ships when the team has no known member to give them to.</summary>
     public const ushort TeammatePlayerId = 65000;
+
+    /// <summary>
+    /// The team ids the tagged ships are spread over (null = the team table the authority holds, padded to two teams: 1 and 2 on a server
+    /// with a single team). Fixed on first use so the tagging stays stable while teams come and go.
+    /// </summary>
+    public IReadOnlyList<ushort>? TeamIds { get; init; }
 }
 
 /// <summary>
@@ -122,10 +128,23 @@ public sealed class FakeAuthority
     /// <summary>The team state the authority holds (relations to apply in game, the asset re-owns it was told to do; M1-T3).</summary>
     public FakeTeamState Teams { get; } = new();
 
+    private readonly Dictionary<int, (ushort Team, ushort Player)> _owners = [];
+    private readonly List<OwnershipChange> _ownershipLog = [];
+    private readonly object _ownersGate = new();
+    private IReadOnlyList<ushort>? _teamIds;
+    private long _lastTick;
+    private long _relationChanges;
+    private long _lastRelationChangeTicks;
+
     public FakeAuthority(FakeWorld world, FakeAuthorityOptions? options = null)
     {
         World = world;
         _opt = options ?? new FakeAuthorityOptions();
+        Teams.RelationChanged += (_, _, _) =>
+        {
+            Interlocked.Increment(ref _relationChanges);
+            Interlocked.Exchange(ref _lastRelationChangeTicks, DateTime.UtcNow.Ticks);
+        };
         Strings = new FakeStringTable(world.Galaxy);
         NetIds = new NetIdAllocator();
         foreach (var e in world.Galaxy.Entities)
@@ -271,6 +290,7 @@ public sealed class FakeAuthority
         var output = new List<OutMessage>();
         long leg = LegOf(tick);
         double now = TimeOf(tick);
+        Interlocked.Exchange(ref _lastTick, tick);
 
         // 1. membership changes at leg boundaries (ships that jumped in or out of captured sectors)
         if (leg != _lastLeg)
@@ -379,23 +399,187 @@ public sealed class FakeAuthority
         Flush();
     }
 
-    /// <summary>The team owner a ship gets under <see cref="FakeAuthorityOptions.TeamAssets"/> (0, 0 = NPC).</summary>
+    /// <summary>
+    /// The team owner a ship has under <see cref="FakeAuthorityOptions.TeamAssets"/> (0, 0 = NPC). With the team ids t[0..n-1] and
+    /// <c>k = (id / 8) mod n</c>: id mod 4 = 1 is team-common to t[k], 2 is owned by a player of t[k] (a real member for id mod 8 = 2, the made-up
+    /// teammate for id mod 8 = 6), 3 is team-common to t[k+1]. The owner is fixed when first asked for, and changes only through <see cref="Reassign"/>.
+    /// </summary>
     public (ushort Team, ushort Player) TeamAssetOwner(int entityId, bool isStation)
     {
         if (!_opt.TeamAssets || isStation)
             return (0, 0);
-        return (entityId % 4) switch
+        lock (_ownersGate)
+            return OwnerLocked(entityId);
+    }
+
+    private (ushort Team, ushort Player) OwnerLocked(int entityId)
+    {
+        if (!_owners.TryGetValue(entityId, out var owner))
         {
-            1 => ((ushort)1, (ushort)0),
-            2 => ((ushort)1, FakeAuthorityOptions.TeammatePlayerId),
-            3 => ((ushort)2, (ushort)0),
-            _ => ((ushort)0, (ushort)0),
-        };
+            owner = SeedOwner(entityId);
+            _owners[entityId] = owner;
+        }
+
+        return owner;
+    }
+
+    /// <summary>The team ids ships are tagged for (see <see cref="FakeAuthorityOptions.TeamIds"/>); fixed by the first call.</summary>
+    public IReadOnlyList<ushort> TeamIdsInUse()
+    {
+        lock (_ownersGate)
+            return TeamIdsLocked();
+    }
+
+    private IReadOnlyList<ushort> TeamIdsLocked()
+    {
+        if (_teamIds is not null)
+            return _teamIds;
+        var ids = (_opt.TeamIds ?? []).Distinct().Order().ToList();
+        if (ids.Count < 2)
+            ids = [.. Teams.OrderedTeams().Select(t => t.TeamId).Distinct().Order()];
+        for (ushort next = 1; ids.Count < 2; next++)
+        {
+            if (!ids.Contains(next))
+                ids.Add(next);
+        }
+
+        _teamIds = ids;
+        return ids;
+    }
+
+    private (ushort Team, ushort Player) SeedOwner(int entityId)
+    {
+        var ids = TeamIdsLocked();
+        int slot = (entityId / 8) % ids.Count;
+        ushort team = ids[slot];
+        switch (entityId % 4)
+        {
+            case 1:
+                return (team, 0);
+            case 2:
+                ushort player = FakeAuthorityOptions.TeammatePlayerId;
+                if (entityId % 8 == 2 && Teams.Team(team) is { Members: { Count: > 0 } members })
+                    player = members.OrderBy(m => m.PlayerId).ElementAt((entityId / 16) % members.Count).PlayerId;
+                return (team, player);
+            case 3:
+                return (ids[(slot + 1) % ids.Count], 0);
+            default:
+                return (0, 0);
+        }
+    }
+
+    /// <summary>One asset the authority re-owned for a moved player.</summary>
+    public sealed record OwnershipChange(uint NetId, ushort FromTeam, ushort ToTeam, ushort Player);
+
+    /// <summary>Every asset re-owned so far (a snapshot).</summary>
+    public IReadOnlyList<OwnershipChange> OwnershipChanges
+    {
+        get
+        {
+            lock (_ownersGate)
+                return [.. _ownershipLog];
+        }
+    }
+
+    /// <summary>
+    /// Applies a <c>ReassignPlayerAssets</c> (M1-T3, server-design 2.13 "moving a player"): every asset the player owns in the old team goes to the new
+    /// team, and one <c>EntityChange</c> per asset (<c>OwnerTeam</c> bit, the player stays the owner) tells the server, whose mirror follows.
+    /// Scope <c>None</c> or a world without team assets changes nothing.
+    /// </summary>
+    public IReadOnlyList<OutMessage> Reassign(ReassignPlayerAssetsT move)
+    {
+        ArgumentNullException.ThrowIfNull(move);
+        var output = new List<OutMessage>();
+        if (move.Scope == MoveAssetsScope.None || !_opt.TeamAssets)
+            return output;
+        lock (_ownersGate)
+        {
+            foreach (var e in World.Galaxy.Entities)
+            {
+                if (e.IsStation)
+                    continue;
+                var owner = OwnerLocked(e.EntityId);
+                if (owner.Player != move.PlayerId || owner.Team != move.FromTeam)
+                    continue;
+                _owners[e.EntityId] = (move.ToTeam, owner.Player);
+                uint netId = FakeNetIds.ToNetId(e.EntityId);
+                _ownershipLog.Add(new OwnershipChange(netId, move.FromTeam, move.ToTeam, owner.Player));
+                var change = new EntityChangeT { NetId = netId, Fields = ChangeField.OwnerTeam, OwnerTeam = move.ToTeam, OwnerPlayer = owner.Player };
+                output.Add(new OutMessage(MsgType.EntityChange, MessageEncoder.EncodePayload(b => EntityChange.Pack(b, change), 64)));
+            }
+        }
+
+        return output;
+    }
+
+    // ---------------- NPC hostility (M1-F3) ----------------
+
+    /// <summary>Relation changes the authority has applied (it would set the faction relations in game).</summary>
+    public long RelationChangesApplied => Interlocked.Read(ref _relationChanges);
+
+    /// <summary>UTC time of the last relation change (<see cref="DateTime.MinValue"/> = none yet).</summary>
+    public DateTime LastRelationChangeAt => new(Interlocked.Read(ref _lastRelationChangeTicks), DateTimeKind.Utc);
+
+    /// <summary>What the fake NPC AI is up to: which team pairs are at war and how many ships of those teams share a sector with an enemy.</summary>
+    public sealed record HostilityReport(IReadOnlyList<(int TeamA, int TeamB)> HostileTeamPairs, long EngagedShipPairs, long ShipsAtWar, int SectorsWithFights);
+
+    /// <summary>
+    /// Fake NPC hostility: ships of a team open fire on the ships of every team the relation matrix says is Hostile (and the other way round), which the
+    /// authority's AI would do once the mod has set the faction relations. Computed from the matrix this node holds, the ship owners and where the
+    /// ships are at the latest tick. Needs <see cref="FakeAuthorityOptions.TeamAssets"/> (without it no ship has a team).
+    /// </summary>
+    public HostilityReport Hostility()
+    {
+        var ids = TeamIdsInUse();
+        var pairs = new List<(int, int)>();
+        for (int i = 0; i < ids.Count; i++)
+        {
+            for (int j = i + 1; j < ids.Count; j++)
+            {
+                if (Teams.IsHostile(ids[i], ids[j]))
+                    pairs.Add((ids[i], ids[j]));
+            }
+        }
+
+        long engaged = 0;
+        long atWar = 0;
+        int sectorsWithFights = 0;
+        if (pairs.Count > 0)
+        {
+            long leg = LegOf(Interlocked.Read(ref _lastTick));
+            var counts = new Dictionary<int, int>();
+            foreach (var sector in World.Galaxy.Sectors)
+            {
+                counts.Clear();
+                foreach (int id in World.EntitiesInSector(sector.Index, leg))
+                {
+                    int team = TeamAssetOwner(id, World.Galaxy.Entities[id - 1].IsStation).Team;
+                    if (team != 0)
+                        counts[team] = counts.GetValueOrDefault(team) + 1;
+                }
+
+                long before = engaged;
+                foreach (var (a, b) in pairs)
+                {
+                    int ca = counts.GetValueOrDefault(a);
+                    int cb = counts.GetValueOrDefault(b);
+                    engaged += (long)ca * cb;
+                    if (ca > 0 && cb > 0)
+                        atWar += ca + cb;
+                }
+
+                if (engaged > before)
+                    sectorsWithFights++;
+            }
+        }
+
+        return new HostilityReport(pairs, engaged, atWar, sectorsWithFights);
     }
 
     private EntityRecordT MakeRecord(int id, double now, EntityOrigin origin)
     {
         var e = World.Galaxy.Entities[id - 1];
+        var owner = TeamAssetOwner(id, e.IsStation);
         return new EntityRecordT
         {
             NetId = FakeNetIds.ToNetId(id),
@@ -403,8 +587,8 @@ public sealed class FakeAuthority
             Origin = origin,
             MacroRef = Strings.Index(e.Macro),
             OwnerRef = Strings.Index(World.Galaxy.Factions[e.Faction]),
-            OwnerTeam = TeamAssetOwner(id, e.IsStation).Team,
-            OwnerPlayer = TeamAssetOwner(id, e.IsStation).Player,
+            OwnerTeam = owner.Team,
+            OwnerPlayer = owner.Player,
             Name = e.Name,
             Idcode = e.IdCode,
             Hull = 255,
