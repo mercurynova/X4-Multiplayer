@@ -12,6 +12,7 @@ public sealed class InMemoryEconomyStore : IEconomyStore
     private readonly Dictionary<(long Session, int Player, string Request), EconomyRequestRecord> _requests = [];
     private readonly Dictionary<(long Session, int Player), ulong> _deltaSeqs = [];
     private readonly Dictionary<long, EconomyLayout> _layouts = [];
+    private readonly Dictionary<(long Session, long Id), LoanRecord> _loans = [];
 
     /// <summary>When true, <see cref="Commit"/> throws (simulates a full or failing disk).</summary>
     public bool FailCommits { get; set; }
@@ -21,7 +22,8 @@ public sealed class InMemoryEconomyStore : IEconomyStore
     public EconomyLoad Load(long sessionId) => new(
         _wallets.Where(kv => kv.Key.Session == sessionId).Select(kv => kv.Value.Clone()).ToList(),
         _deltaSeqs.Where(kv => kv.Key.Session == sessionId).ToDictionary(kv => kv.Key.Player, kv => kv.Value),
-        _layouts.GetValueOrDefault(sessionId) ?? new EconomyLayout(null, new Dictionary<int, int?>()));
+        _layouts.GetValueOrDefault(sessionId) ?? new EconomyLayout(null, new Dictionary<int, int?>()),
+        _loans.Where(kv => kv.Key.Session == sessionId).Select(kv => kv.Value).OrderBy(l => l.Id).ToList());
 
     public void Commit(EconomyCommit commit)
     {
@@ -54,6 +56,11 @@ public sealed class InMemoryEconomyStore : IEconomyStore
         if (commit.Layout is { } layout)
         {
             _layouts[commit.SessionId] = layout;
+        }
+
+        foreach (var loan in commit.Loans ?? [])
+        {
+            _loans[(commit.SessionId, loan.Id)] = loan;
         }
     }
 
