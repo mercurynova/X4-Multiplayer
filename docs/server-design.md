@@ -1293,6 +1293,13 @@ lets the browser resume after a refresh, since the upload id is kept in `localSt
   contexts.
 - Errors use RFC 7807 `ProblemDetails`, with a `code` extension (`NotFound`,
   `ValidationFailed`, `Conflict`, `SessionNotRunning`, ...).
+- **Problem shape (M1-S2).** Every error body is `application/problem+json`: `type` (`urn:x4mp:problem:<code>`), `title`, `status`,
+  `detail`, `code`, and for validation failures `errors` (`{field: [messages]}`, one entry per invalid field or setting key;
+  the settings API also sends `errorCodes` per key). Unhandled exceptions answer a generic 500 problem (no exception text).
+  Auth routes are `/api/v1/auth/*` like the rest; there is no `/api/auth` alias. Mutating endpoints write an `audit_log` row
+  (actor, action, target, `reason` in the data; never a secret). `POST /tokens` returns the token once and it is never stored,
+  logged or audited. A password change bumps `admin_users.pw_version` (other browser sessions stop validating) and revokes the
+  tokens that user minted (`api_tokens.owner_id`).
 - Endpoints are written as Minimal APIs grouped per feature: `MapGroup("/api/v1/players")`.
   `.RequireAuthorization("Admin")` is the default. Read-only endpoints allow `Viewer`.
 - **TypeScript contract**: `X4MP.Server.Tests` contains `TsContractGenerator`, a reflection

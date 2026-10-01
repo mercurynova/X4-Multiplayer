@@ -64,6 +64,18 @@ public sealed class RingBufferSink : ILogEventSink
         }
     }
 
+    /// <summary>
+    /// Like <see cref="Snapshot"/>, plus the sequence number of the first returned event: the events carry the consecutive
+    /// numbers <c>FirstSeq .. FirstSeq + Count - 1</c> (the n-th event ever written is number n), taken under one lock.
+    /// </summary>
+    public (long FirstSeq, IReadOnlyList<LogEvent> Events) SnapshotWithSequence()
+    {
+        lock (_gate)
+        {
+            return (_total - _count + 1, Snapshot());
+        }
+    }
+
     public void Clear()
     {
         lock (_gate)

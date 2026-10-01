@@ -9,10 +9,13 @@ namespace X4MP.Server.Auth;
 
 /// <summary>A row of <c>admin_users</c>.</summary>
 public sealed record AdminUser(
-    long Id, string Username, byte[] PasswordHash, byte[] PasswordSalt, int Iterations, string Role, bool MustChange);
+    long Id, string Username, byte[] PasswordHash, byte[] PasswordSalt, int Iterations, string Role, bool MustChange, long PwVersion = 0);
 
 /// <summary>An active (not revoked) row of <c>api_tokens</c>.</summary>
 public sealed record ApiTokenInfo(long Id, string Name, string Role);
+
+/// <summary>A row of <c>api_tokens</c> as the token list shows it (never the token itself).</summary>
+public sealed record ApiTokenRecord(long Id, string Name, string Role, DateTimeOffset CreatedAt, DateTimeOffset? LastUsedAt, DateTimeOffset? RevokedAt, string? OwnerName);
 
 /// <summary>
 /// Synchronous SQLite access for admin users, API tokens and the audit log. Writes go straight to the database
@@ -52,7 +55,7 @@ public sealed class AdminStore(SqliteConnectionFactory connections, TimeProvider
     }
 
     private const string UserSelect =
-        "SELECT id, username, pw_hash, pw_salt, pw_iter, role, must_change FROM admin_users";
+        "SELECT id, username, pw_hash, pw_salt, pw_iter, role, must_change, pw_version FROM admin_users";
 
     private static AdminUser? ReadUser(SqliteCommand cmd)
     {
@@ -64,7 +67,7 @@ public sealed class AdminStore(SqliteConnectionFactory connections, TimeProvider
 
         return new AdminUser(
             reader.GetInt64(0), reader.GetString(1), (byte[])reader["pw_hash"], (byte[])reader["pw_salt"],
-            reader.GetInt32(4), reader.GetString(5), reader.GetInt64(6) != 0);
+            reader.GetInt32(4), reader.GetString(5), reader.GetInt64(6) != 0, reader.GetInt64(7));
     }
 
     public long CreateUser(string username, string password, string role, bool mustChange, int iterations)
@@ -85,7 +88,7 @@ public sealed class AdminStore(SqliteConnectionFactory connections, TimeProvider
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Stores a newly computed hash (password change or iteration upgrade).</summary>
+    /// <summary>Stores a newly computed hash without ending any session (the work-factor upgrade at login, bootstrap).</summary>
     public void SetPassword(long id, string password, int iterations, bool mustChange)
     {
         var (hash, salt) = AdminPasswordHasher.Hash(password, iterations);
@@ -100,8 +103,46 @@ public sealed class AdminStore(SqliteConnectionFactory connections, TimeProvider
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// A password CHANGE: stores the new hash, clears <c>must_change</c>, bumps <c>pw_version</c> (every cookie issued before no longer
+    /// validates) and revokes the API tokens this user minted, all in one transaction. Returns the updated user.
+    /// </summary>
+    public AdminUser ChangePassword(long id, string password, int iterations)
+    {
+        var (hash, salt) = AdminPasswordHasher.Hash(password, iterations);
+        using var db = connections.Open();
+        using var tx = db.BeginTransaction();
+        using (var cmd = db.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                "UPDATE admin_users SET pw_hash=$h, pw_salt=$s, pw_iter=$i, must_change=0, pw_version=pw_version+1, pw_changed_at=$now WHERE id=$id";
+            cmd.Parameters.AddWithValue("$h", hash);
+            cmd.Parameters.AddWithValue("$s", salt);
+            cmd.Parameters.AddWithValue("$i", iterations);
+            cmd.Parameters.AddWithValue("$now", Now());
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var revoke = db.CreateCommand())
+        {
+            revoke.Transaction = tx;
+            revoke.CommandText = "UPDATE api_tokens SET revoked_at=$now WHERE owner_id=$id AND revoked_at IS NULL";
+            revoke.Parameters.AddWithValue("$now", Now());
+            revoke.Parameters.AddWithValue("$id", id);
+            revoke.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+        return FindUser(id) ?? throw new InvalidOperationException("The user vanished during a password change.");
+    }
+
     /// <summary>Creates an API token and returns its plaintext, which is never stored (only its SHA-256).</summary>
-    public string CreateToken(string name, string role)
+    public string CreateToken(string name, string role, long? ownerId = null) => CreateTokenWithInfo(name, role, ownerId).Plaintext;
+
+    /// <summary>Like <see cref="CreateToken"/>, but also returns the new row's id. <paramref name="ownerId"/> ties it to a user's password.</summary>
+    public (long Id, string Plaintext) CreateTokenWithInfo(string name, string role, long? ownerId = null)
     {
         if (!AdminRoles.IsValid(role))
         {
@@ -111,14 +152,49 @@ public sealed class AdminStore(SqliteConnectionFactory connections, TimeProvider
         var plaintext = TokenPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
         using var db = connections.Open();
         using var cmd = db.CreateCommand();
-        cmd.CommandText = "INSERT INTO api_tokens (name, token_hash, role, created_at) VALUES ($n, $h, $r, $c)";
+        cmd.CommandText =
+            "INSERT INTO api_tokens (name, token_hash, role, created_at, owner_id) VALUES ($n, $h, $r, $c, $o); SELECT last_insert_rowid();";
         cmd.Parameters.AddWithValue("$n", name);
         cmd.Parameters.AddWithValue("$h", HashToken(plaintext));
         cmd.Parameters.AddWithValue("$r", role);
         cmd.Parameters.AddWithValue("$c", Now());
-        cmd.ExecuteNonQuery();
-        return plaintext;
+        cmd.Parameters.AddWithValue("$o", (object?)ownerId ?? DBNull.Value);
+        return (Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture), plaintext);
     }
+
+    /// <summary>The user a token was minted by (null for an ownerless token or an unknown id).</summary>
+    public long? TokenOwner(long tokenId)
+    {
+        using var db = connections.Open();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT owner_id FROM api_tokens WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", tokenId);
+        return cmd.ExecuteScalar() is long owner ? owner : null;
+    }
+
+    /// <summary>Every token, newest first (revoked ones included, flagged).</summary>
+    public IReadOnlyList<ApiTokenRecord> ListTokens()
+    {
+        using var db = connections.Open();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText =
+            "SELECT t.id, t.name, t.role, t.created_at, t.last_used_at, t.revoked_at, u.username " +
+            "FROM api_tokens t LEFT JOIN admin_users u ON u.id = t.owner_id ORDER BY t.id DESC";
+        using var reader = cmd.ExecuteReader();
+        var list = new List<ApiTokenRecord>();
+        while (reader.Read())
+        {
+            list.Add(new ApiTokenRecord(
+                reader.GetInt64(0), reader.GetString(1), reader.GetString(2), ParseTime(reader.GetString(3)),
+                reader.IsDBNull(4) ? null : ParseTime(reader.GetString(4)), reader.IsDBNull(5) ? null : ParseTime(reader.GetString(5)),
+                reader.IsDBNull(6) ? null : reader.GetString(6)));
+        }
+
+        return list;
+    }
+
+    private static DateTimeOffset ParseTime(string text) =>
+        DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
     public ApiTokenInfo? FindToken(string plaintext)
     {
@@ -145,14 +221,15 @@ public sealed class AdminStore(SqliteConnectionFactory connections, TimeProvider
         return info;
     }
 
-    public void RevokeToken(long id)
+    /// <summary>Revokes a token. False when it does not exist or was already revoked.</summary>
+    public bool RevokeToken(long id)
     {
         using var db = connections.Open();
         using var cmd = db.CreateCommand();
         cmd.CommandText = "UPDATE api_tokens SET revoked_at=$now WHERE id=$id AND revoked_at IS NULL";
         cmd.Parameters.AddWithValue("$now", Now());
         cmd.Parameters.AddWithValue("$id", id);
-        cmd.ExecuteNonQuery();
+        return cmd.ExecuteNonQuery() > 0;
     }
 
     /// <summary>Appends an <c>audit_log</c> row. Never pass secrets in <paramref name="data"/>.</summary>

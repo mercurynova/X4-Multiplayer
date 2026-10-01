@@ -88,20 +88,21 @@ public static class SettingsExtensions
     {
         if (body is null || body.Count == 0)
         {
-            return AdminAuthExtensions.Problem(StatusCodes.Status400BadRequest, "ValidationFailed", "Send a JSON object of setting keys and values.");
+            return Problems.Validation("body", "Send a JSON object of setting keys and values.");
         }
 
         var actor = context.User.Identity?.Name ?? "unknown";
         var result = await settings.PatchAsync(body, actor, context.Connection.RemoteIpAddress?.ToString(), context.RequestAborted);
         if (!result.Success)
         {
-            var problem = new SettingsProblem(
-                "One or more settings were rejected; nothing was changed.",
+            // One message list per rejected key; the machine code of each key is in errorCodes.
+            return Problems.Result(
                 StatusCodes.Status400BadRequest,
                 "ValidationFailed",
+                "One or more settings were rejected; nothing was changed.",
                 null,
-                result.Errors.ToList());
-            return Results.Json(problem, ApiJsonContext.Default.SettingsProblem, "application/problem+json", StatusCodes.Status400BadRequest);
+                result.Errors.ToDictionary(e => e.Key, e => new[] { e.Message }),
+                result.Errors.ToDictionary(e => e.Key, e => e.Code));
         }
 
         return Results.Json(settings.GetValues(), ApiJsonContext.Default.SettingsDto);

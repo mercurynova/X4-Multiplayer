@@ -68,7 +68,7 @@ public static class AdminAuthExtensions
 
     /// <summary>
     /// Installs security headers, the IP allow-list, the CSRF header check, authentication/authorization and the
-    /// <c>/api/auth/*</c> endpoints. Call before the rest of the web pipeline is mapped.
+    /// <c>/api/v1/auth/*</c> endpoints. Call before the rest of the web pipeline is mapped.
     /// </summary>
     public static WebApplication UseAdminAuth(this WebApplication app)
     {
@@ -103,7 +103,7 @@ public static class AdminAuthExtensions
     }
 
     internal static IResult Problem(int status, string code, string title, string? detail = null) =>
-        Results.Json(new ApiProblem(title, status, code, detail), ApiJsonContext.Default.ApiProblem, "application/problem+json", status);
+        Problems.Result(status, code, title, detail);
 
     private static bool IsStateChangingApiCall(HttpRequest request) =>
         request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
@@ -129,7 +129,9 @@ public static class AdminAuthExtensions
         var store = context.HttpContext.RequestServices.GetRequiredService<AdminStore>();
         var id = context.Principal is null ? null : AdminPrincipal.UserId(context.Principal);
         var user = id is null ? null : store.FindUser(id.Value);
-        if (user is null)
+
+        // A password change bumps pw_version: every cookie issued before it stops validating (the changing session is re-issued).
+        if (user is null || !AdminPrincipal.HasPasswordVersion(context.Principal!, user.PwVersion))
         {
             context.RejectPrincipal();
             await context.HttpContext.SignOutAsync(CookieScheme);
