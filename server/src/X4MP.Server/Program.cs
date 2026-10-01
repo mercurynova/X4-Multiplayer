@@ -18,9 +18,10 @@ switch (cli.Verb)
         }
         Console.WriteLine(CliArguments.Usage);
         return cli.Error is null ? 0 : 2;
-    case CliVerb.ServiceInstall or CliVerb.ServiceUninstall:
-        Console.Error.WriteLine("service commands are not implemented yet");
-        return 2;
+    case CliVerb.ServiceInstall when cli.Error is null:
+        return ServiceCommands.Install(cli, Environment.ProcessPath ?? "x4mp-server.exe", Console.Out, ServiceCommands.RunProcess, ServiceCommands.IsElevated());
+    case CliVerb.ServiceUninstall when cli.Error is null:
+        return ServiceCommands.Uninstall(cli, Console.Out, ServiceCommands.RunProcess, ServiceCommands.IsElevated());
 }
 
 if (cli.Error is not null)
