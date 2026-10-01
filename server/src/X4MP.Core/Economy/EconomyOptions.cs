@@ -79,6 +79,25 @@ public sealed record EconomyOptions
     [Setting("Trade query interval (s)", Scope = SettingScope.Live, Min = 1, Max = 600)]
     public int TradeQueryIntervalSeconds { get; set; } = 10;
 
+    /// <summary>Who may be lent to (Off, Teammates, Allied = same or allied team, Anyone).</summary>
+    [Setting("Loan scope", Scope = SettingScope.Live, PushToNodes = true)]
+    public EconomyScope LoanScope { get; set; } = EconomyScope.Teammates;
+
+    /// <summary>Open loans (offered, active or overdue) a player may be part of, as lender and borrower together.</summary>
+    [Setting("Open loans per player (lender and borrower)", Scope = SettingScope.Live, PushToNodes = true, Min = 1, Max = 255)]
+    public int MaxOpenLoansPerPlayer { get; set; } = 5;
+
+    [Setting("Largest loan principal", Scope = SettingScope.Live, Min = 1, Max = 1_000_000_000_000)]
+    public long MaxLoanPrincipal { get; set; } = 1_000_000_000_000;
+
+    /// <summary>Largest flat interest on the principal, in basis points (5000 = 50%).</summary>
+    [Setting("Largest loan interest (basis points of the principal)", Scope = SettingScope.Live, Min = 0, Max = 100_000)]
+    public int MaxLoanInterestBp { get; set; } = 5000;
+
+    /// <summary>Used when an offer carries no time to live.</summary>
+    [Setting("Default offer lifetime (minutes)", Scope = SettingScope.Live, Min = 1, Max = 10_080)]
+    public int OfferDefaultTtlMinutes { get; set; } = 30;
+
     [Setting("Largest single transfer or pool movement", Scope = SettingScope.Live, PushToNodes = true, Min = 1, Max = 1_000_000_000_000)]
     public long MaxSingleTransfer { get; set; } = 1_000_000_000_000;
 

@@ -66,6 +66,8 @@ public static class TeamsExtensions
         TradeScope = options.TradeScope,
         TradeShipsEnabled = options.TradeShipsEnabled,
         MaxOpenTradesPerPlayer = (byte)Math.Clamp(options.MaxOpenTradesPerPlayer, 1, byte.MaxValue),
+        LoanScope = options.LoanScope,
+        MaxOpenLoansPerPlayer = (byte)Math.Clamp(options.MaxOpenLoansPerPlayer, 0, byte.MaxValue),
     };
 }
 

@@ -64,6 +64,9 @@ public interface IIncomeSplitter
 {
     /// <summary>Transfers out of <paramref name="target"/> (to another wallet) for <paramref name="income"/> credits just earned.</summary>
     IReadOnlyList<(WalletId To, long Amount)> Split(int? playerId, WalletId target, long income);
+
+    /// <summary>Loan changes (auto-repay) computed by the last <see cref="Split"/>; posted in the same transaction as the income. Clears them.</summary>
+    IReadOnlyList<LoanRecord>? TakeChanges() => null;
 }
 
 /// <summary>
@@ -108,6 +111,7 @@ public sealed partial class EconomyService
         _phase = phase ?? (() => SessionPhase.Idle);
         _leaderOf = leaderOf ?? DefaultLeader;
         _rate = new EconomyRateLimiter(_time);
+        InitLoans();
     }
 
     public EconomyLedger Ledger => _ledger;
@@ -493,6 +497,7 @@ public sealed partial class EconomyService
             RefId = (long)delta.RefEventSeq,
             Note = delta.Source.ToString(),
             Flags = PostOptions.AllowOverdraw | PostOptions.BypassWalletFreeze,
+            Loans = amount > 0 ? IncomeSplitter?.TakeChanges() : null,
         });
         if (!outcome.Ok)
         {

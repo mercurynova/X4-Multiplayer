@@ -5,7 +5,7 @@ using X4MP.Core.Economy;
 namespace X4MP.Persistence;
 
 /// <summary>
-/// Trades in SQLite (<c>0005_trades.sql</c>). Like <see cref="SqliteEconomyStore"/> it uses its own connection and is durable before it
+/// Trades in SQLite (<c>0006_trades.sql</c>). Like <see cref="SqliteEconomyStore"/> it uses its own connection and is durable before it
 /// returns (<c>synchronous=FULL</c>): a trade state change is acknowledged to players right after it. A trade and its lock set are one
 /// transaction, and the primary key of <c>trade_locks</c> turns a second open trade on the same asset into a
 /// <see cref="TradeLockConflictException"/>.
