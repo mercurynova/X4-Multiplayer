@@ -385,7 +385,7 @@ public sealed partial class SessionActor
 
     private void BroadcastSessionState() => Broadcast(Encode(BuildSessionState()));
 
-    private static PlayerInfoT PlayerInfo(SessionNode slot) => new()
+    internal static PlayerInfoT PlayerInfo(SessionNode slot) => new()
     {
         PlayerId = (ushort)slot.PlayerId,
         Name = slot.Name,
@@ -393,6 +393,8 @@ public sealed partial class SessionActor
         Phase = slot.Phase == NodePhase.Detached ? slot.PhaseBeforeDetach : slot.Phase,
         TeamId = (ushort)Math.Clamp(slot.TeamId, 0, ushort.MaxValue),
         TeamRole = slot.TeamRole,
+        ShipNetId = slot.ShipNetId,
+        Sector = slot.Sector,
         PingMs = (ushort)Math.Clamp(Math.Round(slot.Clock.SmoothedRttMs), 0, ushort.MaxValue),
     };
 

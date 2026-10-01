@@ -6,7 +6,7 @@ namespace X4MP.Core.Net;
 /// <summary>Per-connection counters. Writers use Interlocked; readers may see slightly stale values.</summary>
 public sealed class ConnectionStats
 {
-    private long _bytesReceived, _bytesSent, _framesReceived, _framesSent, _coalesced, _dropped, _violations;
+    private long _bytesReceived, _bytesSent, _framesReceived, _framesSent, _coalesced, _dropped, _violations, _inboundCoalesced, _inboundDropped;
     private long _flushCount, _flushTicksTotal, _flushTicksMax;
     private readonly long[] _laneDropped = new long[3];
     private readonly long[] _laneBytesIn = new long[3];
@@ -27,6 +27,12 @@ public sealed class ConnectionStats
 
     /// <summary>Protocol or policy violations counted against this connection.</summary>
     public long Violations => Interlocked.Read(ref _violations);
+
+    /// <summary>Inbound <c>PlayerState</c> frames replaced by a newer one before the session actor looked at them (latest wins).</summary>
+    public long InboundCoalesced => Interlocked.Read(ref _inboundCoalesced);
+
+    /// <summary>Inbound frames dropped because this node already had too many queued for the session actor.</summary>
+    public long InboundDropped => Interlocked.Read(ref _inboundDropped);
 
     public long FlushCount => Interlocked.Read(ref _flushCount);
 
@@ -82,6 +88,18 @@ public sealed class ConnectionStats
         Interlocked.Increment(ref _dropped);
         Interlocked.Increment(ref _laneDropped[(int)lane]);
         ServerMetrics.RecordDropped(lane);
+    }
+
+    internal void AddInboundCoalesced()
+    {
+        Interlocked.Increment(ref _inboundCoalesced);
+        ServerMetrics.RecordInboundCoalesced();
+    }
+
+    internal void AddInboundDropped()
+    {
+        Interlocked.Increment(ref _inboundDropped);
+        ServerMetrics.RecordInboundDropped();
     }
 
     internal void ObserveQueued(Lane lane, long bytes) => RaiseTo(ref _laneMaxQueuedBytes[(int)lane], bytes);

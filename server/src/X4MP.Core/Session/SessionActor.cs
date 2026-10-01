@@ -13,7 +13,9 @@ namespace X4MP.Core.Session;
 /// machine, every node's <see cref="NodePhase"/>, ping/RTT/clock sync, <c>NodeStats</c>, resume and the authority
 /// grace. All state lives behind one unbounded <see cref="Channel{T}"/> mailbox and is touched only by the loop
 /// in <see cref="RunAsync"/>, so there are no locks and producers (connection readers, timers, the admin side)
-/// never wait: posting is a non-blocking <c>TryWrite</c>.
+/// never wait: posting is a non-blocking <c>TryWrite</c>. The mailbox is unbounded on purpose; what feeds it is bounded
+/// instead: a node's reader goes through a <see cref="NodeInbox"/> (<c>PlayerState</c> latest-wins, a per-node cap on everything
+/// else) and timers queue at most one tick, so the backlog is at most nodes x <c>InboundQueueFramesPerNode</c> plus admin work.
 /// <para>
 /// It is the <see cref="IAdmissionHandler"/> of the <see cref="NodeGateway"/>. Time comes from the injected
 /// <see cref="TimeProvider"/> only (timestamps and a timer), so tests drive it on a fake clock.
@@ -50,11 +52,21 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
         public AdmittedNode Node { get; } = node;
     }
 
-    private sealed class MessageInput(AdmittedNode node, InboundFrame frame) : Input
+    private sealed class MessageInput(AdmittedNode node, InboundFrame frame, NodeInbox inbox) : Input
     {
         public AdmittedNode Node { get; } = node;
 
         public InboundFrame Frame { get; } = frame;
+
+        public NodeInbox Inbox { get; } = inbox;
+    }
+
+    /// <summary>Marker for the node's parked <c>PlayerState</c> (latest wins, see <see cref="NodeInbox"/>): at most one is queued per node.</summary>
+    private sealed class StateInput(AdmittedNode node, NodeInbox inbox) : Input
+    {
+        public AdmittedNode Node { get; } = node;
+
+        public NodeInbox Inbox { get; } = inbox;
     }
 
     private sealed class EndedInput(AdmittedNode node) : Input
@@ -162,6 +174,9 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
     /// <summary><see cref="ISessionNodeDriver.StoreSessionId"/>: the <c>sessions</c> row id; read it on the actor thread.</summary>
     public long? StoreSessionId => SessionId;
 
+    /// <summary><see cref="ISessionNodeDriver.ServerTimeUs"/>: the monotonic server clock (since the actor was created) in microseconds.</summary>
+    public long ServerTimeUs => ServerUs(Now);
+
     /// <summary>Frames from nodes the actor has processed so far (diagnostics, test synchronisation).</summary>
     public long FramesReceived => Interlocked.Read(ref _framesReceived);
 
@@ -248,7 +263,15 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
                 OnAttach(attach.Node);
                 break;
             case MessageInput message:
+                message.Inbox.Leave();
                 OnMessage(message.Node, message.Frame);
+                break;
+            case StateInput state:
+                if (state.Inbox.TakeLatest() is { } latest)
+                {
+                    OnMessage(state.Node, latest);
+                }
+
                 break;
             case EndedInput ended:
                 OnConnectionEnded(ended.Node);

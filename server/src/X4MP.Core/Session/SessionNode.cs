@@ -59,6 +59,12 @@ public sealed class SessionNode
 
     public TeamRole TeamRole { get; internal set; }
 
+    /// <summary>The avatar the authority assigned to this player (0 = none), kept by the relay so the roster can carry it (protocol.md 13).</summary>
+    public uint ShipNetId { get; internal set; }
+
+    /// <summary>The sector of the last <c>PlayerState</c> (0 = unknown), kept by the relay for the roster.</summary>
+    public ushort Sector { get; internal set; }
+
     /// <summary>The phase the node left when it detached; a resume goes back to it.</summary>
     public NodePhase PhaseBeforeDetach { get; internal set; } = NodePhase.Admitted;
 
