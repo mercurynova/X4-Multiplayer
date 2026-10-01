@@ -627,6 +627,7 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
   - Forcing progress-gated rooms to exist on every node needs a separate user decision.
 
 ### ADR-047 Team diplomacy via X4 diplomacy system (proposal, pending spike) (user idea 2026-10-01)
+**Status update 2026-10-01: design APPROVED by the user** (server-owned relation matrix + treaties via our own diplomacy screen; vanilla tab read-only; M5 basic proposals, M6 reputation/policy, rest post-v1).
 - **Context:** the user suggested using the game's diplomacy system ("the 9.0 diplomacy update")
   for relations between player teams. Research: [research/diplomacy.md](research/diplomacy.md).
   - Diplomacy arrived in **8.00**; 9.00 only tweaked it. It is a `player`-centric minigame: PHQ
