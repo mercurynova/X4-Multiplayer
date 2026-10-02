@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Connections.Features;
 using X4MP.Core.Net;
 
 namespace X4MP.Transport;
@@ -41,6 +42,10 @@ public sealed class NodeConnectionHandler(TcpNodeListener listener) : Connection
         await using (node.ConfigureAwait(false))
         {
             using var registration = connection.ConnectionClosed.Register(static state => ((PipeNodeConnection)state!).Abort(), node);
+            // Kestrel stops before the hosted services (the gateway): without this its graceful shutdown would wait for every open node
+            // connection to end by itself, which for an idle peer is the 10 s heartbeat timeout plus the drain. Say goodbye right away instead.
+            using var shutdownRegistration = connection.Features.Get<IConnectionLifetimeNotificationFeature>()?.ConnectionClosedRequested
+                .Register(static state => ((PipeNodeConnection)state!).Close(X4MP.Proto.DisconnectCode.ServerShutdown, "server stopping"), node);
             await node.Completion.ConfigureAwait(false);
             await node.DrainInputAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); // let the peer read the Disconnect before the socket closes
             if (node.MustAbortSocket)

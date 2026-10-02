@@ -13,7 +13,7 @@ public sealed class AuthorityFocusTests
         w.Galaxy.Sectors.Select(s => s.Index).OrderByDescending(s => w.EntitiesInSector(s, 0).Count).First();
 
     [Fact]
-    public void SpawnsAreAlwaysPrecededByAnEmptyWorldUpdateCarryingTheGameTimeTheirStatesWereSampledAt()
+    public void SpawnsCarryTheGameTimeTheirStatesWereSampledAt()
     {
         var w = new FakeWorld(FakeGalaxy.Generate(42));
         var a = new FakeAuthority(w);
@@ -23,16 +23,11 @@ public sealed class AuthorityFocusTests
         for (long tick = 0; tick < 20; tick++)
         {
             var output = a.Tick(tick);
-            int firstSpawn = output.ToList().FindIndex(m => m.Type == MsgType.EntitySpawn);
-            if (firstSpawn < 0)
+            var spawn = output.FirstOrDefault(m => m.Type == MsgType.EntitySpawn);
+            if (spawn is null)
                 continue;
 
-            var clock = Assert.Single(output.Take(firstSpawn), m => m.Type == MsgType.WorldUpdate);
-            Assert.Same(clock, output[0]);
-            var update = Decode<WorldUpdate>(clock).UnPack();
-            Assert.Empty(update.States);
-            Assert.Equal(tick / FakeWorld.TickRateHz, update.GameTime, 9);
-            Assert.Equal(a.CaptureTimeUs(tick), update.CaptureTimeUs);
+            Assert.Equal(tick / FakeWorld.TickRateHz, Decode<EntitySpawn>(spawn).GameTime, 9);
             return;
         }
 

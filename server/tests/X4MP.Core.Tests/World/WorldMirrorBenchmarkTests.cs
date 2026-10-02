@@ -75,6 +75,7 @@ public sealed class WorldMirrorBenchmarkTests(ITestOutputHelper output)
         // Warm up: JIT, dictionary and sector lists reach their final capacity.
         for (int c = 0; c < 3; c++)
         {
+            mirror.ResetClockGuard(); // the cycle replays the same ticks: not "stale"
             foreach (var payload in cycle)
             {
                 mirror.IngestWorldUpdate(payload);
@@ -88,6 +89,7 @@ public sealed class WorldMirrorBenchmarkTests(ITestOutputHelper output)
         var sw = Stopwatch.StartNew();
         for (int c = 0; c < MeasuredCycles; c++)
         {
+            mirror.ResetClockGuard();
             foreach (var payload in cycle)
             {
                 applied += mirror.IngestWorldUpdate(payload).Applied;
