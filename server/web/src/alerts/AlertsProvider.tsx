@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { HubAlert } from '../hub/contract';
-import { useHubEvent } from '../hub/HubProvider';
+import type { DashboardSnapshotDto } from '../generated/generated';
+import { groups, SNAPSHOT_EVENT, type AlertDto } from '../hub/contract';
+import { useHubEvent, useHubGroup } from '../hub/HubProvider';
 
 export type Severity = 'info' | 'success' | 'warning' | 'error';
 
@@ -60,12 +61,19 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   );
   const dismissBanner = useCallback((id: string) => setBanners((b) => b.filter((x) => x.id !== id)), []);
 
+  // Server alerts are conditions (code + active flag): active ones sit in the banner slot, cleared ones go away.
   useHubEvent('Alert', (p) => {
-    const a = p as HubAlert;
-    if (!a || typeof a.message !== 'string') return;
-    const text = a.title ? `${a.title}: ${a.message}` : a.message;
-    if (a.persistent) showBanner(a.id ?? a.code ?? text, toSeverity(a.severity), text);
-    else toast(toSeverity(a.severity), text);
+    const a = p as AlertDto;
+    if (!a || typeof a.code !== 'string') return;
+    if (a.active) showBanner(a.code, toSeverity(a.severity), a.text);
+    else dismissBanner(a.code);
+  });
+
+  // The dashboard snapshot carries the currently active alerts; it arrives on every (re)subscribe, so it replaces our banners.
+  useHubGroup(groups.dashboard, (event, payload) => {
+    if (event !== SNAPSHOT_EVENT) return;
+    const active = (payload as DashboardSnapshotDto).activeAlerts ?? [];
+    setBanners(active.filter((a) => a.active).map((a) => ({ id: a.code, severity: toSeverity(a.severity), text: a.text })));
   });
 
   const value = useMemo(

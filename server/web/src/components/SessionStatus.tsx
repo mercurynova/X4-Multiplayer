@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/http';
-import type { ServerInfoDto, SessionDetailDto } from '../generated/generated';
-import { useHubEvent, useHubState } from '../hub/HubProvider';
+import type { DashboardSnapshotDto, ServerInfoDto, SessionSummaryDto } from '../generated/generated';
+import { E, groups, SNAPSHOT_EVENT } from '../hub/contract';
+import { useHubGroup, useHubState } from '../hub/HubProvider';
 
-const REFRESH_MS = 15_000;
+// Pushes keep the header live; this poll is only a slow safety net.
+const FALLBACK_REFRESH_MS = 60_000;
 
 function formatUptime(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -16,12 +18,12 @@ function formatUptime(totalSeconds: number): string {
 /** Server name and current session state for the header. State is text first, colour second. */
 export function SessionStatus() {
   const [server, setServer] = useState<ServerInfoDto | null>(null);
-  const [session, setSession] = useState<SessionDetailDto | null | undefined>(undefined);
+  const [session, setSession] = useState<SessionSummaryDto | null | undefined>(undefined);
   const hubState = useHubState();
 
   const refresh = useCallback(() => {
     api
-      .get<SessionDetailDto | undefined>('/api/v1/sessions/current')
+      .get<SessionSummaryDto | undefined>('/api/v1/sessions/current')
       .then((s) => setSession(s ?? null))
       .catch(() => undefined); // keep the last value; a 401 is handled globally
   }, []);
@@ -35,15 +37,18 @@ export function SessionStatus() {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, REFRESH_MS);
+    const t = setInterval(refresh, FALLBACK_REFRESH_MS);
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Resync right after a (re)connect and on any pushed session change.
+  // One REST fetch after each (re)connect covers anything missed while offline; the dashboard topic then pushes changes.
   useEffect(() => {
     if (hubState === 'connected') refresh();
   }, [hubState, refresh]);
-  useHubEvent('SessionChanged', refresh);
+  useHubGroup(groups.dashboard, (event, payload) => {
+    if (event === E.SessionChanged) setSession(payload as SessionSummaryDto);
+    else if (event === SNAPSHOT_EVENT) setSession((payload as DashboardSnapshotDto).session);
+  });
 
   return (
     <div className="session-status">
@@ -54,7 +59,7 @@ export function SessionStatus() {
         <span>
           <span className="muted">Session</span> &ldquo;{session.name}&rdquo;{' '}
           <span className={`state state-${session.state.toLowerCase()}`}>{session.state.toUpperCase()}</span>{' '}
-          {session.live && <span className="muted">{formatUptime(session.uptimeSeconds)}</span>}
+          {session.uptimeSeconds > 0 && <span className="muted">{formatUptime(session.uptimeSeconds)}</span>}
         </span>
       )}
     </div>

@@ -1,57 +1,22 @@
 /**
- * Hub names from server-design 4.6, kept in ONE place. M1-S3 owns the server hub and generated.ts; when the generated
- * contract exposes these constants, point this module at them and delete the duplicates. Payload types are `unknown`
- * here on purpose: pages cast to the generated DTO they expect (e.g. `DashboardSnapshotDto`).
+ * Hub names and DTOs come from the generated contract (generated.ts, owned by the server build). This module adds only the
+ * client-side group registry (which Subscribe and Unsubscribe pair delivers which pushes). Topics are server-side
+ * subscriptions, not SignalR groups; the HubManager re-issues them after a reconnect. Payloads are `unknown` here: pages cast
+ * to the generated DTO they expect.
  */
+import { AdminHubEvents, AdminHubMethods as M, type AlertDto, type LogFilterDto } from '../generated/generated';
 
-export const HUB_URL = '/hubs/admin';
+export const HUB_URL = M.Route;
+export type { AlertDto };
 
-/** Server -> client method names (IAdminClient). */
-export const HUB_EVENTS = [
-  'Dashboard',
-  'PlayerChanged',
-  'PlayerRemoved',
-  'SessionChanged',
-  'GalaxyFrame',
-  'SectorFrame',
-  'LogBatch',
-  'Diagnostics',
-  'Chat',
-  'SaveTransfer',
-  'Alert',
-  'SettingsChanged',
-  'TeamUpserted',
-  'TeamDeleted',
-  'TeamMemberChanged',
-  'TeamRelationsChanged',
-  'TeamPolicyChanged',
-  'TeamsReset',
-  'PlayerAwaitingTeam',
-  'PermissionDenied',
-  'WalletChanged',
-  'LedgerPosted',
-  'LoanChanged',
-  'TradeChanged',
-  'EconomyEvent',
-  'EconomySummary',
-  'EconomyAlert',
-] as const;
-export type HubEventName = (typeof HUB_EVENTS)[number];
+/** Server -> client method names. */
+export const HUB_EVENTS: readonly string[] = Object.values(AdminHubEvents);
+export type HubEventName = (typeof AdminHubEvents)[keyof typeof AdminHubEvents];
+export const E = AdminHubEvents;
 
 /** Pseudo-events a group handler also receives. */
 export const SNAPSHOT_EVENT = '$snapshot'; // the value returned by the Subscribe* call (dashboard snapshot, backfill, ...)
 export const ERROR_EVENT = '$error'; // the Subscribe* call failed (payload: Error)
-
-/** Shape of the `Alert` push. Not in the generated contract yet (AlertDto); confirm against M1-S3. */
-export interface HubAlert {
-  id?: string;
-  severity: 'info' | 'warning' | 'error' | string;
-  title?: string;
-  message: string;
-  /** Persistent alerts go in the banner slot until dismissed; others are toasts. */
-  persistent?: boolean;
-  code?: string;
-}
 
 /**
  * A subscription to one server-side group. `key` identifies the group for ref-counting; `subscribe`/`unsubscribe` are
@@ -65,61 +30,42 @@ export interface GroupSpec {
   readonly events: readonly string[];
 }
 
-const teamEvents = [
-  'TeamUpserted',
-  'TeamDeleted',
-  'TeamMemberChanged',
-  'TeamRelationsChanged',
-  'TeamPolicyChanged',
-  'TeamsReset',
-  'PlayerAwaitingTeam',
-  'PermissionDenied',
-] as const;
-
 /** Builders for every group. Use as `useHubGroup(groups.dashboard, handler)`. */
 export const groups = {
   dashboard: {
     key: 'dashboard',
-    subscribe: 'SubscribeDashboard',
-    unsubscribe: 'UnsubscribeDashboard',
+    subscribe: M.SubscribeDashboard,
+    unsubscribe: M.UnsubscribeDashboard,
     args: [],
-    events: ['Dashboard', 'PlayerChanged', 'PlayerRemoved', 'SessionChanged', 'SaveTransfer', 'TeamMemberChanged'],
+    events: [E.Dashboard, E.PlayerChanged, E.PlayerRemoved, E.SessionChanged, E.SaveTransfer],
   },
   galaxy: {
     key: 'galaxy',
-    subscribe: 'SubscribeGalaxy',
-    unsubscribe: null, // 4.6 lists no UnsubscribeGalaxy; the group is dropped on disconnect
+    subscribe: M.SubscribeGalaxy,
+    unsubscribe: M.UnsubscribeGalaxy,
     args: [],
-    events: ['GalaxyFrame'],
+    events: [E.GalaxyFrame],
   },
   sector: (sectorId: number): GroupSpec => ({
     key: `sector:${sectorId}`,
-    subscribe: 'SubscribeSector',
-    unsubscribe: 'UnsubscribeSector',
+    subscribe: M.SubscribeSector,
+    unsubscribe: M.UnsubscribeSector,
     args: [sectorId],
-    events: ['SectorFrame'],
+    events: [E.SectorFrame],
   }),
-  logs: (filter: unknown): GroupSpec => ({
+  logs: (filter: LogFilterDto): GroupSpec => ({
     key: `logs:${JSON.stringify(filter)}`,
-    subscribe: 'SubscribeLogs',
-    unsubscribe: 'UnsubscribeLogs',
+    subscribe: M.SubscribeLogs,
+    unsubscribe: M.UnsubscribeLogs,
     args: [filter],
-    events: ['LogBatch'],
+    events: [E.LogBatch],
   }),
   diagnostics: {
     key: 'diag',
-    subscribe: 'SubscribeDiagnostics',
-    unsubscribe: 'UnsubscribeDiagnostics',
+    subscribe: M.SubscribeDiagnostics,
+    unsubscribe: M.UnsubscribeDiagnostics,
     args: [],
-    events: ['Diagnostics'],
+    events: [E.Diagnostics],
   },
-  chat: { key: 'chat', subscribe: 'SubscribeChat', unsubscribe: null, args: [], events: ['Chat'] },
-  teams: { key: 'teams', subscribe: 'SubscribeTeams', unsubscribe: 'UnsubscribeTeams', args: [], events: teamEvents },
-  economy: {
-    key: 'economy',
-    subscribe: 'SubscribeEconomy',
-    unsubscribe: 'UnsubscribeEconomy',
-    args: [],
-    events: ['WalletChanged', 'LedgerPosted', 'LoanChanged', 'TradeChanged', 'EconomyEvent', 'EconomySummary', 'EconomyAlert'],
-  },
+  chat: { key: 'chat', subscribe: M.SubscribeChat, unsubscribe: M.UnsubscribeChat, args: [], events: [E.Chat] },
 } as const satisfies Record<string, GroupSpec | ((...a: never[]) => GroupSpec)>;

@@ -1,5 +1,4 @@
 import { act, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProviders } from './AppProviders';
@@ -67,15 +66,11 @@ describe('frame', () => {
     expect(screen.getByRole('status', { name: 'Live updates: reconnecting' })).toBeInTheDocument();
   });
 
-  it('shows a server alert as a persistent banner and a plain one as a toast', async () => {
+  it('shows an active server alert as a banner and removes it when the server clears it', () => {
     const hub = renderAt('/', true);
-    act(() => {
-      hub.emit('Alert', { severity: 'error', message: 'Authority FPS below 15 for 30 s', persistent: true, id: 'fps' });
-      hub.emit('Alert', { severity: 'info', message: 'Save finished' });
-    });
+    act(() => hub.emit('Alert', { severity: 'error', text: 'Authority FPS below 15 for 30 s', code: 'fps', active: true, at: '' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Authority FPS below 15');
-    expect(screen.getByText('Save finished')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Dismiss alert' }));
+    act(() => hub.emit('Alert', { severity: 'error', text: 'x', code: 'fps', active: false, at: '' }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
