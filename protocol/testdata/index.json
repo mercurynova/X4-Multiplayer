@@ -463,15 +463,15 @@
     {
       "file": "0x0200_EntitySpawn.bin",
       "kind": "frame",
-      "size": 288,
-      "sha256": "2fb937956327bdcc4dfc06efa11f1fec42f3f57e66821a906003063bc52af267",
+      "size": 296,
+      "sha256": "c4db1f45c07873937c06e3e93227f755202a06b6ebec996dab0e5763cd7f79c1",
       "msgType": 512,
       "msgName": "EntitySpawn",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 280,
-      "fields": {"Entities":[{"ControllerPlayer":4,"Hull":200,"Idcode":"ABC-123","Kind":3,"MacroRef":5,"Name":"Ship 1001","NetId":1001,"Origin":1,"OwnerPlayer":3,"OwnerRef":6,"OwnerTeam":2,"ParentNetId":99,"Shield":100,"State":{"Flags":80,"NetId":1001,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}},{"ControllerPlayer":4,"Hull":200,"Idcode":"ABC-123","Kind":3,"MacroRef":5,"Name":"Ship 1002","NetId":1002,"Origin":1,"OwnerPlayer":3,"OwnerRef":6,"OwnerTeam":2,"ParentNetId":99,"Shield":100,"State":{"Flags":80,"NetId":1002,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}}],"JournalSeq":77}
+      "payloadLength": 288,
+      "fields": {"Entities":[{"ControllerPlayer":4,"Hull":200,"Idcode":"ABC-123","Kind":3,"MacroRef":5,"Name":"Ship 1001","NetId":1001,"Origin":1,"OwnerPlayer":3,"OwnerRef":6,"OwnerTeam":2,"ParentNetId":99,"Shield":100,"State":{"Flags":80,"NetId":1001,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}},{"ControllerPlayer":4,"Hull":200,"Idcode":"ABC-123","Kind":3,"MacroRef":5,"Name":"Ship 1002","NetId":1002,"Origin":1,"OwnerPlayer":3,"OwnerRef":6,"OwnerTeam":2,"ParentNetId":99,"Shield":100,"State":{"Flags":80,"NetId":1002,"Pitch":-8192,"Px":64000,"Py":-128,"Pz":1000000,"Roll":100,"Sector":12,"Vx":40,"Vy":-40,"Vz":7,"Yaw":16384}}],"GameTime":3600.25,"JournalSeq":77}
     },
     {
       "file": "0x0201_EntityDespawn.bin",

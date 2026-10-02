@@ -275,7 +275,7 @@ public static class SampleMessages
         }),
 
         // ---- world ----
-        S(new EntitySpawnT { JournalSeq = 77, Entities = [Record(1001), Record(1002)] }),
+        S(new EntitySpawnT { JournalSeq = 77, GameTime = 3600.25, Entities = [Record(1001), Record(1002)] }),
         S(new EntityDespawnT { JournalSeq = 78, Entries = [new DespawnEntryT { NetId = 1001, KillerNetId = 1002, Reason = DespawnReason.Destroyed }] }),
         S(new WorldUpdateT { AuthorityTick = 123456, CaptureTimeUs = 9_876_543_210, GameTime = 3600.25, States = [State(1001), State(1002)] }),
         S(new EntityStatusBatchT { CaptureTimeUs = 9_876_543_210, Statuses = [new EntityStatusT { NetId = 1001, Hull = 128, Shield = 64, StatusFlags = 3 }] }),

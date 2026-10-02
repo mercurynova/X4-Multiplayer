@@ -232,8 +232,13 @@ internal sealed partial class StartupBanner(
             var addresses = services.GetService<Microsoft.AspNetCore.Hosting.Server.IServer>()
                 ?.Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses
                 ?? [];
-            var urls = string.Join(", ", addresses);
+            var net = services.GetService<X4MP.Core.Net.NetOptions>();
+            var urls = string.Join(", ", GuiUrls.Filter(addresses, net));
             LogStarted(info.Version, info.BuildHash, dataDir.Path, urls);
+            if (net is { Enabled: true })
+            {
+                LogNodeEndpoints(net.NodeTcpEndpoint, net.UdpPort > 0 ? net.UdpPort.ToString(System.Globalization.CultureInfo.InvariantCulture) : "off");
+            }
         });
         lifetime.ApplicationStopped.Register(() => LogStopped());
         return Task.CompletedTask;
@@ -244,6 +249,35 @@ internal sealed partial class StartupBanner(
     [LoggerMessage(Level = LogLevel.Information, Message = "x4mp-server {Version} ({Build}) data dir {DataDir}; GUI at {Urls}. Traffic is plain HTTP: use a trusted network or VPN.")]
     private partial void LogStarted(string version, string build, string dataDir, string urls);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Nodes (game clients) connect to tcp {TcpEndpoint}, UDP realtime port {UdpPort}")]
+    private partial void LogNodeEndpoints(string tcpEndpoint, string udpPort);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "shutdown complete")]
     private partial void LogStopped();
+}
+
+/// <summary>The HTTP (GUI / REST) addresses of the host: Kestrel also reports the node TCP listener, which is not a GUI URL.</summary>
+public static class GuiUrls
+{
+    public static IReadOnlyList<string> Filter(IEnumerable<string> addresses, X4MP.Core.Net.NetOptions? net)
+    {
+        int nodePort = -1;
+        if (net is { Enabled: true } && IPEndPoint.TryParse(net.NodeTcpEndpoint, out var endpoint))
+        {
+            nodePort = endpoint.Port;
+        }
+
+        var result = new List<string>();
+        foreach (var address in addresses)
+        {
+            if (nodePort > 0 && Uri.TryCreate(address.Replace("[::]", "localhost", StringComparison.Ordinal).Replace("0.0.0.0", "localhost", StringComparison.Ordinal), UriKind.Absolute, out var uri) && uri.Port == nodePort)
+            {
+                continue;
+            }
+
+            result.Add(address);
+        }
+
+        return result;
+    }
 }

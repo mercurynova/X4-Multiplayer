@@ -120,6 +120,44 @@ public sealed class WorldMirrorTests
     }
 
     [Fact]
+    public void ASpawnCarriesItsOwnGameTimeAndFallsBackToTheLatestWorldUpdateWhenZero()
+    {
+        var mirror = new WorldMirror();
+        mirror.IngestWorldUpdate(UpdatePayload(10, 500.0, []));
+        mirror.ApplySpawn(Decode<EntitySpawn>(MsgType.EntitySpawn, SpawnPayloadAt(480.5, Rec(1, EntityKind.ShipL, 9))));
+        mirror.ApplySpawn(Decode<EntitySpawn>(MsgType.EntitySpawn, SpawnPayloadAt(0, Rec(2, EntityKind.ShipL, 9))));
+        Assert.True(mirror.TryGet(1, out var withTime));
+        Assert.True(mirror.TryGet(2, out var legacy));
+        Assert.Equal(480.5, withTime.SampleGameTime); // not the (newer, unrelated) clock of the last update
+        Assert.Equal(500.0, legacy.SampleGameTime); // an old sender: as fresh as the latest world update
+    }
+
+    [Fact]
+    public void AReorderedOlderWorldUpdateCannotRollTheClockBack()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(7, EntityKind.ShipL, 9));
+        mirror.IngestWorldUpdate(UpdatePayload(100, 50.0, [State(7, 9, 1000)]));
+        var late = mirror.IngestWorldUpdate(UpdatePayload(90, 45.0, [State(7, 9, 5)]));
+        Assert.Equal(0, late.Applied);
+        Assert.False(late.Malformed);
+        Assert.Equal(1, mirror.StaleWorldUpdates);
+        Assert.Equal(100u, mirror.AuthorityTick);
+        Assert.Equal(50.0, mirror.AuthorityGameTime);
+        Assert.True(mirror.TryGet(7, out var e));
+        Assert.Equal(1000, e.Px);
+        // equal and newer ones still apply
+        Assert.Equal(1, mirror.IngestWorldUpdate(UpdatePayload(100, 50.0, [State(7, 9, 1001)])).Applied);
+        Assert.Equal(1, mirror.IngestWorldUpdate(UpdatePayload(101, 50.5, [State(7, 9, 1002)])).Applied);
+        // a reloaded save (lower game time, tick continuing) is not a late datagram
+        Assert.Equal(1, mirror.IngestWorldUpdate(UpdatePayload(102, 10.0, [State(7, 9, 1003)])).Applied);
+        // a reattached authority restarts its sequence
+        mirror.ResetClockGuard();
+        Assert.Equal(1, mirror.IngestWorldUpdate(UpdatePayload(1, 1.0, [State(7, 9, 1004)])).Applied);
+        Assert.Equal(1u, mirror.AuthorityTick);
+    }
+
+    [Fact]
     public void SectorChangeMovesTheEntityBetweenSectorIndexesAndNotifiesObservers()
     {
         var mirror = new WorldMirror();

@@ -7,11 +7,14 @@ namespace X4MP.Server.Hosting;
 /// <summary>Static facts about this build plus the process uptime clock.</summary>
 public sealed class ServerInfo
 {
-    /// <summary>Lowest wire major accepted (peers with another major are rejected, so min == max).</summary>
-    public const int ProtocolMin = ProtocolConstants.ProtocolMajor;
+    /// <summary>
+    /// Lowest wire version accepted, as <c>major * 1000 + minor</c>. Peers with another major are rejected and the minor is negotiated down
+    /// per session, so any minor of the one supported major is accepted: min is <c>major.0</c>.
+    /// </summary>
+    public const int ProtocolMin = (ProtocolConstants.ProtocolMajor * 1000) + 0;
 
-    /// <summary>Highest wire major accepted; the minor (<see cref="ProtocolConstants.ProtocolMinor"/>) is negotiated down per session.</summary>
-    public const int ProtocolMax = ProtocolConstants.ProtocolMajor;
+    /// <summary>Highest wire version spoken: <c>major * 1000 + minor</c> (0.1 = 1).</summary>
+    public const int ProtocolMax = (ProtocolConstants.ProtocolMajor * 1000) + ProtocolConstants.ProtocolMinor;
 
     private readonly long _startedAt = Stopwatch.GetTimestamp();
 

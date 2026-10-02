@@ -49,7 +49,7 @@ internal static class SessionEndpoints
             }
         }
 
-        var urls = addresses.ToList();
+        var urls = GuiUrls.Filter(addresses, net).ToList();
         var dto = new ServerInfoDto(
             net.ServerName, info.Version, new ProtocolRangeDto(ServerInfo.ProtocolMin, ServerInfo.ProtocolMax), info.BuildHash,
             DateTimeOffset.UtcNow - info.Uptime, (long)info.Uptime.TotalSeconds, endpoints, urls,
