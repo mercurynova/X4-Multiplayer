@@ -398,6 +398,14 @@ Open: `ApplyPresetAsync` does not yet guard the authority's membership while Run
 - FakeNode: `--commander shared|own|foreign` (clients send 2 AssetOrders/s) and `--team-assets` (authority tags ships: id%4 = 1 team 1 common, 2 team 1 teammate-owned, 3 team 2). Summary line `commander(...)`: orders-sent, accepted, rejected, forwarded-to-authority.
 - Follow-up: the `TradeReport` station check ignores trade-asset items (M1-E5); the leader for `OwnerAndLeader` comes from `TeamModule.LeaderOf` (not on `ITeamDirectory`).
 
+## M1-T5 implementation notes (Teams REST, hub, page)
+
+- REST under `/api/v1/teams` (flat, current session; server-design 4.4 has `/sessions/{sid}/...`): `GET ""` (whole `TeamsStateDto`), `POST ""`, `GET|PATCH|DELETE /{id}` (`?moveMembersTo=`), `GET /unassigned`, `PUT /members/{playerId}` (`teamId` null = Unassigned), `PUT /members` (bulk), `GET|PUT /relations`, `PUT /relations/{a}/{b}`, `GET /preset/{preset}/preview`, `POST /preset` (`confirm`), `GET|PATCH /policy`. All audited as `teams.*` (a lobby password is never logged: only `password: set`). Authority move while Running (assign, unassign, delete, bulk, preset that would move it) answers 409 `SessionRunningRestricted`; a preset that changes a Running session answers 409 `ConfirmationRequired` with the preview until `confirm: true`.
+- Hub topic `Teams` (`SubscribeTeams` returns `TeamsStateDto`, `UnsubscribeTeams`). The module's `Changed` event only marks the topic dirty; 40 ms later the broadcaster builds the state once on the actor, diffs it with the last one sent (`TeamsDiff`) and pushes `TeamUpserted`, `TeamDeleted`, `TeamMemberChanged`, `PlayerAwaitingTeam`, `TeamRelationsChanged`, `TeamPolicyChanged`, or one `TeamsReset` when a player vanished. Roster events (join, leave, detach) and `Teams.*` setting changes also mark it dirty. Nothing is built without subscribers (`PayloadsByKind["teams"]`).
+- `PlayerDto`/`PlayerLiveDto` carry `teamId`/`teamName`; the Players page has a Team column.
+- Deviations: no per-request `moveAssets` (the `MoveAssetsWithPlayer` setting decides); no `AssetCount`/wallets in `TeamsStateDto` (the Economy page owns pools); `DELETE` does not require `moveMembersTo` (members become unassigned).
+- The preset player set is every member plus every node in the session (detached ones too), so a long-running session full of old bots can exceed 8 players (`NoFactionSlot`); the Playwright spec kicks and unassigns stale bots first.
+
 ## M1-F3 implementation notes (FakeNode teams)
 
 - CLI: `--team <id|name>`, `--team-pick lobby-random`, `--teams N`, `--relations coop|allied|ffa|twoteams` (swarm; implies `--teams`, prints the server `Teams.*` settings it needs). Details in `tools/X4MP.FakeNode/README.md` ("Teams").
