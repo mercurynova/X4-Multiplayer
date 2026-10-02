@@ -10,4 +10,9 @@ export default tseslint.config(
     extends: [js.configs.recommended, ...tseslint.configs.recommended, reactHooks.configs.flat.recommended],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
   },
+  {
+    // Playwright fixtures are called `use(...)` and take an empty destructuring; neither is a React hook.
+    files: ['e2e/**/*.ts'],
+    rules: { 'react-hooks/rules-of-hooks': 'off', 'no-empty-pattern': 'off' },
+  },
 );
