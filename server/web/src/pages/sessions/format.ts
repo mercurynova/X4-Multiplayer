@@ -27,3 +27,9 @@ export function formatDateTime(iso: string | null | undefined): string {
 export function percent(done: number, total: number): number {
   return total <= 0 ? 0 : Math.min(100, Math.floor((done / total) * 100));
 }
+
+/** The game's save time is epoch seconds as text; fall back to the upload time when it is missing or not a number. */
+export function formatSaveTime(saveTime: string | null, uploadedAt: string): string {
+  const n = saveTime && /^\d{9,11}$/.test(saveTime) ? Number(saveTime) : NaN;
+  return Number.isNaN(n) ? formatDateTime(uploadedAt) : new Date(n * 1000).toLocaleString();
+}

@@ -1,4 +1,5 @@
 // @vitest-environment node
+/// <reference types="node" />
 /**
  * Live check against a real server (skipped unless X4MP_LIVE_URL is set). Uses the very same `uploadSave` module as the page:
  * uploads a big file, is interrupted midway, "reloads" (fresh call, only the remembered key survives) and resumes, then
@@ -27,7 +28,7 @@ class MemStore implements KeyValueStore {
 function hashFile(path: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const h = createHash('sha256');
-    createReadStream(path).on('data', (c) => h.update(c)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
+    createReadStream(path).on('data', (c: Buffer) => h.update(c)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
   });
 }
 
@@ -78,6 +79,7 @@ describe.skipIf(!base)('live resumable upload', () => {
       const make = async () => new File([await openAsBlob(filePath)], 'live-save.xml.gz', { lastModified: 4242 });
       const store = new MemStore();
       const expectedSha = await hashFile(filePath);
+      await call(`/api/v1/saves/${expectedSha}`, { method: 'DELETE' }); // start clean (404 when absent)
 
       // Life 1: pause once about half is stored.
       const ctl = new AbortController();
@@ -111,10 +113,14 @@ describe.skipIf(!base)('live resumable upload', () => {
       const onDisk = join(dataDir, 'saves', `${expectedSha}.xml.gz`);
       expect(existsSync(onDisk)).toBe(true);
       expect(await hashFile(onDisk)).toBe(expectedSha);
-      const listRes = await call('/api/v1/saves');
-      const list = (await listRes.json()) as SaveDto[];
-      console.log('list', listRes.status, JSON.stringify(list).slice(0, 300));
-      expect(list.find((s) => s.sha256 === expectedSha)?.sizeBytes).toBe(size);
+      // The catalog is write-behind on the server: poll the list until the new save shows up.
+      let found: SaveDto | undefined;
+      for (let i = 0; i < 20 && !found; i++) {
+        const list = (await (await call('/api/v1/saves')).json()) as SaveDto[];
+        found = list.find((x) => x.sha256 === expectedSha);
+        if (!found) await new Promise((r) => setTimeout(r, 250));
+      }
+      expect(found?.sizeBytes).toBe(size);
     } finally {
       globalThis.fetch = realFetch;
     }

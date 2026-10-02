@@ -39,6 +39,20 @@ function CurrentSession({
   const [finalSave, setFinalSave] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  // The server sends the uptime with each state push; between pushes it ticks here.
+  const [uptime, setUptime] = useState(session?.uptimeSeconds ?? 0);
+  useEffect(() => {
+    if (!session) return;
+    const base = session.uptimeSeconds;
+    const t0 = Date.now();
+    const running = session.startedAt !== null && session.state !== 'Ended';
+    const tick = () => setUptime(running ? base + (Date.now() - t0) / 1000 : base);
+    tick();
+    if (!running) return;
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [session]);
+
   if (!session) {
     return (
       <section aria-labelledby="current-h">
@@ -77,7 +91,7 @@ function CurrentSession({
           <span className={`state state-${session.state.toLowerCase()}`}>{session.state.toUpperCase()}</span>
         </dd>
         <dt>Uptime</dt>
-        <dd>{session.startedAt ? formatDuration(session.uptimeSeconds) : '-'}</dd>
+        <dd>{session.startedAt ? formatDuration(uptime) : '-'}</dd>
         <dt>Authority</dt>
         <dd>{session.authority ? `${session.authority.name ?? `player ${session.authority.playerId}`} (${session.authority.status})` : 'none yet'}</dd>
         <dt>Players</dt>
@@ -313,12 +327,39 @@ export function SessionsPage() {
   const [transfers, setTransfers] = useState<TransferProgressDto[]>([]);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
 
+  // The server's save catalog is write-behind: a list right after an upload or delete can still show the old state. The page
+  // therefore remembers what it just added/removed and applies that on top of the list until the server agrees.
+  const [localAdds, setLocalAdds] = useState<SaveDto[]>([]);
+  const [localRemoves, setLocalRemoves] = useState<string[]>([]);
+
   const refresh = useCallback(() => {
     const fail = (e: unknown) => toast('error', problemToFormErrors(e).form);
     api.get<SessionDetailDto | undefined>('/api/v1/sessions/current').then((s) => setCurrent(s ?? null)).catch(fail);
     api.get<SessionSummaryDto[]>('/api/v1/sessions?limit=50').then(setHistory).catch(fail);
-    api.get<SaveDto[]>('/api/v1/saves').then(setSaves).catch(fail);
+    api
+      .get<SaveDto[]>('/api/v1/saves')
+      .then((list) => {
+        setSaves(list);
+        const shas = new Set(list.map((s) => s.sha256));
+        setLocalAdds((a) => (a.some((x) => shas.has(x.sha256)) ? a.filter((x) => !shas.has(x.sha256)) : a));
+        setLocalRemoves((r) => (r.some((x) => !shas.has(x)) ? r.filter((x) => shas.has(x)) : r));
+      })
+      .catch(fail);
   }, [toast]);
+
+  /** Refresh now and once more shortly after, for the write-behind lag. */
+  const refreshSoon = useCallback(() => {
+    refresh();
+    const timer = setTimeout(() => {
+      timers.current.delete(timer);
+      refresh();
+    }, 1500);
+    timers.current.add(timer);
+  }, [refresh]);
+
+  const shownSaves = [...localAdds.filter((a) => !saves.some((s) => s.sha256 === a.sha256)), ...saves].filter(
+    (s) => !localRemoves.includes(s.sha256),
+  );
 
   useEffect(() => {
     refresh();
@@ -351,9 +392,17 @@ export function SessionsPage() {
       <h1>Sessions &amp; Saves</h1>
       {current === undefined ? <p className="muted">Loading...</p> : <CurrentSession session={current} isAdmin={isAdmin} onChanged={refresh} />}
       {isAdmin && (
-        <NewSession saves={saves} selectedSha={selectedSha} onSelect={setSelectedSha} canCreate={canCreate} onChanged={refresh} />
+        <NewSession saves={shownSaves} selectedSha={selectedSha} onSelect={setSelectedSha} canCreate={canCreate} onChanged={refresh} />
       )}
-      <SavesLibrary saves={saves} isAdmin={isAdmin} selectedSha={selectedSha} onSelect={setSelectedSha} onChanged={refresh} />
+      <SavesLibrary
+        saves={shownSaves}
+        isAdmin={isAdmin}
+        selectedSha={selectedSha}
+        onSelect={setSelectedSha}
+        onChanged={refreshSoon}
+        onUploaded={(s) => setLocalAdds((a) => [...a.filter((x) => x.sha256 !== s.sha256), s])}
+        onDeleted={(sha) => setLocalRemoves((r) => [...r, sha])}
+      />
       <Transfers transfers={transfers} />
       <History sessions={history} />
     </section>
