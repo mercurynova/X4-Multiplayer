@@ -138,7 +138,8 @@ jobs:
         run: tools/flatc/fetch-flatc.ps1
       - run: dotnet restore --locked-mode
       - run: dotnet build -c Release --no-restore -warnaserror -p:SkipWebBuild=true
-      - run: dotnet test -c Release --no-build -p:SkipWebBuild=true --logger "trx;LogFileName=results.trx" --results-directory TestResults
+      # Wall-clock / load-sensitive tests are [Trait("Category","Perf")]: excluded here, run by nightly.yml.
+      - run: dotnet test -c Release --no-build -p:SkipWebBuild=true --filter "Category!=Perf" --logger "trx;LogFileName=results.trx" --results-directory TestResults
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using X4MP.Core.Interest;
@@ -475,10 +476,13 @@ public sealed partial class ReplicationModule : ISessionModule, ISessionActorBou
         EnsureTimer();
         _serverTick++;
         Stats.Ticks++;
+        long started = Stopwatch.GetTimestamp();
         foreach (var client in _clients.Values)
         {
             TickClient(client, timestamp, opt);
         }
+
+        ServerMetrics.RecordTick(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 
     /// <summary>The actor's own tick (every 250 ms by default): housekeeping only; frames are sent by the module's timer.</summary>

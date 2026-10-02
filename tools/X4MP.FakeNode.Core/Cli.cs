@@ -75,6 +75,9 @@ public sealed record CliOptions
     public double LossPercent { get; init; }
     public int Sectors { get; init; } = 152;
     public int Ships { get; init; } = 10225;
+
+    /// <summary>Per-sector ship cap of the fake galaxy (default 800); raise it with <c>--ships</c> for load tests that need a denser world.</summary>
+    public int MaxShipsPerSector { get; init; } = 800;
     public int TickRate { get; init; } = 20;
     public int Fps { get; init; } = 60;
     public ushort? Sector { get; init; }
@@ -222,6 +225,7 @@ public static class CliParser
           --udp                use the UDP realtime lane (binds with UdpHello; falls back to TCP after 3 s)
           --loss PCT           with --udp: drop PCT percent of the UDP datagrams in each direction (failure injection)
           --sectors N --ships N --tick HZ --fps N   universe / authority shape
+          --max-ships-per-sector N   per-sector ship cap of the fake galaxy (default 800)
           --sector ID          (unused; kept for old scripts)
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
           --with-authority     swarm: also connect one authority node
@@ -355,6 +359,8 @@ public static class CliParser
                 return PositiveInt(o, key, value, v => v < 2 ? null : o with { Sectors = v });
             case "ships":
                 return PositiveInt(o, key, value, v => o with { Ships = v });
+            case "max-ships-per-sector":
+                return PositiveInt(o, key, value, v => o with { MaxShipsPerSector = v });
             case "tick":
                 return PositiveInt(o, key, value, v => o with { TickRate = v });
             case "fps":

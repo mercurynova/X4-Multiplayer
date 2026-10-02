@@ -1,0 +1,101 @@
+# Nightly load + perf job (M1-C2, server-design 2.12 / 7.1). Not part of PR CI: it takes ~15 minutes and its
+# numbers depend on the runner. It publishes the real server exe, runs a FakeNode swarm (1 authority + 16 clients,
+# ~20k entities) against it, writes a JSON + markdown report and FAILS when a budget in
+# server/tests/X4MP.LoadTests/budgets.json is exceeded. It also runs the wall-clock tests excluded from CI
+# (xUnit trait Category=Perf).
+name: Nightly load
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Swarm run time in seconds (20..600; the server keeps 600 samples)"
+        default: "540"
+      windows:
+        description: "Also run on windows-latest (bills 2x)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+jobs:
+  load:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.windows && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      RID: ${{ startsWith(matrix.os, 'windows') && 'win-x64' || 'linux-x64' }}
+      EXE: ${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
+      DURATION: ${{ inputs.duration || '540' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Fetch flatc (Linux)
+        if: runner.os == 'Linux'
+        run: bash tools/flatc/fetch-flatc.sh
+      - name: Fetch flatc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/flatc/fetch-flatc.ps1
+      - run: dotnet restore --locked-mode
+      - name: Publish the server (single-file, as shipped), FakeNode and the harness
+        run: |
+          dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=$RID -p:SkipWebBuild=true
+          dotnet publish tools/X4MP.FakeNode -c Release -o out/fakenode
+          dotnet publish server/tests/X4MP.LoadTests -c Release -o out/loadtests
+      - name: Load test (1 authority + 16 clients, ~20k entities)
+        run: |
+          dotnet out/loadtests/X4MP.LoadTests.dll run \
+            --server-exe "out/$RID/x4mp-server$EXE" \
+            --fakenode-exe "out/fakenode/X4MP.FakeNode$EXE" \
+            --budgets server/tests/X4MP.LoadTests/budgets.json \
+            --duration "$DURATION" --warmup 60 \
+            --out load-report
+      - name: Report in the job summary
+        if: always()
+        run: |
+          if [ -f load-report/report.md ]; then cat load-report/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      # Wall-clock tests excluded from PR CI (Category=Perf). Run after the load test so they do not compete with it.
+      - name: Perf tests
+        if: always()
+        run: |
+          dotnet build server/tests/X4MP.Server.Tests -c Release --no-restore -p:SkipWebBuild=true
+          dotnet test server/tests/X4MP.Server.Tests -c Release --no-build -p:SkipWebBuild=true --filter "Category=Perf" \
+            --logger "trx;LogFileName=perf.trx" --results-directory TestResults
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-report-${{ matrix.os }}
+          path: |
+            load-report
+            TestResults
+          if-no-files-found: ignore
+          retention-days: 30

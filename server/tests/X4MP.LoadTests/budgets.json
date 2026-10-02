@@ -1,0 +1,14 @@
+{
+  "_comment": "M1-C2 load budgets (server-design 2.12). Key = <metric name in the report's 'metrics' map> + Max (value must be <=) or Min (value must be >=). Override one for a run with --budget key=value.",
+  "tickP99MsMax": 15,
+  "cpuPercentP95Max": 100,
+  "workingSetMbMax": 500,
+  "droppedFramesMax": 0,
+  "bytesOutPerNodePerSecondMax": 200000,
+  "sendQueueBytesMax": 1000000,
+  "verifyErrorsMax": 0,
+  "fakeNodeErrorsMax": 0,
+  "swarmExitCodeMax": 0,
+  "nodesJoinedMin": 17,
+  "entitiesInMirrorMin": 15000
+}
