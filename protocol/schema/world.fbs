@@ -29,9 +29,12 @@ table EntityRecord {
 
 /// Control lane. A->S (authority truth), S->N (filtered by interest).
 /// journal_seq: stamped by the server on forwarded copies of persistent-entity mutations; 0 otherwise.
+/// game_time: the authority's game time at which the entities' states were sampled (0 = unknown; old senders ->
+/// the server falls back to the latest WorldUpdate's time). Appended M1-FIXK.
 table EntitySpawn {
   journal_seq:ulong;
   entities:[EntityRecord];
+  game_time:double;
 }
 
 /// Control lane. A->S, S->N.

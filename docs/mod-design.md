@@ -555,6 +555,14 @@ wrong.
   is **reliable** and is sent the first time an entity is tracked in an interest
   sector. The server caches the latest spawn and state for each entity, so it
   can bring a newly joining client up to date without asking the authority.
+  **The authority must fill `EntitySpawn.game_time`** with the game time at which the
+  records' states were sampled (`getelapsedtime`-style game clock, the same clock as
+  `WorldUpdate.game_time`). The server stamps the entities with it, so a spawn that
+  overtakes or trails a `WorldUpdate` over UDP/TCP no longer gets a stale stamp and
+  no ordered lane is needed. 0 means "unknown" (the server falls back to the latest
+  `WorldUpdate`). The server also drops a `WorldUpdate` older than the latest one
+  ingested (tick and game time both lower), so a reordered datagram never rolls the
+  clock back; a reconnecting authority resets that guard.
 - `Despawn{netId, reason: destroyed|left_interest|docked_inside|removed}` is
   reliable.
 - `SectorComplete{sector, epoch, count}` is reliable and sent once per sector after the

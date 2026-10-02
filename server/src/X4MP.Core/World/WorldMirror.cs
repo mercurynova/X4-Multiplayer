@@ -101,6 +101,11 @@ public sealed partial class WorldMirror : ISessionModule
 
     public uint AuthorityTick { get; private set; }
 
+    private bool _clockGuardArmed;
+
+    /// <summary><c>WorldUpdate</c>s dropped because both their tick and their game time were older than the latest ingested one (UDP reordering).</summary>
+    public long StaleWorldUpdates { get; private set; }
+
     /// <summary>
     /// The <c>capture_time_us</c> of the latest <c>WorldUpdate</c>: the authority's estimate of the server clock at the time
     /// <see cref="AuthorityGameTime"/> was sampled. The pair is the reference of every <c>Replication</c> frame.
@@ -258,6 +263,21 @@ public sealed partial class WorldMirror : ISessionModule
         }
     }
 
+    /// <summary>
+    /// A (re)attached authority starts a new datagram sequence (it may have reloaded a save: tick and game time can restart lower), so the
+    /// stale-update guard of <see cref="IngestWorldUpdate"/> forgets the old clock.
+    /// </summary>
+    public void OnNodeAttached(SessionNode node, bool resumed)
+    {
+        if (node.IsAuthority)
+        {
+            ResetClockGuard();
+        }
+    }
+
+    /// <summary>Lets the next <c>WorldUpdate</c> through whatever its tick and game time (the guard is re-armed by it).</summary>
+    public void ResetClockGuard() => _clockGuardArmed = false;
+
     public void OnNodeLeft(SessionNode node, string reason)
     {
         if (_players.Remove(node.PlayerId))
@@ -284,17 +304,18 @@ public sealed partial class WorldMirror : ISessionModule
     /// <summary>Applies a decoded <c>EntitySpawn</c>.</summary>
     public void ApplySpawn(EntitySpawn message)
     {
+        double gameTime = message.GameTime;
         for (int i = 0; i < message.EntitiesLength; i++)
         {
             if (message.Entities(i) is { } record)
             {
-                ApplyRecord(record);
+                ApplyRecord(record, gameTime);
             }
         }
     }
 
     /// <summary>Adds or refreshes one entity from its full record; returns the mirror entity (null for an invalid net_id).</summary>
-    public MirrorEntity? ApplyRecord(EntityRecord record)
+    public MirrorEntity? ApplyRecord(EntityRecord record, double gameTime = 0)
     {
         uint netId = record.NetId;
         if (netId is 0 or ReplicationCodec.ReservedNetId)
@@ -356,7 +377,8 @@ public sealed partial class WorldMirror : ISessionModule
 
         entity.Version++;
         entity.LastUpdateTick = now;
-        entity.SampleGameTime = AuthorityGameTime; // a spawn state carries no time: it is as fresh as the latest world update
+        // The sender's capture time of the state; 0 (an old sender) falls back to the latest world update: as fresh as that.
+        entity.SampleGameTime = gameTime > 0 ? gameTime : AuthorityGameTime;
         if (entity.IsPersistent)
         {
             _persistentCount++;
@@ -593,9 +615,19 @@ public sealed partial class WorldMirror : ISessionModule
             return new IngestResult(0, 0, 0, true);
         }
 
-        AuthorityTick = table.GetUInt32(0);
-        AuthorityCaptureTimeUs = table.GetUInt64(1);
+        uint tick = table.GetUInt32(0);
         double gameTime = table.GetDouble(2);
+        // A reordered datagram must not roll the clock back. Stale = older in BOTH tick (wrap-safe) and game time, so a reloaded save
+        // (lower game time, tick continuing) is not mistaken for a late datagram; a reattached authority resets the guard.
+        if (_clockGuardArmed && unchecked((int)(tick - AuthorityTick)) < 0 && gameTime < AuthorityGameTime)
+        {
+            StaleWorldUpdates++;
+            return new IngestResult(0, 0, 0, false);
+        }
+
+        _clockGuardArmed = true;
+        AuthorityTick = tick;
+        AuthorityCaptureTimeUs = table.GetUInt64(1);
         AuthorityGameTime = gameTime;
         HasWorldUpdate = true;
         long now = _time.GetTimestamp();
@@ -854,6 +886,7 @@ public sealed partial class WorldMirror : ISessionModule
         _summary.Clear();
         _persistentCount = _transientCount = 0;
         HasWorldUpdate = false;
+        _clockGuardArmed = false;
         Strings.Clear();
         Journal.Clear();
         Galaxy.Reset();

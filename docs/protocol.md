@@ -1288,7 +1288,7 @@ carries `request_key` (idempotency), which is not repeated below.
 
 | ID | Message | Dir | Lane | Key fields |
 |---|---|---|---|---|
-| 0x0200 | EntitySpawn | A→S, S→N | Ctl | journal_seq, entities[EntityRecord: net_id, kind, origin, macro_ref, owner_ref, **owner_team, owner_player**, parent_net_id, controller_player, name, idcode, hull, shield, state] |
+| 0x0200 | EntitySpawn | A→S, S→N | Ctl | journal_seq, **game_time** (double, appended M1-FIXK: authority game time the states were sampled at; 0 = unknown, server falls back to the latest WorldUpdate), entities[EntityRecord: net_id, kind, origin, macro_ref, owner_ref, **owner_team, owner_player**, parent_net_id, controller_player, name, idcode, hull, shield, state] |
 | 0x0201 | EntityDespawn | A→S, S→N | Ctl | journal_seq, entries[net_id, killer_net_id, reason] |
 | 0x0202 | WorldUpdate | A→S | RT | authority_tick, capture_time_us, game_time, states[EntityState 32 B, derived vel] |
 | 0x0203 | EntityStatusBatch | A→S | RT | capture_time_us, statuses[net_id, hull, shield, flags] |
