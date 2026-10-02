@@ -23,7 +23,7 @@ public sealed class SqliteNodeStoreTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         try
         {
             Directory.Delete(_dir, recursive: true);
@@ -92,7 +92,7 @@ public sealed class SqliteNodeStoreTests : IDisposable
     {
         var key = Key();
         int id = (await _store.BindAsync("Alice", key, null, Now, default)).PlayerId;
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
 
         var restarted = new SqliteNodeStore(new SqliteConnectionFactory(new PersistenceOptions { DataDir = _dir }));
         Assert.Equal(id, (await restarted.BindAsync("Alice", key, null, Now, default)).PlayerId);

@@ -28,6 +28,17 @@ public sealed class SqliteConnectionFactory
 
     public string DatabasePath { get; }
 
+    /// <summary>
+    /// Drops the pooled connections of one data directory's database (so its files can be deleted) without touching the pools of any
+    /// other database in the process, which <c>SqliteConnection.ClearAllPools()</c> would: parallel tests then lose live connections.
+    /// </summary>
+    public static void ClearPool(string dataDir)
+    {
+        var factory = new SqliteConnectionFactory(new PersistenceOptions { DataDir = dataDir });
+        using var connection = new SqliteConnection(factory._connectionString);
+        SqliteConnection.ClearPool(connection);
+    }
+
     /// <summary>Opens a connection and applies the pragmas. The caller disposes it.</summary>
     public SqliteConnection Open()
     {

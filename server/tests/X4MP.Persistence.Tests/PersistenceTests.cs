@@ -16,7 +16,7 @@ public sealed class PersistenceTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         try
         {
             Directory.Delete(_dir, recursive: true);

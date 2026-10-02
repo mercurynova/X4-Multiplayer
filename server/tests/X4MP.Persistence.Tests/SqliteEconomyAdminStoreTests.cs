@@ -22,7 +22,7 @@ public sealed class SqliteEconomyAdminStoreTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         try
         {
             Directory.Delete(_dir, recursive: true);
@@ -68,7 +68,7 @@ public sealed class SqliteEconomyAdminStoreTests : IDisposable
         Assert.Equal(reversal.TxId, ledger.FindTransaction(original.TxId!)!.ReversedBy);
         Assert.Equal(original.TxId, ledger.FindTransaction(reversal.TxId!)!.Reverses);
 
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         using var reopened = new SqliteEconomyStore(_factory, fullSync: false);
         Assert.Equal(reversal.TxId, reopened.GetTransaction(Session, original.TxId!)!.ReversedBy);
     }
