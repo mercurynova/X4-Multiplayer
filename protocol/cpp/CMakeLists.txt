@@ -86,7 +86,7 @@ add_dependencies(x4mp_proto x4mp_proto_generate)
 # ---------------------------------------------------------------------------------------------
 add_library(x4mp_wire STATIC src/registry.cpp)
 add_library(x4mp::wire ALIAS x4mp_wire)
-target_sources(x4mp_wire PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/x4mp/wire.h include/x4mp/registry.h)
+target_sources(x4mp_wire PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/x4mp/wire.h include/x4mp/registry.h include/x4mp/mod_policy_constants.h)
 target_compile_features(x4mp_wire PUBLIC cxx_std_23)
 target_link_libraries(x4mp_wire PUBLIC x4mp::proto)
 set_target_properties(x4mp_wire PROPERTIES CXX_EXTENSIONS OFF)
@@ -124,10 +124,12 @@ if(X4MP_PROTOCOL_BUILD_TESTS)
     tests/field_dump.cpp
     tests/test_golden.cpp
     tests/test_wire.cpp
+    tests/test_mod_policy.cpp
     "${X4MP_BFBS}")
   target_link_libraries(x4mp_protocol_tests PRIVATE x4mp::wire Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
   target_compile_definitions(x4mp_protocol_tests PRIVATE
     X4MP_TESTDATA_DIR="${X4MP_TESTDATA_DIR}"
+    X4MP_CONSTANTS_DIR="${X4MP_REPO_ROOT}/protocol/constants"
     X4MP_BFBS_PATH="${X4MP_BFBS}")
   x4mp_set_warnings(x4mp_protocol_tests)
   catch_discover_tests(x4mp_protocol_tests WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTIES TIMEOUT 60)

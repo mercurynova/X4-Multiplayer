@@ -187,3 +187,31 @@ enum DisconnectCode : ushort {
   AuthorityRevoked = 53,
   InternalError = 90
 }
+
+// ---------------- mod reports (docs/mod-management.md 3.1) ----------------
+
+enum ExtensionSource : ubyte { Dlc = 0, Install, User, Workshop }
+enum ExtensionClass : ubyte { Unknown = 0, Dlc, Sim, ClientOnly }
+enum HashKind : ubyte { None = 0, CatIndex, Files }
+
+table ExtensionDependency { id:string; optional:bool; }
+
+/// One extension the node has, enabled or not (ClientHello.extension_list).
+table ExtensionInfo {
+  id:string;                     // content.xml id ("ego_dlc_split", "ws_2042901274")
+  name:string;
+  version:string;                // as shown in game
+  source:ExtensionSource;
+  enabled:bool;                  // the state THIS run, not pending changes
+  egosoft:bool;
+  workshop_id:ulong;             // ws_<n> -> n, else 0
+  content_hash:[ubyte];          // SHA-256, empty if not computed
+  hash_kind:HashKind;
+  has_native_dll:bool;
+  replaces_basegame:bool;
+  save_dependent:bool;           // content.xml save="1"
+  class_hint:ExtensionClass;     // native heuristic
+  error:string;
+  warning:string;
+  dependencies:[ExtensionDependency];
+}

@@ -182,6 +182,7 @@ public static class MessagePolicy
             (MsgType.StringTableAdd, A, Post),
             (MsgType.GalaxySummary, A, Post),
             (MsgType.ServerSettingsUpdate, None, PolicyPhase.None),
+            (MsgType.ModPolicyChanged, None, PolicyPhase.None),
 
             // World (0x02xx)
             (MsgType.EntitySpawn, A, Post),

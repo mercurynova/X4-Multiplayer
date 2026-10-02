@@ -1,6 +1,7 @@
 // X4MP wire protocol -- connection control: handshake, heartbeat, disconnect.
 include "common.fbs";
 include "teams.fbs";      // TeamTable, TeamRelations, SessionSettings
+include "mods.fbs";       // ModPolicyViolation
 
 namespace X4MP.Proto;
 
@@ -21,6 +22,7 @@ table ServerHello {
   supported_game_builds:[string];// builds this server accepts (pinned: "900-611726"); client must also equal required_game_build
   required_mod_version:string;   // empty = server does not pin
   extensions_hash:[ubyte];       // authority's extension-set hash; empty if no authority yet
+  mod_policy_version:uint;       // current session mod-policy version (0 = none yet); lets a launcher-started node check its sync
 }
 
 table SaveRef { sha256:[ubyte]; }
@@ -36,7 +38,7 @@ table ClientHello {
   x4native_version:string;
   platform:string;               // "win64" | "linux64"
   extensions_hash:[ubyte];       // SHA-256 of sorted "id@version\n" of enabled extensions
-  extensions:[string];           // same list, for mismatch diagnostics
+  extensions:[string];           // DEPRECATED (kept for wire compatibility; use extension_list): "id@version" of enabled extensions
   player_key:[ubyte];            // 32 random bytes, generated once, stored in the mod config file
   player_name:string;            // 3..24 chars [\p{L}\p{N} _\-.]
   requested_roles:Role;
@@ -48,6 +50,7 @@ table ClientHello {
   loaded_save_sha256:[ubyte];    // save currently loaded in this game; empty = main menu
   cached_saves:[SaveRef];        // x4mp_<sha12>.xml.gz files already in the save folder
   preferred_team:ushort;         // optional hint (sticky membership wins); 0 = none
+  extension_list:[ExtensionInfo];// full extension report, enabled and disabled (mod-management 3.1); empty = legacy node
 }
 
 /// S->N, handshake accepted. Carries team assignment, the full team roster and relation
@@ -84,6 +87,7 @@ table Disconnect {
   message:string;
   expected:string;               // e.g. required version on *Mismatch codes
   retry_after_ms:uint;           // 0 = do not auto-retry
+  mod_violation:ModPolicyViolation; // with ExtensionsMismatch: exact install/enable/disable/update lists
 }
 
 /// Either direction, TCP (Control) and UDP. Responder answers with Pong immediately (net thread).

@@ -27,10 +27,13 @@ public sealed record SampleMessage(MsgType Type, string Variant, object Source)
     public static string ToJson(IFlatbufferObject decoded)
     {
         object t = decoded.GetType().GetMethod("UnPack")!.Invoke(decoded, null)!;
-        return JsonSerializer.Serialize(t, t.GetType());
+        return JsonSerializer.Serialize(t, t.GetType(), FloatSafe);
     }
 
-    public string SourceJson => JsonSerializer.Serialize(Source, Source.GetType());
+    public string SourceJson => JsonSerializer.Serialize(Source, Source.GetType(), FloatSafe);
+
+    // A bit-flipped float can decode to NaN/Infinity; reading it must not fail the corruption test.
+    private static readonly JsonSerializerOptions FloatSafe = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
 }
 
 /// <summary>
@@ -85,6 +88,47 @@ public static class SampleMessages
         Entries = [new TeamRelationEntryT { TeamA = 1, TeamB = 2, Relation = TeamRelation.Hostile }, new TeamRelationEntryT { TeamA = 1, TeamB = 3, Relation = TeamRelation.Allied }],
     };
 
+    private static List<ExtensionInfoT> ExtensionList() =>
+    [
+        new ExtensionInfoT
+        {
+            Id = "ego_dlc_split", Name = "Split Vendetta", Version = "900", Source = ExtensionSource.Dlc, Enabled = true, Egosoft = true, ContentHash = [], Dependencies = [],
+            ClassHint = ExtensionClass.Dlc,
+        },
+        new ExtensionInfoT
+        {
+            Id = "ws_1234567890", Name = "Warehouse Fleets", Version = "1.4", Source = ExtensionSource.Workshop, Enabled = true, WorkshopId = 1234567890,
+            ContentHash = Enumerable.Range(0, 32).Select(i => (byte)(255 - i)).ToList(), HashKind = HashKind.CatIndex, HasNativeDll = true,
+            ReplacesBasegame = true, SaveDependent = true, ClassHint = ExtensionClass.Sim, Error = "missing dependency", Warning = "old",
+            Dependencies = [new ExtensionDependencyT { Id = "ws_2042901274", Optional = false }, new ExtensionDependencyT { Id = "kuerteeUIExtensionsAndHUD", Optional = true }],
+        },
+        new ExtensionInfoT { Id = "x4mp", Name = "X4MP", Version = "0.1.0", Source = ExtensionSource.Install, Enabled = false, ClassHint = ExtensionClass.ClientOnly, ContentHash = [], Dependencies = [] },
+    ];
+
+    private static ModPolicyT ModPolicy() => new()
+    {
+        Version = 7, SourceMode = ModSourceMode.AdminList, UnknownDefault = UnknownModDefault.Block, Enforcement = ModEnforcement.Warn,
+        Entries =
+        [
+            new ModPolicyEntryT
+            {
+                Id = "ws_1234567890", Name = "Warehouse Fleets", Rule = ModRule.Required, Enabled = true, ModClass = ExtensionClass.Sim,
+                VersionRule = VersionRule.AtLeast, Version = "1.4", ContentHash = [1, 2, 3], NexusUrl = "https://www.nexusmods.com/x4foundations/mods/1234",
+                WorkshopId = 1234567890, Notes = "needs SirNukes too",
+            },
+            new ModPolicyEntryT { Id = "cheat_menu", Name = "Cheat Menu", Rule = ModRule.Blocked, Enabled = true, ModClass = ExtensionClass.Unknown, VersionRule = VersionRule.Any, ContentHash = [] },
+        ],
+    };
+
+    private static ModPolicyViolationT Violation() => new()
+    {
+        PolicyVersion = 7,
+        Install = [new ModRefT { Id = "ws_1234567890", Name = "Warehouse Fleets", Version = "1.4", NexusUrl = "https://www.nexusmods.com/x4foundations/mods/1234", WorkshopId = 1234567890, Notes = "needs SirNukes too" }],
+        Enable = [new ModRefT { Id = "reactive_docking", Name = "Reactive Docking", HaveVersion = "2.0" }],
+        Disable = [new ModRefT { Id = "cheat_menu", Name = "Cheat Menu", HaveVersion = "1.0" }],
+        Update = [new ModRefT { Id = "deadair", Name = "DeadAir Scripts", Version = "2.3", HaveVersion = "2.1", WorkshopId = 99 }],
+    };
+
     private static SessionSettingsT Settings() => new()
     {
         Version = 5,
@@ -94,6 +138,7 @@ public static class SampleMessages
             MaxTeams = 8, AssetPolicy = TeamAssetPolicy.OwnerAndLeader, AllowFriendlyFire = true, AllowAssetTransfer = true,
             MoveAssetsWithPlayer = MoveAssetsScope.AllOwned, RelationChangePolicy = RelationChangePolicy.LeadersMutualAlly,
         },
+        ModPolicy = ModPolicy(),
         Economy = new EconomySettingsT
         {
             CreditMode = CreditMode.PerPlayer, EffectiveMode = EffectiveCreditMode.PerPlayer, TeamPoolEnabled = false,
@@ -143,7 +188,7 @@ public static class SampleMessages
             Nonce = Enumerable.Range(0, 32).Select(i => (byte)i).ToList(), Auth = AuthMethod.SessionPassword,
             ServerCaps = (ulong)(Capability.UdpRealtime | Capability.Economy), Phase = SessionPhase.Running,
             RequiredGameBuild = "900-611726", SupportedGameBuilds = ["900-611726", "900-611727"], RequiredModVersion = "0.1.0",
-            ExtensionsHash = [1, 2, 3, 4],
+            ExtensionsHash = [1, 2, 3, 4], ModPolicyVersion = 7,
         }),
         S(new ClientHelloT
         {
@@ -152,7 +197,7 @@ public static class SampleMessages
             PlayerKey = Enumerable.Range(100, 32).Select(i => (byte)i).ToList(), PlayerName = "Alice",
             RequestedRoles = Role.Client | Role.Admin, ClientCaps = 0x3FFF, AuthProof = [5, 5, 5], AdminProof = [6, 6],
             ResumeToken = Id(10), LastJournalSeq = 4242, LoadedSaveSha256 = [1, 1, 1, 1], CachedSaves = [new SaveRefT { Sha256 = [2, 2, 2] }],
-            PreferredTeam = 2,
+            PreferredTeam = 2, ExtensionList = ExtensionList(),
         }),
         S(new WelcomeT
         {
@@ -162,6 +207,7 @@ public static class SampleMessages
             Teams = TeamTable(), Relations = Relations(), Settings = Settings(),
         }),
         S(new DisconnectT { Code = DisconnectCode.ClientReload, Message = "reload", Expected = "900-611726", RetryAfterMs = 5000 }),
+        S(new DisconnectT { Code = DisconnectCode.ExtensionsMismatch, Message = "mods differ", Expected = "policy 7", ModViolation = Violation() }, "ModViolation"),
         S(new PingT { Seq = 1, SendTimeUs = 1_000_000 }),
         S(new PongT { Seq = 1, EchoSendTimeUs = 1_000_000, RecvTimeUs = 1_000_500, ReplyTimeUs = 1_000_600 }),
         S(new UdpHelloT { ConnId = 0xDEADBEEF, UdpToken = 0x0123456789ABCDEF }),
@@ -184,6 +230,7 @@ public static class SampleMessages
             ],
         }),
         S(Settings()),
+        S(new ModPolicyChangedT { Policy = ModPolicy() }),
         S(new RequestSaveT { RequestId = 5, Reason = SaveReason.JoinRequested, SlotName = "x4mp_checkpoint" }),
         S(new SaveStartedT { RequestId = 5, CheckpointId = Id(12), GameTime = 7200.5, NextNetId = 5000 }),
         S(new SaveUploadBeginT { CheckpointId = Id(12), Kind = UploadKind.Manifest, Size = 123_456_789_012, Sha256 = Enumerable.Repeat((byte)0xCD, 32).ToList(), Name = "checkpoint", GhostsCleaned = true }),
