@@ -154,6 +154,12 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
 
     private void OnOverflow(DisconnectCode code) => Close(code, "send queue overflow");
 
+    /// <summary>
+    /// True when the connection was closed with <see cref="DisconnectCode.SlowConsumer"/>: the peer is not reading, so the bytes still waiting in the socket
+    /// can never be flushed and a normal close would leave the socket open for as long as the peer stays silent. The owner of the socket must abort it.
+    /// </summary>
+    public bool MustAbortSocket { get; private set; }
+
     public void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0)
     {
         if (Interlocked.CompareExchange(ref _state, StateClosing, StateOpen) != StateOpen)
@@ -162,6 +168,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         }
 
         ServerMetrics.RecordDisconnect(reason);
+        MustAbortSocket = reason == DisconnectCode.SlowConsumer;
         try
         {
             var final = ControlFrames.Disconnect(reason, detail, expected, retryAfterMs);

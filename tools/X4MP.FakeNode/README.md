@@ -153,3 +153,26 @@ bound to the first key that used it, otherwise the server answers `NameTaken`).
 `FakeSaveClient` and `FakeAuthoritySaves` (the join and checkpoint halves of the save pipeline; they send through a
 `TcpNodeClient` you hand them and take every received frame through `HandleAsync` / `Handle`) have no sockets of their own. `LiveRunner` drives them over TCP; the replication tests in `X4MP.Core.Tests` drive them in virtual time together
 with the real server modules, so five minutes of game time run in a few seconds.
+
+## Failure injection (M1-F2)
+
+| option / command | meaning |
+|---|---|
+| `--latency MS` `--jitter MS` | add MS ms (+-jitter) to every TCP chunk and every UDP datagram in each direction (round trip +2*MS). TCP keeps its order, UDP datagrams may reorder with jitter. Summary line `latency:` |
+| `--slow-reader R` `--slow-clients N` | the first N clients (default 1) read their socket slowly **once in game**: R is bytes per second (`4096`) or a pattern `pause=3/45` (read 3 s, then stop reading for 45 s, repeat). The node uses a 4 KB receive window so TCP flow control reaches the server early. It must not disturb the others: slow readers are left out of `--verify`, the summary line `slow-reader:` counts how many were closed by the server and whether the other clients had errors. A node that the server closed (reset after `SlowConsumer`) is the expected outcome, not an error |
+| `--disconnect-every S` | every S seconds a client drops its socket without a goodbye and resumes with the resume token. The ghost table restarts (the server clears the baselines and re-sends spawns and keyframes); `resume:` summary: reconnects, refusals, keyframes received after each resume (a resume without a keyframe within 10 s is an error) |
+| `--reload-every S` | the same through `Disconnect(ClientReload)`, 0.4 s away ("reload"), resume, `NodeReady` again. (The server never moves a node back from InGame, so "redo the join path" is the resume handshake plus `NodeReady`) |
+| `fuzz` | `--duration S --seed N --clients K --fuzz-mode all\|handshake\|session\|flood --local-ip 127.0.0.2 --rotate-ip`. A seeded hostile peer: garbage and truncated frames, oversized and zero lengths, bad flags and lanes, unknown types, role/lane/phase violations, invalid FlatBuffers, half-open floods, and bursts of more than 20 policy violations. Prints the Disconnect codes the server answered with and whether the server still answers a handshake (`server-alive=`; exit 1 when not). With `--local-ip` the temp ban a fuzzer earns hits only its own address; `--rotate-ip` moves on to the next loopback address so the fuzzing continues after each ban |
+| `inspect` | one client that walks the join path (`--no-join` only listens) and prints every decoded frame: `[ time] Lane Type (bytes) Type{field=...}`. `--filter T1,T2` and `--max-frames N` |
+
+```powershell
+fakenode swarm --clients 4 --with-authority --verify --slow-reader pause=2/120 --duration 75   # poll /api/v1/diagnostics/connections: its queue grows, then it is closed
+fakenode swarm --clients 4 --with-authority --verify --udp --disconnect-every 10 --reload-every 15 --duration 60
+fakenode swarm --clients 4 --with-authority --verify --latency 100 --jitter 20 --udp --duration 40
+fakenode fuzz --duration 60 --clients 3 --seed 7 --local-ip 127.0.0.2 --rotate-ip     # while a swarm runs on 127.0.0.1
+fakenode inspect --duration 10 --filter SessionState,RosterUpdate
+```
+
+A loopback server buffers megabytes before its send queue notices a reader that stopped, at the default traffic of about 30 KB/s per
+client. To see the `SlowConsumer` close within half a minute give the server more to send, for example
+`X4MP__Interest__MaxGhosts=3000` and `X4MP__Replication__BandwidthBudgetKBps=4000` on the server and `swarm ... --sectors 6 --ships 6000`.

@@ -658,6 +658,8 @@ public static partial class LiveRunner
         {
             if (link.Closed)
                 throw new IOException(link.DisconnectedBy is { } code ? $"server closed the connection ({code})" : "connection closed");
+            if (stats.Impairment is { SlowActive: true } && !link.Resuming && link.Client.PeerClosed)
+                throw new IOException("the server closed the connection (reset); a slow reader only finds out this way"); // it is not reading, so the reader never sees the end
             double sinceInGame = clock.Elapsed.TotalSeconds;
             if (sinceInGame >= nextDisconnect || sinceInGame >= nextReload)
             {
