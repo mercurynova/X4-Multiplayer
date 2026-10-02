@@ -11,11 +11,12 @@ import { NotFound } from './pages/NotFound';
 import { Placeholder } from './pages/Placeholder';
 import { PlayerDetailPage } from './pages/players/PlayerDetailPage';
 import { PlayersPage } from './pages/players/PlayersPage';
+import { SessionsPage } from './pages/sessions/SessionsPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { screens } from './screens';
 
 // Screens with a real page; the rest render a placeholder until their task lands.
-const implementedScreens = new Set(['/', '/players', '/chat', '/logs', '/settings', '/diagnostics']);
+const implementedScreens = new Set(['/', '/players', '/sessions', '/chat', '/logs', '/settings', '/diagnostics']);
 
 // Detail routes from server-design 5.1; the pages themselves arrive with W2-W6 and the M1-T/E tasks.
 const detailRoutes = [
@@ -32,6 +33,7 @@ export function AppRoutes() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/players" element={<PlayersPage />} />
           <Route path="/players/:id" element={<PlayerDetailPage />} />
+          <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
