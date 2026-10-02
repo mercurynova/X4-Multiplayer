@@ -73,7 +73,9 @@ export async function http<T>(path: string, init: RequestInit = {}): Promise<T> 
     );
   }
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  // 202 Accepted answers carry no body (kick, start, stop...), so an empty body is not an error.
+  const text = await res.text();
+  return (text === '' ? undefined : JSON.parse(text)) as T;
 }
 
 function withBody(method: string, body: unknown): RequestInit {

@@ -6,11 +6,15 @@ import { Dashboard } from './pages/dashboard/Dashboard';
 import { Login } from './pages/Login';
 import { NotFound } from './pages/NotFound';
 import { Placeholder } from './pages/Placeholder';
+import { PlayerDetailPage } from './pages/players/PlayerDetailPage';
+import { PlayersPage } from './pages/players/PlayersPage';
 import { screens } from './screens';
+
+// Screens with a real page; the rest render a placeholder until their task lands.
+const implementedScreens = new Set(['/', '/players']);
 
 // Detail routes from server-design 5.1; the pages themselves arrive with W2-W6 and the M1-T/E tasks.
 const detailRoutes = [
-  { path: '/players/:id', title: 'Player' },
   { path: '/economy/:tab', title: 'Economy' },
   { path: '/map/:sectorId', title: 'Sector map' },
 ];
@@ -22,8 +26,10 @@ export function AppRoutes() {
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/players" element={<PlayersPage />} />
+          <Route path="/players/:id" element={<PlayerDetailPage />} />
           {screens
-            .filter((s) => s.path !== '/')
+            .filter((s) => !implementedScreens.has(s.path))
             .map((s) => (
               <Route key={s.path} path={s.path} element={<Placeholder title={s.title} />} />
             ))}
