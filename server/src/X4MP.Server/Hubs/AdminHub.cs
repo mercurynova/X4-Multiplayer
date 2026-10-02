@@ -70,6 +70,14 @@ public sealed class AdminHub(AdminHubCore core) : Hub<IAdminClient>
 
     public void UnsubscribeTeams() => core.Unsubscribe(Context.ConnectionId, HubTopic.Teams);
 
+    /// <summary>
+    /// Joins the mods topic (policy change and player report pushes) and returns the current picture. Players' mod lists are included only when the caller may see them
+    /// (<c>ModListVisibility</c>; Admin and ModEditor always). Edits are made through REST (<c>/api/v1/mods</c>), so they are validated and audited in one place.
+    /// </summary>
+    public ModsStateDto SubscribeMods() => core.SubscribeMods(Context);
+
+    public void UnsubscribeMods() => core.Unsubscribe(Context.ConnectionId, HubTopic.Mods);
+
     /// <summary>Sends an admin chat message (same rules and audit as <c>POST /api/v1/chat</c>). Admin role only.</summary>
     [Authorize(Policy = AdminPolicies.Admin)]
     public Task SendChat(SendChatRequest request) => core.SendChatAsync(Context, request);

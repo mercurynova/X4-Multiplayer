@@ -38,7 +38,7 @@ internal static class TokenEndpoints
         string? role = body?.Role;
         if (!AdminRoles.IsValid(role))
         {
-            errors["role"] = [$"Use {AdminRoles.Admin} or {AdminRoles.Viewer}."];
+            errors["role"] = [$"Use {AdminRoles.Admin}, {AdminRoles.Viewer} or {AdminRoles.ModEditor}."];
         }
 
         if (errors.Count > 0)

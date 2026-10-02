@@ -79,7 +79,8 @@ public static class NodeNetworkingExtensions
             sp.GetRequiredService<TimeProvider>(),
             sp.GetService<ILogger<NodeGateway>>(),
             sp.GetService<IUdpRealtimeHost>(),
-            sp.GetRequiredService<X4MP.Core.Mods.IModPolicyProvider>()));
+            sp.GetRequiredService<X4MP.Core.Mods.IModPolicyProvider>(),
+            sp.GetService<X4MP.Core.Mods.IModStore>()));
         services.AddHostedService<NodeGatewayService>();
 
         // Pipe thresholds from server-design 2.2: pause the writer at 1 MiB, resume at 512 KiB.

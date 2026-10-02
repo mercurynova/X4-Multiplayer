@@ -276,7 +276,7 @@ public sealed partial class SessionActor
     }
 
     /// <summary>The slot is released for good: leave event, roster removal, optional <c>Disconnect</c> to the live socket.</summary>
-    private void LeaveNode(SessionNode slot, string reason, DisconnectCode? closeWith)
+    private void LeaveNode(SessionNode slot, string reason, DisconnectCode? closeWith, ModPolicyViolationT? modViolation = null, string? expected = null)
     {
         if (!_nodes.TryGetValue(slot.PlayerId, out var current) || !ReferenceEquals(current, slot))
         {
@@ -292,7 +292,7 @@ public sealed partial class SessionActor
             attached.Phase = NodePhase.Detached;
             if (closeWith is { } code)
             {
-                attached.Connection.Close(code, reason);
+                attached.Connection.Close(code, reason, expected, 0, modViolation);
             }
         }
 

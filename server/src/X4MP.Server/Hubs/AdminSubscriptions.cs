@@ -14,6 +14,7 @@ public enum HubTopic
     Chat,
     Economy,
     Teams,
+    Mods,
 }
 
 /// <summary>The server-side filter of one client's log tail.</summary>

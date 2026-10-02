@@ -273,6 +273,23 @@ else: Disconnect(ExtensionsMismatch, detail = ModPolicyViolation)
 
 `Dlc` differences always reject (ADR-004), whatever `enforcement` says.
 
+### 3.4a Clients that connect before the authority (decision, M1-X3/X4)
+
+In `AuthorityDefines` mode the authority's list is the standard, so with no authority known yet there is nothing to compare
+a client with. Chosen behaviour: **admit now, judge later.** The gateway admits the client and marks it `ModCheckPending`
+(it is still stored as an `Admitted` report). When the first authority is admitted (the moment `GatewayState.Authority` is
+set) the session actor re-evaluates every pending client with the normal evaluator and the authority's list:
+
+- Strict mismatch: `Disconnect{ExtensionsMismatch}` with the exact `ModPolicyViolation` (same shape as at the gateway),
+  the slot is freed, and the violation is stored as a new `Rejected` report.
+- Warn mismatch: the usual `ServerNotice`, a new `Warned` report, the client stays.
+- Match: nothing happens.
+
+Not chosen: a retryable reject while no authority is known. It would stop friends joining a lobby that is waiting for the
+host (the session phase is `WaitingForAuthority` on purpose) and would break every flow that connects clients first.
+A pending flag is cleared by the check, so a later authority change does not re-kick anybody (MM3). `AdminList` mode needs no
+deferral: the list itself is the standard and is evaluated at once (the authority is checked against it too).
+
 ### 3.5 Rejection message
 
 `Disconnect{code = ExtensionsMismatch}` carries a structured `ModPolicyViolation`:
@@ -485,6 +502,38 @@ applies); in `AdminList` mode the authority's enabled Dlc extensions are still i
 list and `unknown_default != Block`; everything else evaluates the list. Policy source until M1-X3: the live
 `X4MP:Mods` settings (`SourceMode`, `UnknownDefault`, `Enforcement`) plus in-memory entries
 (`InMemoryModPolicyProvider`); `NetOptions.ExtensionsMismatchIsWarning` still maps to `Enforcement = Warn`.
+
+**Applied (M1-X3, M1-X4, server).** Migration `0008_mods.sql` creates `player_extension_reports` (plus `policy_version`),
+`session_mod_policy`, `session_mod_entries` and `mod_catalog`. The server has one standing policy that every session uses, stored
+under `session_id = 0` with no foreign key (it is edited before any session row exists and outlives sessions); entries keep the
+admin's order (`sort`). `PersistentModPolicyProvider` (`IModPolicyEditor`) loads it on first use; the three knobs come from the
+`X4MP:Mods` settings until the first edit, afterwards the stored policy is the truth and a later settings change is adopted as a
+newer edit (version + 1, last writer wins). Every real change bumps `version` by one, an edit that changes nothing does not. Every
+`ClientHello` stores its full list and the verdict. A refused connection never binds a name: its report goes to the player that
+already owns the key, else it is filed by key (`player_id` NULL, `key_hash`, `attempted_name`; newest 20 per key, 200 overall, never
+feeds the catalog) and moves to the player's history when that key is admitted. Admins list these at `GET /api/v1/mods/rejections`.
+The newest 20 reports per player are kept (pruned in the insert transaction). Reports also teach `mod_catalog` names and Workshop ids (an admin's edit is never overwritten).
+`ModPolicyChanged` goes to every announced node on every change; nobody is kicked.
+
+REST (flat, like `/teams`: the server runs one session, so there is no `/sessions/{sid}` prefix). Roles: `Viewer` reads, `ModEditor`
+(new role string, Viewer rights + mod edits only) and `Admin` edit. `ModListVisibility` hides players' lists and the catalog from a
+`Viewer` under `AdminsOnly` (403 `ModListHidden`; `GET /mods` then returns `playersHidden` and no players); Admin and ModEditor
+always see them; `AllPlayers` lets a Viewer read but never edit.
+
+| Method and path | Role | Notes |
+|---|---|---|
+| `GET /api/v1/mods` | Viewer | `ModsStateDto`: policy with entries, per-player status against the current policy, `canEdit`, `playersHidden` |
+| `PATCH /api/v1/mods/policy` | ModEditor | `{sourceMode?, unknownDefault?, enforcement?}` |
+| `PUT /api/v1/mods/entries/{extId}` | ModEditor | upsert (201 new, 200 update), omitted fields keep their value; Nexus URL validated, Workshop id derived from `ws_<n>`; also writes `mod_catalog` |
+| `DELETE /api/v1/mods/entries/{extId}` | ModEditor | 204 / 404 |
+| `POST /api/v1/mods/import-from-authority` | ModEditor | `{merge?: true}`; 409 `NoAuthorityReport` |
+| `GET /api/v1/mods/save-requirements` | Viewer | **501** until a `<patches>` reader exists (not built yet) |
+| `GET /api/v1/mods/catalog`, `PUT /api/v1/mods/catalog/{extId}` | Viewer, ModEditor | |
+| `GET /api/v1/players/{id}/extensions?limit=` | Viewer | newest report in full + history summaries (max 20) |
+
+Audit actions: `mods.policy`, `mods.entry.add`, `mods.entry.update`, `mods.entry.delete`, `mods.import`, `mods.catalog`. Hub: topic
+`SubscribeMods`/`UnsubscribeMods` (returns `ModsStateDto` for the caller's role), pushes `ModPolicyChanged(ModPolicyDto)` and
+`PlayerModsReported(PlayerModStatusDto)` (the latter only to clients allowed to see players' lists).
 
 ---
 
