@@ -89,6 +89,11 @@ public sealed partial class EconomyService
         PostEntry[] entries = amount > 0
             ? [new(WalletId.World, -amount), new(wallet, amount)]
             : [new(wallet, amount), new(WalletId.World, -amount)];
+        if (AdminFlags(entries, force, out var overdrawn) is not { } flags)
+        {
+            return EconomyAdminResult.Fail(EconomyAdminError.WouldOverdraw, overdrawn);
+        }
+
         var outcome = _ledger.Post(new PostRequest
         {
             Kind = TxKind.AdminAdjust,
@@ -99,7 +104,7 @@ public sealed partial class EconomyService
             Entries = entries,
             RefType = "Admin",
             Note = reason,
-            Flags = PostOptions.BypassWalletFreeze | (force ? PostOptions.AllowOverdraw : PostOptions.None),
+            Flags = flags,
         });
         if (!outcome.Ok)
         {
@@ -218,6 +223,11 @@ public sealed partial class EconomyService
             return EconomyAdminResult.Fail(EconomyAdminError.NotReversible, "nothing would move: both sides are one wallet");
         }
 
+        if (AdminFlags(entries, force, out var overdrawn) is not { } flags)
+        {
+            return EconomyAdminResult.Fail(EconomyAdminError.WouldOverdraw, overdrawn);
+        }
+
         var outcome = _ledger.Post(new PostRequest
         {
             Kind = TxKind.Reversal,
@@ -230,7 +240,7 @@ public sealed partial class EconomyService
             RefId = original.RefId,
             Reverses = original.Id,
             Note = reason,
-            Flags = PostOptions.BypassWalletFreeze | (force ? PostOptions.AllowOverdraw : PostOptions.None),
+            Flags = flags,
         });
         if (!outcome.Ok)
         {
@@ -320,6 +330,26 @@ public sealed partial class EconomyService
             _trades.Values.Count(t => t.IsOpen),
             _trades.Values.Count(t => t.State == TradeState.InDoubt),
             frozen);
+    }
+
+    /// <summary>
+    /// The posting flags of an admin posting, or null (with the wallet named in <paramref name="overdrawn"/>) when a debit would take a wallet below
+    /// zero and <paramref name="force"/> is not set. Admin postings ignore wallet freezes. Only debits count: crediting a wallet that is
+    /// already overdrawn never makes it worse, so it is allowed even while the balance stays negative.
+    /// </summary>
+    private PostOptions? AdminFlags(IReadOnlyList<PostEntry> entries, bool force, out string? overdrawn)
+    {
+        overdrawn = null;
+        foreach (var entry in entries)
+        {
+            if (entry.Amount < 0 && entry.Wallet.Kind != WalletKind.World && _ledger.BalanceOf(entry.Wallet) + entry.Amount < 0 && (!force || entry.Wallet.Kind is WalletKind.Escrow or WalletKind.TeamPool))
+            {
+                overdrawn = entry.Wallet.ToString();
+                return null;
+            }
+        }
+
+        return PostOptions.BypassWalletFreeze | PostOptions.AllowOverdraw;
     }
 
     private bool WalletExists(WalletId wallet) =>

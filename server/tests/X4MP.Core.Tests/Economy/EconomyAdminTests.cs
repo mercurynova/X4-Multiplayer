@@ -99,6 +99,22 @@ public sealed class EconomyAdminTests
     }
 
     [Fact]
+    public void CreditingAnOverdrawnWalletIsAllowedEvenWhileItStaysNegative()
+    {
+        var kit = Kit();
+        kit.Fund(1, 100);
+        var debit = kit.Service.AdminAdjust(Admin, WalletId.Player(1), -400, "debt", force: true);
+        Assert.Equal(-300, kit.Balance(WalletId.Player(1)));
+
+        Assert.True(kit.Service.AdminAdjust(Admin, WalletId.Player(1), 50, "partial relief").Ok); // still -250: only debits are limited
+        Assert.Equal(-250, kit.Balance(WalletId.Player(1)));
+        Assert.True(kit.Service.AdminReverse(Admin, debit.Transaction!.Id, "the debit was wrong").Ok); // +400 back
+        Assert.Equal(150, kit.Balance(WalletId.Player(1)));
+        Assert.False(kit.Ledger.Find(WalletId.Player(1))!.Overdrawn);
+        AssertSound(kit);
+    }
+
+    [Fact]
     public void AnAdjustWithAnIdempotencyKeyBooksOnceAndRefusesAnotherPayload()
     {
         var kit = Kit();
