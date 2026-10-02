@@ -76,6 +76,14 @@ public static class ServerMetrics
     private static readonly Histogram<double> NodeRtt = Meter.CreateHistogram<double>(
         "x4mp.session.rtt", "ms", "Round-trip time of server Ping/Pong exchanges with nodes");
 
+    private static readonly Histogram<double> TickDuration = Meter.CreateHistogram<double>(
+        "x4mp.tick.duration", "ms", "Duration of one replication tick on the session actor (all clients)");
+
+    /// <summary>Recent tick durations (microseconds), a ring the percentile readers copy. Written by the actor, read by the sampler.</summary>
+    private const int TickRingSize = 2048;
+    private static readonly int[] TickRing = new int[TickRingSize];
+    private static long _tickCount;
+
     private static readonly long[] BytesInByLane = new long[3];
     private static readonly long[] BytesOutByLane = new long[3];
     private static readonly long[] DroppedByLane = new long[3];
@@ -170,6 +178,14 @@ public static class ServerMetrics
     /// <summary>One Ping/Pong round trip with a node (the SessionActor calls it per accepted sample).</summary>
     public static void RecordRtt(double milliseconds) => NodeRtt.Record(milliseconds);
 
+    /// <summary>One replication tick took <paramref name="milliseconds"/> (the replication module times every tick).</summary>
+    public static void RecordTick(double milliseconds)
+    {
+        long n = Interlocked.Increment(ref _tickCount) - 1;
+        Volatile.Write(ref TickRing[(int)(n % TickRingSize)], (int)Math.Clamp(milliseconds * 1000.0, 0, int.MaxValue));
+        TickDuration.Record(milliseconds);
+    }
+
     /// <summary>One <c>Replication</c> frame queued to a client (the replication module calls it per frame).</summary>
     public static void RecordReplicationFrame(int entries, int bytes)
     {
@@ -217,6 +233,29 @@ public static class ServerMetrics
         }
 
         return total;
+    }
+
+    /// <summary>Ticks recorded since the process started.</summary>
+    public static long TickCount => Interlocked.Read(ref _tickCount);
+
+    /// <summary>Percentile (0..100) of the last up-to-2048 tick durations in milliseconds; 0 when no tick was recorded yet.</summary>
+    public static double TickPercentileMs(double percentile)
+    {
+        int count = (int)Math.Min(Interlocked.Read(ref _tickCount), TickRingSize);
+        if (count == 0)
+        {
+            return 0;
+        }
+
+        var copy = new int[count];
+        for (int i = 0; i < count; i++)
+        {
+            copy[i] = Volatile.Read(ref TickRing[i]);
+        }
+
+        Array.Sort(copy);
+        int index = (int)Math.Ceiling(Math.Clamp(percentile, 0, 100) / 100.0 * count) - 1;
+        return copy[Math.Clamp(index, 0, count - 1)] / 1000.0;
     }
 
     public static long BytesIn(Lane lane) => Interlocked.Read(ref BytesInByLane[(int)lane]);
