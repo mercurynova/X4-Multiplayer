@@ -176,3 +176,26 @@ fakenode inspect --duration 10 --filter SessionState,RosterUpdate
 A loopback server buffers megabytes before its send queue notices a reader that stopped, at the default traffic of about 30 KB/s per
 client. To see the `SlowConsumer` close within half a minute give the server more to send, for example
 `X4MP__Interest__MaxGhosts=3000` and `X4MP__Replication__BandwidthBudgetKBps=4000` on the server and `swarm ... --sectors 6 --ships 6000`.
+
+## Economy behaviours (M1-F4)
+
+| option | meaning |
+|---|---|
+| `--economy idle\|casual\|heavy` | clients take part in the credit economy: teammate transfers, donations, pool deposits/withdrawals, loan offers (to teammates or anyone), loan answers (accept 85%), repayments (partial, then full), forgiving and withdrawing. `casual` is one action per ~8 s, `heavy` one per ~3 s (the server allows 5 requests per 10 s per player, so heavy sits close to the limit and gets some `RateLimited`). `casual` and `heavy` also trade (`--trade`: a proposal every 15 s / 8 s). `idle` sends nothing but reconciles. A client spends only a small share of its balance per request and picks recipients from the roster (in-game clients) |
+| `--dupe-attack` | clients also replay a request key (same bytes), reuse a key with another payload, send one request three times back to back (race) and send two transfers that together overdraw the wallet. Every answer must be idempotent or a rejection (`RequestIdReuse`, `RateLimited`). A reuse that gets `Ok`, or two `Ok`s of one key with different balances, is a **duplicate effect**: counted, printed as `DUPLICATE EFFECT: ...` and an error. The authority with `--income-rate` also resends `CreditDelta`s it already sent (same `seq`, sometimes another amount). Implies `--economy casual` |
+| `--loan-default` | borrowers accept every offer and never repay; the offers fall due after 4 to 6 s, so loans go **Overdue** (`/api/v1/economy/loans`, the Loans tab badge). Implies `--economy casual` |
+| `--income-rate R` | the authority books R `CreditDelta{seq}` per second **and player** (75% income, 25% spend); every client books R/4 of its own local changes. Both honour `--dupe-attack` (resends) and stop in the last `TradeQuietSeconds` of a timed run |
+| `--admin-url URL` `--admin-user U` `--admin-password P` | end of the run: sign in to the admin API (the account must have its initial password already changed), run the auditor, scan the ledger and compare it with the nodes |
+
+Every node reconciles (`EconomyReconciler`): consecutive wallet versions are one ledger transaction, so an acknowledged `CreditDelta` must move the wallet by exactly its amount (a duplicate `seq` by nothing), `acked_delta_seq` never goes backwards or past what was sent, the authority (it sees every wallet) checks that transfers, pool moves, donations, loans and trades conserve credits, `EconomyResult` balances equal the update of the same wallet version, and a player wallet is never negative except after game spending. A gap in the versions is counted as `unverifiable`, not as drift. Escrow wallets are left out (the wire clamps their id to 16 bits).
+
+Summary lines: `economy(mode):` (requests, rejects by reason, loans), `dupes:` (replays, reuses, races, `duplicate-effects`), `income:`, `reconciliation:` (`drift` is an error) and, with `--admin-url`, `invariants:` (auditor, ledger sum, requests booked twice, each node's deltas as a prefix sum of what it sent, wallet drift against the server, loans by state, trades by state, `in-doubt=[ids]`). Any problem makes the exit code 1.
+
+```powershell
+# 3 teams that are hostile to each other, the heavy economy under attack, trades that fail and time out, verified replication
+fakenode swarm --clients 6 --with-authority --teams 3 --relations ffa --economy heavy --dupe-attack --income-rate 0.5 `
+  --trade-fail 10 --trade-timeout 5 --verify --duration 600 --admin-url http://127.0.0.1:47790 --admin-password <the admin password>
+fakenode swarm --clients 4 --with-authority --loan-default --duration 60        # overdue loans after ~10 s
+```
+
+The server for the first command needs `X4MP__Net__MaxPlayers=16`, the lobby settings the swarm prints (`--relations ffa`) and, for money to cross teams, `X4MP__Economy__DonateScope=Anyone`, `LoanScope=Anyone`, `TradeScope=Anyone` and `TradeRequiresProximity=false`.
