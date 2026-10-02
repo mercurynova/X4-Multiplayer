@@ -92,6 +92,13 @@ public sealed partial class WorldMirror : ISessionModule
 
     public double AuthorityGameTime { get; private set; }
 
+    /// <summary>
+    /// True once a <c>WorldUpdate</c> was ingested in this session. Before that <see cref="AuthorityGameTime"/> is 0, a reference time no spawn
+    /// state was sampled at, so replication holds its state entries back (M1-F2: a client already in interest while the authority's first
+    /// update was still on its way, as under injected latency, got entries stamped game time 0).
+    /// </summary>
+    public bool HasWorldUpdate { get; private set; }
+
     public uint AuthorityTick { get; private set; }
 
     /// <summary>
@@ -590,6 +597,7 @@ public sealed partial class WorldMirror : ISessionModule
         AuthorityCaptureTimeUs = table.GetUInt64(1);
         double gameTime = table.GetDouble(2);
         AuthorityGameTime = gameTime;
+        HasWorldUpdate = true;
         long now = _time.GetTimestamp();
         int applied = 0;
         int changed = 0;
@@ -845,6 +853,7 @@ public sealed partial class WorldMirror : ISessionModule
         _players.Clear();
         _summary.Clear();
         _persistentCount = _transientCount = 0;
+        HasWorldUpdate = false;
         Strings.Clear();
         Journal.Clear();
         Galaxy.Reset();

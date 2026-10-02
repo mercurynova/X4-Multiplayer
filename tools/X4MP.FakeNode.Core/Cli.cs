@@ -48,6 +48,10 @@ public enum FakeNodeCommand
     Client,
     Swarm,
     Inspect,
+
+    /// <summary>Hostile peer: random, malformed and out-of-policy frames against a real server (M1-F2).</summary>
+    Fuzz,
+
     /// <summary>Offline: generate the galaxy and print stats.</summary>
     Galaxy,
     Help,
@@ -124,6 +128,66 @@ public sealed record CliOptions
 
     /// <summary>authority: percent (0..100) of the orders whose confirm is withheld (answered only by a <c>TradeQuery</c>, or never).</summary>
     public double TradeTimeoutPercent { get; init; }
+
+    // ---- M1-F2: failure injection
+
+    /// <summary>client/swarm: the first <see cref="SlowClients"/> clients read their socket slowly once in game (a rate, or a read/pause pattern); null = off.</summary>
+    public SlowReaderSpec? SlowReader { get; init; }
+
+    /// <summary>How many clients (counted from the first) are slow readers; the others must not notice.</summary>
+    public int SlowClients { get; init; } = 1;
+
+    /// <summary>Delay added to every TCP chunk and UDP datagram in each direction, milliseconds (0 = none).</summary>
+    public double LatencyMs { get; init; }
+
+    /// <summary>Latency varies by up to this much either way, milliseconds.</summary>
+    public double JitterMs { get; init; }
+
+    /// <summary>client/swarm: every N seconds drop the socket without a goodbye and come back with the resume token (0 = never).</summary>
+    public double DisconnectEverySeconds { get; init; }
+
+    /// <summary>client/swarm: every N seconds send <c>Disconnect(ClientReload)</c>, "reload", come back with the resume token and send <c>NodeReady</c> again (0 = never).</summary>
+    public double ReloadEverySeconds { get; init; }
+
+    /// <summary>fuzz: what to throw at the server.</summary>
+    public FuzzMode FuzzMode { get; init; } = FuzzMode.All;
+
+    /// <summary>fuzz: bind the fuzzer's sockets to this local address (for example <c>127.0.0.2</c>), so the temporary ban it earns hits only the fuzzer.</summary>
+    public string? LocalIp { get; init; }
+
+    /// <summary>fuzz: when the server bans the fuzzer's address, continue from the next loopback address (127.0.0.x), so the fuzzing goes on after the ban.</summary>
+    public bool RotateIp { get; init; }
+
+    /// <summary>inspect: print only these message types (names, case-insensitive; empty = all).</summary>
+    public IReadOnlyList<string> Filter { get; init; } = [];
+
+    /// <summary>inspect: stop after this many printed frames (0 = no limit).</summary>
+    public int MaxFrames { get; init; }
+
+    /// <summary>inspect: only connect and listen; do not walk the join path.</summary>
+    public bool NoJoin { get; init; }
+
+    /// <summary>The injection that changes how the TCP stream behaves (latency, slow reader) is on.</summary>
+    public bool InjectsStreamFaults => LatencyMs > 0 || JitterMs > 0 || SlowReader is not null;
+
+    /// <summary>True when client number <paramref name="ordinal"/> (0-based among the clients) is a slow reader.</summary>
+    public bool IsSlowReader(int ordinal) => SlowReader is not null && ordinal < SlowClients;
+}
+
+/// <summary>What the <c>fuzz</c> command sends.</summary>
+public enum FuzzMode
+{
+    /// <summary>A mix of everything below.</summary>
+    All,
+
+    /// <summary>Garbage and malformed frames before the handshake completes.</summary>
+    Handshake,
+
+    /// <summary>A valid handshake, then random, wrong-lane, wrong-role, wrong-phase and invalid-FlatBuffers frames.</summary>
+    Session,
+
+    /// <summary>Handshake floods: many connections that never say hello.</summary>
+    Flood,
 }
 
 public sealed record CliParseResult(CliOptions? Options, string? Error)
@@ -144,7 +208,8 @@ public static class CliParser
           authority   connect as the X4 authority node: runs the fake world, honours CaptureSet, streams WorldUpdate
           client      connect as a fake player node: joins, flies, sends PlayerState, receives Replication (--verify checks it)
           swarm       --clients K client nodes in one process (+ an authority with --with-authority)
-          inspect     observer printing a sector           (not available yet)
+          inspect     connect as a client, walk the join path and print every decoded frame (--filter, --max-frames, --no-join)
+          fuzz        hostile peer: random/malformed frames, wrong lanes/phases, oversized lengths, invalid FlatBuffers (--seed, --duration)
           galaxy      offline: generate the galaxy and print its stats
 
         options:
@@ -157,7 +222,7 @@ public static class CliParser
           --udp                use the UDP realtime lane (binds with UdpHello; falls back to TCP after 3 s)
           --loss PCT           with --udp: drop PCT percent of the UDP datagrams in each direction (failure injection)
           --sectors N --ships N --tick HZ --fps N   universe / authority shape
-          --sector ID          inspect: sector index to observe
+          --sector ID          (unused; kept for old scripts)
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
           --with-authority     swarm: also connect one authority node
           --password PW        session password
@@ -171,6 +236,19 @@ public static class CliParser
           --trade              clients propose ship-for-credits trades to each other and accept incoming ones (implies --team-assets)
           --trade-fail PCT     authority: fail PCT percent of the AssetTransferOrders (the server must refund and unlock)
           --trade-timeout PCT  authority: withhold the confirm of PCT percent of the orders; a third of those never answer a TradeQuery either (InDoubt)
+          --slow-reader R      failure injection: the first --slow-clients clients (default 1) read their socket slowly once in game; R is bytes per
+                               second, or pause=<read s>/<pause s> (read normally, then stop reading). The server must cope; only they suffer
+          --slow-clients N     how many clients are slow readers (default 1)
+          --latency MS         failure injection: add MS milliseconds to every TCP chunk and UDP datagram in each direction (round trip +2*MS)
+          --jitter MS          latency varies by up to +-MS (TCP keeps its order; UDP datagrams may reorder)
+          --disconnect-every S clients drop the socket abruptly every S seconds and resume with the resume token (ghost state restarts, keyframes follow)
+          --reload-every S     clients send Disconnect(ClientReload) every S seconds, pause like a reload, resume and send NodeReady again
+          --fuzz-mode all|handshake|session|flood   fuzz: what to send (default all); --clients N runs N fuzzers in parallel
+          --local-ip ADDR      fuzz: bind to this local address (127.0.0.2 keeps the temp ban away from a swarm on 127.0.0.1)
+          --rotate-ip          fuzz: after a ban continue from the next loopback address (127.0.0.2, .3, ...)
+          --filter T1,T2       inspect: print only these message types
+          --max-frames N       inspect: stop after N printed frames
+          --no-join            inspect: connect and listen without joining
         """;
 
     private static readonly Dictionary<string, FakeNodeCommand> Commands = new(StringComparer.OrdinalIgnoreCase)
@@ -179,6 +257,7 @@ public static class CliParser
         ["client"] = FakeNodeCommand.Client,
         ["swarm"] = FakeNodeCommand.Swarm,
         ["inspect"] = FakeNodeCommand.Inspect,
+        ["fuzz"] = FakeNodeCommand.Fuzz,
         ["galaxy"] = FakeNodeCommand.Galaxy,
         ["help"] = FakeNodeCommand.Help,
     };
@@ -205,7 +284,7 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "trade";
+            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "trade" or "no-join" or "rotate-ip";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -217,6 +296,8 @@ public static class CliParser
                     "with-authority" => o with { WithAuthority = on },
                     "team-assets" => o with { TeamAssets = on },
                     "trade" => o with { Trade = on },
+                    "no-join" => o with { NoJoin = on },
+                    "rotate-ip" => o with { RotateIp = on },
                     _ => o with { Udp = on },
                 };
                 continue;
@@ -235,8 +316,12 @@ public static class CliParser
             o = next;
         }
 
-        if (command == FakeNodeCommand.Inspect && o.Sector is null)
-            return Fail("inspect needs --sector <index>");
+        if (command == FakeNodeCommand.Inspect && o.Clients != 1)
+            return Fail("inspect watches one connection (no --clients)");
+        if (o.SlowReader is not null && command is not (FakeNodeCommand.Client or FakeNodeCommand.Swarm))
+            return Fail("--slow-reader is a client/swarm option");
+        if ((o.DisconnectEverySeconds > 0 || o.ReloadEverySeconds > 0) && command is not (FakeNodeCommand.Client or FakeNodeCommand.Swarm))
+            return Fail("--disconnect-every and --reload-every are client/swarm options");
         if (command == FakeNodeCommand.Swarm && o.Clients < 1)
             return Fail("swarm needs --clients >= 1");
         if (o.Team is not null && o.TeamPick != TeamPickMode.None)
@@ -284,6 +369,28 @@ public static class CliParser
                 string number = value.TrimEnd('%');
                 return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double loss) && loss is >= 0 and <= 100
                     ? (o with { LossPercent = loss }, null) : (o, $"--loss must be a percentage between 0 and 100 (got '{value}')");
+            case "slow-reader":
+                return SlowReaderSpec.TryParse(value, out var slow, out string? slowError)
+                    ? (o with { SlowReader = slow }, null) : (o, slowError);
+            case "slow-clients":
+                return PositiveInt(o, key, value, v => o with { SlowClients = v });
+            case "latency":
+                return Milliseconds(o, key, value, v => o with { LatencyMs = v });
+            case "jitter":
+                return Milliseconds(o, key, value, v => o with { JitterMs = v });
+            case "disconnect-every":
+                return Seconds(o, key, value, v => o with { DisconnectEverySeconds = v });
+            case "reload-every":
+                return Seconds(o, key, value, v => o with { ReloadEverySeconds = v });
+            case "fuzz-mode":
+                return Enum.TryParse<FuzzMode>(value, ignoreCase: true, out var fm) && Enum.IsDefined(fm)
+                    ? (o with { FuzzMode = fm }, null) : (o, $"--fuzz-mode must be all|handshake|session|flood (got '{value}')");
+            case "local-ip":
+                return System.Net.IPAddress.TryParse(value, out _) ? (o with { LocalIp = value }, null) : (o, $"--local-ip must be an IP address (got '{value}')");
+            case "filter":
+                return (o with { Filter = [.. value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)] }, null);
+            case "max-frames":
+                return PositiveInt(o, key, value, v => o with { MaxFrames = v });
             case "trade-fail":
                 return Percent(o, key, value, v => o with { TradeFailPercent = v });
             case "trade-timeout":
@@ -314,6 +421,14 @@ public static class CliParser
                 return (o, $"unknown option --{key}");
         }
     }
+
+    private static (CliOptions, string?) Milliseconds(CliOptions o, string key, string value, Func<double, CliOptions> apply) =>
+        double.TryParse(value.Replace("ms", string.Empty, StringComparison.OrdinalIgnoreCase), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v is >= 0 and <= 60000
+            ? (apply(v), null) : (o, $"--{key} must be a number of milliseconds between 0 and 60000 (got '{value}')");
+
+    private static (CliOptions, string?) Seconds(CliOptions o, string key, string value, Func<double, CliOptions> apply) =>
+        double.TryParse(value.TrimEnd('s'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v is >= 1 and <= 86400
+            ? (apply(v), null) : (o, $"--{key} must be a number of seconds between 1 and 86400 (got '{value}')");
 
     private static (CliOptions, string?) Percent(CliOptions o, string key, string value, Func<double, CliOptions> apply) =>
         double.TryParse(value.TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v is >= 0 and <= 100

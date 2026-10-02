@@ -49,6 +49,26 @@ public sealed class TcpNodeClient : IAsyncDisposable
     /// </summary>
     public event Action<TimeSpan>? PongReceived;
 
+    /// <summary>
+    /// True when the peer has closed or reset the connection and nothing is left to read, as far as the socket can tell without reading
+    /// (a node that is not reading, such as a deliberately slow one, learns about a close this way).
+    /// </summary>
+    public bool PeerClosed
+    {
+        get
+        {
+            try
+            {
+                var socket = _tcp?.Client;
+                return socket is not null && socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0;
+            }
+            catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+            {
+                return true;
+            }
+        }
+    }
+
     /// <summary>Local monotonic clock in microseconds (what Ping/Pong carry).</summary>
     public ulong NowUs => (ulong)(_clock.Elapsed.TotalMilliseconds * 1000.0);
 
@@ -59,11 +79,18 @@ public sealed class TcpNodeClient : IAsyncDisposable
     /// <summary>Opens a TCP connection and runs the handshake.</summary>
     public static async Task<TcpNodeClient> ConnectAsync(string host, int port, NodeClientOptions options, CancellationToken ct = default)
     {
-        var tcp = new TcpClient { NoDelay = true };
+        var tcp = options.LocalAddress is { } local
+            ? new TcpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Parse(local), 0)) { NoDelay = true }
+            : new TcpClient { NoDelay = true };
+        if (options.ReceiveBufferBytes > 0)
+            tcp.ReceiveBufferSize = options.ReceiveBufferBytes;
         try
         {
             await tcp.ConnectAsync(host, port, ct).ConfigureAwait(false);
-            var client = new TcpNodeClient(tcp.GetStream(), options, tcp);
+            Stream stream = tcp.GetStream();
+            if (options.StreamWrapper is { } wrap)
+                stream = wrap(stream);
+            var client = new TcpNodeClient(stream, options, tcp);
             await client.HandshakeAsync(ct).ConfigureAwait(false);
             return client;
         }

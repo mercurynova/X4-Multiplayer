@@ -35,4 +35,16 @@ public sealed record NodeClientOptions
     public TimeSpan HandshakeTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
     public int MaxFrameBytes { get; init; } = FrameCodec.DefaultMaxFrameBytes;
+
+    /// <summary>
+    /// Failure injection (FakeNode): wraps the socket stream after connecting (a slow or delayed reader). Only used by
+    /// <see cref="TcpNodeClient.ConnectAsync(string,int,NodeClientOptions,System.Threading.CancellationToken)"/>.
+    /// </summary>
+    public Func<Stream, Stream>? StreamWrapper { get; init; }
+
+    /// <summary>Local address to bind the TCP socket to (for example <c>127.0.0.2</c>, so a misbehaving client has an address of its own); null = any.</summary>
+    public string? LocalAddress { get; init; }
+
+    /// <summary>Failure injection: size of the socket's receive buffer (set before connecting; 0 = the system default). A small one makes TCP flow control stop the sender early.</summary>
+    public int ReceiveBufferBytes { get; init; }
 }
