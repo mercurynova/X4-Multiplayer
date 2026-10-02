@@ -123,3 +123,11 @@ public sealed record SavePatchDto(string Extension, string Name, string Version,
 /// <summary>The mods the session save needs (see <see cref="SavePatchDto"/>).</summary>
 [TsContract]
 public sealed record SaveRequirementsDto(string? SaveSha256, List<SavePatchDto> Patches);
+
+/// <summary>
+/// A refused connection whose key is bound to no player (it never claimed its name), newest attempt per key (<c>GET /api/v1/mods/rejections</c>). <c>KeyId</c> is the
+/// first 12 hex digits of the key hash; <c>AttemptedName</c> is what it asked for. If that key is later admitted, its attempts move to the player's history.
+/// </summary>
+[TsContract]
+public sealed record UnboundRejectionDto(
+    string KeyId, string AttemptedName, DateTimeOffset At, long PolicyVersion, int ExtensionCount, ModViolationDto? Violation);

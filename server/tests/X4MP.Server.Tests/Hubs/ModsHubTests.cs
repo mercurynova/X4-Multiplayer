@@ -104,9 +104,10 @@ public sealed class ModsHubTests
         Assert.Equal(DisconnectCode.ExtensionsMismatch, ex.Code);
         Assert.Equal(forEditor.Version, ex.ModViolation!.PolicyVersion);
         Assert.Equal(["ws_77"], ex.ModViolation.Install.Select(r => r.Id));
-        // ...and its rejected report reaches the editor (not the viewer), with the exact violation
-        var rejected = await editorRec.WaitAsync<PlayerModStatusDto>("PlayerModsReported", s => s.Name == bob);
-        Assert.Equal(("Rejected", "Violates"), (rejected.Outcome, rejected.Status));
+        // ...its key is bound to no player (a refusal never claims a name), so it shows in the by-key list, not as a player push
+        var rejections = await admin.GetFromJsonAsync<JsonElement>(Base + "/rejections");
+        var attempt = rejections.EnumerateArray().Single(r => r.GetProperty("attemptedName").GetString() == bob);
+        Assert.Equal(["ws_77"], attempt.GetProperty("violation").GetProperty("install").EnumerateArray().Select(r => r.GetProperty("id").GetString()));
         Assert.Equal(0, viewerRec.Count("PlayerModsReported"));
 
         // the mod list is visible to a Viewer once the setting allows it; reports then reach it too

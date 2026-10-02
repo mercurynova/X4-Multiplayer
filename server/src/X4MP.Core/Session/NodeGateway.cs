@@ -300,14 +300,13 @@ public sealed partial class NodeGateway
         }
 
         // 4. Extensions: the session mod policy (docs/mod-management.md 3.4). Hash equality is the fast path.
-        // A rejection is held back until the player is identified (step 7) so it can be stored with its player; nothing else it would
-        // be refused for (auth, ban, name) is revealed to a client that has not proven itself.
         var modEvaluation = CheckMods(hello, authority, out uint modPolicyVersion, out bool modPending);
-        AdmitOutcome? modRejection = null;
         if (modEvaluation.Verdict == ModVerdict.Reject)
         {
             var violation = modEvaluation.Violation!;
-            modRejection = Fail(
+            // A refused connection never binds a name. Its report goes to the player that already owns the key, else it is filed by key.
+            await RecordRefusedModReportAsync(hello, playerKey, modEvaluation, modPolicyVersion, ct).ConfigureAwait(false);
+            return Fail(
                 DisconnectCode.ExtensionsMismatch, "your mods do not match this session: " + ModPolicyEvaluator.Describe(violation),
                 DescribeExtensionDiff(authority?.ExtensionList, ExtensionReports.FromHello(hello)), modViolation: violation);
         }
@@ -366,12 +365,6 @@ public sealed partial class NodeGateway
         if (bind.PlayerId is <= 0 or > ushort.MaxValue)
         {
             return Fail(DisconnectCode.InternalError, "player id out of range");
-        }
-
-        if (modRejection is not null)
-        {
-            RecordModReport(bind.PlayerId, hello, modEvaluation, ModReportOutcome.Rejected, modPolicyVersion);
-            return modRejection.Value;
         }
 
         // 8/9. Roles and capacity, evaluated and registered atomically
@@ -458,7 +451,7 @@ public sealed partial class NodeGateway
             },
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         RecordModReport(
-            bind.PlayerId, hello, modEvaluation, modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? ModReportOutcome.Warned : ModReportOutcome.Admitted, modPolicyVersion);
+            bind.PlayerId, hello, modEvaluation, modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? ModReportOutcome.Warned : ModReportOutcome.Admitted, modPolicyVersion, keyHash);
         ServerMetrics.RecordHandshakeOk();
         LogAdmitted(connection.Id.Value, name, bind.PlayerId, granted);
         return new AdmitOutcome(node, null);
@@ -563,8 +556,17 @@ public sealed partial class NodeGateway
         return ModPolicyEvaluator.Evaluate(list, policy, authority?.ExtensionList);
     }
 
-    /// <summary>Stores the node's full extension report with the verdict (task M1-X3). Never fails the handshake.</summary>
-    private void RecordModReport(int playerId, ClientHelloT hello, ModEvaluation evaluation, ModReportOutcome outcome, uint policyVersion)
+    private static IReadOnlyList<ExtensionInfoT> LimitedItems(ClientHelloT hello)
+    {
+        var items = ExtensionReports.FromHello(hello);
+        return items.Count > ModPolicyConstants.MaxExtensionEntries ? [.. items.Take(ModPolicyConstants.MaxExtensionEntries)] : items;
+    }
+
+    /// <summary>
+    /// Files a refused connection's report without binding the name: under the player that owns the key (looked up, never created), else
+    /// with player 0 and the key hash, to be attached if that key is ever admitted. Never fails the handshake.
+    /// </summary>
+    private async ValueTask RecordRefusedModReportAsync(ClientHelloT hello, byte[] playerKey, ModEvaluation evaluation, uint policyVersion, CancellationToken ct)
     {
         if (_modStore is null)
         {
@@ -573,14 +575,36 @@ public sealed partial class NodeGateway
 
         try
         {
-            var items = ExtensionReports.FromHello(hello);
-            if (items.Count > ModPolicyConstants.MaxExtensionEntries)
+            var keyHash = SHA256.HashData(playerKey);
+            int player = await _players.FindByKeyAsync(keyHash, ct).ConfigureAwait(false) ?? 0;
+            string attempted = hello.PlayerName ?? string.Empty;
+            _modStore.RecordReport(new ExtensionReportRecord(
+                player, null, _time.GetUtcNow(), hello.ExtensionsHash?.ToArray() ?? [], LimitedItems(hello), ModReportOutcome.Rejected, evaluation.Violation, policyVersion,
+                player == 0 ? keyHash : null, attempted.Length > 24 ? attempted[..24] : attempted));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogReportFailed(0, ex);
+        }
+    }
+
+    /// <summary>Stores the node's full extension report with the verdict (task M1-X3). Never fails the handshake.</summary>
+    private void RecordModReport(int playerId, ClientHelloT hello, ModEvaluation evaluation, ModReportOutcome outcome, uint policyVersion, byte[]? keyHash = null)
+    {
+        if (_modStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (keyHash is not null)
             {
-                items = [.. items.Take(ModPolicyConstants.MaxExtensionEntries)];
+                _modStore.AttachKey(keyHash, playerId); // attempts this key made while it was unbound join the player's history
             }
 
             _modStore.RecordReport(new ExtensionReportRecord(
-                playerId, null, _time.GetUtcNow(), hello.ExtensionsHash?.ToArray() ?? [], items, outcome, evaluation.Violation, policyVersion));
+                playerId, null, _time.GetUtcNow(), hello.ExtensionsHash?.ToArray() ?? [], LimitedItems(hello), outcome, evaluation.Violation, policyVersion));
         }
         catch (Exception ex)
         {

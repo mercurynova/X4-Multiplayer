@@ -15,7 +15,10 @@ public enum ModReportOutcome
     Rejected,
 }
 
-/// <summary>One stored extension report of a player: the full list the node sent and how the policy judged it.</summary>
+/// <summary>
+/// One stored extension report: the full list the node sent and how the policy judged it. <c>PlayerId</c> 0 means a refused connection whose key is bound to no player
+/// (<c>KeyHash</c> and <c>AttemptedName</c> identify it; it never claimed the name). Such reports move to the player when that key is later admitted (<see cref="IModStore.AttachKey"/>).
+/// </summary>
 public sealed record ExtensionReportRecord(
     int PlayerId,
     long? SessionId,
@@ -24,7 +27,9 @@ public sealed record ExtensionReportRecord(
     IReadOnlyList<ExtensionInfoT> Items,
     ModReportOutcome Outcome,
     ModPolicyViolationT? Violation,
-    uint PolicyVersion);
+    uint PolicyVersion,
+    byte[]? KeyHash = null,
+    string? AttemptedName = null);
 
 /// <summary>The stored session mod policy: the knobs, the version and the entries (<c>session_mod_policy</c> + <c>session_mod_entries</c>).</summary>
 public sealed record StoredModPolicy(
@@ -67,6 +72,12 @@ public interface IModStore
 
     /// <summary>Stores a report (and learns the names and Workshop ids of its mods into the catalog) and trims the player's history to <see cref="ReportsPerPlayer"/>.</summary>
     void RecordReport(ExtensionReportRecord report);
+
+    /// <summary>Moves the reports of a refused connection (player 0) filed under <paramref name="keyHash"/> to <paramref name="playerId"/> (its key was admitted).</summary>
+    void AttachKey(byte[] keyHash, int playerId);
+
+    /// <summary>The newest report of every key that was refused and is bound to no player (newest first); admins see attempts by key here.</summary>
+    IReadOnlyList<ExtensionReportRecord> UnboundReports();
 
     /// <summary>The newest report of a player, or null.</summary>
     ExtensionReportRecord? LatestReport(int playerId);
@@ -117,6 +128,13 @@ public sealed class InMemoryModStore : IModStore
         ArgumentNullException.ThrowIfNull(report);
         lock (_gate)
         {
+            if (report.PlayerId == 0)
+            {
+                AddUnbound(_unbound, report);
+                ReportRecorded?.Invoke(report);
+                return;
+            }
+
             if (!_reports.TryGetValue(report.PlayerId, out var list))
             {
                 _reports[report.PlayerId] = list = [];
@@ -135,6 +153,64 @@ public sealed class InMemoryModStore : IModStore
         }
 
         ReportRecorded?.Invoke(report);
+    }
+
+    private readonly List<ExtensionReportRecord> _unbound = [];
+
+    /// <summary>Unbound reports kept at all (a refusal costs an unauthenticated client nothing, so the table must not grow with it).</summary>
+    public const int MaxUnbound = 200;
+
+    /// <summary>Inserts newest-first, at most <see cref="IModStore.ReportsPerPlayer"/> per key and <see cref="MaxUnbound"/> overall.</summary>
+    public static void AddUnbound(List<ExtensionReportRecord> list, ExtensionReportRecord report)
+    {
+        list.Insert(0, report);
+        int same = 0;
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i].KeyHash is { } k && report.KeyHash is { } r && k.AsSpan().SequenceEqual(r) && ++same > IModStore.ReportsPerPlayer)
+            {
+                list.RemoveAt(i--);
+            }
+        }
+
+        if (list.Count > MaxUnbound)
+        {
+            list.RemoveRange(MaxUnbound, list.Count - MaxUnbound);
+        }
+    }
+
+    public void AttachKey(byte[] keyHash, int playerId)
+    {
+        ArgumentNullException.ThrowIfNull(keyHash);
+        lock (_gate)
+        {
+            var mine = _unbound.Where(r => r.KeyHash is { } k && k.AsSpan().SequenceEqual(keyHash)).ToList();
+            if (mine.Count == 0)
+            {
+                return;
+            }
+
+            _unbound.RemoveAll(mine.Contains);
+            if (!_reports.TryGetValue(playerId, out var list))
+            {
+                _reports[playerId] = list = [];
+            }
+
+            list.AddRange(mine.Select(r => r with { PlayerId = playerId }));
+            list.Sort((a, b) => b.At.CompareTo(a.At));
+            if (list.Count > IModStore.ReportsPerPlayer)
+            {
+                list.RemoveRange(IModStore.ReportsPerPlayer, list.Count - IModStore.ReportsPerPlayer);
+            }
+        }
+    }
+
+    public IReadOnlyList<ExtensionReportRecord> UnboundReports()
+    {
+        lock (_gate)
+        {
+            return [.. _unbound.GroupBy(r => Convert.ToHexString(r.KeyHash ?? [])).Select(g => g.First()).OrderByDescending(r => r.At)];
+        }
     }
 
     public ExtensionReportRecord? LatestReport(int playerId)

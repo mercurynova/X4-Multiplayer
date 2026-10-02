@@ -1127,6 +1127,15 @@ export interface TransferProgressDto {
   finished: boolean;
 }
 
+export interface UnboundRejectionDto {
+  keyId: string;
+  attemptedName: string;
+  at: string;
+  policyVersion: number;
+  extensionCount: number;
+  violation: ModViolationDto | null;
+}
+
 export interface UploadProgressDto {
   receivedBytes: number;
   size: number;

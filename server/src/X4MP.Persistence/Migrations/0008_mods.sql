@@ -8,7 +8,9 @@
 
 CREATE TABLE player_extension_reports (
   id INTEGER PRIMARY KEY,
-  player_id INTEGER NOT NULL REFERENCES players(id),
+  player_id INTEGER REFERENCES players(id),        -- NULL: a refused connection whose key is not bound to any player (it never claims a name)
+  key_hash BLOB,                                   -- SHA-256 of the player key, set for those unbound rows
+  attempted_name TEXT,
   session_id INTEGER REFERENCES sessions(id),
   ts TEXT NOT NULL,
   ext_hash BLOB,
@@ -17,6 +19,7 @@ CREATE TABLE player_extension_reports (
   violation_json TEXT,
   policy_version INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX ix_ext_reports_player ON player_extension_reports(player_id, ts);
+CREATE INDEX ix_ext_reports_key ON player_extension_reports(key_hash) WHERE key_hash IS NOT NULL;
 
 CREATE TABLE session_mod_policy (
   session_id INTEGER PRIMARY KEY,

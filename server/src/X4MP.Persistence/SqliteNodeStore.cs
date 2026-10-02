@@ -56,6 +56,13 @@ public sealed class SqliteNodeStore(SqliteConnectionFactory factory) : IPlayerSt
         return ValueTask.FromResult(new PlayerBindResult(PlayerBindStatus.Ok, (int)id, true));
     }
 
+    public ValueTask<int?> FindByKeyAsync(ReadOnlyMemory<byte> keyHash, CancellationToken ct)
+    {
+        using var connection = factory.Open();
+        long? id = connection.QuerySingleOrDefault<long?>("SELECT id FROM players WHERE key_hash = @hash", new { hash = keyHash.ToArray() });
+        return ValueTask.FromResult<int?>(id is { } v ? (int)v : null);
+    }
+
     public ValueTask<BanInfo?> FindActiveBanAsync(ReadOnlyMemory<byte> keyHash, IPAddress? ip, DateTimeOffset now, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();

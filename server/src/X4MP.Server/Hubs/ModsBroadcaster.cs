@@ -53,7 +53,7 @@ internal sealed partial class ModsBroadcaster(AdminSubscriptions subs, ModViews 
 
     private void OnReport(ExtensionReportRecord report)
     {
-        if (subs.Count(HubTopic.Mods) > 0)
+        if (report.PlayerId != 0 && subs.Count(HubTopic.Mods) > 0) // a refusal bound to no player has no row to update
         {
             _work.Writer.TryWrite(() => PushReport(report));
         }

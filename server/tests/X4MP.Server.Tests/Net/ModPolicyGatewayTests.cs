@@ -56,9 +56,7 @@ public class ModPolicyGatewayTests
         var handle = await net.ConnectAsync();
         try
         {
-            // A fixed key per name: a refused player is identified (the rejection is stored under it), so a retry must be the same player.
-            var key = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(name));
-            return await TcpNodeClient.ConnectAsync(handle.Stream, new NodeClientOptions { PlayerName = name, PlayerKey = key, RequestedRoles = roles, ExtensionList = extensions });
+            return await TcpNodeClient.ConnectAsync(handle.Stream, new NodeClientOptions { PlayerName = name, RequestedRoles = roles, ExtensionList = extensions });
         }
         catch
         {
