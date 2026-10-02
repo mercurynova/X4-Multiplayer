@@ -69,13 +69,13 @@ public sealed partial class UdpLiveTests(ITestOutputHelper output)
         }
     }
 
-    private async Task<(int Exit, string Text)> SwarmAsync(Host host, string extra, int seconds)
+    private async Task<(int Exit, string Text)> SwarmAsync(Host host, string extra, int seconds, Func<IReadOnlyList<LiveNodeStats>, bool>? stopWhen = null)
     {
         var args = new List<string> { "swarm", "--clients", "3", "--with-authority", "--verify", "--behavior", "explore", "--duration", seconds.ToString(CultureInfo.InvariantCulture) };
         args.AddRange(extra.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         var options = CliParser.Parse(args).Options! with { Port = host.TcpPort };
         var text = new StringWriter();
-        int exit = await LiveRunner.RunAsync(options, text, new LiveRunOptions { ConnectStagger = TimeSpan.FromMilliseconds(30) }, CancellationToken.None);
+        int exit = await LiveRunner.RunAsync(options, text, new LiveRunOptions { ConnectStagger = TimeSpan.FromMilliseconds(30), StopWhen = stopWhen }, CancellationToken.None);
         output.WriteLine(text.ToString());
         return (exit, text.ToString());
     }
@@ -88,7 +88,8 @@ public sealed partial class UdpLiveTests(ITestOutputHelper output)
     {
         await using var host = new Host();
         await host.StartAsync();
-        var (exit, text) = await SwarmAsync(host, "--udp --loss 5", 14);
+        var (exit, text) = await SwarmAsync(host, "--udp --loss 5", 14,
+            s => LiveStop.Verified(s, 3, 600) && s.All(n => n.UdpState == "bound") && host.Replication.Stats.FramesAcked > 60);
 
         var v = VerifyLine().Match(text);
         Assert.True(v.Success);
@@ -105,7 +106,8 @@ public sealed partial class UdpLiveTests(ITestOutputHelper output)
     {
         await using var host = new Host();
         await host.StartAsync();
-        var (exit, text) = await SwarmAsync(host, "--udp --loss 100", 14);
+        var (exit, text) = await SwarmAsync(host, "--udp --loss 100", 14,
+            s => LiveStop.Verified(s, 3, 600) && s.All(n => n.UdpState == "fallback"));
 
         var v = VerifyLine().Match(text);
         Assert.True(v.Success);
@@ -121,7 +123,7 @@ public sealed partial class UdpLiveTests(ITestOutputHelper output)
     {
         await using var host = new Host();
         await host.StartAsync();
-        var (exit, text) = await SwarmAsync(host, "", 8); // no --udp: the node never asks for the capability
+        var (exit, text) = await SwarmAsync(host, "", 8, s => LiveStop.Verified(s, 3, 600)); // no --udp: the node never asks for the capability
         Assert.Equal(0, exit);
         Assert.Equal(0, host.Replication.Stats.FramesAcked);
     }

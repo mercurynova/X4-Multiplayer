@@ -1,10 +1,12 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Data.Sqlite;
 using X4MP.FakeNode;
+using X4MP.Proto;
 using X4MP.Server.Hosting;
 using Xunit.Abstractions;
 
@@ -69,9 +71,10 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
         return (exit, text.ToString());
     }
 
-    private Task<(int Exit, string Text)> SwarmAsync(Host host, string extra, int seconds) =>
+    private Task<(int Exit, string Text)> SwarmAsync(Host host, string extra, int seconds, Func<IReadOnlyList<LiveNodeStats>, bool>? stopWhen = null) =>
         RunAsync(host, new[] { "swarm", "--clients", "3", "--with-authority", "--verify", "--behavior", "explore", "--duration", seconds.ToString(CultureInfo.InvariantCulture) }
-            .Concat(extra.Split(' ', StringSplitOptions.RemoveEmptyEntries)));
+            .Concat(extra.Split(' ', StringSplitOptions.RemoveEmptyEntries)),
+            new LiveRunOptions { ConnectStagger = TimeSpan.FromMilliseconds(30), StopWhen = stopWhen });
 
     [GeneratedRegex(@"^verify: clients=(?<clients>\d+) .*?position-errors=(?<pos>\d+) errors=(?<errors>\d+)", RegexOptions.Multiline)]
     private static partial Regex VerifyLine();
@@ -84,7 +87,10 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
     {
         await using var host = new Host();
         await host.StartAsync();
-        var (exit, text) = await SwarmAsync(host, "--disconnect-every 3 --reload-every 4", 18);
+        var (exit, text) = await SwarmAsync(host, "--disconnect-every 3 --reload-every 4", 18,
+            s => LiveStop.Clients(s).Count(c => c.Connected && c.InGame) == 3
+                 && s.Sum(c => c.Disconnects) >= 3 && s.Sum(c => c.Reloads) >= 3 && s.Sum(c => c.ResumesWithKeyframe) >= 6
+                 && LiveStop.Clients(s).All(c => c.Session is { KeyframesSinceResume: > 0 }));
 
         var resume = ResumeLine().Match(text);
         Assert.True(resume.Success, "no resume summary line");
@@ -121,7 +127,9 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
     {
         await using var host = new Host();
         await host.StartAsync();
-        var (exit, text) = await SwarmAsync(host, "--slow-reader pause=1/60", 14);
+        var (exit, text) = await SwarmAsync(host, "--slow-reader pause=1/60", 14,
+            s => s.Where(n => n.Impairment is not { Slow: not null } && n.Role == Role.Client).Count(n => n.InGame && n.Session is { Verifier.EntriesChecked: > 500 }) >= 2
+                 && s.Any(n => n.Impairment is { Slow: not null } imp && imp.PausedMilliseconds >= 3000));
 
         Assert.Contains("slow reader on:", text, StringComparison.Ordinal);
         Assert.Contains("slow-reader: slow-clients=1", text, StringComparison.Ordinal);
@@ -138,9 +146,22 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
     {
         await using var host = new Host();
         await host.StartAsync();
-        var swarm = SwarmAsync(host, "", 20);
-        await Task.Delay(TimeSpan.FromSeconds(5)); // let the swarm join first
-        var (fuzzExit, fuzzText) = await RunAsync(host, ["fuzz", "--duration", "8", "--clients", "2", "--seed", "5", "--local-ip", "127.0.0.2", "--rotate-ip"]);
+        IReadOnlyList<LiveNodeStats>? live = null;
+        bool fuzzDone = false;
+        var swarm = SwarmAsync(host, "", 30, s =>
+        {
+            live = s;
+            return Volatile.Read(ref fuzzDone) && LiveStop.Verified(s, 3, 500); // the swarm carries on until the fuzzer is through, and verifies afterwards
+        });
+        var joined = Stopwatch.StartNew();
+        while (!(live is { } l && LiveStop.Verified(l, 3, 300))) // let the swarm join and replicate first
+        {
+            Assert.True(joined.Elapsed < TimeSpan.FromSeconds(20), "the swarm never got going");
+            await Task.Delay(25);
+        }
+
+        var (fuzzExit, fuzzText) = await RunAsync(host, ["fuzz", "--duration", "5", "--clients", "2", "--seed", "5", "--local-ip", "127.0.0.2", "--rotate-ip"]);
+        Volatile.Write(ref fuzzDone, true);
         var (swarmExit, swarmText) = await swarm;
 
         Assert.Contains("server-alive=yes", fuzzText, StringComparison.Ordinal);
@@ -160,7 +181,11 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
         await host.StartAsync();
         var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
         var (exit, text) = await RunAsync(host, ["inspect", "--no-join", "--duration", "3", "--filter", "SessionState,RosterUpdate,SessionSettings"],
-            new LiveRunOptions { OnInspectLine = lines.Enqueue });
+            new LiveRunOptions
+            {
+                OnInspectLine = lines.Enqueue,
+                StopWhen = _ => lines.Any(l => l.Contains("SessionState{", StringComparison.Ordinal)) && lines.Any(l => l.Contains("RosterUpdate{", StringComparison.Ordinal)),
+            });
 
         Assert.Equal(0, exit);
         Assert.Contains(lines, l => l.Contains("SessionState{", StringComparison.Ordinal));

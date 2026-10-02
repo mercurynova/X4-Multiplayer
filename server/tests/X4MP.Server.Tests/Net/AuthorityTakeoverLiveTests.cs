@@ -72,7 +72,7 @@ public sealed class AuthorityTakeoverLiveTests(ITestOutputHelper output)
         {
             var options = CliParser.Parse(["swarm", "--clients", "2", "--with-authority", "--duration", "6"]).Options! with { Port = host.TcpPort };
             var text = new StringWriter();
-            int exit = await LiveRunner.RunAsync(options, text, new LiveRunOptions { ConnectStagger = TimeSpan.FromMilliseconds(30), PhaseTimeout = TimeSpan.FromSeconds(8) }, CancellationToken.None);
+            int exit = await LiveRunner.RunAsync(options, text, new LiveRunOptions { ConnectStagger = TimeSpan.FromMilliseconds(30), PhaseTimeout = TimeSpan.FromSeconds(8), StopWhen = s => LiveStop.Everyone(s, 3) }, CancellationToken.None);
             output.WriteLine(text.ToString());
             Assert.Equal(0, exit);
             Assert.Contains("ingame=3", text.ToString().Split(Environment.NewLine).Last(l => l.StartsWith("summary:", StringComparison.Ordinal)));
