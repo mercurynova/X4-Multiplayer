@@ -189,9 +189,14 @@ public sealed class TcpHarness : NetHarness
 
     public override NodeListenerBase Listener { get; }
 
-    public static async Task<NetHarness> StartAsync(
+    public static Task<NetHarness> StartAsync(
         NetOptions options, TimeProvider? time, bool withGateway, InMemoryNodeStore? store, Func<GatewayState, IAdmissionHandler>? handler,
-        X4MP.Core.Mods.IModPolicyProvider? modPolicy = null, X4MP.Core.Mods.IModStore? modStore = null)
+        X4MP.Core.Mods.IModPolicyProvider? modPolicy = null, X4MP.Core.Mods.IModStore? modStore = null) =>
+        TestPorts.StartWithRetryAsync(() => StartOnceAsync(options, time, withGateway, store, handler, modPolicy, modStore));
+
+    private static async Task<NetHarness> StartOnceAsync(
+        NetOptions options, TimeProvider? time, bool withGateway, InMemoryNodeStore? store, Func<GatewayState, IAdmissionHandler>? handler,
+        X4MP.Core.Mods.IModPolicyProvider? modPolicy, X4MP.Core.Mods.IModStore? modStore)
     {
         int port = FreePort();
         var builder = WebApplication.CreateBuilder();
@@ -249,7 +254,17 @@ public sealed class TcpHarness : NetHarness
             harness.Gateway = app.Services.GetRequiredService<NodeGateway>();
         }
 
-        await app.StartAsync().ConfigureAwait(false);
+        try
+        {
+            await app.StartAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // Lost the port race: release what was built so the retry starts clean.
+            await app.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
         return harness;
     }
 
@@ -266,14 +281,7 @@ public sealed class TcpHarness : NetHarness
         }
     }
 
-    private static int FreePort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        int port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
-    }
+    private static int FreePort() => TestPorts.FreeTcp();
 
     public override async Task<ClientHandle> ConnectAsync(IPAddress? remoteIp = null)
     {
