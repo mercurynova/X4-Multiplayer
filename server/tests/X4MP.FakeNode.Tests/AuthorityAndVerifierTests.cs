@@ -116,7 +116,7 @@ public sealed class AuthorityAndVerifierTests
     }
 
     [Fact]
-    public void ATickThatSpawnsEntitiesPutsAClockUpdateFirstAndGoesOutOnTheOrderedLane()
+    public void EverySpawnCarriesTheGameTimeItWasSampledAt()
     {
         var w = NewWorld();
         var a = new FakeAuthority(w);
@@ -126,19 +126,16 @@ public sealed class AuthorityAndVerifierTests
         for (long t = 0; t < 40; t++)
         {
             var o = a.Tick(t);
-            bool spawns = o.Any(m => m.Type == MsgType.EntitySpawn);
-            Assert.Equal(spawns, FakeAuthority.NeedsOrderedLane(o));
-            if (!spawns)
-                continue;
-            sawSpawnTick = true;
-            // the spawns are stamped with the game time of the update in front of them
-            Assert.Equal(MsgType.WorldUpdate, o[0].Type);
-            var clock = Decode<WorldUpdate>(o[0]).UnPack();
-            Assert.Empty(clock.States);
-            Assert.Equal((uint)t, clock.AuthorityTick);
+            var worldTimes = o.Where(m => m.Type == MsgType.WorldUpdate).Select(m => Decode<WorldUpdate>(m).GameTime).ToList();
+            foreach (var spawn in o.Where(m => m.Type == MsgType.EntitySpawn))
+            {
+                sawSpawnTick = true;
+                double gameTime = Decode<EntitySpawn>(spawn).GameTime;
+                Assert.True(gameTime > 0 || t == 0);
+                Assert.All(worldTimes, wt => Assert.Equal(wt, gameTime));
+            }
         }
         Assert.True(sawSpawnTick);
-        Assert.False(FakeAuthority.NeedsOrderedLane([]));
     }
 
     [Fact]

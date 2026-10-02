@@ -365,24 +365,8 @@ public sealed class FakeAuthority
             };
             output.Add(new OutMessage(MsgType.WorldUpdate, MessageEncoder.EncodePayload(b => WorldUpdate.Pack(b, update), 1280)));
         }
-
-        // An EntitySpawn state carries no sample time, so the server assumes it is as fresh as the latest world update. An empty
-        // WorldUpdate in front of the spawns of this tick says exactly which game time that is.
-        if (output.Any(m => m.Type == MsgType.EntitySpawn))
-        {
-            var clock = new WorldUpdateT { AuthorityTick = (uint)tick, CaptureTimeUs = CaptureTimeUs(tick), GameTime = now, States = [] };
-            output.Insert(0, new OutMessage(MsgType.WorldUpdate, MessageEncoder.EncodePayload(b => WorldUpdate.Pack(b, clock), 64)));
-        }
         return output;
     }
-
-    /// <summary>
-    /// True when a tick's messages must go out in order on the reliable lane. An <c>EntitySpawn</c> state carries no sample time, so the server
-    /// stamps it with the game time of the latest <c>WorldUpdate</c> it ingested: the empty clock update <see cref="Tick"/> puts in front of the spawns.
-    /// Spawns travel over TCP (too big for a datagram); a clock update sent as a datagram can overtake them or arrive behind them (latency,
-    /// jitter, reordering) and the spawned entities would be stamped with a stale game time (a position error at the first replication).
-    /// </summary>
-    public static bool NeedsOrderedLane(IReadOnlyList<OutMessage> tickMessages) => tickMessages.Any(m => m.Type == MsgType.EntitySpawn);
 
     /// <summary>Fake "server clock" at the sample time of a tick.</summary>
     public ulong CaptureTimeUs(long tick) => (ulong)Math.Round(tick * 1_000_000.0 / _opt.TickRateHz);
@@ -394,7 +378,7 @@ public sealed class FakeAuthority
         {
             if (batch.Count == 0)
                 return;
-            var spawn = new EntitySpawnT { Entities = [.. batch] };
+            var spawn = new EntitySpawnT { Entities = [.. batch], GameTime = now };
             output.Add(new OutMessage(MsgType.EntitySpawn, MessageEncoder.EncodePayload(b => EntitySpawn.Pack(b, spawn), 16384)));
             batch.Clear();
         }
