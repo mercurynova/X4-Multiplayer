@@ -47,6 +47,21 @@ public static class TsContractGenerator
                 continue;
             }
 
+            if (type.IsAbstract && type.IsSealed)
+            {
+                // A static class of string constants (hub method and event names): emitted as a frozen object.
+                sb.Append("export const ").Append(type.Name).Append(" = {\n");
+                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static)
+                             .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+                             .OrderBy(f => f.MetadataToken))
+                {
+                    var value = ((string)field.GetRawConstantValue()!).Replace("\\", "\\\\", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal);
+                    sb.Append("  ").Append(field.Name).Append(": '").Append(value).Append("',\n");
+                }
+                sb.Append("} as const;\n");
+                continue;
+            }
+
             sb.Append("export interface ").Append(type.Name).Append(" {\n");
             var nullability = new NullabilityInfoContext();
             foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -67,6 +82,11 @@ public static class TsContractGenerator
 
     private static string Map(Type type, HashSet<Type> marked, string where)
     {
+        if (Nullable.GetUnderlyingType(type) is { } underlying)
+        {
+            return Map(underlying, marked, where) + " | null";
+        }
+
         if (type == typeof(string) || type == typeof(Guid) || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan))
         {
             return "string";

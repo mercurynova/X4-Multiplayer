@@ -43,4 +43,13 @@ namespace X4MP.Server.Api;
 [JsonSerializable(typeof(List<AuditEntryDto>))]
 [JsonSerializable(typeof(GalaxyDto))]
 [JsonSerializable(typeof(SectorDetailDto))]
+[JsonSerializable(typeof(PlayerLiveDto))]
+[JsonSerializable(typeof(SessionSummaryDto))]
+[JsonSerializable(typeof(GalaxyFrameDto))]
+[JsonSerializable(typeof(SectorFrameDto))]
+[JsonSerializable(typeof(ChatMessageDto))]
+[JsonSerializable(typeof(TransferProgressDto))]
+[JsonSerializable(typeof(AlertDto))]
+[JsonSerializable(typeof(PermissionDeniedDto))]
+[JsonSerializable(typeof(LogFilterDto))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext;
