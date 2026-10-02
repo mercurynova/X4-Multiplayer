@@ -106,8 +106,32 @@ public sealed record CliOptions
     public bool WithAuthority { get; init; }
     public string? Password { get; init; }
 
-    /// <summary>client/swarm: the extension report every node sends in <c>ClientHello.extension_list</c> (<c>--extensions file.json</c>, see <see cref="ExtensionListFile"/>); null = none.</summary>
+    /// <summary>client/swarm: the extension report every client sends in <c>ClientHello.extension_list</c> (the authority uses <see cref="AuthorityExtensions"/>) (<c>--extensions file.json</c>, see <see cref="ExtensionListFile"/>); null = none.</summary>
     public IReadOnlyList<ExtensionInfoT>? Extensions { get; init; }
+
+    /// <summary>client/swarm: a built-in extension report (<c>--extensions-preset vanilla|modded|mismatch</c>); also turns on the verification of the server's answer per bot.</summary>
+    public ExtensionPreset ExtensionsPreset { get; init; }
+
+    /// <summary>authority (swarm/authority): the extension report of the authority node (<c>--authority-extensions FILE|vanilla|modded</c>); null = the authority sends none (the <c>authority</c> command falls back to <see cref="Extensions"/> / the preset).</summary>
+    public IReadOnlyList<ExtensionInfoT>? AuthorityExtensions { get; init; }
+
+    /// <summary>The server settings the per-bot verification assumes (<c>--expect-enforcement</c>, <c>--expect-unknown</c>).</summary>
+    public ModExpectationSettings ExpectMods { get; init; } = new();
+
+    /// <summary>The extension report node <paramref name="ordinal"/> (0-based among the clients) of role <paramref name="role"/> sends, or null.</summary>
+    public IReadOnlyList<ExtensionInfoT>? ExtensionsFor(Role role, int ordinal)
+    {
+        if (role == Role.Authority)
+        {
+            if (AuthorityExtensions is not null)
+                return AuthorityExtensions;
+            if (Command != FakeNodeCommand.Authority)
+                return null;
+            return Extensions ?? (ExtensionsPreset is ExtensionPreset.Vanilla or ExtensionPreset.Modded ? ExtensionPresets.For(ExtensionsPreset, ordinal) : null);
+        }
+
+        return ExtensionsPreset != ExtensionPreset.None ? ExtensionPresets.For(ExtensionsPreset, ordinal) : Extensions;
+    }
 
     /// <summary>client/swarm: send <c>AssetOrder</c>s for assets of this kind (default: none).</summary>
     public CommanderMode Commander { get; init; } = CommanderMode.None;
@@ -279,7 +303,11 @@ public static class CliParser
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
           --with-authority     swarm: also connect one authority node
           --password PW        session password
-          --extensions FILE    client/swarm: report the extensions listed in this JSON file in ClientHello (array of {id,name,version,source,enabled,workshopId,classHint,...})
+          --extensions FILE    client/swarm (clients only): report the extensions listed in this JSON file in ClientHello (array of {id,name,version,source,enabled,workshopId,classHint,...})
+          --extensions-preset vanilla|modded|mismatch   client/swarm: built-in extension report (mismatch: bot i differs from modded in one way, cycling); verifies each bot's outcome against the authority's list
+          --authority-extensions FILE|vanilla|modded    the authority's own extension report (--extensions applies to clients only)
+          --expect-enforcement strict|warn   with --extensions-preset: the server's X4MP:Mods:Enforcement (default strict)
+          --expect-unknown allow-client-only|allow-all|block   with --extensions-preset: the server's X4MP:Mods:UnknownDefault (default allow-client-only)
           --commander shared|own|foreign   clients send AssetOrders for teammates' / own team-common / another team's ships (0.5 s apart)
           --team <id|name>     client/swarm: join this team (a lobby gets a TeamChoice, or a TeamCreateRequest when the team does not exist and the lobby allows creating; a node that already has another team asks for a move)
           --team-pick lobby-random   client/swarm: answer the lobby with a random open team
@@ -397,6 +425,10 @@ public static class CliParser
             return Fail("--team and --team-pick are mutually exclusive");
         if (o.Teams > 0 && o.Team is not null)
             return Fail("--teams and --team are mutually exclusive");
+        if (o.ExtensionsPreset != ExtensionPreset.None && o.Extensions is not null)
+            return Fail("--extensions and --extensions-preset are mutually exclusive");
+        if (o.ExtensionsPreset == ExtensionPreset.Mismatch && command == FakeNodeCommand.Authority)
+            return Fail("--extensions-preset mismatch is for clients (the authority takes vanilla|modded)");
         if (o.Relations != RelationsPreset.None && command != FakeNodeCommand.Swarm)
             return Fail("--relations is a swarm option");
         return new CliParseResult(o, null);
@@ -475,6 +507,31 @@ public static class CliParser
             case "extensions":
                 var (list, error) = ExtensionListFile.Load(value);
                 return list is null ? (o, error) : (o with { Extensions = list }, null);
+            case "extensions-preset":
+                return ExtensionPresets.TryParse(value, out var preset)
+                    ? (o with { ExtensionsPreset = preset }, null) : (o, $"--extensions-preset must be vanilla|modded|mismatch (got '{value}')");
+            case "authority-extensions":
+                if (ExtensionPresets.TryParse(value, out var authPreset))
+                    return authPreset == ExtensionPreset.Mismatch
+                        ? (o, "--authority-extensions takes vanilla|modded or a file (mismatch is per bot)")
+                        : (o with { AuthorityExtensions = ExtensionPresets.For(authPreset, 0) }, null);
+                var (authList, authError) = ExtensionListFile.Load(value);
+                return authList is null ? (o, authError?.Replace("--extensions", "--authority-extensions", StringComparison.Ordinal)) : (o with { AuthorityExtensions = authList }, null);
+            case "expect-enforcement":
+                return value.ToLowerInvariant() switch
+                {
+                    "strict" => (o with { ExpectMods = o.ExpectMods with { Enforcement = X4MP.Proto.ModEnforcement.Strict } }, null),
+                    "warn" => (o with { ExpectMods = o.ExpectMods with { Enforcement = X4MP.Proto.ModEnforcement.Warn } }, null),
+                    _ => (o, $"--expect-enforcement must be strict|warn (got '{value}')"),
+                };
+            case "expect-unknown":
+                return value.ToLowerInvariant() switch
+                {
+                    "allow-client-only" => (o with { ExpectMods = o.ExpectMods with { UnknownDefault = X4MP.Proto.UnknownModDefault.AllowClientOnly } }, null),
+                    "allow-all" => (o with { ExpectMods = o.ExpectMods with { UnknownDefault = X4MP.Proto.UnknownModDefault.AllowAll } }, null),
+                    "block" => (o with { ExpectMods = o.ExpectMods with { UnknownDefault = X4MP.Proto.UnknownModDefault.Block } }, null),
+                    _ => (o, $"--expect-unknown must be allow-client-only|allow-all|block (got '{value}')"),
+                };
             case "commander":
                 return Enum.TryParse<CommanderMode>(value, ignoreCase: true, out var c) && Enum.IsDefined(c) && c != CommanderMode.None
                     ? (o with { Commander = c }, null) : (o, $"--commander must be shared|own|foreign (got '{value}')");

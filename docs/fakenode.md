@@ -82,7 +82,29 @@ Ping/Pong. Options accept `--name value` and `--name=value`. `--verify` and the 
 
 | Option | What |
 |---|---|
-| `--extensions FILE` | client/swarm (currently every node, authority included): send the extensions in a JSON file as `ClientHello.extension_list` (and the matching `extensions_hash`). The file is an array of `{id, name, version, source, enabled, workshopId, classHint, contentHash, ...}` (enums by name, `enabled` defaults to true). A mismatch with the session mod policy gets `ExtensionsMismatch` with the exact install/enable/disable/update lists and links. Presets (`--extensions-preset`) come with M1-X5. |
+| `--extensions FILE` | client/swarm (clients only; the authority uses `--authority-extensions`): send the extensions in a JSON file as `ClientHello.extension_list` (and the matching `extensions_hash`). The file is an array of `{id, name, version, source, enabled, workshopId, classHint, contentHash, ...}` (enums by name, `enabled` defaults to true). A mismatch with the session mod policy gets `ExtensionsMismatch` with the exact install/enable/disable/update lists and links. The `authority` command itself still uses `--extensions` when no `--authority-extensions` is given |
+| `--extensions-preset vanilla\|modded\|mismatch` | client/swarm: a built-in report. `vanilla` = Split Vendetta + Cradle of Humanity (DLC only). `modded` = vanilla + kuertee UIX and SirNukes Mod Support APIs (client-only allowlist) + Workshop sim mod `ws_2458720435` v1.4 + Nexus/manual sim mod `sn_better_traders` v2.0. `mismatch` = bot `i` (0-based, cycling) sends `modded` changed in one way: 0 missing required mod (install), 1 extra sim mod `ws_9000000001` (disable), 2 required mod disabled (enable), 3 required mod outdated v1.3 (update), 4 missing DLC `ego_dlc_terran` (install, Dlc), 5 extra DLC `ego_dlc_boron` (disable, Dlc). Mutually exclusive with `--extensions`. Turns on per-bot verification (below) |
+| `--authority-extensions FILE\|vanilla\|modded` | the authority's own report (same file format). Without it the swarm authority sends no extensions. Give it also when the real authority runs elsewhere (a separate process) so the verification knows what the server compares against |
+| `--expect-enforcement strict\|warn` | with a preset: the server's `X4MP:Mods:Enforcement` (default strict). `warn` expects admission plus a `ServerNotice` for non-DLC differences (a DLC difference still rejects) |
+| `--expect-unknown allow-client-only\|allow-all\|block` | with a preset: the server's `X4MP:Mods:UnknownDefault` (default allow-client-only) |
+
+**Verification (with `--extensions-preset`).** The model assumes `SourceMode=AuthorityDefines` with no admin entries (the evaluator is cross-checked
+in `FakeNodePresetExpectationTests`). Each bot prints one line: variant, expected outcome and lists, actual outcome and lists (rejections also print
+the Workshop links), then `match` or `MISMATCH`. A rejected bot with the expected lists is not an error; an admitted bot that should have been
+rejected, a missing or unexpected Warn notice, other lists, or another disconnect code is a `MISMATCH`. The end prints
+`mods: bots=N rejected=a admitted=b warned=c expected-rejections=d matches=m mismatches=x`; mismatches count as errors (exit code 1). With
+`--with-authority` the clients wait until the authority is connected (before an authority exists AuthorityDefines admits everyone). Use
+`--duration` (the swarm has no other end when every bot is rejected). The default `MaxConnectionsPerIp=4` limits admitted bots from one machine
+(`X4MP__Net__MaxConnectionsPerIp=20`).
+
+```powershell
+# AuthorityDefines (the default), authority on modded: one rejection per bot with the lists above
+fakenode swarm --clients 6 --with-authority --authority-extensions modded --extensions-preset mismatch --duration 6
+# everyone matches and joins
+fakenode swarm --clients 3 --with-authority --authority-extensions modded --extensions-preset modded --duration 6
+# Warn: start the server with X4MP__Mods__Enforcement=Warn
+fakenode swarm --clients 6 --with-authority --authority-extensions modded --extensions-preset mismatch --expect-enforcement warn --duration 6
+```
 
 ### Economy and trade
 
