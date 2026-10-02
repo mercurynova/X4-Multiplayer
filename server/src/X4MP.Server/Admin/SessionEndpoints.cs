@@ -57,16 +57,8 @@ internal static class SessionEndpoints
         return Results.Json(dto, ApiJsonContext.Default.ServerInfoDto);
     }
 
-    private static async Task<IResult> GetDashboardAsync(AdminSessions sessions, NetOptions net)
-    {
-        var live = await sessions.GetLiveAsync();
-        var now = sessions.Time.GetUtcNow();
-        var players = live.Snapshot.Nodes.Select(n => AdminMapping.ToLive(n, now, live.Muted)).ToList();
-        var dto = new DashboardSnapshotDto(
-            now, live.Exists ? sessions.Summary(live) : null, live.Snapshot.Nodes.Count(n => n.Connected), net.MaxPlayers,
-            AdminMapping.ToDto(live.Snapshot.Authority), players, await sessions.EntityCountAsync());
-        return Results.Json(dto, ApiJsonContext.Default.DashboardSnapshotDto);
-    }
+    private static async Task<IResult> GetDashboardAsync(DashboardBuilder dashboard) =>
+        Results.Json(await dashboard.BuildAsync(), ApiJsonContext.Default.DashboardSnapshotDto);
 
     // ------------------------------------------------------------------ reads
 

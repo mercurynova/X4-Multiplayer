@@ -8,6 +8,7 @@ using X4MP.Server.Api;
 using X4MP.Server.Auth;
 using X4MP.Server.Economy;
 using X4MP.Server.Events;
+using X4MP.Server.Hubs;
 using X4MP.Server.Logging;
 using X4MP.Server.Metrics;
 using X4MP.Server.Net;
@@ -89,6 +90,7 @@ public static partial class ServerHost
         builder.Services.AddSaves();
         builder.Services.AddRelay(); // after the world mirror and the interest manager: it reads what they apply
         builder.Services.AddAdminApi();
+        builder.Services.AddAdminHub(); // after the admin API (it shares AdminSessions), the settings and the saves
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
         var app = builder.Build();
@@ -98,6 +100,7 @@ public static partial class ServerHost
         app.MapMetricsApi();
         app.MapSaveApi();
         app.MapAdminApi();
+        app.MapAdminHub();
         MapWeb(app);
         return app;
     }

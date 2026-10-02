@@ -1599,6 +1599,19 @@ Kestrel's WebSocket output buffer limits are left at their defaults, and if a cl
 buffer stays full the server closes that browser connection. The SPA reconnects
 automatically (`withAutomaticReconnect`).
 
+**As built (M1-S3, `X4MP.Server/Hubs`).** Differences from the sketch above:
+- Topics are a registry (`AdminSubscriptions`, per-topic counts), not SignalR groups: every connection has its own bounded
+  `ClientPump` (256 sends; keyed sends coalesce, the oldest event is dropped when full; a send stuck for `StallSeconds` = 15 closes the
+  connection). `IHubContext` group sends await slow clients, a pump does not. A topic with zero subscribers builds no payload
+  (`AdminBroadcaster.PayloadsBuilt` is the spy).
+- Pushed: `Dashboard`, `PlayerChanged`, `PlayerRemoved(playerId)` (not connectionId: the roster is keyed by player), `SessionChanged`,
+  `GalaxyFrame`, `SectorFrame` (4 Hz, `MaxSectorsPerAdmin` = 2, via `InterestManager.SetAdminView` on the actor), `LogBatch`, `Diagnostics`,
+  `Chat` (live lines carry a negative local id), `SaveTransfer` (last push has `Finished`), `Alert` (raised and cleared, to every
+  connection), `SettingsChanged` (every connection), `PermissionDenied` (dashboard topic, 5/s). Extra client methods:
+  `UnsubscribeGalaxy`, `UnsubscribeChat`.
+- Not yet: the teams and economy topics and their pushes (M1-T5, M1-E6); `Dashboard.TickP99Ms` is 0 until the actor measures its tick.
+- Method and event names are constants (`AdminHubMethods`, `AdminHubEvents`) emitted into `generated.ts`; a test keeps them in step with `AdminHub` and `IAdminClient`.
+
 ---
 
 ## 5. Web GUI

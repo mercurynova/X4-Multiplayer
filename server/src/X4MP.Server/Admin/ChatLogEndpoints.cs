@@ -43,56 +43,18 @@ internal static class ChatLogEndpoints
     private static async Task<IResult> SendAsync(
         SendChatRequest? body, HttpContext context, AdminSessions sessions, IChatControl chat, AdminStore audit)
     {
-        var errors = new Dictionary<string, string[]>();
-        string text = RelayModule.CleanChat(body?.Text);
-        if (text.Length == 0)
+        var result = await ChatSender.SendAsync(body, AdminApi.Actor(context), AdminApi.RemoteIp(context), sessions, chat, audit);
+        if (result.Errors is not null)
         {
-            errors["text"] = ["Text is required (control characters are removed)."];
-        }
-        else if (text.Length >= RelayModule.MaxChatLength && body!.Text!.Count(c => !char.IsControl(c)) > RelayModule.MaxChatLength)
-        {
-            errors["text"] = [$"The text can be at most {RelayModule.MaxChatLength} characters."];
+            return Problems.Validation(result.Errors);
         }
 
-        string channel = body?.Channel?.Trim().ToLowerInvariant() ?? "all";
-        if (channel is not ("all" or "player"))
+        if (result.ConflictCode is not null)
         {
-            errors["channel"] = ["Use all or player."];
-        }
-        else if (channel == "player" && body?.ToPlayerId is null)
-        {
-            errors["toPlayerId"] = ["toPlayerId is required for the player channel."];
+            return Problems.Conflict(result.ConflictCode, result.ConflictMessage!);
         }
 
-        if (errors.Count > 0)
-        {
-            return Problems.Validation(errors);
-        }
-
-        int? target = null;
-        if (channel == "player")
-        {
-            long to = body!.ToPlayerId!.Value;
-            var live = await sessions.GetLiveAsync();
-            if (to > int.MaxValue || !live.IsConnected(to))
-            {
-                return Problems.Conflict("PlayerNotOnline", "The player is not connected.");
-            }
-
-            target = (int)to;
-        }
-
-        bool broadcast = body?.AsBroadcast ?? false;
-        var kind = broadcast ? ChatChannel.System : ChatChannel.Admin;
-        int delivered = await chat.SendAsync(AdminApi.Actor(context), text, kind, target);
-        AdminApi.Audit(context, audit, "chat.send", target?.ToString(CultureInfo.InvariantCulture) ?? "all", null, new()
-        {
-            ["channel"] = channel,
-            ["broadcast"] = broadcast ? "true" : "false",
-            ["length"] = text.Length.ToString(CultureInfo.InvariantCulture),
-            ["delivered"] = delivered.ToString(CultureInfo.InvariantCulture),
-        });
-        return Results.Json(new ChatSentDto(delivered), ApiJsonContext.Default.ChatSentDto, statusCode: StatusCodes.Status202Accepted);
+        return Results.Json(new ChatSentDto(result.Delivered), ApiJsonContext.Default.ChatSentDto, statusCode: StatusCodes.Status202Accepted);
     }
 
     // ------------------------------------------------------------------ logs
