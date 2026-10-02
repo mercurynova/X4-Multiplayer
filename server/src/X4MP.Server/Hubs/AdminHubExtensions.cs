@@ -17,6 +17,7 @@ using X4MP.Server.Auth;
 using X4MP.Server.Economy;
 using X4MP.Server.Logging;
 using X4MP.Server.Settings;
+using X4MP.Server.Teams;
 
 namespace X4MP.Server.Hubs;
 
@@ -46,6 +47,7 @@ public static class AdminHubExtensions
             });
 
         services.TryAddSingleton<ActiveAlerts>();
+        services.TryAddSingleton<TeamsPushState>();
         services.TryAddSingleton<AdminSubscriptions>();
         services.TryAddSingleton(sp => new DashboardBuilder(
             sp.GetRequiredService<AdminSessions>(),
@@ -67,6 +69,8 @@ public static class AdminHubExtensions
             sp.GetRequiredService<AdminStore>(),
             sp.GetRequiredService<EconomyModule>(),
             sp.GetRequiredService<EconomyViews>(),
+            sp.GetRequiredService<TeamViews>(),
+            sp.GetRequiredService<TeamsPushState>(),
             sp.GetRequiredService<IOptionsMonitor<AdminHubOptions>>(),
             sp.GetRequiredService<ILogger<AdminHubCore>>()));
         services.TryAddSingleton(sp => new AdminBroadcaster(
@@ -83,6 +87,9 @@ public static class AdminHubExtensions
             sp.GetRequiredService<ActiveAlerts>(),
             sp.GetRequiredService<EconomyModule>(),
             sp.GetRequiredService<EconomyViews>(),
+            sp.GetRequiredService<TeamViews>(),
+            sp.GetRequiredService<X4MP.Core.Teams.TeamModule>(),
+            sp.GetRequiredService<TeamsPushState>(),
             sp,
             sp.GetRequiredService<IOptionsMonitor<AdminHubOptions>>(),
             sp.GetRequiredService<TimeProvider>(),

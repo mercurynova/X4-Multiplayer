@@ -1,5 +1,6 @@
 using X4MP.Core.Relay;
 using X4MP.Core.Session;
+using X4MP.Core.Teams;
 using X4MP.Core.World;
 using X4MP.Persistence;
 using X4MP.Proto;
@@ -8,8 +9,20 @@ using X4MP.Server.Api;
 namespace X4MP.Server.Admin;
 
 /// <summary>What the admin side knows about the live session at one moment.</summary>
-internal sealed record LiveSession(SessionSnapshot Snapshot, long DbId, SessionRecord? Row, IReadOnlySet<int> Muted, IReadOnlyDictionary<int, MuteEntry> Mutes)
+internal sealed record LiveSession(
+    SessionSnapshot Snapshot, long DbId, SessionRecord? Row, IReadOnlySet<int> Muted, IReadOnlyDictionary<int, MuteEntry> Mutes, ITeamDirectory? Teams = null)
 {
+    /// <summary>The team id and name of a player, or nulls while the player has no team.</summary>
+    public (long? Id, string? Name) TeamOf(long playerId)
+    {
+        if (Teams is null || playerId > int.MaxValue || Teams.TeamOf((int)playerId) is not { } team)
+        {
+            return (null, null);
+        }
+
+        return (team, Teams.Teams.FirstOrDefault(t => t.TeamId == team)?.Name);
+    }
+
     /// <summary>True when there is a session to show: its row exists, or it left Idle (a node joined or it started).</summary>
     public bool Exists => DbId > 0 || Snapshot.Phase != SessionPhase.Idle;
 
@@ -25,7 +38,7 @@ internal sealed record LiveSession(SessionSnapshot Snapshot, long DbId, SessionR
 /// admin selected when creating a session. The save is also written to <c>sessions.save_id</c>; the in-memory copy covers the write-behind
 /// lag, so deleting that save is refused immediately.
 /// </summary>
-internal sealed class AdminSessions(SessionActor actor, SqliteAdminQueries queries, IChatControl chat, WorldMirror mirror, TimeProvider time)
+internal sealed class AdminSessions(SessionActor actor, SqliteAdminQueries queries, IChatControl chat, WorldMirror mirror, TimeProvider time, ITeamDirectory? teams = null)
 {
     private volatile string? _selectedSha;
 
@@ -46,7 +59,7 @@ internal sealed class AdminSessions(SessionActor actor, SqliteAdminQueries queri
         long dbId = await actor.GetStoreSessionIdAsync().ConfigureAwait(false);
         var mutes = (await chat.MutedAsync().ConfigureAwait(false)).ToDictionary(m => m.PlayerId);
         var row = dbId > 0 ? queries.FindSession(dbId) : null;
-        return new LiveSession(snapshot, dbId, row, mutes.Keys.ToHashSet(), mutes);
+        return new LiveSession(snapshot, dbId, row, mutes.Keys.ToHashSet(), mutes, teams);
     }
 
     public Task<int> EntityCountAsync() => actor.CallAsync(() => mirror.Count);
@@ -80,7 +93,7 @@ internal sealed class AdminSessions(SessionActor actor, SqliteAdminQueries queri
         return new SessionDetailDto(
             Math.Max(live.DbId, 0), live.Snapshot.SessionName, live.Phase, row?.SaveName, row?.SaveSha256, row?.CreatedAt ?? live.Snapshot.PhaseSince,
             row?.StartedAt, row?.EndedAt, row?.EndReason, Uptime(row?.StartedAt, null), live.Snapshot.Nodes.Count, true, live.Snapshot.PhaseSince,
-            AdminMapping.ToDto(live.Snapshot.Authority), [.. live.Snapshot.Nodes.Select(n => AdminMapping.ToLive(n, now, live.Muted))]);
+            AdminMapping.ToDto(live.Snapshot.Authority), [.. live.Snapshot.Nodes.Select(n => AdminMapping.ToLive(n, now, live))]);
     }
 
     /// <summary>The detail of a past session (no live nodes).</summary>

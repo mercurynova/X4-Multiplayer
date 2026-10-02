@@ -38,7 +38,7 @@ internal static class PlayerEndpoints
     {
         live.Mutes.TryGetValue((int)player.Id, out var mute);
         var ban = activeBans.FirstOrDefault(b => b.PlayerId == player.Id);
-        return AdminMapping.ToDto(player, live.IsConnected(player.Id), mute, ban, now);
+        return AdminMapping.ToDto(player, live.IsConnected(player.Id), mute, ban, now, live.TeamOf(player.Id));
     }
 
     // ------------------------------------------------------------------ players
@@ -90,7 +90,7 @@ internal static class PlayerEndpoints
         var detail = new PlayerDetailDto(
             Dto(player, live, bans.Where(b => b.IsActive(now)).ToList(), now),
             player.KeyHashHex,
-            node is null ? null : AdminMapping.ToLive(node, now, live.Muted),
+            node is null ? null : AdminMapping.ToLive(node, now, live),
             [.. queries.PlayerHistory(id, 50).Select(h => new PlayerSessionDto(h.SessionId, h.SessionName, h.JoinedAt, h.LeftAt, h.LeaveReason, h.Role))],
             [.. bans.Select(b => AdminMapping.ToDto(b, now))]);
         return Results.Json(detail, ApiJsonContext.Default.PlayerDetailDto);

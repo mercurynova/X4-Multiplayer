@@ -77,6 +77,8 @@ public static class AdminHubMethods
     public const string SendChat = nameof(SendChat);
     public const string SubscribeEconomy = nameof(SubscribeEconomy);
     public const string UnsubscribeEconomy = nameof(UnsubscribeEconomy);
+    public const string SubscribeTeams = nameof(SubscribeTeams);
+    public const string UnsubscribeTeams = nameof(UnsubscribeTeams);
 }
 
 /// <summary>Names of the server-to-client calls (the methods of <c>IAdminClient</c>).</summary>
@@ -103,4 +105,11 @@ public static class AdminHubEvents
     public const string EconomyEvent = nameof(EconomyEvent);
     public const string EconomySummary = nameof(EconomySummary);
     public const string EconomyAlert = nameof(EconomyAlert);
+    public const string TeamUpserted = nameof(TeamUpserted);
+    public const string TeamDeleted = nameof(TeamDeleted);
+    public const string TeamMemberChanged = nameof(TeamMemberChanged);
+    public const string TeamRelationsChanged = nameof(TeamRelationsChanged);
+    public const string TeamPolicyChanged = nameof(TeamPolicyChanged);
+    public const string TeamsReset = nameof(TeamsReset);
+    public const string PlayerAwaitingTeam = nameof(PlayerAwaitingTeam);
 }

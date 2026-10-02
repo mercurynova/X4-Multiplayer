@@ -4,7 +4,7 @@ namespace X4MP.Server.Hubs;
 
 /// <summary>
 /// What the server calls on an admin browser (server-design 4.6). The method names are the SignalR target names and are mirrored in
-/// <see cref="AdminHubEvents"/>; a test keeps the two in step. Team and economy pushes arrive with their REST tasks (M1-T5, M1-E6).
+/// <see cref="AdminHubEvents"/>; a test keeps the two in step.
 /// </summary>
 public interface IAdminClient
 {
@@ -67,4 +67,25 @@ public interface IAdminClient
 
     /// <summary>An economy alert was raised or cleared: an invariant breach, an overdrawn wallet, an InDoubt trade (economy topic).</summary>
     Task EconomyAlert(AlertDto alert);
+
+    /// <summary>A team was created or changed (name, colour, lock, leader, member count; teams topic).</summary>
+    Task TeamUpserted(TeamDto team);
+
+    /// <summary>A team was deleted (teams topic); its members arrive as <see cref="TeamMemberChanged"/>.</summary>
+    Task TeamDeleted(long teamId);
+
+    /// <summary>A player was assigned, moved, promoted or unassigned (<c>TeamId</c> null; teams topic). Keyed per player: the latest wins when the queue is busy.</summary>
+    Task TeamMemberChanged(TeamMemberDto member);
+
+    /// <summary>The relation matrix changed (teams topic).</summary>
+    Task TeamRelationsChanged(TeamRelationsDto relations);
+
+    /// <summary>A team setting changed (teams topic).</summary>
+    Task TeamPolicyChanged(TeamPolicyDto policy);
+
+    /// <summary>The picture changed too much to patch (a preset, a player gone): the whole state (teams topic).</summary>
+    Task TeamsReset(TeamsStateDto state);
+
+    /// <summary>A connected player is waiting for a team (AdminAssign or an unmade Lobby choice; teams topic).</summary>
+    Task PlayerAwaitingTeam(TeamMemberDto member);
 }
