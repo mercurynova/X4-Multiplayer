@@ -13,36 +13,41 @@ namespace X4MP.Server.Tests.Net;
 [Collection("net")]
 public sealed class AuthorityTakeoverLiveTests(ITestOutputHelper output)
 {
-    private static int FreePort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        int port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
-    }
+    private static int FreePort() => TestPorts.FreeTcp();
 
     private sealed class Host : IAsyncDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "x4mp-takeover-" + Guid.NewGuid().ToString("N"));
-        private readonly WebApplication _app;
+        private WebApplication _app;
+
+        private readonly string[] _settings;
 
         public Host(params string[] settings)
+        {
+            _settings = settings;
+            _app = Build();
+        }
+
+        private WebApplication Build()
         {
             TcpPort = FreePort();
             string[] args =
             [
                 "--data-dir", _dir, "--port", FreePort().ToString(CultureInfo.InvariantCulture),
                 $"--X4MP:Net:NodeTcpEndpoint=127.0.0.1:{TcpPort}", "--X4MP:Net:MaxConnectionsPerIp=64", "--X4MP:Net:MaxPlayers=16",
-                .. settings,
+                .. _settings,
             ];
             var cli = CliArguments.Parse(args);
-            _app = ServerHost.Build(cli.Remaining, cli, isService: false);
+            return ServerHost.Build(cli.Remaining, cli, isService: false);
         }
 
-        public int TcpPort { get; }
+        public int TcpPort { get; private set; }
 
-        public Task StartAsync() => _app.StartAsync();
+        public Task StartAsync() => TestPorts.StartWithRetryAsync(() => _app.StartAsync(), async () =>
+        {
+            await _app.DisposeAsync();
+            _app = Build();
+        });
 
         public async ValueTask DisposeAsync()
         {

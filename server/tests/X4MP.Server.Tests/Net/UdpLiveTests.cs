@@ -15,27 +15,24 @@ namespace X4MP.Server.Tests.Net;
 [Collection("net")]
 public sealed partial class UdpLiveTests(ITestOutputHelper output)
 {
-    private static int FreeTcpPort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        int port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
-    }
+    private static int FreeTcpPort() => TestPorts.FreeTcp();
 
-    private static int FreeUdpPort()
-    {
-        using var u = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
-        return ((IPEndPoint)u.Client.LocalEndPoint!).Port;
-    }
+    private static int FreeUdpPort() => TestPorts.FreeUdp();
 
     private sealed class Host : IAsyncDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "x4mp-udp-" + Guid.NewGuid().ToString("N"));
-        private readonly WebApplication _app;
+        private WebApplication _app;
+
+        private readonly string[] _settings;
 
         public Host()
+        {
+            _settings = [];
+            _app = Build();
+        }
+
+        private WebApplication Build()
         {
             TcpPort = FreeTcpPort();
             string[] args =
@@ -45,14 +42,18 @@ public sealed partial class UdpLiveTests(ITestOutputHelper output)
                 "--X4MP:Net:MaxConnectionsPerIp=64", "--X4MP:Net:MaxPlayers=16",
             ];
             var cli = CliArguments.Parse(args);
-            _app = ServerHost.Build(cli.Remaining, cli, isService: false);
+            return ServerHost.Build(cli.Remaining, cli, isService: false);
         }
 
-        public int TcpPort { get; }
+        public int TcpPort { get; private set; }
 
         public ReplicationModule Replication => (ReplicationModule)_app.Services.GetService(typeof(ReplicationModule))!;
 
-        public Task StartAsync() => _app.StartAsync();
+        public Task StartAsync() => TestPorts.StartWithRetryAsync(() => _app.StartAsync(), async () =>
+        {
+            await _app.DisposeAsync();
+            _app = Build();
+        });
 
         public async ValueTask DisposeAsync()
         {
