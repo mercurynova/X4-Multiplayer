@@ -8,6 +8,8 @@ namespace X4MP.Core.Saves;
 
 public sealed partial class SaveService
 {
+    private bool _publishingCurrent;
+
     private Checkpoint GetCheckpoint(CheckpointId id)
     {
         if (!_checkpoints.TryGetValue(id, out var cp))
@@ -46,12 +48,15 @@ public sealed partial class SaveService
         return true;
     }
 
-    /// <summary>The authority is in game and the session has no checkpoint yet (it started on a save the server has never seen).</summary>
+    /// <summary>
+    /// The authority is in game and the session has no checkpoint yet (it started on a save the server has never seen), or a new authority took
+    /// over a session that lost its authority (AuthorityLoading with an older checkpoint): it must store a checkpoint before the session runs again.
+    /// </summary>
     private void TryRequestInitialSave()
     {
-        if (_current is null && _inFlight is null && _authority is { Phase: NodePhase.InGame } && (_lastRequestFailedAt == long.MinValue || _time.GetElapsedTime(_lastRequestFailedAt, _time.GetTimestamp()) > TimeSpan.FromSeconds(10)))
+        if ((_current is null || _phase == SessionPhase.AuthorityLoading) && _inFlight is null && _authority is { Phase: NodePhase.InGame } && (_lastRequestFailedAt == long.MinValue || _time.GetElapsedTime(_lastRequestFailedAt, _time.GetTimestamp()) > TimeSpan.FromSeconds(10)))
         {
-            SendRequestSave(SaveReason.SessionStart);
+            SendRequestSave(_current is null ? SaveReason.SessionStart : SaveReason.Migration);
         }
     }
 
@@ -138,8 +143,17 @@ public sealed partial class SaveService
         LogCurrent(cp.Id, cp.SaveSha!, cp.SaveSize, compacted);
         _driver?.SetCurrentSave(Convert.FromHexString(cp.SaveSha!), cp.GameTime);
         SetNextAutosave();
-        BroadcastSaveInfo();
-        ReleaseFreshWaiters();
+        _publishingCurrent = true;
+        try
+        {
+            BroadcastSaveInfo();
+            ReleaseFreshWaiters();
+        }
+        finally
+        {
+            _publishingCurrent = false;
+        }
+
         if (!_seeded)
         {
             _seeded = true;
@@ -289,6 +303,14 @@ public sealed partial class SaveService
     {
         if (_current is not { SaveSha: not null, ManifestSha: not null } cp || node.Connection is null)
         {
+            return;
+        }
+
+        // A new authority is loading (the old one left): the checkpoint we hold may be replaced by the one it is about to upload, so joiners
+        // wait for that one instead of downloading a save that is thrown away (they would be kicked with "checkpoint replaced").
+        if (_phase == SessionPhase.AuthorityLoading && !_publishingCurrent)
+        {
+            _knownNodes[node.PlayerId] = node;
             return;
         }
 

@@ -51,6 +51,9 @@ public sealed class FakeAuthoritySaves
     private readonly Channel<Frame> _inbox = Channel.CreateUnbounded<Frame>();
     private TcpNodeClient _client;
     private int _counter;
+
+    // Checkpoint ids are authority-generated and unique (a real node uses fresh GUIDs): a restarted fake authority must not reuse the ids of its previous run.
+    private readonly ulong _runNonce = (ulong)Random.Shared.NextInt64();
     private int _jobRunning;
     private FakeSaveFile? _lastSave;
     private FakeSaveFile? _lastManifest;
@@ -171,8 +174,8 @@ public sealed class FakeAuthoritySaves
                 _lastGameTime = counter * 60.0;
                 var cp = new Id128T
                 {
-                    Lo = DetHash.Hash(_authority.World.Galaxy.Seed, 0xC4EC, (ulong)counter),
-                    Hi = DetHash.Hash(_authority.World.Galaxy.Seed, 0x1D, (ulong)counter),
+                    Lo = DetHash.Hash(_authority.World.Galaxy.Seed, 0xC4EC, (ulong)counter, _runNonce),
+                    Hi = DetHash.Hash(_authority.World.Galaxy.Seed, 0x1D, (ulong)counter, _runNonce),
                 };
                 _lastCheckpoint = cp;
                 _lastSave = FakeSaveGenerator.CreateSave(_options.Directory, _authority.World.Galaxy.Seed, counter, _options.SaveBytes, flavor: _options.Flavor);

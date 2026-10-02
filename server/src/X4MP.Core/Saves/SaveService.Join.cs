@@ -19,7 +19,11 @@ public sealed partial class SaveService
         }
 
         string shaHex = SaveFileStore.Hex(ready.GetSha256Array());
-        var cp = _checkpoints.Values.FirstOrDefault(c => c.SaveSha == shaHex && c.Marker is not null);
+        // Several checkpoints can share a save hash (the same save stored again by a new authority): the node loaded the one it was told about,
+        // which is the current one when it matches, otherwise the newest.
+        var cp = _current is { Marker: not null } now && now.SaveSha == shaHex
+            ? now
+            : _checkpoints.Values.Where(c => c.SaveSha == shaHex && c.Marker is not null).OrderByDescending(c => c.At).FirstOrDefault();
         if (cp is null)
         {
             LogRefused(node.PlayerId, $"SaveReady for a save the server does not know as a checkpoint: {SaveFileStore.Abbrev(shaHex)}");
