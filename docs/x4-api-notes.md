@@ -500,8 +500,8 @@ event type.
 
 ## 5. Prior art and alternatives
 
-### 5.1 <previous-multiplayer-mod-repo> (our `reference/`)
-<previous-multiplayer-mod-repo>. Binary-only, no license, so don't copy.
+### 5.1 The previous multiplayer mod (our `reference/`)
+Binary-only, no license, so don't copy.
 What it teaches is already in PLAN.md. Extra API-level findings from this research:
 - Their "no credits", "1 unit AddTradeWare" and "targeted orders need internals" blockers come
   from limiting themselves to C exports. Lua globals (`GetPlayerMoney`, `SetOrderParam`) and MD

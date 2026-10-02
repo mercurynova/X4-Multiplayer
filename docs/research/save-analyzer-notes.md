@@ -7,7 +7,7 @@ data). This doc records *facts and lessons in our own words*. Paths below are re
 The analyzer targets game 9.00 (same line as our pinned build 611726); its test save is `modified="1"`.
 
 Where I could, I cross-checked a claim against the user's real save
-(`...\Egosoft\X4\<steam-user-id>\save\quicksave.xml.gz`, game 9.00 build 611726, read-only grep); those are marked **[checked]**.
+(the user's own `quicksave.xml.gz`, game 9.00 build 611726, read-only grep); those are marked **[checked]**.
 
 ---
 
