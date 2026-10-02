@@ -35,6 +35,8 @@ export const AdminHubEvents = {
   TeamPolicyChanged: 'TeamPolicyChanged',
   TeamsReset: 'TeamsReset',
   PlayerAwaitingTeam: 'PlayerAwaitingTeam',
+  ModPolicyChanged: 'ModPolicyChanged',
+  PlayerModsReported: 'PlayerModsReported',
 } as const;
 
 export const AdminHubMethods = {
@@ -56,6 +58,8 @@ export const AdminHubMethods = {
   UnsubscribeEconomy: 'UnsubscribeEconomy',
   SubscribeTeams: 'SubscribeTeams',
   UnsubscribeTeams: 'UnsubscribeTeams',
+  SubscribeMods: 'SubscribeMods',
+  UnsubscribeMods: 'UnsubscribeMods',
 } as const;
 
 export interface AlertDto {
@@ -341,6 +345,54 @@ export interface EconomySummaryDto {
   lastAudit: AuditorReportDto;
 }
 
+export interface ExtensionDependencyDto {
+  id: string;
+  optional: boolean;
+}
+
+export interface ExtensionDto {
+  id: string;
+  name: string;
+  version: string;
+  source: string;
+  enabled: boolean;
+  egosoft: boolean;
+  workshopId: number;
+  workshopUrl: string | null;
+  contentHash: string | null;
+  hashKind: string;
+  hasNativeDll: boolean;
+  replacesBasegame: boolean;
+  saveDependent: boolean;
+  classHint: string;
+  effectiveClass: string;
+  error: string;
+  warning: string;
+  dependencies: ExtensionDependencyDto[];
+  inPolicy: boolean;
+}
+
+export interface ExtensionReportDto {
+  playerId: number;
+  at: string;
+  outcome: string;
+  policyVersion: number;
+  extensionsHash: string | null;
+  items: ExtensionDto[];
+  violation: ModViolationDto | null;
+  currentViolation: ModViolationDto | null;
+}
+
+export interface ExtensionReportSummaryDto {
+  at: string;
+  outcome: string;
+  policyVersion: number;
+  extensionsHash: string | null;
+  extensionCount: number;
+  enabledCount: number;
+  violation: ModViolationDto | null;
+}
+
 export interface ForgiveLoanRequest {
   reason: string | null;
 }
@@ -383,6 +435,10 @@ export interface HealthzResponse {
   version: string;
   protocol: ProtocolRangeDto;
   uptimeSeconds: number;
+}
+
+export interface ImportModsRequest {
+  merge: boolean | null;
 }
 
 export interface InterestEntryDto {
@@ -512,9 +568,94 @@ export interface MigrationPreviewDto {
   teamMoves: string[];
 }
 
+export interface ModCatalogEntryDto {
+  id: string;
+  name: string;
+  nexusUrl: string | null;
+  workshopId: number;
+  workshopUrl: string | null;
+  workshopSteamUrl: string | null;
+  classOverride: string;
+  notes: string | null;
+  updatedAt: string;
+  inPolicy: boolean;
+  isLibrary: boolean;
+}
+
+export interface ModEntryDto {
+  id: string;
+  name: string;
+  rule: string;
+  enabled: boolean;
+  classOverride: string;
+  class: string;
+  versionRule: string;
+  version: string;
+  contentHash: string | null;
+  nexusUrl: string | null;
+  workshopId: number;
+  workshopUrl: string | null;
+  workshopSteamUrl: string | null;
+  notes: string;
+  isLibrary: boolean;
+  hasNativeDll: boolean | null;
+  replacesBasegame: boolean | null;
+  saveDependent: boolean | null;
+  playersEnabled: number;
+  playersDisabled: number;
+  playersMissing: number;
+}
+
+export interface ModPolicyDto {
+  version: number;
+  sourceMode: string;
+  unknownDefault: string;
+  enforcement: string;
+  modListVisibility: string;
+  entries: ModEntryDto[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+  authorityPlayerId: number | null;
+  authorityReportedAt: string | null;
+}
+
+export interface ModRefDto {
+  id: string;
+  name: string;
+  version: string;
+  haveVersion: string;
+  nexusUrl: string | null;
+  workshopId: number;
+  workshopUrl: string | null;
+  workshopSteamUrl: string | null;
+  notes: string;
+}
+
+export interface ModViolationDto {
+  policyVersion: number;
+  install: ModRefDto[];
+  enable: ModRefDto[];
+  disable: ModRefDto[];
+  update: ModRefDto[];
+}
+
+export interface ModsStateDto {
+  policy: ModPolicyDto;
+  players: PlayerModStatusDto[];
+  canEdit: boolean;
+  playersHidden: boolean;
+  saveRequirementsAvailable: boolean;
+}
+
 export interface MuteRequest {
   minutes: number | null;
   reason: string | null;
+}
+
+export interface PatchModPolicyRequest {
+  sourceMode: string | null;
+  unknownDefault: string | null;
+  enforcement: string | null;
 }
 
 export interface PatchPlayerRequest {
@@ -584,6 +725,13 @@ export interface PlayerDto {
   teamName: string | null;
 }
 
+export interface PlayerExtensionsDto {
+  playerId: number;
+  name: string;
+  latest: ExtensionReportDto | null;
+  history: ExtensionReportSummaryDto[];
+}
+
 export interface PlayerLiveDto {
   playerId: number;
   connectionId: number | null;
@@ -598,6 +746,19 @@ export interface PlayerLiveDto {
   muted: boolean;
   teamId: number | null;
   teamName: string | null;
+}
+
+export interface PlayerModStatusDto {
+  playerId: number;
+  name: string;
+  online: boolean;
+  isAuthority: boolean;
+  status: string;
+  outcome: string;
+  reportedAt: string | null;
+  reportPolicyVersion: number;
+  extensionCount: number;
+  violation: ModViolationDto | null;
 }
 
 export interface PlayerSessionDto {
@@ -623,6 +784,27 @@ export interface ProtocolRangeDto {
   max: number;
 }
 
+export interface PutModCatalogRequest {
+  name: string | null;
+  nexusUrl: string | null;
+  workshopId: number | null;
+  classOverride: string | null;
+  notes: string | null;
+}
+
+export interface PutModEntryRequest {
+  name: string | null;
+  rule: string | null;
+  enabled: boolean | null;
+  classOverride: string | null;
+  versionRule: string | null;
+  version: string | null;
+  contentHash: string | null;
+  nexusUrl: string | null;
+  workshopId: number | null;
+  notes: string | null;
+}
+
 export interface ResolveTradeRequest {
   outcome: string | null;
   reason: string | null;
@@ -646,6 +828,19 @@ export interface SaveDto {
   pinned: boolean;
   ghostsCleaned: boolean;
   current: boolean;
+}
+
+export interface SavePatchDto {
+  extension: string;
+  name: string;
+  version: string;
+  inPolicy: boolean;
+  blocked: boolean;
+}
+
+export interface SaveRequirementsDto {
+  saveSha256: string | null;
+  patches: SavePatchDto[];
 }
 
 export interface SectorAggDto {

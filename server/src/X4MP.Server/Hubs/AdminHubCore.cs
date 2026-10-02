@@ -36,6 +36,7 @@ public sealed class AdminHubCore
     private readonly EconomyViews _economyViews;
     private readonly TeamViews _teamViews;
     private readonly TeamsPushState _teamsState;
+    private readonly X4MP.Server.Mods.ModViews _modViews;
     private readonly IOptionsMonitor<AdminHubOptions> _options;
     private readonly ILogger<AdminHubCore> _logger;
 
@@ -54,6 +55,7 @@ public sealed class AdminHubCore
         EconomyViews economyViews,
         TeamViews teamViews,
         TeamsPushState teamsState,
+        X4MP.Server.Mods.ModViews modViews,
         IOptionsMonitor<AdminHubOptions> options,
         ILogger<AdminHubCore> logger)
     {
@@ -71,6 +73,7 @@ public sealed class AdminHubCore
         _economyViews = economyViews;
         _teamViews = teamViews;
         _teamsState = teamsState;
+        _modViews = modViews;
         _options = options;
         _logger = logger;
     }
@@ -140,6 +143,17 @@ public sealed class AdminHubCore
         var state = await _actor.CallAsync(_teamViews.State).ConfigureAwait(false);
         _teamsState.SeedIfEmpty(state);
         return state;
+    }
+
+    /// <summary>
+    /// Joins the mods topic (<c>ModPolicyChanged</c>, <c>PlayerModsReported</c>) and returns the whole picture as this caller may see it: players' mod lists only when
+    /// <c>ModListVisibility</c> allows it (Admin and ModEditor always).
+    /// </summary>
+    public ModsStateDto SubscribeMods(HubCallerContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        _subscriptions.Join(Client(context.ConnectionId), HubTopic.Mods);
+        return _modViews.State(_modViews.Access(context.User));
     }
 
     public void Subscribe(string connectionId, HubTopic topic) => _subscriptions.Join(Client(connectionId), topic);

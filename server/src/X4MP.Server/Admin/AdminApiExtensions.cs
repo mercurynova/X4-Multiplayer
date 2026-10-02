@@ -46,6 +46,7 @@ public static class AdminApiExtensions
         TokenEndpoints.Map(routes);
         EconomyEndpoints.Map(routes);
         TeamEndpoints.Map(routes);
+        ModEndpoints.Map(routes);
         return routes;
     }
 }

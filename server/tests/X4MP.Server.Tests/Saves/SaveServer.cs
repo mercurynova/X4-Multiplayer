@@ -105,7 +105,7 @@ public sealed class SaveServer : IAsyncDisposable
     }
 
     /// <summary>Connects a fake node (a stable key per name, so the same name resumes as the same player).</summary>
-    public Task<TcpNodeClient> ConnectAsync(string name, Role role, Id128T? resumeToken = null, ulong lastJournalSeq = 0, ulong caps = 0) =>
+    public Task<TcpNodeClient> ConnectAsync(string name, Role role, Id128T? resumeToken = null, ulong lastJournalSeq = 0, ulong caps = 0, X4MP.Proto.ExtensionInfoT[]? extensions = null) =>
         TcpNodeClient.ConnectAsync("127.0.0.1", TcpPort, new NodeClientOptions
         {
             PlayerName = name,
@@ -114,6 +114,7 @@ public sealed class SaveServer : IAsyncDisposable
             ResumeToken = resumeToken,
             LastJournalSeq = lastJournalSeq,
             ClientCaps = caps,
+            ExtensionList = extensions,
         });
 
     public string NextName(string prefix) => prefix + (++_nodeCounter).ToString("00", CultureInfo.InvariantCulture);

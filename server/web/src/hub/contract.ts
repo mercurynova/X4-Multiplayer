@@ -83,4 +83,11 @@ export const groups = {
       E.PlayerAwaitingTeam,
     ],
   },
+  mods: {
+    key: 'mods',
+    subscribe: M.SubscribeMods,
+    unsubscribe: M.UnsubscribeMods,
+    args: [],
+    events: [E.ModPolicyChanged, E.PlayerModsReported],
+  },
 } as const satisfies Record<string, GroupSpec | ((...a: never[]) => GroupSpec)>;

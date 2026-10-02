@@ -44,6 +44,8 @@ internal sealed class HubRecorder
         connection.On<X4MP.Server.Api.TeamPolicyDto>("TeamPolicyChanged", p => recorder.Add("TeamPolicyChanged", p));
         connection.On<X4MP.Server.Api.TeamsStateDto>("TeamsReset", p => recorder.Add("TeamsReset", p));
         connection.On<X4MP.Server.Api.TeamMemberDto>("PlayerAwaitingTeam", p => recorder.Add("PlayerAwaitingTeam", p));
+        connection.On<X4MP.Server.Api.ModPolicyDto>("ModPolicyChanged", p => recorder.Add("ModPolicyChanged", p));
+        connection.On<X4MP.Server.Api.PlayerModStatusDto>("PlayerModsReported", p => recorder.Add("PlayerModsReported", p));
         return recorder;
     }
 

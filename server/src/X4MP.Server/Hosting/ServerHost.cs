@@ -11,6 +11,7 @@ using X4MP.Server.Events;
 using X4MP.Server.Hubs;
 using X4MP.Server.Logging;
 using X4MP.Server.Metrics;
+using X4MP.Server.Mods;
 using X4MP.Server.Net;
 using X4MP.Server.Replication;
 using X4MP.Server.Relay;
@@ -78,6 +79,7 @@ public static partial class ServerHost
         builder.WebHost.ConfigureKestrel(kestrel =>
             kestrel.Listen(allowRemote ? IPAddress.Any : IPAddress.Loopback, port));
         builder.Services.Configure<JsonOptions>(o => o.SerializerOptions.TypeInfoResolverChain.Insert(0, ApiJsonContext.Default));
+        builder.Services.AddModManagement(); // before AddNodeNetworking: the gateway takes the stored mod policy
         builder.Services.AddNodeNetworking(builder.Configuration);
         builder.Services.AddServerMetrics();
         builder.Services.AddEventBus();

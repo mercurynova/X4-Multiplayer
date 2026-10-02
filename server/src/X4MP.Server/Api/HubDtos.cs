@@ -79,6 +79,8 @@ public static class AdminHubMethods
     public const string UnsubscribeEconomy = nameof(UnsubscribeEconomy);
     public const string SubscribeTeams = nameof(SubscribeTeams);
     public const string UnsubscribeTeams = nameof(UnsubscribeTeams);
+    public const string SubscribeMods = nameof(SubscribeMods);
+    public const string UnsubscribeMods = nameof(UnsubscribeMods);
 }
 
 /// <summary>Names of the server-to-client calls (the methods of <c>IAdminClient</c>).</summary>
@@ -112,4 +114,6 @@ public static class AdminHubEvents
     public const string TeamPolicyChanged = nameof(TeamPolicyChanged);
     public const string TeamsReset = nameof(TeamsReset);
     public const string PlayerAwaitingTeam = nameof(PlayerAwaitingTeam);
+    public const string ModPolicyChanged = nameof(ModPolicyChanged);
+    public const string PlayerModsReported = nameof(PlayerModsReported);
 }
