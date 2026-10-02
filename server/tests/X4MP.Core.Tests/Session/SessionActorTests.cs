@@ -79,6 +79,25 @@ public class SessionActorTests
     }
 
     [Fact]
+    public async Task ANodeAdmittedUnderWarnGetsAServerNoticeNamingTheMods()
+    {
+        await using var rig = new ActorRig();
+        var warning = new ModPolicyViolationT
+        {
+            PolicyVersion = 3,
+            Install = [new ModRefT { Id = "ws_1", Name = "Warehouse Fleets" }],
+            Disable = [new ModRefT { Id = "cheat", Name = "Cheat Menu" }],
+        };
+        var alice = await rig.JoinAsync("Alice", modWarning: warning);
+        var bob = await rig.JoinAsync("Bob");
+
+        var notice = alice.Connection.SentOf(MsgType.ServerNotice).Single().Decode<ServerNotice>();
+        Assert.Equal(NoticeSeverity.Warning, notice.Severity);
+        Assert.Contains("install: Warehouse Fleets; disable: Cheat Menu", notice.Text);
+        Assert.Empty(bob.Connection.SentOf(MsgType.ServerNotice));
+    }
+
+    [Fact]
     public async Task ObserverSkipsTheLoadPipeline()
     {
         await using var rig = new ActorRig();

@@ -57,6 +57,19 @@ public static class NodeNetworkingExtensions
         services.TryAddSingleton<IPlayerStore>(sp => sp.GetRequiredService<SqliteNodeStore>());
         services.TryAddSingleton<IBanStore>(sp => sp.GetRequiredService<SqliteNodeStore>());
         services.TryAddSingleton<IAdmissionHandler, DefaultAdmissionHandler>();
+        services.TryAddSingleton<X4MP.Core.Mods.IModPolicyProvider>(sp =>
+        {
+            var monitor = sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<X4MP.Core.Settings.ModManagementOptions>>();
+            var net = sp.GetRequiredService<NetOptions>();
+            return new X4MP.Core.Mods.InMemoryModPolicyProvider(() =>
+            {
+                var o = monitor.CurrentValue;
+                // The legacy NetOptions switch still downgrades enforcement to Warn.
+                return net.ExtensionsMismatchIsWarning && o.Enforcement == X4MP.Proto.ModEnforcement.Strict
+                    ? new X4MP.Core.Settings.ModManagementOptions { SourceMode = o.SourceMode, UnknownDefault = o.UnknownDefault, Enforcement = X4MP.Proto.ModEnforcement.Warn }
+                    : o;
+            });
+        });
         services.TryAddSingleton(sp => new NodeGateway(
             sp.GetRequiredService<NetOptions>(),
             sp.GetRequiredService<GatewayState>(),
@@ -65,7 +78,8 @@ public static class NodeNetworkingExtensions
             sp.GetRequiredService<IAdmissionHandler>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetService<ILogger<NodeGateway>>(),
-            sp.GetService<IUdpRealtimeHost>()));
+            sp.GetService<IUdpRealtimeHost>(),
+            sp.GetRequiredService<X4MP.Core.Mods.IModPolicyProvider>()));
         services.AddHostedService<NodeGatewayService>();
 
         // Pipe thresholds from server-design 2.2: pause the writer at 1 MiB, resume at 512 KiB.

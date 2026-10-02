@@ -158,8 +158,9 @@ public sealed class TcpNodeClient : IAsyncDisposable
             GameBuild = _options.GameBuild,
             X4nativeVersion = _options.X4NativeVersion,
             Platform = _options.Platform,
-            ExtensionsHash = [],
-            Extensions = [],
+            ExtensionsHash = _options.ExtensionList is null ? [] : [.. ExtensionReports.ComputeHash(_options.ExtensionList)],
+            Extensions = _options.ExtensionList is null ? [] : [.. _options.ExtensionList.Where(e => e.Enabled).Select(e => e.Id + "@" + e.Version)],
+            ExtensionList = _options.ExtensionList is null ? [] : [.. _options.ExtensionList],
             PlayerKey = [.. PlayerKey],
             PlayerName = _options.PlayerName,
             RequestedRoles = _options.RequestedRoles,
@@ -183,7 +184,7 @@ public sealed class TcpNodeClient : IAsyncDisposable
         if (frame.Type != MsgType.Disconnect)
             return;
         var d = MessageRegistry.Default.Decode<Disconnect>(frame).UnPack();
-        throw new HandshakeRejectedException(d.Code, d.Message ?? "", d.Expected ?? "", d.RetryAfterMs);
+        throw new HandshakeRejectedException(d.Code, d.Message ?? "", d.Expected ?? "", d.RetryAfterMs) { ModViolation = d.ModViolation };
     }
 
     // ---- send ----

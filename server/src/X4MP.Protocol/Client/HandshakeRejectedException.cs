@@ -18,4 +18,7 @@ public sealed class HandshakeRejectedException : Exception
     public string ServerMessage { get; }
     public string Expected { get; }
     public uint RetryAfterMs { get; }
+
+    /// <summary>With <see cref="DisconnectCode.ExtensionsMismatch"/>: the exact install/enable/disable/update lists (null otherwise).</summary>
+    public ModPolicyViolationT? ModViolation { get; init; }
 }

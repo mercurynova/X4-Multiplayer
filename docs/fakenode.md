@@ -78,6 +78,12 @@ Ping/Pong. Options accept `--name value` and `--name=value`. `--verify` and the 
 | `--commander shared\|own\|foreign` | Clients send `AssetOrder`s every 0.5 s: `own` = team-common ships of their team, `shared` = a teammate's (allowed under `AssetPolicy=SharedCommand`), `foreign` = another team's (always rejected) |
 | `--team-assets` | authority: give its ships team owners (implied by `--commander`, `--teams`, `--trade`; set it when the authority runs in a separate process) |
 
+### Mods
+
+| Option | What |
+|---|---|
+| `--extensions FILE` | client/swarm (currently every node, authority included): send the extensions in a JSON file as `ClientHello.extension_list` (and the matching `extensions_hash`). The file is an array of `{id, name, version, source, enabled, workshopId, classHint, contentHash, ...}` (enums by name, `enabled` defaults to true). A mismatch with the session mod policy gets `ExtensionsMismatch` with the exact install/enable/disable/update lists and links. Presets (`--extensions-preset`) come with M1-X5. |
+
 ### Economy and trade
 
 | Option | Meaning |

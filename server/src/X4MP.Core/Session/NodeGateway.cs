@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using X4MP.Core.Metrics;
+using X4MP.Core.Mods;
 using X4MP.Core.Net;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -24,7 +25,7 @@ public sealed partial class NodeGateway
     [GeneratedRegex(@"^[\p{L}\p{N} _\-.]{3,24}$", RegexOptions.CultureInvariant)]
     private static partial Regex NamePattern();
 
-    private sealed record Rejection(DisconnectCode Code, string Message, string? Expected = null, uint RetryAfterMs = 0);
+    private sealed record Rejection(DisconnectCode Code, string Message, string? Expected = null, uint RetryAfterMs = 0, ModPolicyViolationT? ModViolation = null);
 
     private readonly NetOptions _options;
     private readonly GatewayState _state;
@@ -34,6 +35,7 @@ public sealed partial class NodeGateway
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
     private readonly IUdpRealtimeHost? _udp;
+    private readonly IModPolicyProvider _modPolicy;
     private readonly long _startTimestamp;
 
     private readonly object _gate = new();
@@ -52,7 +54,8 @@ public sealed partial class NodeGateway
         IAdmissionHandler? handler = null,
         TimeProvider? time = null,
         ILogger<NodeGateway>? logger = null,
-        IUdpRealtimeHost? udp = null)
+        IUdpRealtimeHost? udp = null,
+        IModPolicyProvider? modPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(state);
@@ -64,6 +67,10 @@ public sealed partial class NodeGateway
         _bans = bans;
         _handler = handler ?? new DefaultAdmissionHandler();
         _udp = udp;
+        _modPolicy = modPolicy ?? new InMemoryModPolicyProvider(() => new X4MP.Core.Settings.ModManagementOptions
+        {
+            Enforcement = options.ExtensionsMismatchIsWarning ? ModEnforcement.Warn : ModEnforcement.Strict,
+        });
         _time = time ?? TimeProvider.System;
         _logger = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _startTimestamp = _time.GetTimestamp();
@@ -289,19 +296,19 @@ public sealed partial class NodeGateway
             return Fail(DisconnectCode.GameVersionMismatch, $"game build {gameBuild} differs from the authority's", authority.GameBuild);
         }
 
-        // 4. Extensions (admin may downgrade to a warning)
-        var extensionsHash = hello.ExtensionsHash?.ToArray() ?? [];
-        if (authority is not null && !authority.ExtensionsHash.AsSpan().SequenceEqual(extensionsHash))
+        // 4. Extensions: the session mod policy (docs/mod-management.md 3.4). Hash equality is the fast path.
+        var modEvaluation = CheckMods(hello, authority);
+        if (modEvaluation.Verdict == ModVerdict.Reject)
         {
-            string diff = DescribeExtensionDiff(authority.Extensions, hello.Extensions);
-            if (_options.ExtensionsMismatchIsWarning)
-            {
-                LogExtensionsWarning(connection.Id.Value, diff);
-            }
-            else
-            {
-                return Fail(DisconnectCode.ExtensionsMismatch, "enabled extensions differ from the authority's", diff);
-            }
+            var violation = modEvaluation.Violation!;
+            return Fail(
+                DisconnectCode.ExtensionsMismatch, "your mods do not match this session: " + ModPolicyEvaluator.Describe(violation),
+                DescribeExtensionDiff(authority?.ExtensionList, ExtensionReports.FromHello(hello)), modViolation: violation);
+        }
+
+        if (modEvaluation.Verdict == ModVerdict.AdmitWithWarning)
+        {
+            LogExtensionsWarning(connection.Id.Value, ModPolicyEvaluator.Describe(modEvaluation.Violation!));
         }
 
         // 5. Auth: session password and optional admin proof
@@ -378,6 +385,7 @@ public sealed partial class NodeGateway
             RemoteAddress = ip,
             Welcome = welcome,
             Nonce = nonce,
+            ModWarning = modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? modEvaluation.Violation : null,
         };
 
         AdmittedNode? superseded;
@@ -440,8 +448,8 @@ public sealed partial class NodeGateway
         LogAdmitted(connection.Id.Value, name, bind.PlayerId, granted);
         return new AdmitOutcome(node, null);
 
-        static AdmitOutcome Fail(DisconnectCode code, string message, string? expected = null, uint retryAfterMs = 0) =>
-            new(null, new Rejection(code, message, expected, retryAfterMs));
+        static AdmitOutcome Fail(DisconnectCode code, string message, string? expected = null, uint retryAfterMs = 0, ModPolicyViolationT? modViolation = null) =>
+            new(null, new Rejection(code, message, expected, retryAfterMs, modViolation));
     }
 
     private void Unregister(AdmittedNode node)
@@ -460,7 +468,7 @@ public sealed partial class NodeGateway
     {
         ServerMetrics.RecordHandshakeRefused(rejection.Code);
         LogRefused(connection.Id.Value, rejection.Code, rejection.Message);
-        connection.Close(rejection.Code, rejection.Message, rejection.Expected, rejection.RetryAfterMs);
+        connection.Close(rejection.Code, rejection.Message, rejection.Expected, rejection.RetryAfterMs, rejection.ModViolation);
     }
 
     private async Task<AdmitOutcome> AuthFailedAsync(IPAddress ip, CancellationToken ct)
@@ -517,10 +525,32 @@ public sealed partial class NodeGateway
         }
     }
 
-    private static string DescribeExtensionDiff(IReadOnlyList<string> authority, List<string>? node)
+    /// <summary>Fast path (equal hash, nothing in the policy that the hash cannot see), else the full policy evaluation.</summary>
+    private ModEvaluation CheckMods(ClientHelloT hello, AuthorityIdentity? authority)
     {
-        var mine = new HashSet<string>(node ?? [], StringComparer.Ordinal);
-        var theirs = new HashSet<string>(authority, StringComparer.Ordinal);
+        var policy = _modPolicy.Current;
+        if (authority is not null && policy.SourceMode == ModSourceMode.AuthorityDefines && policy.Entries is not { Count: > 0 }
+            && policy.UnknownDefault != UnknownModDefault.Block
+            && authority.ExtensionsHash.AsSpan().SequenceEqual(hello.ExtensionsHash?.ToArray() ?? []))
+        {
+            return ModEvaluation.Admitted;
+        }
+
+        var list = ExtensionReports.FromHello(hello);
+        if (list.Count > ModPolicyConstants.MaxExtensionEntries)
+        {
+            list = [.. list.Take(ModPolicyConstants.MaxExtensionEntries)];
+        }
+
+        return ModPolicyEvaluator.Evaluate(list, policy, authority?.ExtensionList);
+    }
+
+    private static string DescribeExtensionDiff(IReadOnlyList<ExtensionInfoT>? authority, IReadOnlyList<ExtensionInfoT> node)
+    {
+        static IEnumerable<string> Lines(IReadOnlyList<ExtensionInfoT>? list) =>
+            (list ?? []).Where(e => e.Enabled).Select(e => e.Id + "@" + e.Version);
+        var mine = new HashSet<string>(Lines(node), StringComparer.Ordinal);
+        var theirs = new HashSet<string>(Lines(authority), StringComparer.Ordinal);
         var missing = theirs.Except(mine).Order(StringComparer.Ordinal);
         var extra = mine.Except(theirs).Order(StringComparer.Ordinal);
         return $"missing: [{string.Join(", ", missing)}] extra: [{string.Join(", ", extra)}]";
@@ -548,6 +578,7 @@ public sealed partial class NodeGateway
             UdpToken = BitConverter.ToUInt64(random[16..]),
             ServerTimeUs = (ulong)_time.GetElapsedTime(_startTimestamp).TotalMicroseconds,
             ResumeGraceS = (ushort)Math.Clamp(_options.ResumeGraceSeconds, 0, ushort.MaxValue),
+            Settings = new SessionSettingsT { ModPolicy = _modPolicy.Current },
         };
     }
 
@@ -570,6 +601,7 @@ public sealed partial class NodeGateway
             SupportedGameBuilds = [.. _options.SupportedGameBuilds],
             RequiredModVersion = !string.IsNullOrEmpty(_options.RequiredModVersion) ? _options.RequiredModVersion : authority?.ModVersion ?? string.Empty,
             ExtensionsHash = authority is null ? [] : [.. authority.ExtensionsHash],
+            ModPolicyVersion = _modPolicy.Current.Version,
         };
         var frame = ControlFrames.Encode(MsgType.ServerHello, fbb => X4MP.Proto.ServerHello.Pack(fbb, hello).Value, 512);
         connection.TrySend(frame);

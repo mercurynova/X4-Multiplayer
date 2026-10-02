@@ -469,6 +469,23 @@ Further phase-3 items:
 Applied as a schema delta in the M1 protocol task (a new ADR-036-style list), keeping
 protocol 0.x.
 
+**Applied (M1-X1, M1-X2).** `protocol/schema/mods.fbs` holds the policy tables, `common.fbs` the `ExtensionInfo`
+family, message `ModPolicyChanged` is 0x0117. Deviations from the sketch above: `ModPolicyEntry.class` is
+`mod_class` (`class` is a C# keyword); `ExtensionInfo.dependencies` is `[ExtensionDependency{id, optional}]`;
+`mod_policy` lives on `SessionSettings` (Welcome carries it through `Welcome.settings`);
+`ClientHello.extensions:[string]` stays (documented deprecated, the server lifts it into an extension list when
+`extension_list` is empty). Enum defaults are the safe/recommended ones (`AuthorityDefines`, `AllowClientOnly`,
+`Strict`, `Exact`). Shared constants live in `protocol/constants/mod_policy.json` and are generated for C#
+(`ModPolicyConstants.g.cs`) and C++ (`mod_policy_constants.h`).
+Evaluator specifics (X2): `ModPolicyEvaluator` is pure (`X4MP.Core.Mods`). A `Required` entry the admin switched off
+acts as `Blocked`; `Allowed` never rejects for presence but a Sim/Dlc copy must satisfy the entry's version rule; an
+allowlisted library is never rejected for version or hash (an explicit `Required`/`Blocked` entry for it still
+applies); in `AdminList` mode the authority's enabled Dlc extensions are still implicit `Required` entries
+(ADR-004) while its Sim mods are not. The hash fast path is used only for `AuthorityDefines` with an empty entry
+list and `unknown_default != Block`; everything else evaluates the list. Policy source until M1-X3: the live
+`X4MP:Mods` settings (`SourceMode`, `UnknownDefault`, `Enforcement`) plus in-memory entries
+(`InMemoryModPolicyProvider`); `NetOptions.ExtensionsMismatchIsWarning` still maps to `Enforcement = Warn`.
+
 ---
 
 ## 7. Server design impact

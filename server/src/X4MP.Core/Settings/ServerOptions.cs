@@ -14,6 +14,17 @@ public sealed class ModManagementOptions
 {
     [Setting("Who can see players' mod lists", Scope = SettingScope.Live, PushToNodes = true)]
     public ModListVisibility ModListVisibility { get; set; } = ModListVisibility.AdminsOnly;
+    /// <summary>AuthorityDefines (default): the authority's enabled Dlc and Sim mods are implicit Required. AdminList: the entries are authoritative and the authority is checked too.</summary>
+    [Setting("Where the session mod list comes from", Scope = SettingScope.Live)]
+    public X4MP.Proto.ModSourceMode SourceMode { get; set; } = X4MP.Proto.ModSourceMode.AuthorityDefines;
+
+    /// <summary>What happens to an enabled mod that is not in the list.</summary>
+    [Setting("Mods not in the session list", Scope = SettingScope.Live)]
+    public X4MP.Proto.UnknownModDefault UnknownDefault { get; set; } = X4MP.Proto.UnknownModDefault.AllowClientOnly;
+
+    /// <summary>Strict rejects a mod mismatch; Warn admits and flags (a Dlc mismatch always rejects).</summary>
+    [Setting("Mod mismatch enforcement", Scope = SettingScope.Live)]
+    public X4MP.Proto.ModEnforcement Enforcement { get; set; } = X4MP.Proto.ModEnforcement.Strict;
 }
 
 /// <summary>

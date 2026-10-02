@@ -47,6 +47,7 @@ enum MsgType : ushort {
   StringTableAdd       = 0x0114,
   GalaxySummary        = 0x0115,
   ServerSettingsUpdate = 0x0116,   // session.fbs table
+  ModPolicyChanged     = 0x0117,   // mods.fbs table
 
   // world.fbs
   EntitySpawn          = 0x0200,

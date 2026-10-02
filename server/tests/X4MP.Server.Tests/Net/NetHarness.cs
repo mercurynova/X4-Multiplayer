@@ -81,7 +81,8 @@ public abstract class NetHarness : IAsyncDisposable
     /// <param name="useActor">With no <paramref name="handler"/>, run a <see cref="X4MP.Core.Session.SessionActor"/> as the admission handler instead.</param>
     public static async Task<NetHarness> CreateAsync(
         string kind, NetOptions? options = null, TimeProvider? time = null, bool withGateway = false,
-        InMemoryNodeStore? store = null, Func<GatewayState, IAdmissionHandler>? handler = null, bool useActor = false)
+        InMemoryNodeStore? store = null, Func<GatewayState, IAdmissionHandler>? handler = null, bool useActor = false,
+        X4MP.Core.Mods.IModPolicyProvider? modPolicy = null)
     {
         options ??= new NetOptions();
         ActorFixture? ownedActor = null;
@@ -94,14 +95,14 @@ public abstract class NetHarness : IAsyncDisposable
         NetHarness harness;
         if (kind == "tcp")
         {
-            harness = await TcpHarness.StartAsync(options, time, withGateway, store, handler).ConfigureAwait(false);
+            harness = await TcpHarness.StartAsync(options, time, withGateway, store, handler, modPolicy).ConfigureAwait(false);
         }
         else
         {
             var inproc = new InProcHarness(options, time);
             if (withGateway)
             {
-                inproc.StartGateway(store ?? new InMemoryNodeStore(), handler);
+                inproc.StartGateway(store ?? new InMemoryNodeStore(), handler, modPolicy);
             }
 
             harness = inproc;
@@ -139,11 +140,11 @@ public sealed class InProcHarness(NetOptions options, TimeProvider? time) : NetH
 
     public override string Kind => "inproc";
 
-    public void StartGateway(InMemoryNodeStore store, Func<GatewayState, IAdmissionHandler>? handler)
+    public void StartGateway(InMemoryNodeStore store, Func<GatewayState, IAdmissionHandler>? handler, X4MP.Core.Mods.IModPolicyProvider? modPolicy = null)
     {
         Store = store;
         State = GatewayState.FromOptions(options);
-        Gateway = new NodeGateway(options, State, store, store, handler?.Invoke(State), time);
+        Gateway = new NodeGateway(options, State, store, store, handler?.Invoke(State), time, modPolicy: modPolicy);
         _gatewayLoop = Gateway.RunAsync(_listener, _stop.Token);
     }
 
@@ -189,7 +190,8 @@ public sealed class TcpHarness : NetHarness
     public override NodeListenerBase Listener { get; }
 
     public static async Task<NetHarness> StartAsync(
-        NetOptions options, TimeProvider? time, bool withGateway, InMemoryNodeStore? store, Func<GatewayState, IAdmissionHandler>? handler)
+        NetOptions options, TimeProvider? time, bool withGateway, InMemoryNodeStore? store, Func<GatewayState, IAdmissionHandler>? handler,
+        X4MP.Core.Mods.IModPolicyProvider? modPolicy = null)
     {
         int port = FreePort();
         var builder = WebApplication.CreateBuilder();
@@ -208,6 +210,11 @@ public sealed class TcpHarness : NetHarness
             {
                 builder.Services.AddSingleton(sp => handler(sp.GetRequiredService<GatewayState>()));
             }
+        }
+
+        if (modPolicy is not null)
+        {
+            builder.Services.AddSingleton(modPolicy);
         }
 
         builder.Services.AddNodeNetworking(builder.Configuration);

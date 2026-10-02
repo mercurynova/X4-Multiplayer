@@ -1,0 +1,69 @@
+// X4MP wire protocol -- mod policy (extension reports, session mod list, rejection detail).
+// Design: docs/mod-management.md (ADR-043/044/045). Append-only like every other schema file.
+include "common.fbs";
+
+namespace X4MP.Proto;
+
+/// What the session wants for one mod.
+enum ModRule : ubyte { Required = 0, Allowed, Blocked }
+
+/// Where the list comes from. AuthorityDefines (default for a new session): the authority's enabled
+/// Dlc + Sim extensions are implicit Required entries. AdminList: the entries are authoritative and the
+/// authority is checked against them too.
+enum ModSourceMode : ubyte { AuthorityDefines = 0, AdminList }
+
+/// What happens to an enabled mod that is not in the list.
+enum UnknownModDefault : ubyte { AllowClientOnly = 0, Block, AllowAll }
+
+/// Strict rejects on any violation; Warn admits and flags (a Dlc violation always rejects).
+enum ModEnforcement : ubyte { Strict = 0, Warn }
+
+enum VersionRule : ubyte { Exact = 0, AtLeast, Any }
+
+table ModPolicyEntry {
+  id:string;
+  name:string;
+  rule:ModRule;
+  enabled:bool;                  // admin's on/off switch; a disabled Required entry acts as Blocked
+  mod_class:ExtensionClass;      // admin override of the hint (Unknown = no override)
+  version_rule:VersionRule;
+  version:string;                // expected version (from import)
+  content_hash:[ubyte];          // optional, from the authority's report
+  nexus_url:string;              // optional, validated server-side (mod-management 3.6)
+  workshop_id:ulong;             // optional; Workshop URLs derived
+  notes:string;                  // shown to players
+}
+
+/// The session mod list. S->N inside SessionSettings (Welcome + SessionSettings + ModPolicyChanged).
+table ModPolicy {
+  version:uint;                  // bumps on every edit
+  source_mode:ModSourceMode;
+  unknown_default:UnknownModDefault;
+  enforcement:ModEnforcement;
+  entries:[ModPolicyEntry];
+}
+
+/// One mod named in a rejection.
+table ModRef {
+  id:string;
+  name:string;
+  version:string;                // what the session wants ("" = any)
+  have_version:string;           // what the player has ("" = not installed)
+  nexus_url:string;
+  workshop_id:ulong;
+  notes:string;
+}
+
+/// Disconnect detail for ExtensionsMismatch (and the shape of a Warn-mode notice).
+table ModPolicyViolation {
+  policy_version:uint;
+  install:[ModRef];              // missing
+  enable:[ModRef];               // installed but disabled
+  disable:[ModRef];              // enabled but blocked / not part of this session
+  update:[ModRef];               // wrong version or hash (have / need)
+}
+
+/// S->N, Control. The admin edited the session mod list. Nodes are NOT kicked; it applies at the next join.
+table ModPolicyChanged {
+  policy:ModPolicy;
+}
