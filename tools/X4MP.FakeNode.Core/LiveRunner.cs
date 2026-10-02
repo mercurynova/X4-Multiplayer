@@ -280,6 +280,30 @@ public sealed class LiveNodeStats(string name, Role role)
         }
     }
 
+    // ---- M1-X5: extension presets
+
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _notices = new();
+
+    /// <summary>What the server should do with this bot's extension report (null when it does not verify: no <c>--extensions-preset</c>, or the authority).</summary>
+    public ModExpectation? ModExpected { get; internal set; }
+
+    /// <summary>The preset variant this bot reports (<c>MissingRequiredMod</c>, <c>modded</c>, ...).</summary>
+    public string ModLabel { get; internal set; } = string.Empty;
+
+    /// <summary>True once the server let the bot in.</summary>
+    public bool ModAdmitted { get; internal set; }
+
+    /// <summary>True when the rejection (or admission) matched the expectation, false on a mismatch, null while undecided.</summary>
+    public bool? ModMatch { get; internal set; }
+
+    /// <summary>The actual outcome in words (printed in the summary).</summary>
+    public string ModDetail { get; internal set; } = string.Empty;
+
+    /// <summary>The <c>ServerNotice</c> texts this node received.</summary>
+    public IReadOnlyCollection<string> Notices => _notices;
+
+    internal void AddNotice(string text) => _notices.Enqueue(text);
+
     internal void MarkConnected() => Volatile.Write(ref _connected, 1);
 
     internal void MarkDisconnected() => Volatile.Write(ref _connected, 0);
@@ -347,6 +371,14 @@ public static partial class LiveRunner
         var tasks = new List<Task>();
         for (int i = 0; i < plan.Count; i++)
         {
+            if (i == 1 && plan[0].Role == Role.Authority && o.ExtensionsPreset != ExtensionPreset.None)
+            {
+                // Mod verification needs the server to know the authority's list first (before an authority exists AuthorityDefines admits everyone).
+                var wait = Stopwatch.StartNew();
+                while (!stats[0].Connected && !tasks[0].IsCompleted && wait.Elapsed < TimeSpan.FromSeconds(10) && !cts.IsCancellationRequested)
+                    await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
+            }
+
             tasks.Add(RunNodeAsync(o, plan[i], i, stats[i], single, run, lines, galaxy, saveRoot, cts.Token, inspector));
             if (i + 1 < plan.Count)
             {
@@ -374,6 +406,7 @@ public static partial class LiveRunner
             await WriteCommanderSummaryAsync(o, stats, lines).ConfigureAwait(false);
         await WriteTradeSummaryAsync(stats, lines).ConfigureAwait(false);
         long economyErrors = await WriteEconomySummaryAsync(o, stats, lines).ConfigureAwait(false);
+        long modErrors = await WriteModsSummaryAsync(stats, lines).ConfigureAwait(false);
         run.OnFinished?.Invoke(stats);
         await WriteTeamSummaryAsync(o, stats, lines).ConfigureAwait(false);
         long verifyErrors = stats.Where(s => s.Impairment is not { Slow: not null }).Sum(s => s.VerifyErrors); // a slow reader is allowed to fall behind
@@ -391,7 +424,7 @@ public static partial class LiveRunner
         await WriteInjectionSummaryAsync(o, stats, lines).ConfigureAwait(false);
         if (inspector is not null)
             await lines.WriteAsync(inspector.Summary()).ConfigureAwait(false);
-        long errors = stats.Sum(s => s.Errors) + verifyErrors + economyErrors;
+        long errors = stats.Sum(s => s.Errors) + verifyErrors + economyErrors + modErrors;
         await lines.WriteAsync($"summary: nodes={stats.Count} joined={stats.Count(s => s.Pings > 0)} errors={errors} pings={stats.Sum(s => s.Pings)} " +
                                $"rtt avg={Ms(Average(stats))} max={Ms(stats.Count == 0 ? TimeSpan.Zero : stats.Max(s => s.MaxRtt))} " +
                                $"elapsed={clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s ingame={stats.Count(s => s.InGame)}").ConfigureAwait(false);
@@ -562,12 +595,19 @@ public static partial class LiveRunner
             ? new StreamImpairment(TimeSpan.FromMilliseconds(o.LatencyMs), TimeSpan.FromMilliseconds(o.JitterMs), slowSpec, BitConverter.ToInt32(DeriveKey(o.Seed, plan.Name), 4))
             : null;
         stats.Impairment = impairment;
+        var extensions = o.ExtensionsFor(plan.Role, ordinal);
+        if (plan.Role == Role.Client && o.ExtensionsPreset != ExtensionPreset.None && extensions is not null)
+        {
+            stats.ModLabel = ExtensionPresets.Label(o.ExtensionsPreset, ordinal);
+            stats.ModExpected = ModExpectation.Compute(extensions, o.AuthorityExtensions ?? [], o.ExpectMods);
+        }
+
         var options = new NodeClientOptions
         {
             PlayerName = plan.Name,
             PlayerKey = DeriveKey(o.Seed, plan.Name),
             Password = o.Password,
-            ExtensionList = o.Extensions,
+            ExtensionList = extensions,
             RequestedRoles = plan.Role,
             ClientCaps = o.Udp ? (ulong)Capability.UdpRealtime : 0,
             StreamWrapper = impairment is null ? null : stream => new ImpairedStream(stream, impairment),
@@ -583,6 +623,11 @@ public static partial class LiveRunner
         {
             return;
         }
+        catch (HandshakeRejectedException rejected) when (stats.ModExpected is not null)
+        {
+            await ReportModRejectionAsync(stats, rejected, lines, plan.Name).ConfigureAwait(false);
+            return;
+        }
         catch (Exception ex)
         {
             stats.Fail(ex.Message);
@@ -593,6 +638,17 @@ public static partial class LiveRunner
         await using (client.ConfigureAwait(false))
         {
             stats.MarkConnected();
+            if (stats.ModExpected is { } admittedExpectation)
+            {
+                stats.ModAdmitted = true;
+                if (admittedExpectation.Outcome == ExpectedModOutcome.Reject)
+                {
+                    stats.ModMatch = false;
+                    stats.ModDetail = $"admitted, expected rejection ({admittedExpectation.Describe()})";
+                    await lines.WriteAsync($"[{plan.Name}] mods: MISMATCH variant={stats.ModLabel} expected={admittedExpectation.OutcomeName} {admittedExpectation.Describe()} actual=admitted").ConfigureAwait(false);
+                }
+            }
+
             var w = client.Welcome;
             await lines.WriteAsync(
                 $"[{plan.Name}] welcome: server='{client.ServerHello.ServerName}' v{client.ServerHello.ServerVersion} " +
@@ -601,7 +657,7 @@ public static partial class LiveRunner
                 $"resumed={w.Resumed} resume_grace={w.ResumeGraceS}s").ConfigureAwait(false);
 
             client.PongReceived += stats.RecordRtt;
-            var link = new NodeLink(client, w.PlayerId);
+            var link = new NodeLink(client, w.PlayerId) { NoticeSink = stats.AddNotice };
             if (inspector is not null)
                 link.Tap = inspector.Tap;
             using var readerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
