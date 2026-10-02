@@ -83,9 +83,9 @@ public sealed partial class ReplicationModule
             return;
         }
 
-        if (c.Entries.Count == 0)
+        if (c.Entries.Count == 0 || !_mirror.HasWorldUpdate)
         {
-            return;
+            return; // nothing to send, or no WorldUpdate yet: its game time is the reference every entry is stamped with
         }
 
         if (!_transport.CanAcceptRealtime(c.PlayerId))

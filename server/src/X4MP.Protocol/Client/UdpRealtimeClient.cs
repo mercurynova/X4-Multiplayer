@@ -67,6 +67,12 @@ public sealed class UdpRealtimeClient : IAsyncDisposable
     /// <summary>Share (0..1) of datagrams dropped in each direction (failure injection; set before binding, or any time).</summary>
     public double LossRate { get; set; }
 
+    /// <summary>Failure injection: delay added to every datagram in each direction (0 = none).</summary>
+    public TimeSpan Latency { get; set; }
+
+    /// <summary>Failure injection: each datagram's delay varies by up to this much either way (so datagrams can reorder).</summary>
+    public TimeSpan Jitter { get; set; }
+
     /// <summary>True once the server acknowledged the hello; the lane is usable.</summary>
     public bool Bound => _bound;
 
@@ -228,14 +234,60 @@ public sealed class UdpRealtimeClient : IAsyncDisposable
                 continue;
             }
 
-            try
+            if (NextDelay() is { } delay)
             {
-                Handle(buffer.AsSpan(0, n), subs);
+                var copy = buffer.AsSpan(0, n).ToArray();
+                _ = DelayedAsync(delay, () => HandleGuarded(copy, []));
+                continue;
             }
-            catch (ProtocolViolation)
+
+            HandleGuarded(buffer.AsSpan(0, n), subs);
+        }
+    }
+
+    private void HandleGuarded(ReadOnlySpan<byte> datagram, List<(MsgType Type, int Offset, int Length)> subs)
+    {
+        try
+        {
+            Handle(datagram, subs);
+        }
+        catch (ProtocolViolation)
+        {
+            Interlocked.Increment(ref _malformed);
+        }
+    }
+
+    /// <summary>The delay for the next datagram (latency plus or minus jitter), or null when no delay is injected.</summary>
+    private TimeSpan? NextDelay()
+    {
+        var latency = Latency;
+        if (latency <= TimeSpan.Zero && Jitter <= TimeSpan.Zero)
+        {
+            return null;
+        }
+
+        double ms = latency.TotalMilliseconds;
+        if (Jitter > TimeSpan.Zero)
+        {
+            lock (_random)
             {
-                Interlocked.Increment(ref _malformed);
+                ms += (_random.NextDouble() * 2 - 1) * Jitter.TotalMilliseconds;
             }
+        }
+
+        return TimeSpan.FromMilliseconds(Math.Max(0, ms));
+    }
+
+    private async Task DelayedAsync(TimeSpan delay, Action action)
+    {
+        try
+        {
+            await Task.Delay(delay, _cts.Token).ConfigureAwait(false);
+            action();
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+        {
+            // the lane was disposed while the datagram was in flight
         }
     }
 
@@ -345,6 +397,13 @@ public sealed class UdpRealtimeClient : IAsyncDisposable
         Interlocked.Increment(ref _sent);
         if (Lose())
         {
+            return true;
+        }
+
+        if (NextDelay() is { } delay)
+        {
+            var copy = _tx.AsSpan(0, length).ToArray();
+            _ = DelayedAsync(delay, () => socket.Send(copy));
             return true;
         }
 

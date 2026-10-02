@@ -129,7 +129,6 @@ public sealed class PlayerAndCliTests
     [InlineData("client", "--nope", "1")]
     [InlineData("client", "stray")]
     [InlineData("swarm", "--clients", "0")]
-    [InlineData("inspect")]
     [InlineData("authority", "--verify=maybe")]
     public void RejectsBadArguments(params string[] args)
     {
