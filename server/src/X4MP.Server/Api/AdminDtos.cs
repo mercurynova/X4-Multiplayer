@@ -27,11 +27,15 @@ public sealed record PlayerLiveDto(
     long PlayerId, long? ConnectionId, string Name, string Roles, string Phase, bool Connected, string? RemoteAddress, double RttMs,
     double Fps, long ConnectedSeconds, bool Muted);
 
-/// <summary>Response of <c>GET /api/v1/dashboard</c> (the first subset of what the hub pushes; M1-S3 extends it).</summary>
+/// <summary>
+/// Response of <c>GET /api/v1/dashboard</c> and the hub's 1 Hz <c>Dashboard</c> push (server-design 4.5). <c>TickP99Ms</c> is 0 until the
+/// session actor measures its tick time.
+/// </summary>
 [TsContract]
 public sealed record DashboardSnapshotDto(
     DateTimeOffset At, SessionSummaryDto? Session, int PlayersOnline, int MaxPlayers, AuthorityStatusDto? Authority,
-    List<PlayerLiveDto> Players, int EntitiesInMirror);
+    List<PlayerLiveDto> Players, int EntitiesInMirror, TrafficDto Traffic, int SectorsCaptured, double TickP99Ms,
+    List<AlertDto> ActiveAlerts);
 
 /// <summary>Response of <c>GET /api/v1/sessions/current</c> and <c>POST /api/v1/sessions</c>. <c>Live</c> is true for the session the server is running now.</summary>
 [TsContract]

@@ -164,8 +164,27 @@ public sealed partial class SettingsService(
             }
         }
 
+        RaiseChanged([.. accepted.Select(a => a.Setting.Key)]);
         return new SettingsPatchResult([]);
     }
+
+    /// <summary>Raised after a PATCH was applied, with the changed keys (the admin hub pushes <c>SettingsChanged</c> from it). Handlers must not throw or block.</summary>
+    public event Action<IReadOnlyList<string>>? Changed;
+
+    private void RaiseChanged(IReadOnlyList<string> keys)
+    {
+        try
+        {
+            Changed?.Invoke(keys);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogChangedHandlerFailed(ex);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "a settings-changed handler failed")]
+    private partial void LogChangedHandlerFailed(Exception ex);
 
     private static string Redact(SettingDescriptor setting, JsonElement value) =>
         setting.Secret ? Masked : value.GetRawText();
