@@ -164,14 +164,17 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         ServerMetrics.RecordDisconnect(reason);
         try
         {
-            var final = ControlFrames.Disconnect(reason, detail, expected, retryAfterMs);
-            _queue.Complete(discardControl: reason == DisconnectCode.SlowConsumer, final);
-            final.Release();
-            _abortCts.CancelAfter(_options.CloseFlushTimeoutMs);
+            // Must be set before the queue completes: the writer can finish (and run Finish) right after Complete, and a
+            // Finish that still sees graceful == 0 would send the FIN and close the input while the peer is still writing.
             if (DrainOnClose)
             {
                 Volatile.Write(ref _graceful, 1);
             }
+
+            var final = ControlFrames.Disconnect(reason, detail, expected, retryAfterMs);
+            _queue.Complete(discardControl: reason == DisconnectCode.SlowConsumer, final);
+            final.Release();
+            _abortCts.CancelAfter(_options.CloseFlushTimeoutMs);
         }
         catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException)
         {

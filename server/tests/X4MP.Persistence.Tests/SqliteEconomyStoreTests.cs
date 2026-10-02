@@ -22,7 +22,7 @@ public sealed class SqliteEconomyStoreTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         try
         {
             Directory.Delete(_dir, recursive: true);
@@ -71,7 +71,7 @@ public sealed class SqliteEconomyStoreTests : IDisposable
 
         // The process dies right after the acknowledgement: nothing but the database file is left.
         store.Dispose();
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
 
         var reopened = NewLedger(NewStore());
         Assert.Equal(12_300, reopened.BalanceOf(WalletId.Player(1)));
@@ -127,7 +127,7 @@ public sealed class SqliteEconomyStoreTests : IDisposable
         var ledger = NewLedger(store);
         var first = ledger.Post(Income(WalletId.Player(2), 900, "key-1"));
         store.Dispose();
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
 
         var again = NewLedger(NewStore());
         var replay = again.Post(Income(WalletId.Player(2), 900, "key-1"));

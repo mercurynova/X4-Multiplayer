@@ -46,7 +46,7 @@ public sealed class RelayHostingTests : IAsyncLifetime
     {
         await _app.StopAsync();
         await _app.DisposeAsync();
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         try
         {
             Directory.Delete(_dir, recursive: true);

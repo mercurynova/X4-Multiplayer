@@ -54,7 +54,7 @@ public class SettingsProviderTests : IDisposable
     public void Dispose()
     {
         GC.SuppressFinalize(this);
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         try
         {
             Directory.Delete(_dir, recursive: true);

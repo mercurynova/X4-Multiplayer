@@ -163,7 +163,7 @@ public sealed class SaveServer : IAsyncDisposable
     {
         await _app.StopAsync();
         await _app.DisposeAsync();
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(Dir);
         try
         {
             Directory.Delete(Dir, recursive: true);

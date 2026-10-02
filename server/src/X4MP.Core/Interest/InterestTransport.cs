@@ -26,7 +26,7 @@ public interface IInterestTransport
 internal sealed class NodeTransport(Dictionary<int, SessionNode> nodes) : IInterestTransport
 {
     public SendResult Send(int playerId, OutboundFrame frame) =>
-        nodes.TryGetValue(playerId, out var node) && node.Connection is { } connection ? connection.TrySend(frame) : SendResult.Closed;
+        nodes.TryGetValue(playerId, out var node) && node.Announced && node.Connection is { } connection ? connection.TrySend(frame) : SendResult.Closed;
 
     public bool IsOverSoftCap(int playerId) =>
         nodes.TryGetValue(playerId, out var node) && node.Connection is { } connection && connection.ControlOverSoftCap;
@@ -40,7 +40,7 @@ internal sealed class NodeTransport(Dictionary<int, SessionNode> nodes) : IInter
     {
         foreach (var node in nodes.Values)
         {
-            if (node.IsAuthority && node.IsAttached && node.Phase == NodePhase.InGame)
+            if (node.IsAuthority && node.IsAttached && node.Announced && node.Phase == NodePhase.InGame) // Announced: a resumed connection gets its Welcome first
             {
                 return node;
             }
