@@ -794,6 +794,29 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
 - **Consequences:** needs commander/subordinate relationships from the authority (schema change), a market
   snapshot message (Bulk lane), and spike items for the trade-offer API and X4's visibility rule.
 
+### ADR-051 Chosen avatar appearance (race + variants) for remote rendering (user requirement 2026-10-02)
+
+**Status: accepted; implemented with M3b (schema + server) and used by M3b/M3c rendering.** Extends ADR-046 (on-foot
+presence) and ADR-049 (team origins).
+- **Context:** the user wants each player to choose the race they render as for other players, defaulting to the
+  background/race/start sector they chose.
+- **Decision:**
+  - Each player has an **appearance**: race (Argon, Teladi, Paranid, Split, Boron, Terran, … whatever the game build
+    offers) plus **variants** where the game has them (body/gender, outfit/clothing; head/face if exposed).
+  - **Default** = the race of the player's team origin (ADR-049 gamestart/origin package); **free choice** afterwards,
+    changeable at any time (no admin restriction).
+  - **Others only:** it controls how *other* players see you (remote actors in the MP lounge/M3b and shared rooms/M3c,
+    plus a race icon in the HUD presence list). Your own local character is unchanged.
+  - Remote players are spawned as NPC actors, so any race with NPC character macros works even without a playable model.
+  - The server stores the appearance per player (persists across sessions, like the player row), validates it against
+    a per-build **appearance catalogue** (allowed character macros + variants, read from the host's install / authority
+    at runtime; never shipped), and relays `PlayerAppearance` (Control lane, ADR-046 / on-foot-presence.md §3.1) at join
+    and on change. The message carries the chosen race and variant refs rather than mirroring the local character.
+  - UI: a picker in the X4MP in-game menu (preview if feasible); later also in the player portal (ADR-050).
+- **Consequences / spike items:** list the NPC character macros per race and their variant options (body, clothing,
+  heads) for build 611726; confirm spawning a temporary actor with a chosen macro/variant in a room (S10); decide the
+  fallback when a macro is missing on a client (e.g. DLC race not enabled → nearest race + log).
+
 ## Part 2. Open questions for the user
 
 These are product decisions only. Each has a recommended default that the build will use
