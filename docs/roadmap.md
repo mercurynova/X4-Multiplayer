@@ -141,7 +141,7 @@ SRV §8 where noted.
 
 **Follow-up from M1-08 review (2026-10-01):** replication keeps only one tick's frames in flight per client and skips ticks until the previous one is flushed. On TCP over a high-latency link (VPN/internet, ~100 ms RTT) that caps updates at ~1/RTT (≈10 Hz), below the Near 20 Hz target. M1-09 (UDP, ack-driven) must replace this; if UDP slips, allow N frames in flight on TCP with per-frame baselines.
 
-**Follow-ups from M1-12 review (2026-10-01):** (1) the Stopping timeout stays 30 s; a large late-game final save may exceed it, so make it a setting and/or extend it while a save upload is progressing. (2) The save's `money` is read as cents ÷ 100; verify against a real save (spike session 2, alongside V04). (3) Team HQ seeding (ADR-049) goes through `ISaveSeedHook.OnInitialSaveStored`.
+**Follow-ups from M1-12 review (2026-10-01):** (1) the Stopping timeout stays 30 s; a large late-game final save may exceed it, so make it a setting and/or extend it while a save upload is progressing. (2) ~~The save's `money` is read as cents ÷ 100; verify against a real save.~~ **Resolved 2026-10-02:** the save header money is whole credits (user confirmed 5,447,419 ↔ ≈ 5.4 M Cr in game; see research/save-analyzer-notes.md); the ÷ 100 was a bug, fixed in task/fix-save-money-units. (3) Team HQ seeding (ADR-049) goes through `ISaveSeedHook.OnInitialSaveStored`.
 
 **Wave D status (2026-10-01): M1-08, M1-10, M1-12 and M1-N3 are merged.** E2E check by the lead: real server + FakeNode authority + 4 clients, the full join flow (save upload → download → verify → InGame) with `--verify`: 143,283 entries checked, 0 position errors, 28/28 checksums.
 

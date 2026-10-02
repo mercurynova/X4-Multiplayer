@@ -510,6 +510,7 @@ NuGet versions equal (`tools/flatc/flatc.lock.json`).
   a research unlock.
 - **Ghost budget:** default `max_ghosts = 250`, configurable by the server. Frame cost is
   rendering (~+5 ms per 250 inert S ships on the test PC), not per-frame repositioning.
+- **Save files (confirmed 2026-10-02):** the save header `<player money>` and `<account amount>` are **whole credits**; per-transaction fields (logbook `money`, trade-offer `price`) are **cents** (research/save-analyzer-notes.md, user-confirmed balance).
 - **Money units:** MD `player.money` and `AddPlayerMoney` use cents; Lua `GetPlayerMoney` uses
   credits. The mod converts at that edge, and the wire stays in whole credits. In-game balances
   clamp at 0, so the server must prevent overdraft in shared wallets, and any debt lives only
