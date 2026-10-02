@@ -6,6 +6,7 @@
 //   the game's "player" faction owns only the local human's own avatar
 // The wire only carries team_id / faction_slot (0 = none). NPC factions travel as owner_ref strings.
 include "common.fbs";
+include "mods.fbs";
 
 namespace X4MP.Proto;
 
@@ -92,6 +93,7 @@ table SessionSettings {
   version:uint;
   team:TeamPolicy;
   economy:EconomySettings;
+  mod_policy:ModPolicy;          // the session mod list (mod-management 3.3)
 }
 
 // ---- requests (C->S); every one carries request_key and is answered by TeamRequestResult ----

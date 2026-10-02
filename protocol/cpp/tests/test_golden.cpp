@@ -100,7 +100,7 @@ TEST_CASE("index.json agrees with the C++ constants", "[golden]") {
 
 TEST_CASE("frame vectors: verify, decode every field, re-encode the header", "[golden][frame]") {
   const auto frames = vectors_of("frame");
-  REQUIRE(frames.size() == 126);
+  REQUIRE(frames.size() == 128);
   std::set<std::string> union_variants_walked;
   std::set<std::uint16_t> types_seen;
 
@@ -148,7 +148,7 @@ TEST_CASE("frame vectors: verify, decode every field, re-encode the header", "[g
       INFO("diff (C# -> C++): " << json::diff(expected, actual).dump(2));
       FAIL_CHECK("decoded fields differ from index.json for " << file);
     }
-    if (const std::string variant = v.at("variant"); !variant.empty()) {
+    if (const std::string variant = v.at("variant"); !variant.empty() && actual.contains("Body")) {  // non-union variants (Disconnect.ModViolation) have no Body
       const auto& body = actual.at("Body");
       CHECK(body.contains("value"));
       union_variants_walked.insert(name + "." + variant);
