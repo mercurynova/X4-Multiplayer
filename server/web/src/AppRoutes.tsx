@@ -9,6 +9,7 @@ import { DiagnosticsPage } from './pages/diagnostics/DiagnosticsPage';
 import { GalaxyPage } from './pages/map/GalaxyPage';
 import { MapPerfPage } from './pages/map/MapPerfPage';
 import { SectorPage } from './pages/map/SectorPage';
+import { ModsPage } from './pages/mods/ModsPage';
 import { LogsPage } from './pages/logs/LogsPage';
 import { Login } from './pages/Login';
 import { NotFound } from './pages/NotFound';
@@ -21,7 +22,7 @@ import { TeamsPage } from './pages/teams/TeamsPage';
 import { screens } from './screens';
 
 // Screens with a real page; the rest render a placeholder until their task lands.
-const implementedScreens = new Set(['/', '/players', '/sessions', '/teams', '/economy', '/map', '/chat', '/logs', '/settings', '/diagnostics']);
+const implementedScreens = new Set(['/', '/players', '/sessions', '/mods', '/teams', '/economy', '/map', '/chat', '/logs', '/settings', '/diagnostics']);
 
 // Detail routes from server-design 5.1 that still render a placeholder.
 const detailRoutes: { path: string; title: string }[] = [
@@ -37,6 +38,7 @@ export function AppRoutes() {
           <Route path="/players" element={<PlayersPage />} />
           <Route path="/players/:id" element={<PlayerDetailPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="/mods" element={<ModsPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

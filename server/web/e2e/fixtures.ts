@@ -79,6 +79,8 @@ export class BotLauncher {
     if (o.name) args.push('--name', o.name);
     if (o.namePrefix) args.push('--name-prefix', o.namePrefix);
     args.push(...(o.args ?? []));
+    // Clients report the same mods as the authority unless a spec chooses its own extension set.
+    if (o.command !== 'authority' && !args.includes('--extensions-preset') && !args.includes('--extensions')) args.push('--extensions-preset', 'modded');
     const child = spawn(e2e.fakeNodeExe, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const bot = new Bot(`${o.command} ${o.name ?? o.namePrefix ?? ''}`.trim(), child);
     this.bots.push(bot);
@@ -113,7 +115,10 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
         // --team-assets and --trade-timeout make the authority a trade partner (economy.spec): ships get team owners, and every
         // trade order's confirm is withheld, a third of those never answering a TradeQuery so they end InDoubt. Specs that
         // do not trade are not affected.
-        const bot = launcher.start({ command: 'authority', duration: 1800, args: ['--team-assets', '--trade-timeout', '100'] });
+        // The authority reports the built-in "modded" extension set (two DLC, two libraries, a Workshop and a Nexus sim mod); the session
+        // mod list is derived from it (mods.spec) and every client bot reports the same set, so they are all admitted.
+        const args = ['--team-assets', '--trade-timeout', '100', '--authority-extensions', 'modded'];
+        const bot = launcher.start({ command: 'authority', duration: 1800, args });
         await bot.waitForLine(/checkpoint stored/, 30_000);
         await use(bot);
       } finally {
