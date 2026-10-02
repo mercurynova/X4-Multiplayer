@@ -1,0 +1,13 @@
+.mods .policy-bar { border: 0; margin: 0; padding: 0; }
+.mods .policy-bar select { width: auto; margin: 0; }
+.mods .table-scroll { overflow-x: auto; }
+.mods ul.plain, .player-mods ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.mods .mod-players li, .mods ul.plain li { padding: 0.35rem 0; border-top: 1px solid var(--border); }
+.mods .mod-players li:first-child, .mods ul.plain li:first-child { border-top: 0; }
+.violation { display: grid; gap: 0.25rem; }
+.violation h4 { margin: 0.25rem 0 0.1rem; font-size: 0.95em; }
+.violation ul { padding-left: 1.2rem; list-style: disc; display: block; }
+.mod-links a { white-space: nowrap; }
+.badge-ok { border-color: var(--ok); color: var(--ok); }
+.badge-bad { border-color: var(--danger); color: var(--danger); }
+.mods td .badge, .mods h2 .badge { margin-left: 0.3rem; }
