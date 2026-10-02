@@ -216,6 +216,18 @@ Everything runs when `ci.yml` itself changes or on manual dispatch. Newer pushes
 ref cancel older runs. Test results and logs upload only on failure. Caches: NuGet, npm,
 `tools/flatc/bin` (keyed on `flatc.lock.json`) and the vcpkg binary cache.
 
+**Nightly load job (M1-C2).** `.github/workflows/nightly.yml` (cron 03:17 UTC and manual dispatch; ubuntu, plus
+windows when the dispatch input `windows` is ticked) publishes the real server and FakeNode, then runs the
+`X4MP.LoadTests` harness: 1 authority + 16 clients, ~20k entities in the mirror, 9 minutes (60 s warm-up). It
+writes `report.json` + `report.md` (job summary and the `load-report-<os>` artifact) and **fails** when a budget in
+`server/tests/X4MP.LoadTests/budgets.json` is exceeded (tick p99 < 15 ms, CPU p95 < 100% of a core, working set
+< 500 MB, no dropped frames, no verify errors, ...). It then runs the wall-clock tests marked
+`[Trait("Category", "Perf")]` (today `SaveLatencyTests`), which PR CI excludes with `--filter "Category!=Perf"`.
+Locally: `dotnet test X4MP.sln --filter "Category!=Perf"` for the default run, `--filter "Category=Perf"` for the perf
+tests. The harness by hand: build Release, then `X4MP.LoadTests run --server-exe <x4mp-server> --fakenode-exe <FakeNode>
+--duration 180` (non-default ports 47980/47981/47990; `--budget tickP99MsMax=0.5` overrides a budget, `evaluate
+--report report.json` re-checks a finished run).
+
 Other workflows: `codeql.yml` (C#, JS/TS; weekly and on push to main only; needs GitHub
 Advanced Security on a private repo; set the repo variable `CODEQL_DISABLED=true` to turn it
 off), `release.yml` (tags `v*`: server exes, mod zip, `SHA256SUMS`, draft release) and

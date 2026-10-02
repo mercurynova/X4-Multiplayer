@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <RootNamespace>X4MP.LoadTests</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="budgets.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
 </Project>

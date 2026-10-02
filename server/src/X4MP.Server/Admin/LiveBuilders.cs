@@ -122,7 +122,7 @@ internal sealed class DashboardBuilder(
         var (entities, captured) = await sessions.Actor.CallAsync(() => (mirror.Count, interest.LastCaptureSectors.Count)).ConfigureAwait(false);
         return new DashboardSnapshotDto(
             now, live.Exists ? sessions.Summary(live) : null, live.Snapshot.Nodes.Count(n => n.Connected), net.MaxPlayers,
-            AdminMapping.ToDto(live.Snapshot.Authority), players, entities, Traffic(), captured, 0, alerts.Snapshot());
+            AdminMapping.ToDto(live.Snapshot.Authority), players, entities, Traffic(), captured, ServerMetrics.TickPercentileMs(99), alerts.Snapshot());
     }
 
     private TrafficDto Traffic()

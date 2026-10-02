@@ -317,7 +317,7 @@ public static partial class LiveRunner
 
         string saveRoot = run.SaveDirectory ?? Path.Combine(Path.GetTempPath(), "x4mp-fakenode", Guid.NewGuid().ToString("N")[..8]);
         var stats = plan.Select(p => new LiveNodeStats(p.Name, p.Role)).ToList();
-        var galaxy = new Lazy<FakeGalaxy>(() => FakeGalaxy.Generate(o.Seed, new GalaxyOptions { SectorCount = o.Sectors, ShipCount = o.Ships }), LazyThreadSafetyMode.ExecutionAndPublication);
+        var galaxy = new Lazy<FakeGalaxy>(() => FakeGalaxy.Generate(o.Seed, new GalaxyOptions { SectorCount = o.Sectors, ShipCount = o.Ships, MaxShipsPerSector = o.MaxShipsPerSector }), LazyThreadSafetyMode.ExecutionAndPublication);
         bool single = plan.Count == 1;
         var inspector = o.Command == FakeNodeCommand.Inspect
             ? new FrameInspector(o, line => { lines.WriteAsync(line); run.OnInspectLine?.Invoke(line); }, () => cts.Cancel())

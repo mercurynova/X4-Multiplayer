@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using X4MP.Protocol;
 
 namespace X4MP.Core.Metrics;
@@ -82,6 +83,14 @@ public sealed class MetricsSampler
         yield return new("net.violations", "violations/s", MetricKind.Rate, () => ServerMetrics.Violations);
         yield return new("net.handshakes_refused", "handshakes/s", MetricKind.Rate, () => ServerMetrics.HandshakesRefused);
         yield return new("events.dropped", "events/s", MetricKind.Rate, () => ServerMetrics.EventsDroppedTotal);
+        yield return new("tick.p50_ms", "ms", MetricKind.Gauge, () => ServerMetrics.TickPercentileMs(50));
+        yield return new("tick.p99_ms", "ms", MetricKind.Gauge, () => ServerMetrics.TickPercentileMs(99));
+        yield return new("tick.count", "ticks/s", MetricKind.Rate, () => ServerMetrics.TickCount);
+        yield return new("process.cpu_percent", "% of one core", MetricKind.Rate, () => Process.GetCurrentProcess().TotalProcessorTime.TotalSeconds * 100.0);
+        yield return new("gc.heap_mb", "MB", MetricKind.Gauge, () => GC.GetTotalMemory(false) / (1024.0 * 1024.0));
+        yield return new("gc.gen0_collections", "collections/s", MetricKind.Rate, () => GC.CollectionCount(0));
+        yield return new("gc.gen2_collections", "collections/s", MetricKind.Rate, () => GC.CollectionCount(2));
+        yield return new("gc.allocated_bytes", "B/s", MetricKind.Rate, () => GC.GetTotalAllocatedBytes(false));
         yield return new("process.working_set_mb", "MB", MetricKind.Gauge, () => Environment.WorkingSet / (1024.0 * 1024.0));
     }
 
