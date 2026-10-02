@@ -283,6 +283,47 @@ public sealed class EconomyAdminTests
     }
 
     [Fact]
+    public void EveryLoanLinkedTransactionIsNotReversibleEvenWithForceAndTheLoanChecksStayClean()
+    {
+        var kit = Kit();
+        kit.Auditor.AddCheck(EconomyService.AuditLoans);
+        kit.Fund(1, 10_000);
+        var offered = kit.Service.OfferLoan(1, "o1", 2, 1_000, 1_100, 0, 300, 25, null); // 25% auto-repay
+        Assert.True(kit.Service.RespondLoan(2, "a1", offered.Loan!.Id, true).Ok);
+        Assert.True(kit.Service.RepayLoan(2, "r1", offered.Loan.Id, 100).Ok);
+        kit.Service.BookCreditDelta(2, senderIsAuthority: false, new CreditDeltaT { Amount = 400, Seq = 1 }); // 100 goes to the lender inside the income
+        var declined = kit.Service.OfferLoan(1, "o2", 3, 500, 550, 0, 300, 0, null);
+        Assert.True(kit.Service.RespondLoan(3, "a2", declined.Loan!.Id, false).Ok); // refund of the escrow
+
+        var linked = kit.Store.Transactions
+            .Where(t => t.Kind is TxKind.LoanEscrow or TxKind.LoanDisburse or TxKind.LoanRepay or TxKind.LoanRefund
+                || (t.Kind == TxKind.GameIncome && t.Entries.Count > 2))
+            .ToList();
+        Assert.Contains(linked, t => t.Kind == TxKind.LoanRepay);
+        Assert.Contains(linked, t => t.Kind == TxKind.LoanRefund);
+        Assert.Contains(linked, t => t.Kind == TxKind.GameIncome);
+        var before = kit.Store.Transactions.Count;
+        foreach (var tx in linked)
+        {
+            foreach (var force in new[] { false, true })
+            {
+                var result = kit.Service.AdminReverse(Admin, tx.Id, "try", force);
+                Assert.Equal(EconomyAdminError.NotReversible, result.Error);
+                Assert.Contains("loan admin actions", result.Detail, StringComparison.Ordinal);
+            }
+        }
+
+        Assert.Equal(before, kit.Store.Transactions.Count);
+        var loan = kit.Service.FindLoan(offered.Loan.Id)!;
+        Assert.Equal(1_100 - 100 - 100, loan.Outstanding);
+        AssertSound(kit);
+
+        // the supported way keeps the books consistent
+        Assert.True(kit.Service.AdminCancelLoan(Admin, loan.Id, "cleanup", reverseDisbursement: true, force: true).Ok);
+        AssertSound(kit);
+    }
+
+    [Fact]
     public void AReversalWithAnIdempotencyKeyReplaysInsteadOfReportingAlreadyReversed()
     {
         var kit = Kit();
