@@ -14,7 +14,7 @@ function messageFor(e: unknown): string {
 }
 
 export function Login() {
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login, notice } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [username, setUsername] = useState('');
@@ -39,6 +39,7 @@ export function Login() {
     <main className="centered">
       <form className="card" onSubmit={onSubmit}>
         <h1>Sign in</h1>
+        {notice && <p role="status" className="notice">{notice}</p>}
         <label>
           Username
           <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />

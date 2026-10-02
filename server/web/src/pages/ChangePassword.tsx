@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { ApiError } from '../api/http';
+import { problemToFormErrors, type FormErrors } from '../lib/problem';
 import { useAuth } from '../auth/AuthContext';
 
 const MIN_LENGTH = 12;
@@ -11,7 +11,9 @@ export function ChangePassword({ forced = false }: { forced?: boolean }) {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FormErrors['fields']>({});
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -19,8 +21,20 @@ export function ChangePassword({ forced = false }: { forced?: boolean }) {
     if (next !== confirm) return setError('The new passwords do not match.');
     setBusy(true);
     setError(null);
+    setFieldErrors({});
+    setDone(false);
     changePassword(current, next)
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : 'Could not reach the server.'))
+      .then(() => {
+        setDone(true);
+        setCurrent('');
+        setNext('');
+        setConfirm('');
+      })
+      .catch((err: unknown) => {
+        const fe = problemToFormErrors(err);
+        setFieldErrors(fe.fields);
+        setError(fe.form);
+      })
       .finally(() => setBusy(false));
   };
 
@@ -36,8 +50,10 @@ export function ChangePassword({ forced = false }: { forced?: boolean }) {
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
             autoComplete="current-password"
+            aria-invalid={fieldErrors.current ? true : undefined}
             required
           />
+          {fieldErrors.current && <span className="field-error">{fieldErrors.current}</span>}
         </label>
         <label>
           New password
@@ -47,8 +63,10 @@ export function ChangePassword({ forced = false }: { forced?: boolean }) {
             onChange={(e) => setNext(e.target.value)}
             autoComplete="new-password"
             minLength={MIN_LENGTH}
+            aria-invalid={fieldErrors.new ? true : undefined}
             required
           />
+          {fieldErrors.new && <span className="field-error">{fieldErrors.new}</span>}
         </label>
         <label>
           Confirm new password
@@ -61,6 +79,7 @@ export function ChangePassword({ forced = false }: { forced?: boolean }) {
           />
         </label>
         {error && <p role="alert">{error}</p>}
+        {done && !forced && <p role="status">Password changed.</p>}
         <button type="submit" disabled={busy}>
           Change password
         </button>
