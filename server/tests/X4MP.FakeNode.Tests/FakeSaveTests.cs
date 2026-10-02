@@ -43,7 +43,7 @@ public sealed class FakeSaveTests : IDisposable
     [Fact]
     public void TheSaveIsAGzipOfAnX4StyleSavegameDocument()
     {
-        var save = FakeSaveGenerator.CreateSave(_dir, 42, 1, 5000, moneyCents: 424_200);
+        var save = FakeSaveGenerator.CreateSave(_dir, 42, 1, 5000, moneyCredits: 424_200);
         using var file = File.OpenRead(save.Path);
         using var gzip = new GZipStream(file, CompressionMode.Decompress);
         var head = new byte[200];
