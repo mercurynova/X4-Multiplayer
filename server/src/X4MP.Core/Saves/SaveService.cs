@@ -274,7 +274,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         _waitingForFresh.Remove(node.PlayerId);
         if (node.IsAuthority)
         {
-            AuthorityGone();
+            AuthorityGone(keepRequest: true);
         }
     }
 
@@ -287,7 +287,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         _waitingForFresh.Remove(node.PlayerId);
         if (node.IsAuthority)
         {
-            AuthorityGone();
+            AuthorityGone(keepRequest: false);
             _authority = null;
         }
     }

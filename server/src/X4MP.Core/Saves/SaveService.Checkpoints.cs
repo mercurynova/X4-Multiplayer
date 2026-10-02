@@ -26,7 +26,8 @@ public sealed partial class SaveService
     /// <summary>Sends <c>RequestSave</c> to the authority. False when there is no authority, a request is already in flight, or it is not in game yet.</summary>
     private bool SendRequestSave(SaveReason reason)
     {
-        if (_authority is not { Connection: not null } authority || _inFlight is not null)
+        // Announced: a resumed connection gets its Welcome first, the request after it.
+        if (_authority is not { Connection: not null, Announced: true } authority || _inFlight is not null)
         {
             return false;
         }
@@ -261,7 +262,12 @@ public sealed partial class SaveService
         });
     }
 
-    private void AuthorityGone()
+    /// <param name="keepRequest">
+    /// The socket dropped but the authority may resume within its grace: the save request it was working on stays outstanding (it continues its
+    /// interrupted upload after the resume, and the request timeout clears it if it never does). Asking again at once would start a second
+    /// checkpoint next to the one it is still finishing.
+    /// </param>
+    private void AuthorityGone(bool keepRequest)
     {
         foreach (var upload in _uploads.Values.ToArray())
         {
@@ -269,7 +275,11 @@ public sealed partial class SaveService
         }
 
         _uploads.Clear();
-        _inFlight = null;
+        if (!keepRequest)
+        {
+            _inFlight = null;
+        }
+
         PublishStatus();
         if (_stopPending)
         {
