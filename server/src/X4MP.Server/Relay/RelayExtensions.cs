@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using X4MP.Core.Economy;
 using X4MP.Core.Events;
 using X4MP.Core.Interest;
 using X4MP.Core.Permissions;
@@ -48,7 +49,8 @@ public static class RelayExtensions
             if (mirror is not null && teams is not null && teamOptions is not null)
             {
                 relay.AssetPermissions = new AssetPermissionGate(
-                    mirror, teams, () => teamOptions.CurrentValue, () => monitor.CurrentValue.ClaimRangeMetres, teamId => (teams as TeamModule)?.LeaderOf(teamId));
+                    mirror, teams, () => teamOptions.CurrentValue, () => monitor.CurrentValue.ClaimRangeMetres, teamId => (teams as TeamModule)?.LeaderOf(teamId),
+                    netId => sp.GetService<EconomyModule>()?.Service?.IsAssetLocked(netId) == true); // an asset in an open trade takes no orders
             }
 
             return relay;

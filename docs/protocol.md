@@ -1351,7 +1351,7 @@ carries `request_key` (idempotency), which is not repeated below.
 |---|---|---|---|---|
 | 0x0800 | WalletUpdate | S→N | Ctl | balances[(wallet{kind, owner_id}, balance, version)], reason, ref_id, effective_mode |
 | 0x0801 | CreditDelta | A→S, C→S | Ctl | player_id (A only), team_id (A only), amount, source, ref_event_seq, game_time |
-| 0x0802 | EconomyResult | S→C | Ctl | status, reason, detail, ref_id, balances[] |
+| 0x0802 | EconomyResult | S→C | Ctl | status, reason (`EconomyReject`; `SameWallet`, `RequestIdReuse`, `OutOfRange` added with M1-E5), detail, ref_id (trade requests: the trade id, low half of the Id128), balances[] |
 | 0x0803 | CreditTransferRequest | C→S | Ctl | to_player, amount, memo. Same team, or Allied if enabled. |
 | 0x0804 | PoolDepositRequest | C→S | Ctl | amount |
 | 0x0805 | PoolWithdrawRequest | C→S | Ctl | amount |
@@ -1361,16 +1361,16 @@ carries `request_key` (idempotency), which is not repeated below.
 | 0x0809 | LoanRepay | C→S (borrower) | Ctl | loan_id, amount |
 | 0x080A | LoanForgive | C→S (lender) | Ctl | loan_id, amount (0 = all) |
 | 0x080B | LoanCancel | C→S (lender) | Ctl | loan_id |
-| 0x080C | LoanStatus | S→C (both parties) | Ctl | loan_id, lender, borrower, state, principal, repay_total, repaid, forgiven, created/due_time_us, memo |
-| 0x080D | TradeProposal | C→S | Ctl | counterparty, give[TradeItem], want[TradeItem], ttl_s, memo. Gated by trade_scope. |
-| 0x080E | TradeCounter | C→S | Ctl | trade_id, base_version, give[], want[] |
-| 0x080F | TradeAccept | C→S | Ctl | trade_id, version, receive_into_asset |
-| 0x0810 | TradeCancel | C→S | Ctl | trade_id |
-| 0x0811 | TradeStatus | S→C (both parties) | Ctl | trade_id, version, state, initiator/counterparty (player, team, give[], accepted_version), expires_time_us |
-| 0x0812 | TradeResult | S→C (both parties) | Ctl | trade_id, version, state (Completed, RolledBack, Cancelled, Expired or Rejected), reason, detail |
-| 0x0813 | AssetTransferOrder | S→A | Ctl | trade_id, lines[kind (OwnerChange or WareMove), asset, to_team, to_player, ware_ref, amount, dest_asset], deadline_ms |
-| 0x0814 | AssetTransferConfirm | A→S | Ctl | trade_id, ok, failed_line, compensated, error |
-| 0x0815 | TradeQuery | S→A | Ctl | trade_id (authority answers with AssetTransferConfirm or unknown) |
+| 0x080C | LoanStatus | S→C (both parties) | Ctl | loan_id, lender, borrower, state (`Withdrawn` added with M1-E5: a lender who took an offer back), principal, repay_total, repaid, forgiven, created/due_time_us, memo |
+| 0x080D | TradeProposal | C→S | Ctl | counterparty, give[TradeItem], want[TradeItem], ttl_s, memo. Gated by trade_scope. M1: exactly one Credits item in total, at least one Ship/Ware item, no Station. Nothing is escrowed until both sides accepted. |
+| 0x080E | TradeCounter | C→S | Ctl | trade_id, base_version, give[], want[] (the sender's view). `base_version` must be the current version (`StaleVersion`); the sender implicitly accepts its own counter. |
+| 0x080F | TradeAccept | C→S | Ctl | trade_id, version, receive_into_asset. A stale version is `StaleVersion`. The accept that completes the pair validates, escrows the credits and sends the order. |
+| 0x0810 | TradeCancel | C→S | Ctl | trade_id. Initiator: `Cancelled`; counterparty (decline): `Rejected`. Only while negotiating. |
+| 0x0811 | TradeStatus | S→C (both parties) | Ctl | trade_id, version, state, initiator/counterparty (player, team, give[], accepted_version), expires_time_us (Unix µs). Sent on every change and to a player who resumes. |
+| 0x0812 | TradeResult | S→C (both parties) | Ctl | trade_id, version, state (Completed, RolledBack, Cancelled, Expired or Rejected), reason, detail. `InDoubt` is not final: it only appears in `TradeStatus`. |
+| 0x0813 | AssetTransferOrder | S→A | Ctl | trade_id, lines[kind (OwnerChange or WareMove), asset, to_team, to_player, ware_ref, amount, dest_asset], deadline_ms. One order per trade, cargo moves before ownership changes. |
+| 0x0814 | AssetTransferConfirm | A→S | Ctl | trade_id, ok, failed_line, compensated, error. Settles a Transferring or InDoubt trade once; a repeat is ignored. `ok=false` with `compensated=false` and `failed_line > 0` leaves the trade InDoubt (earlier lines were applied). |
+| 0x0815 | TradeQuery | S→A | Ctl | trade_id (authority answers with AssetTransferConfirm, or `ok=false, failed_line=-1, error="Unknown"`, which the server treats as "never received" and refunds). Timeline: `TradeExecuteTimeoutSeconds` (30) after the order, then up to 3 queries `TradeQueryIntervalSeconds` (10) apart, then InDoubt. |
 
 Also changed by ADR-036: `CreditDelta` gains `seq`; `WalletUpdate` gains
 `acked_delta_seq`; `LoanOffer` gains `auto_repay_pct`; `TradeState` gains `InDoubt`;

@@ -842,7 +842,7 @@ public sealed partial class EconomyService
             PostReject.InsufficientFunds => EconomyReject.InsufficientFunds,
             PostReject.EconomyFrozen or PostReject.WalletFrozen => EconomyReject.EconomyFrozen,
             PostReject.AmountInvalid or PostReject.Unbalanced or PostReject.InvalidEntries => EconomyReject.AmountInvalid,
-            PostReject.PayloadMismatch => EconomyReject.AmountInvalid,
+            PostReject.PayloadMismatch => EconomyReject.RequestIdReuse,
             _ => EconomyReject.Timeout,
         };
         return new EconomyActionResult(code, outcome, outcome.Detail ?? requestKey);

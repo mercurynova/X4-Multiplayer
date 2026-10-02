@@ -96,7 +96,7 @@ public sealed partial class EconomyService
         var to = EffectiveWallet(borrowerId);
         if (from == to)
         {
-            return LoanResult.Rejected(EconomyReject.NotApplicableInSharedMode, "both players use the same wallet");
+            return LoanResult.Rejected(EconomyReject.SameWallet, "both players use the same wallet");
         }
 
         if (from.Kind == WalletKind.TeamShared && options.SharedWalletSpend == SharedWalletSpendPolicy.LeaderOnly
@@ -211,7 +211,7 @@ public sealed partial class EconomyService
         var borrowerWallet = EffectiveWallet(loan.BorrowerId);
         if (lenderWallet == borrowerWallet)
         {
-            return LoanResult.Rejected(EconomyReject.NotApplicableInSharedMode, "both players use the same wallet", loan);
+            return LoanResult.Rejected(EconomyReject.SameWallet, "both players use the same wallet", loan);
         }
 
         if (_ledger.Find(borrowerWallet) is { Frozen: true })
@@ -294,7 +294,7 @@ public sealed partial class EconomyService
         var to = EffectiveWallet(loan.LenderId);
         if (from == to)
         {
-            return LoanResult.Rejected(EconomyReject.NotApplicableInSharedMode, "both players use the same wallet", loan);
+            return LoanResult.Rejected(EconomyReject.SameWallet, "both players use the same wallet", loan);
         }
 
         if (_ledger.Find(to) is { Frozen: true })

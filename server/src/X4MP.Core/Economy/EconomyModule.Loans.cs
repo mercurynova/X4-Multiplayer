@@ -187,7 +187,7 @@ public sealed partial class EconomyModule
         node.Connection.TrySend(ControlFrames.Encode(MsgType.LoanStatus, fbb => LoanStatus.Pack(fbb, status).Value, 160));
     }
 
-    /// <summary>The wire has no Withdrawn: a lender who withdrew an offer shows as Cancelled.</summary>
+    /// <summary>A lender who withdrew an offer shows as Withdrawn (added to the wire with M1-E5); admin cancellations stay Cancelled.</summary>
     private static X4MP.Proto.LoanState ToWire(LoanState state) => state switch
     {
         LoanState.Offered => X4MP.Proto.LoanState.Offered,
@@ -197,6 +197,7 @@ public sealed partial class EconomyModule
         LoanState.Declined => X4MP.Proto.LoanState.Declined,
         LoanState.Expired => X4MP.Proto.LoanState.Expired,
         LoanState.Forgiven => X4MP.Proto.LoanState.Forgiven,
+        LoanState.Withdrawn => X4MP.Proto.LoanState.Withdrawn,
         _ => X4MP.Proto.LoanState.Cancelled,
     };
 }

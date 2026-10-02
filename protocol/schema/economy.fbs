@@ -60,7 +60,10 @@ enum EconomyReject : ubyte {
   PoolDisabled, PoolPolicyDenied, DailyLimit, AmountInvalid, OverMaxAmount, UnknownPlayer,
   UnknownLoan, UnknownTrade, StaleVersion, NotParty, WrongState, TooManyOpen, EconomyFrozen,
   RateLimited, AssetNotOwned, AssetUnavailable, AuthorityUnavailable, AuthorityRejected, Timeout,
-  SessionNotRunning
+  SessionNotRunning,
+  SameWallet,                    // both parties spend from one wallet (Shared mode, same team)
+  RequestIdReuse,                // request_key reused with a different payload
+  OutOfRange                     // trade proximity: the assets/ships are not in the same sector
 }
 
 /// S->C. Exactly one per request_key.
@@ -86,7 +89,7 @@ table PoolWithdrawRequest { request_key:Id128; amount:long; }
 /// only if the sender may spend it -- leader or AnyMember policy).
 table DonateRequest { request_key:Id128; to_player:ushort; amount:long; memo:string; }
 
-enum LoanState : ubyte { Offered = 0, Active, Repaid, Forgiven, Overdue, Declined, Expired, Cancelled }
+enum LoanState : ubyte { Offered = 0, Active, Repaid, Forgiven, Overdue, Declined, Expired, Cancelled, Withdrawn }
 
 /// Lender -> S (loan_scope). The principal is ESCROWED at offer time (ADR-021); on accept it moves
 /// escrow -> borrower, on decline/cancel/expiry it is refunded to the lender.

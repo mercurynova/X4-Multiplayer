@@ -453,7 +453,7 @@ public sealed class LoanTests
         Assert.Equal(9001, kit.Balance(WalletId.Player(1)));
 
         var mismatch = kit.Service.OfferLoan(1, "k", 2, 2000, 2200, 3600, 300, 0, "m");
-        Assert.Equal(EconomyReject.AmountInvalid, mismatch.Reason);
+        Assert.Equal(EconomyReject.RequestIdReuse, mismatch.Reason);
         Assert.Contains("different payload", mismatch.Detail);
         Assert.Equal(1, kit.Ledger.RequestIdReuseCount);
         Assert.Single(kit.Service.Loans);
@@ -471,27 +471,27 @@ public sealed class LoanTests
         Assert.True(kit.Service.RespondLoan(2, "r", id, true).Ok);
         Assert.True(kit.Service.RespondLoan(2, "r", id, true).Ok);
         Assert.Equal(1000, kit.Balance(WalletId.Player(2)));
-        Assert.Equal(EconomyReject.AmountInvalid, kit.Service.RespondLoan(2, "r", id, false).Reason);
+        Assert.Equal(EconomyReject.RequestIdReuse, kit.Service.RespondLoan(2, "r", id, false).Reason);
 
         // repay
         kit.Fund(2, 500);
         Assert.True(kit.Service.RepayLoan(2, "p", id, 100).Ok);
         Assert.True(kit.Service.RepayLoan(2, "p", id, 100).Ok);
         Assert.Equal(1000, kit.Service.FindLoan(id)!.Outstanding);
-        Assert.Equal(EconomyReject.AmountInvalid, kit.Service.RepayLoan(2, "p", id, 200).Reason);
+        Assert.Equal(EconomyReject.RequestIdReuse, kit.Service.RepayLoan(2, "p", id, 200).Reason);
 
         // forgive
         Assert.True(kit.Service.ForgiveLoan(1, "f", id, 100).Ok);
         Assert.True(kit.Service.ForgiveLoan(1, "f", id, 100).Ok);
         Assert.Equal(900, kit.Service.FindLoan(id)!.Outstanding);
-        Assert.Equal(EconomyReject.AmountInvalid, kit.Service.ForgiveLoan(1, "f", id, 50).Reason);
+        Assert.Equal(EconomyReject.RequestIdReuse, kit.Service.ForgiveLoan(1, "f", id, 50).Reason);
 
         // withdraw
         Assert.True(kit.Service.WithdrawLoan(1, "c", spare).Ok);
         var balance = kit.Balance(WalletId.Player(1));
         Assert.True(kit.Service.WithdrawLoan(1, "c", spare).Ok);
         Assert.Equal(balance, kit.Balance(WalletId.Player(1)));
-        Assert.Equal(EconomyReject.AmountInvalid, kit.Service.WithdrawLoan(1, "c", id).Reason);
+        Assert.Equal(EconomyReject.RequestIdReuse, kit.Service.WithdrawLoan(1, "c", id).Reason);
         AssertSound(kit);
     }
 
@@ -653,7 +653,7 @@ public sealed class LoanTests
     {
         var kit = Kit(o => o.CreditMode = CreditMode.Shared);
 
-        Assert.Equal(EconomyReject.NotApplicableInSharedMode, kit.Service.OfferLoan(1, "k", 2, 100, 100, 0, 300, 0).Reason);
+        Assert.Equal(EconomyReject.SameWallet, kit.Service.OfferLoan(1, "k", 2, 100, 100, 0, 300, 0).Reason);
     }
 
     [Fact]

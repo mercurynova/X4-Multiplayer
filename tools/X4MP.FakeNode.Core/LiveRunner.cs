@@ -30,6 +30,9 @@ public sealed record LiveRunOptions
     /// <summary>Test hooks for the clients' sessions (inject a fault, shorten the clock).</summary>
     public Action<FakeClientSession>? OnClientSession { get; init; }
 
+    /// <summary>Called once with every node's counters when the run has ended (tests read the traders and the fake authority's ground truth).</summary>
+    public Action<IReadOnlyList<LiveNodeStats>>? OnFinished { get; init; }
+
     /// <summary>Size of the fake save the authority uploads (null = <c>--save-mb</c>, default 4 MiB).</summary>
     public long? SaveBytes { get; init; }
 
@@ -100,6 +103,11 @@ public sealed class LiveNodeStats(string name, Role role)
 
     internal void AttachSession(FakeClientSession session) => _session = session;
 
+    /// <summary>The trading behaviour of a client started with <c>--trade</c> (null otherwise).</summary>
+    public FakeTrader? Trader { get; internal set; }
+
+    /// <summary>The authority's trade executor with its ground truth (authority only).</summary>
+    public FakeTradeAuthority? TradeAuthority { get; internal set; }
     // ---- M1-F3: teams
     private int _teamId;
     private long _lobbyRequests;
@@ -277,6 +285,8 @@ public static partial class LiveRunner
             s.Session!.CheckStale();
         if (o.Commander != CommanderMode.None)
             await WriteCommanderSummaryAsync(o, stats, lines).ConfigureAwait(false);
+        await WriteTradeSummaryAsync(stats, lines).ConfigureAwait(false);
+        run.OnFinished?.Invoke(stats);
         await WriteTeamSummaryAsync(o, stats, lines).ConfigureAwait(false);
         long verifyErrors = stats.Sum(s => s.VerifyErrors);
         if (o.Verify)
@@ -321,6 +331,25 @@ public static partial class LiveRunner
             $"commander({o.Commander.ToString().ToLowerInvariant()}): orders-sent={sent} accepted={accepted} rejected={rejected} forwarded-to-authority={forwarded} " +
             $"no-target-ticks={stats.Sum(s => s.OrderTicksWithoutTarget)} reasons=[{reasons}]")).ConfigureAwait(false);
     }
+
+    /// <summary>The M1-E5 result: what the trading clients proposed and how the server settled it, and what the fake authority did with the orders.</summary>
+    private static async Task WriteTradeSummaryAsync(List<LiveNodeStats> stats, SynchronizedWriter lines)
+    {
+        var traders = stats.Where(s => s.Trader is not null).ToList();
+        if (traders.Count > 0)
+        {
+            var results = traders.SelectMany(s => s.Trader!.Results).GroupBy(r => r.Key).ToDictionary(g => g.Key, g => g.Sum(r => r.Value));
+            long Count(TradeState state) => results.GetValueOrDefault(state);
+            var reasons = string.Join(",", traders.SelectMany(s => s.Trader!.RejectReasons).GroupBy(r => r.Key).OrderBy(g => g.Key).Select(g => $"{g.Key}={g.Sum(r => r.Value)}"));
+            await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                $"trade: clients={traders.Count} proposals={traders.Sum(s => s.Trader!.ProposalsSent)} accepts={traders.Sum(s => s.Trader!.AcceptsSent)} " +
+                $"results(one per party)=[completed={Count(TradeState.Completed)} rolled-back={Count(TradeState.RolledBack)} cancelled={Count(TradeState.Cancelled)} " +
+                $"rejected={Count(TradeState.Rejected)} expired={Count(TradeState.Expired)}] open-at-end={traders.Sum(s => s.Trader!.Open)} request-rejects=[{reasons}]")).ConfigureAwait(false);
+        }
+
+        foreach (var s in stats.Where(s => s.TradeAuthority is { OrdersReceived: > 0 }))
+            await lines.WriteAsync(s.TradeAuthority!.Summary()).ConfigureAwait(false);
+}
 
     /// <summary>
     /// The M1-F3 results: where the clients ended up (<c>teams:</c>, when they had a team wish), what the fake NPC AI makes of the relation matrix
