@@ -74,7 +74,9 @@ public sealed class SaveServer : IAsyncDisposable
 
     public string ClientDir(string name) => Path.Combine(Dir, "fake-clients", name);
 
-    public static async Task<SaveServer> StartAsync(params string[] settings)
+    public static Task<SaveServer> StartAsync(params string[] settings) => TestPorts.StartWithRetryAsync(() => StartOnceAsync(settings));
+
+    private static async Task<SaveServer> StartOnceAsync(string[] settings)
     {
         string dir = Path.Combine(Path.GetTempPath(), "x4mp-saves-" + Guid.NewGuid().ToString("N"));
         int tcp = FreePort();
@@ -91,18 +93,22 @@ public sealed class SaveServer : IAsyncDisposable
         args.AddRange(settings);
         var cli = CliArguments.Parse([.. args]);
         var app = ServerHost.Build(cli.Remaining, cli, isService: false);
-        await app.StartAsync();
+        try
+        {
+            await app.StartAsync();
+        }
+        catch
+        {
+            // Lost the port race: release what was built so the retry starts clean.
+            await app.DisposeAsync();
+            SqliteConnection.ClearAllPools();
+            throw;
+        }
+
         return new SaveServer(app, dir, tcp, http);
     }
 
-    private static int FreePort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        int port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
-    }
+    private static int FreePort() => TestPorts.FreeTcp();
 
     /// <summary>Connects a fake node (a stable key per name, so the same name resumes as the same player).</summary>
     public Task<TcpNodeClient> ConnectAsync(string name, Role role, Id128T? resumeToken = null, ulong lastJournalSeq = 0, ulong caps = 0, X4MP.Proto.ExtensionInfoT[]? extensions = null) =>

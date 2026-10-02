@@ -18,16 +18,11 @@ public sealed class ServerHostNetworkingTests : IAsyncLifetime
     private int _tcpPort;
     private int _httpPort;
 
-    private static int FreePort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        int port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
-    }
+    private static int FreePort() => TestPorts.FreeTcp();
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync() => TestPorts.StartWithRetryAsync(StartOnceAsync);
+
+    private async Task StartOnceAsync()
     {
         _tcpPort = FreePort();
         _httpPort = FreePort();
@@ -38,7 +33,15 @@ public sealed class ServerHostNetworkingTests : IAsyncLifetime
         ];
         var cli = CliArguments.Parse(args);
         _app = ServerHost.Build(cli.Remaining, cli, isService: false);
-        await _app.StartAsync();
+        try
+        {
+            await _app.StartAsync();
+        }
+        catch
+        {
+            await _app.DisposeAsync();
+            throw;
+        }
     }
 
     public async Task DisposeAsync()
