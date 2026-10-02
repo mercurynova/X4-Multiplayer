@@ -2,11 +2,14 @@ using System.Security.Cryptography;
 using System.Text;
 using X4MP.Core.Net;
 using X4MP.Proto;
+using X4MP.Protocol;
 
 namespace X4MP.Core.Session;
 
 /// <summary>What the first admitted authority looked like. Later nodes must match it (ADR-004).</summary>
-public sealed class AuthorityIdentity(string gameBuild, string modVersion, string modBuild, byte[] extensionsHash, IReadOnlyList<string> extensions)
+public sealed class AuthorityIdentity(
+    string gameBuild, string modVersion, string modBuild, byte[] extensionsHash, IReadOnlyList<string> extensions,
+    IReadOnlyList<ExtensionInfoT>? extensionList = null)
 {
     public string GameBuild { get; } = gameBuild;
 
@@ -19,6 +22,14 @@ public sealed class AuthorityIdentity(string gameBuild, string modVersion, strin
 
     /// <summary>The same list, for the mismatch diff.</summary>
     public IReadOnlyList<string> Extensions { get; } = extensions;
+
+    /// <summary>
+    /// The authority's full extension report (<c>extension_list</c>), or the legacy <c>id@version</c> strings lifted into one.
+    /// Source of the implicit Required entries in AuthorityDefines mode.
+    /// </summary>
+    public IReadOnlyList<ExtensionInfoT> ExtensionList { get; } = extensionList is { Count: > 0 }
+        ? extensionList
+        : ExtensionReports.FromHello(new ClientHelloT { Extensions = [.. extensions] });
 }
 
 /// <summary>

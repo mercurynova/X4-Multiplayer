@@ -244,7 +244,7 @@ public sealed partial class SessionActor
             {
                 var h = node.Hello;
                 _gateway.Authority = new AuthorityIdentity(h.GameBuild ?? string.Empty, h.ModVersion ?? string.Empty, h.ModBuild ?? string.Empty,
-                    h.ExtensionsHash?.ToArray() ?? [], h.Extensions ?? []);
+                    h.ExtensionsHash?.ToArray() ?? [], h.Extensions ?? [], h.ExtensionList);
             }
 
             switch (_phase)
@@ -323,6 +323,17 @@ public sealed partial class SessionActor
         SendSessionState(slot);
         SendRoster(slot);
         SendSettings(slot);
+        if (node.ModWarning is { } modWarning)
+        {
+            var notice = new ServerNoticeT
+            {
+                Severity = NoticeSeverity.Warning,
+                Text = $"Your mods differ from this session's list ({Mods.ModPolicyEvaluator.Describe(modWarning)}). You were admitted because mod enforcement is set to Warn.",
+                DisplayMs = 15000,
+            };
+            SendTo(slot, ControlFrames.Encode(MsgType.ServerNotice, fbb => ServerNotice.Pack(fbb, notice).Value, 256));
+        }
+
         if (!node.Welcome.Resumed)
         {
             BroadcastRosterUpsert(slot, except: slot); // the joiner already got the full roster

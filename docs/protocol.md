@@ -1245,10 +1245,10 @@ carries `request_key` (idempotency), which is not repeated below.
 
 | ID | Message | Dir | Lane | Key fields |
 |---|---|---|---|---|
-| 0x0001 | ServerHello | S→N | Ctl | protocol_major/minor, server_version, session_id, nonce[32], auth, server_caps, phase, required_game_build, required_mod_version, extensions_hash |
-| 0x0002 | ClientHello | N→S | Ctl | versions, game_build, extensions_hash/list, player_key[32], player_name, requested_roles, client_caps, auth_proof, admin_proof, resume_token, last_journal_seq, loaded_save_sha256, cached_saves, preferred_team |
-| 0x0003 | Welcome | S→N | Ctl | player_id, granted_roles, negotiated_caps, resume_token, resumed, conn_id, udp_port, udp_token, server_time_us, heartbeat_*, resume_grace_s, http_base_url, max_ghosts, **team_id, team_role, faction_slot, teams (TeamTable), relations (TeamRelations), settings (SessionSettings incl. CreditMode)** |
-| 0x0004 | Disconnect | S↔N | Ctl | code, message, expected, retry_after_ms |
+| 0x0001 | ServerHello | S→N | Ctl | protocol_major/minor, server_version, session_id, nonce[32], auth, server_caps, phase, required_game_build, required_mod_version, extensions_hash, **mod_policy_version** |
+| 0x0002 | ClientHello | N→S | Ctl | versions, game_build, extensions_hash, extensions[string] (**deprecated**, kept), **extension_list[ExtensionInfo]**, player_key[32], player_name, requested_roles, client_caps, auth_proof, admin_proof, resume_token, last_journal_seq, loaded_save_sha256, cached_saves, preferred_team |
+| 0x0003 | Welcome | S→N | Ctl | player_id, granted_roles, negotiated_caps, resume_token, resumed, conn_id, udp_port, udp_token, server_time_us, heartbeat_*, resume_grace_s, http_base_url, max_ghosts, **team_id, team_role, faction_slot, teams (TeamTable), relations (TeamRelations), settings (SessionSettings incl. CreditMode, `mod_policy`)** |
+| 0x0004 | Disconnect | S↔N | Ctl | code, message, expected, retry_after_ms, **mod_violation (ModPolicyViolation: install/enable/disable/update ModRef lists, only with `ExtensionsMismatch`)** |
 | 0x0005 | Ping | S↔N | Ctl/UDP | seq, send_time_us |
 | 0x0006 | Pong | S↔N | Ctl/UDP | seq, echo_send_time_us, recv_time_us, reply_time_us |
 | 0x0007 | UdpHello | N→S | UDP | conn_id, udp_token |
@@ -1261,7 +1261,7 @@ carries `request_key` (idempotency), which is not repeated below.
 |---|---|---|---|---|
 | 0x0100 | SessionState | S→N | Ctl | phase, session_name, authority_player, paused, pause_reason, game_time, time_scale, current_save_sha256, max_players |
 | 0x0101 | RosterUpdate | S→N | Ctl | full, players[player_id, name, roles, phase, team_id, team_role, ship_net_id, sector, ping_ms], removed[] |
-| 0x0102 | SessionSettings | S→N | Ctl | version, team (TeamPolicy), economy (EconomySettings: credit_mode, effective_mode, pool, scopes, limits) |
+| 0x0102 | SessionSettings | S→N | Ctl | version, team (TeamPolicy), economy (EconomySettings: credit_mode, effective_mode, pool, scopes, limits), **mod_policy (ModPolicy)** |
 | 0x0103 | RequestSave | S→A | Ctl | request_id, reason, slot_name |
 | 0x0104 | SaveStarted | A→S | Ctl | request_id, checkpoint_id, game_time, next_net_id. **This is the journal marker.** |
 | 0x0105 | SaveUploadBegin | A→S | Ctl | checkpoint_id, kind (Save or Manifest), size, sha256, name, ghosts_cleaned |
@@ -1282,6 +1282,7 @@ carries `request_key` (idempotency), which is not repeated below.
 | 0x0114 | StringTableAdd | A→S, S→N, S→A | Ctl | entries[index, kind, value] |
 | 0x0115 | GalaxySummary | A→S | Ctl | per-sector ship counts by class, station count (0.2 Hz; feeds the GUI galaxy map) |
 | 0x0116 | ServerSettingsUpdate | S→N | Ctl | version (ulong), entries[key, value] (strings). The **full** set of node-relevant live settings (`PushToNodes`), sent right after Welcome/SessionState/roster and whenever one changes. Value text: strings and enum names unquoted, other JSON raw (`true`, `30`). Nodes ignore a lower version than they hold. |
+| 0x0117 | ModPolicyChanged | S→N | Ctl | policy (ModPolicy: version, source_mode, unknown_default, enforcement, entries[ModPolicyEntry]). Pushed when the admin edits the session mod list; nodes are not kicked, it applies at the next join (mod-management 3.3). Added with M1-X1; the push itself is M1-X4. |
 
 ### World (0x02xx)
 

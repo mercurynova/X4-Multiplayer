@@ -43,6 +43,9 @@ public sealed class AdmittedNode
     /// <summary>The per-connection nonce from <c>ServerHello</c> (the team password proof uses it, protocol.md 4.3). Empty when unknown.</summary>
     public byte[] Nonce { get; init; } = [];
 
+    /// <summary>Set when the node was admitted despite mod violations (enforcement Warn): the session layer tells the player.</summary>
+    public ModPolicyViolationT? ModWarning { get; init; }
+
     public bool IsAdmin => (Roles & Role.Admin) != 0;
 
     public bool IsAuthority => (Roles & Role.Authority) != 0;
