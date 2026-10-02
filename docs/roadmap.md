@@ -291,6 +291,7 @@ If time is short, run S12.1, S12.2, S12.3 and S12.6 first.
 - **Fog of war (ADR-038):** `FogOfWar` session option; per-team visibility filter in the server interest manager (keep the hook from M1 on).
 - **Starting credits GUI (ADR-039):** presets + custom in Sessions → Settings (fold into M1 economy tasks).
 - **Loan enforcement (ADR-040):** `LoanEnforcement` policy, with AutoCollect / Penalty / Diplomacy (reputation loss, relation drift) / admin seizure. The M1 ledger must already record due, overdue and default events.
+- **Player portal (ADR-050, [research/player-portal.md](research/player-portal.md)):** post-M5. P1 player sign-in (one-time in-game link), static knowledge + team blueprints/research, my assets with fleets/groups, empire notes and naming conventions; P2 market snapshots with per-team visibility (Strict default, admin setting); P3 planners (production chain, trade routes).
 - **Modded-game support, mod management phase 3 (ADR-044, [mod-management.md](mod-management.md) §5):** compatibility classes (`Verified / ClientOnly / AuthorityOnlyMD / Incompatible / Untested`) as a shipped, server-overridable list; client-side suppression of state-changing MD for `AuthorityOnlyMD` mods; extension-settings `sync` alignment with the session save; save-required (`<patches>`) mods enforced as hard Required with a refusal to drop them from a campaign; per-mod verification test plan (two-node 30-min M4 run, savescan, third-node join). Not before M4 acceptance.
 
 ## 6. Mod management tasks after M1 (ADR-044)

@@ -50,6 +50,7 @@ run `gh auth switch -u mercurynova`.
 - Per-team HQ + research (ADR-048, all defaults); team origins (ADR-049): chosen HQ start sector + race-based starting blueprints from vanilla gamestarts.
 - Team diplomacy (ADR-047): server-owned relations, treaties via our own screen.
 - On-foot presence (ADR-046): M3b = HUD presence list + MP lounge room, M3c = any shared room, M5b = Talk-menu credits/team/trade.
+- Player portal (ADR-050, post-M5): player-only web tab (one-time in-game sign-in, LAN/VPN) for team market knowledge (strict in-game visibility by default, admin setting), assets/fleets, empire notes and naming conventions.
 - Story/universe unlocks are session-global (no team gets extra sectors); story is
   played together per team (ADR-037). Fog of war later (ADR-038). Loan enforcement
   options later (ADR-040).

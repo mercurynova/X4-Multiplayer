@@ -770,6 +770,28 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
 
 ---
 
+### ADR-050 Player portal: player-facing web tab for market knowledge and empire organization (user requirement 2026-10-02)
+
+**Status: requirement accepted, parked post-M5.** Design sketch: [research/player-portal.md](research/player-portal.md).
+- **Context:** the user wants a tab players sign in to, showing the trade offers and stations with live
+  trade info their team knows about, general knowledge for planning trades and builds, their own assets
+  including **fleets and groups of ships**, and a way to keep **naming conventions and notes** about their
+  empire across play sessions.
+- **Decision:**
+  - A separate player area (`/portal/*`) on the existing HTTP server; a player only sees their own team.
+    Passwordless sign-in through a one-time link/code issued in game, bound to `player_key`.
+    LAN/VPN only, like the admin GUI; admin can disable it (`PlayerPortal.Enabled`).
+  - **Market visibility is strict by default** (only what the team could see in game, last-seen values
+    otherwise), with an admin setting `PlayerPortal.MarketVisibility = Strict | KnownStations | Everything`.
+    The server computes per-team coverage (the engine only does it for `player`); shared with fog of war
+    (ADR-038).
+  - Static game knowledge comes from the host's own install at runtime; X4MP never ships Egosoft data.
+  - Notes and naming conventions live in the server DB, keyed by stable ids (X4 id codes, sector macros),
+    team-shared or private. Renames go through the normal `AssetRename` intent (M1-T4 permissions).
+  - Phases: P1 knowledge + assets/fleets + notes/naming; P2 market snapshots + visibility; P3 planners.
+- **Consequences:** needs commander/subordinate relationships from the authority (schema change), a market
+  snapshot message (Bulk lane), and spike items for the trade-offer API and X4's visibility rule.
+
 ## Part 2. Open questions for the user
 
 These are product decisions only. Each has a recommended default that the build will use
