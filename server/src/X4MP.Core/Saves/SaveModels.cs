@@ -215,5 +215,5 @@ public interface ISaveSeedHook
 }
 
 /// <summary>The first current checkpoint of a session.</summary>
-/// <param name="PlayerMoney">The <c>money</c> attribute of the save's <c>&lt;player&gt;</c> element (the engine's unit: cents), if present.</param>
+/// <param name="PlayerMoney">The <c>money</c> attribute of the save's <c>&lt;player&gt;</c> element (whole credits, not cents), if present.</param>
 public sealed record InitialSaveInfo(long SessionId, int AuthorityPlayerId, CheckpointId Checkpoint, string SaveSha256, SaveMeta Meta, double GameTime, uint NextNetId);

@@ -33,15 +33,15 @@ public sealed record FakeSaveFile(string Path, byte[] Sha256, long Size)
 /// </summary>
 public static class FakeSaveGenerator
 {
-    /// <summary>Money (in the engine's unit, cents) the fake save claims the player has.</summary>
-    public const long DefaultMoneyCents = 1_000_000_000;
+    /// <summary>Money (whole credits, as in the save header) the fake save claims the player has.</summary>
+    public const long DefaultMoneyCredits = 10_000_000;
 
     /// <summary>
     /// Writes <c>fake-&lt;seed&gt;-&lt;counter&gt;-&lt;size&gt;.xml.gz</c> into <paramref name="directory"/> (or reuses it) and returns its hash. The file is
     /// about <paramref name="targetBytes"/> long (gzip with no compression: random filler does not compress anyway).
     /// </summary>
     public static FakeSaveFile CreateSave(
-        string directory, ulong seed, int counter, long targetBytes, long moneyCents = DefaultMoneyCents, FakeSaveFlavor flavor = FakeSaveFlavor.Valid)
+        string directory, ulong seed, int counter, long targetBytes, long moneyCredits = DefaultMoneyCredits, FakeSaveFlavor flavor = FakeSaveFlavor.Valid)
     {
         ArgumentException.ThrowIfNullOrEmpty(directory);
         ArgumentOutOfRangeException.ThrowIfLessThan(targetBytes, 1024);
@@ -65,7 +65,7 @@ public static class FakeSaveGenerator
 
                     break;
                 default:
-                    Write(temp, seed, counter, targetBytes, moneyCents);
+                    Write(temp, seed, counter, targetBytes, moneyCredits);
                     break;
             }
 
@@ -82,7 +82,7 @@ public static class FakeSaveGenerator
         return new FakeSaveFile(path, SHA256.HashData(file), file.Length);
     }
 
-    private static void Write(string path, ulong seed, int counter, long targetBytes, long moneyCents)
+    private static void Write(string path, ulong seed, int counter, long targetBytes, long moneyCredits)
     {
         using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16);
         using (var gzip = new GZipStream(file, CompressionLevel.NoCompression, leaveOpen: true))
@@ -90,7 +90,7 @@ public static class FakeSaveGenerator
             string head = string.Create(
                 CultureInfo.InvariantCulture,
                 $"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<savegame><info><save name=\"X4MP fake save {counter}\" date=\"{1_760_000_000 + counter}\"/>" +
-                $"<game id=\"x4mp-fake\" version=\"900\" build=\"611726\"/><player name=\"FakeNode\" location=\"{{galaxy}}\" money=\"{moneyCents}\"/></info>" +
+                $"<game id=\"x4mp-fake\" version=\"900\" build=\"611726\"/><player name=\"FakeNode\" location=\"{{galaxy}}\" money=\"{moneyCredits}\"/></info>" +
                 $"<universe seed=\"{seed}\" checkpoint=\"{counter}\">");
             gzip.Write(Encoding.UTF8.GetBytes(head));
 

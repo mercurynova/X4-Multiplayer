@@ -112,7 +112,7 @@ public sealed partial class SaveJanitor(
 
 /// <summary>
 /// Seeds the economy from the money stored in the session's first save (ADR-033, <see cref="EconomyService.SeedSaveMoney"/>). The save's
-/// <c>money</c> attribute is in the engine's unit (cents, ADR-042); the wire and the ledger use whole credits.
+/// <c>money</c> attribute is in whole credits (not cents; only per-transaction amounts and MD player.money are cents, ADR-042), the same unit as the ledger.
 /// </summary>
 public sealed partial class EconomySaveSeeder(Func<EconomyService?> economy, ILogger<EconomySaveSeeder>? logger = null) : ISaveSeedHook
 {
@@ -121,13 +121,13 @@ public sealed partial class EconomySaveSeeder(Func<EconomyService?> economy, ILo
     public void OnInitialSaveStored(InitialSaveInfo info)
     {
         ArgumentNullException.ThrowIfNull(info);
-        if (info.Meta.PlayerMoney is not { } cents || cents <= 0 || economy() is not { } service)
+        if (info.Meta.PlayerMoney is not { } credits || credits <= 0 || economy() is not { } service)
         {
             return;
         }
 
-        var result = service.SeedSaveMoney(cents / 100, info.AuthorityPlayerId > 0 ? info.AuthorityPlayerId : null, "system");
-        LogSeeded(cents / 100, result.Reason);
+        var result = service.SeedSaveMoney(credits, info.AuthorityPlayerId > 0 ? info.AuthorityPlayerId : null, "system");
+        LogSeeded(credits, result.Reason);
     }
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "seeded the economy with {Credits} credits from the save: {Reason}")]
