@@ -43,6 +43,21 @@ public enum RelationsPreset
     TwoTeams,
 }
 
+/// <summary>How much a fake client does with credits (<c>--economy</c>, M1-F4): nothing but track its wallet, or a realistic mix of requests.</summary>
+public enum EconomyMode
+{
+    Off,
+
+    /// <summary>Joins the economy but sends no requests; it still reconciles its wallet against the server's updates.</summary>
+    Idle,
+
+    /// <summary>About one action every 8 s (transfers, donations, pool, loans) and a trade proposal every 15 s.</summary>
+    Casual,
+
+    /// <summary>About one action every 3 s, an attack every 7 s and a trade proposal every 8 s: close to the 5 requests per 10 s the server allows.</summary>
+    Heavy,
+}
+
 public enum FakeNodeCommand
 {
     Authority,
@@ -135,6 +150,36 @@ public sealed record CliOptions
 
     /// <summary>authority: percent (0..100) of the orders whose confirm is withheld (answered only by a <c>TradeQuery</c>, or never).</summary>
     public double TradeTimeoutPercent { get; init; }
+
+    // ---- M1-F4: economy behaviours
+
+    /// <summary>client/swarm: the credit behaviour of the clients (transfers, donations, pool, loans; casual and heavy also trade).</summary>
+    public EconomyMode Economy { get; init; }
+
+    /// <summary>client/swarm: replay request keys, reuse them with other payloads and race identical requests; all of it must be rejected or idempotent. Implies at least <c>--economy casual</c>.</summary>
+    public bool DupeAttack { get; init; }
+
+    /// <summary>client/swarm: borrowers never repay and loans fall due after a few seconds, so they go overdue. Implies at least <c>--economy casual</c>.</summary>
+    public bool LoanDefault { get; init; }
+
+    /// <summary>authority/client/swarm: <c>CreditDelta{seq}</c> income and spend per second and player from the authority (clients book a quarter of it as their own local changes); 0 = none.</summary>
+    public double IncomeRate { get; init; }
+
+    /// <summary>End-of-run audit over the admin API (for example <c>http://127.0.0.1:47790</c>): invariants, ledger duplicate check, loans, wallet drift.</summary>
+    public string? AdminUrl { get; init; }
+
+    public string AdminUser { get; init; } = "admin";
+
+    public string? AdminPassword { get; init; }
+
+    /// <summary>The economy mode the clients really run: <c>--dupe-attack</c> and <c>--loan-default</c> raise Off to Casual.</summary>
+    public EconomyMode EffectiveEconomy => Economy == EconomyMode.Off && (DupeAttack || LoanDefault) ? EconomyMode.Casual : Economy;
+
+    /// <summary>The clients take part in the economy (even when idle: they reconcile).</summary>
+    public bool EconomyActive => EffectiveEconomy != EconomyMode.Off || IncomeRate > 0;
+
+    /// <summary>Clients propose and accept trades: <c>--trade</c>, or an economy mode that sends requests (casual, heavy).</summary>
+    public bool TradesEnabled => Trade || EffectiveEconomy is EconomyMode.Casual or EconomyMode.Heavy;
 
     // ---- M1-F2: failure injection
 
@@ -245,6 +290,12 @@ public static class CliParser
           --trade              clients propose ship-for-credits trades to each other and accept incoming ones (implies --team-assets)
           --trade-fail PCT     authority: fail PCT percent of the AssetTransferOrders (the server must refund and unlock)
           --trade-timeout PCT  authority: withhold the confirm of PCT percent of the orders; a third of those never answer a TradeQuery either (InDoubt)
+          --economy idle|casual|heavy   clients: a realistic mix of transfers, donations, pool deposits/withdrawals, loan offers/accepts/repays and trades
+                               (casual ~1 action per 8 s, heavy ~1 per 3 s; the server allows 5 requests per 10 s); idle only reconciles. casual and heavy imply --trade
+          --dupe-attack        clients replay request keys, reuse keys with other payloads and race identical requests (all must be rejected or idempotent); implies --economy casual
+          --loan-default       borrowers never repay and loans fall due after ~5 s, so they go overdue; implies --economy casual
+          --income-rate R      authority: R CreditDelta{seq} per second and player (income, some spend); clients book R/4 of their own; every node reconciles its wallet against WalletUpdate/acked_delta_seq
+          --admin-url URL      end of run: audit over the admin API (auditor, ledger duplicate check, loans, wallet drift); --admin-user (default admin), --admin-password
           --slow-reader R      failure injection: the first --slow-clients clients (default 1) read their socket slowly once in game; R is bytes per
                                second, or pause=<read s>/<pause s> (read normally, then stop reading). The server must cope; only they suffer
           --slow-clients N     how many clients are slow readers (default 1)
@@ -293,7 +344,7 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "trade" or "no-join" or "rotate-ip";
+            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "trade" or "no-join" or "rotate-ip" or "dupe-attack" or "loan-default";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -307,6 +358,8 @@ public static class CliParser
                     "trade" => o with { Trade = on },
                     "no-join" => o with { NoJoin = on },
                     "rotate-ip" => o with { RotateIp = on },
+                    "dupe-attack" => o with { DupeAttack = on },
+                    "loan-default" => o with { LoanDefault = on },
                     _ => o with { Udp = on },
                 };
                 continue;
@@ -331,6 +384,13 @@ public static class CliParser
             return Fail("--slow-reader is a client/swarm option");
         if ((o.DisconnectEverySeconds > 0 || o.ReloadEverySeconds > 0) && command is not (FakeNodeCommand.Client or FakeNodeCommand.Swarm))
             return Fail("--disconnect-every and --reload-every are client/swarm options");
+        bool economyCommand = command is FakeNodeCommand.Client or FakeNodeCommand.Swarm;
+        if ((o.Economy != EconomyMode.Off || o.DupeAttack || o.LoanDefault) && !economyCommand)
+            return Fail("--economy, --dupe-attack and --loan-default are client/swarm options");
+        if (o.IncomeRate > 0 && command is not (FakeNodeCommand.Authority or FakeNodeCommand.Client or FakeNodeCommand.Swarm))
+            return Fail("--income-rate is an authority/client/swarm option");
+        if (o.AdminUrl is not null && !economyCommand)
+            return Fail("--admin-url is a client/swarm option");
         if (command == FakeNodeCommand.Swarm && o.Clients < 1)
             return Fail("swarm needs --clients >= 1");
         if (o.Team is not null && o.TeamPick != TeamPickMode.None)
@@ -428,6 +488,19 @@ public static class CliParser
             case "relations":
                 return Enum.TryParse<RelationsPreset>(value, ignoreCase: true, out var r) && Enum.IsDefined(r) && r != RelationsPreset.None
                     ? (o with { Relations = r }, null) : (o, $"--relations must be coop|allied|ffa|twoteams (got '{value}')");
+            case "economy":
+                return Enum.TryParse<EconomyMode>(value, ignoreCase: true, out var em) && Enum.IsDefined(em) && em != EconomyMode.Off
+                    ? (o with { Economy = em }, null) : (o, $"--economy must be idle|casual|heavy (got '{value}')");
+            case "income-rate":
+                return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double rate) && rate is >= 0 and <= 50
+                    ? (o with { IncomeRate = rate }, null) : (o, $"--income-rate must be between 0 and 50 deltas per second and player (got '{value}')");
+            case "admin-url":
+                return Uri.TryCreate(value, UriKind.Absolute, out var adminUri) && adminUri.Scheme is "http" or "https"
+                    ? (o with { AdminUrl = value.TrimEnd('/') }, null) : (o, $"--admin-url must be an http(s) URL (got '{value}')");
+            case "admin-user":
+                return value.Length > 0 ? (o with { AdminUser = value }, null) : (o, "--admin-user must not be empty");
+            case "admin-password":
+                return (o with { AdminPassword = value }, null);
             case "behavior":
                 return Enum.TryParse<ClientBehavior>(value, ignoreCase: true, out var b) && Enum.IsDefined(b)
                     ? (o with { Behavior = b }, null) : (o, $"--behavior must be wander|patrol|explore (got '{value}')");

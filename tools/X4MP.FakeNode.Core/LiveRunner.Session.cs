@@ -389,7 +389,7 @@ public static partial class LiveRunner
             {
                 TickRateHz = o.TickRate,
                 Fps = o.Fps,
-                TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None || o.EffectiveTeams > 0 || o.Trade,
+                TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None || o.EffectiveTeams > 0 || o.TradesEnabled,
                 TeamIds = o.EffectiveTeams >= 2 ? [.. Enumerable.Range(1, o.EffectiveTeams).Select(i => (ushort)i)] : null,
             });
         stats.Authority = authority;
@@ -400,6 +400,15 @@ public static partial class LiveRunner
         var tradeFrames = new ConcurrentQueue<Frame>();
         var trades = new FakeTradeAuthority(o.Seed, o.TradeFailPercent, o.TradeTimeoutPercent);
         stats.TradeAuthority = trades;
+
+        // M1-F4: the authority sees every wallet. It reconciles them (a transfer, pool movement or loan conserves credits, a CreditDelta moves the
+        // wallet by its amount) and, with --income-rate, books game income and spend for the players in game.
+        var reconciler = new EconomyReconciler(link.PlayerId, seesAllWallets: true);
+        stats.Reconciler = reconciler;
+        stats.PlayerId = link.PlayerId;
+        var income = o.IncomeRate > 0 ? new FakeIncomeSource(link.PlayerId, o.Seed, o.IncomeRate, o.DupeAttack, reconciler) : null;
+        stats.Income = income;
+        var inGamePlayers = new ConcurrentDictionary<int, bool>();
 
         // Against a server with a save service the authority also answers RequestSave: it builds a fake save and manifest, uploads them
         // in-band and the session starts from that checkpoint (protocol.md 6.3). Its GalaxyMetadata then travels with the checkpoint, keyed
@@ -434,6 +443,22 @@ public static partial class LiveRunner
             else if (frame.Type is MsgType.AssetTransferOrder or MsgType.TradeQuery)
             {
                 tradeFrames.Enqueue(frame);
+            }
+            else if (frame.Type == MsgType.WalletUpdate)
+            {
+                reconciler.OnWalletUpdate(MessageRegistry.Default.Decode<WalletUpdate>(frame).UnPack());
+            }
+            else if (frame.Type == MsgType.RosterUpdate)
+            {
+                var roster = MessageRegistry.Default.Decode<RosterUpdate>(frame).UnPack();
+                if (roster.Full)
+                    inGamePlayers.Clear();
+                foreach (var p in roster.Players ?? [])
+                    inGamePlayers[p.PlayerId] = p.Phase == NodePhase.InGame && (p.Roles & Role.Client) != 0;
+                foreach (var removed in roster.Removed ?? [])
+                    inGamePlayers.TryRemove(removed, out _);
+                authority.Teams.Handle(frame);
+                saves?.Handle(frame);
             }
             else
             {
@@ -481,6 +506,18 @@ public static partial class LiveRunner
                 foreach (var reply in replies)
                     await link.Client.SendPayloadAsync(reply.Type, reply.Payload, ct).ConfigureAwait(false);
 }
+
+            if (income is not null)
+            {
+                double econNow = clock.Elapsed.TotalSeconds;
+                bool econQuiet = o.Duration is { } econTotal && econNow > econTotal - o.TradeQuietSeconds;
+                var players = inGamePlayers.Where(p => p.Value).Select(p => p.Key).Order().ToList();
+                if (!econQuiet)
+                {
+                    foreach (var delta in income.Due(econNow, players))
+                        await link.Client.SendPayloadAsync(delta.Type, delta.Payload, ct).ConfigureAwait(false);
+                }
+            }
 
             while (reassigns.TryDequeue(out var move))
             {
@@ -538,8 +575,23 @@ public static partial class LiveRunner
         var handle = new FakeClientHandle(link, session, stats, name);
         stats.Handle = handle;
         var outbox = Channel.CreateUnbounded<OutMessage>();
-        FakeTrader? trader = o.Trade ? new FakeTrader(link.PlayerId, o.Seed) : null;
+        FakeTrader? trader = o.TradesEnabled
+            ? new FakeTrader(link.PlayerId, o.Seed) { ProposalIntervalSeconds = o.EffectiveEconomy == EconomyMode.Heavy ? 8 : o.EffectiveEconomy == EconomyMode.Casual && !o.Trade ? 15 : 5 }
+            : null;
         stats.Trader = trader;
+        stats.PlayerId = link.PlayerId;
+        FakeEconomist? economist = null;
+        FakeIncomeSource? income = null;
+        if (o.EconomyActive)
+        {
+            var reconciler = new EconomyReconciler(link.PlayerId, seesAllWallets: false);
+            economist = new FakeEconomist(link.PlayerId, o.EffectiveEconomy, o.Seed, o.DupeAttack, o.LoanDefault, reconciler);
+            income = o.IncomeRate > 0 ? new FakeIncomeSource(link.PlayerId, o.Seed, o.IncomeRate / 4, o.DupeAttack, reconciler) : null;
+            stats.Reconciler = reconciler;
+            stats.Economist = economist;
+            stats.Income = income;
+        }
+
         var runClock = Stopwatch.StartNew();
         int ordinal = o.Command == FakeNodeCommand.Swarm && o.WithAuthority ? index - 1 : index; // 0-based among the clients
         var wish = TeamWish.For(o, ordinal);
@@ -574,6 +626,8 @@ public static partial class LiveRunner
                 foreach (var reply in trader.Handle(frame, runClock.Elapsed.TotalSeconds))
                     outbox.Writer.TryWrite(reply);
             }
+
+            economist?.Handle(frame, runClock.Elapsed.TotalSeconds);
 
             if (saveFrames is not null && IsSaveFrame(frame.Type))
                 saveFrames.Writer.TryWrite(frame);
@@ -729,10 +783,26 @@ public static partial class LiveRunner
                 bool quiet = o.Duration is { } total && now > total - o.TradeQuietSeconds;
                 if (now >= nextTrade && !quiet)
                 {
-                    nextTrade = now + 5;
+                    nextTrade = now + trader.ProposalIntervalSeconds;
                     if (session.PickTeamAsset(link.Team, tradeN++) is { } ship && trader.NextProposal(ship.NetId) is { } proposal)
                         await link.Client.SendPayloadAsync(proposal.Type, proposal.Payload, ct).ConfigureAwait(false);
                 }
+            }
+
+            if (economist is not null)
+            {
+                double econNow = runClock.Elapsed.TotalSeconds;
+                bool econQuiet = o.Duration is { } econTotal && econNow > econTotal - o.TradeQuietSeconds;
+                foreach (var message in economist.Tick(econNow, econQuiet))
+                    await link.Client.SendPayloadAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
+                if (income is not null && !econQuiet)
+                {
+                    foreach (var delta in income.DueOwn(econNow))
+                        await link.Client.SendPayloadAsync(delta.Type, delta.Payload, ct).ConfigureAwait(false);
+                }
+
+                foreach (var note in economist.DrainNotes())
+                    await lines.WriteAsync($"[{name}] economy: {note}").ConfigureAwait(false);
             }
 
             if (tick >= nextStale)

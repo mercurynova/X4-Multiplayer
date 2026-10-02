@@ -116,7 +116,21 @@ public sealed class FakeClientSession
     {
         if (team == 0)
             return null;
-        var candidates = _ghosts.Where(g => g.Value.OwnerTeam == team).OrderBy(g => g.Key).ToList();
+        List<KeyValuePair<uint, Ghost>> candidates = [];
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                // The reader thread adds and removes ghosts while the node loop looks: a collection that changed under the enumeration is read again.
+                candidates = [.. _ghosts.Where(g => g.Value.OwnerTeam == team).OrderBy(g => g.Key)];
+                break;
+            }
+            catch (InvalidOperationException)
+            {
+                candidates = [];
+            }
+        }
+
         if (candidates.Count == 0)
             return null;
         var pick = candidates[n % candidates.Count];
