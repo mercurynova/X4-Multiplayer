@@ -41,6 +41,7 @@ public sealed class SaveAcceptanceTests(ITestOutputHelper output)
         await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0");
         await using var authority = await AuthorityRig.StartAsync(server, Options(server));
         await server.WaitForAsync(s => s.Phase == SessionPhase.Running, 60_000, "first checkpoint");
+        await authority.WaitForCheckpointStoredAsync();
         long size = authority.Saves.LastResult!.Save.Size;
 
         ClientRig? rig = null;
