@@ -147,6 +147,10 @@ verification loop the brief asked for); it is not fine if the agent is going in 
   (a failing run of a test with a 60 s timeout costs 60–90 s per iteration).
 - Agents' self-reported durations are unreliable (M1-S3 said ~2 h, the harness measured
   26 min; M1-W1 said ~50 min, measured 9 min). Use the harness `duration_ms`.
+- **No sleep-polling.** Run tests in the foreground and wait (raise the command timeout; the full
+  suite takes ~7 min), or start them as a background run that notifies on completion. Don't loop
+  `sleep N` + check: each poll leaves a shell and a sleep process behind and can idle the agent for
+  minutes after the run finished (seen in wave H, 2026-10-02). Put this line in every brief.
 - Record the reason for any run over ~1 hour in the wave status note in roadmap.md
   (what took the time, whether it was needed), so we can tune briefs.
 
