@@ -1,5 +1,5 @@
 import type { APIRequestContext, Page } from '@playwright/test';
-import type { LedgerTxDto, TradeOfferDto, WalletDto } from '../src/generated/generated';
+import type { LedgerTxDto, LoanDto, TradeOfferDto, WalletDto } from '../src/generated/generated';
 import { expect, test } from './fixtures';
 
 const IN_GAME = /in game/;
@@ -19,6 +19,17 @@ async function wallet(api: APIRequestContext, name: string): Promise<WalletDto> 
 
 async function trades(api: APIRequestContext): Promise<TradeOfferDto[]> {
   return (await (await api.get('/api/v1/economy/trades')).json()) as TradeOfferDto[];
+}
+
+async function loans(api: APIRequestContext): Promise<LoanDto[]> {
+  return (await (await api.get('/api/v1/economy/loans')).json()) as LoanDto[];
+}
+
+/** Transactions a player started with a request of their own (a transfer, donation or pool movement). */
+async function ownRequests(api: APIRequestContext, playerId: number): Promise<LedgerTxDto[]> {
+  const res = await api.get(`/api/v1/economy/transactions?actor=${encodeURIComponent(`player:${playerId}`)}&limit=500`);
+  expect(res.ok()).toBe(true);
+  return ((await res.json()) as LedgerTxDto[]).filter((t) => ['Transfer', 'Donate', 'PoolDeposit', 'PoolWithdraw'].includes(t.kind));
 }
 
 /** One wallet per player and a short trade timeline, so trades reach InDoubt in seconds. */
@@ -87,8 +98,7 @@ test.describe('economy', () => {
     await reasonDialog(page, 'Freeze EconFrz', 'e2e freeze', 'Freeze');
     await expect(walletRow(page, 'EconFrz').getByText('FROZEN')).toBeVisible();
 
-    // The FakeNode clients have no donate behaviour yet (M1-F4), so the effect on a player request is asserted at the API:
-    // the wallet is frozen and counted, while admin postings (which ignore freezes) still work.
+    // What a freeze does to the player's own requests is the next test (FakeNode --economy); here it is the flag and the count.
     expect((await wallet(api, 'EconFrz')).frozen).toBe(true);
     const summary = (await (await api.get('/api/v1/economy/summary')).json()) as { frozenWallets: number };
     expect(summary.frozenWallets).toBeGreaterThanOrEqual(1);
@@ -137,5 +147,55 @@ test.describe('economy', () => {
     // the refund is in the ledger, linked to the trade
     const refunds = (await (await api.get(`/api/v1/economy/transactions?kind=TradeRefund&limit=50`)).json()) as LedgerTxDto[];
     expect(refunds.some((t) => t.refId === id)).toBe(true);
+  });
+
+  test("a frozen wallet makes that bot's next economy request fail", async ({ page, bots, api }) => {
+    test.setTimeout(150_000);
+    // Two bots in one team (the default) with the heavy economy behaviour: transfers, donations, pool and loans between them.
+    const swarm = bots.start({ command: 'swarm', clients: 2, namePrefix: 'EconFz', args: ['--economy', 'heavy'], duration: 140 });
+    await swarm.waitForLine(/\[EconFz02\] in game/, 30_000);
+    await expect.poll(async () => (await wallets(api)).filter((w) => w.ownerName.startsWith('EconFz')).length).toBe(2);
+    const frozen = await wallet(api, 'EconFz01');
+    await expect.poll(async () => (await ownRequests(api, frozen.ownerId)).length, { timeout: 60_000, intervals: [1000] }).toBeGreaterThan(0);
+
+    await page.goto('/economy/wallets');
+    await walletRow(page, 'EconFz01').getByRole('button', { name: 'Freeze EconFz01' }).click();
+    await reasonDialog(page, 'Freeze EconFz01', 'e2e freeze', 'Freeze');
+    await expect(walletRow(page, 'EconFz01').getByText('FROZEN')).toBeVisible();
+
+    // The bot's next request is refused: it says so (FakeNode prints the first rejections of a frozen wallet), and the ledger gets nothing from it.
+    const refused = /\[EconFz01\] economy: \w+ rejected: EconomyFrozen \(wallet frozen\)/;
+    await swarm.waitForLine(refused, 60_000);
+    const booked = (await ownRequests(api, frozen.ownerId)).length;
+    await expect.poll(() => swarm.lines.filter((l) => refused.test(l)).length, { timeout: 60_000, intervals: [500] }).toBeGreaterThanOrEqual(3);
+    expect((await ownRequests(api, frozen.ownerId)).length).toBe(booked);
+
+    // Unfrozen, its requests go through again.
+    await walletRow(page, 'EconFz01').getByRole('button', { name: 'Unfreeze EconFz01' }).click();
+    await reasonDialog(page, 'Unfreeze EconFz01', 'e2e done', 'Unfreeze');
+    await expect(walletRow(page, 'EconFz01').getByText('FROZEN')).toHaveCount(0);
+    await expect.poll(async () => (await ownRequests(api, frozen.ownerId)).length, { timeout: 60_000, intervals: [1000] }).toBeGreaterThan(booked);
+  });
+
+  test('--loan-default: loans fall due, the Loans tab shows the overdue badge and the rows', async ({ page, bots, api }) => {
+    test.setTimeout(150_000);
+    // Borrowers accept and never repay; the lenders' offers fall due after a few seconds.
+    const swarm = bots.start({ command: 'swarm', clients: 3, namePrefix: 'EconLn', args: ['--loan-default'], duration: 140 });
+    await swarm.waitForLine(/\[EconLn03\] in game/, 30_000);
+    const overdue = async () => (await loans(api)).filter((l) => (l.overdue || l.state === 'Overdue') && l.borrower.startsWith('EconLn'));
+    await expect.poll(async () => (await overdue()).length, { timeout: 90_000, intervals: [1000] }).toBeGreaterThan(0);
+
+    await page.goto('/economy');
+    const tab = page.getByRole('navigation', { name: 'Economy sections' }).getByRole('link', { name: /^Loans/ });
+    await expect(tab.getByLabel(/need attention/)).toBeVisible();
+    await expect(tab.getByLabel(/need attention/)).toContainText(/\d+!/);
+
+    await tab.click();
+    const row = page.getByRole('row').filter({ hasText: 'EconLn' }).filter({ hasText: 'OVERDUE' }).first();
+    await expect(row).toBeVisible();
+    // the overdue state is the server's, not a GUI guess: the API agrees
+    const first = (await overdue())[0];
+    expect(first.state === 'Overdue' || first.overdue).toBe(true);
+    expect(first.outstanding).toBeGreaterThan(0);
   });
 });
