@@ -167,6 +167,9 @@ public sealed class FakeTrader(int playerId, ulong seed)
     private ulong _key;
     private long _proposals;
 
+    /// <summary>Seconds between two proposals of this client (<c>--economy</c> changes it).</summary>
+    public double ProposalIntervalSeconds { get; init; } = 5;
+
     public long ProposalsSent => Interlocked.Read(ref _proposals);
 
     public long AcceptsSent { get; private set; }
@@ -265,6 +268,8 @@ public sealed class FakeTrader(int playerId, ulong seed)
                 return [];
             case MsgType.EconomyResult:
                 var result = MessageRegistry.Default.Decode<EconomyResult>(frame);
+                if (((result.RequestKey?.Hi ?? 0) >> 32) == (FakeEconomist.KeyDomain >> 32))
+                    return []; // an answer to a request of the economy behaviour, not a trade request
                 if (result.Status == EconomyStatus.Rejected)
                     _rejects[result.Reason] = _rejects.GetValueOrDefault(result.Reason) + 1;
                 return [];

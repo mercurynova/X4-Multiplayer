@@ -121,6 +121,18 @@ public sealed class LiveNodeStats(string name, Role role)
     /// <summary>The trading behaviour of a client started with <c>--trade</c> (null otherwise).</summary>
     public FakeTrader? Trader { get; internal set; }
 
+    /// <summary>The player id the server gave this node (set once it is in the session).</summary>
+    public int PlayerId { get; internal set; }
+
+    /// <summary>The wallet model of this node (M1-F4): the authority sees every wallet, a client its own and its team's.</summary>
+    public EconomyReconciler? Reconciler { get; internal set; }
+
+    /// <summary>The credit behaviour of a client started with <c>--economy</c> or <c>--income-rate</c> (null otherwise).</summary>
+    public FakeEconomist? Economist { get; internal set; }
+
+    /// <summary>The <c>CreditDelta</c> emitter (<c>--income-rate</c>): the authority's income for the players, or a client's own changes.</summary>
+    public FakeIncomeSource? Income { get; internal set; }
+
     /// <summary>The authority's trade executor with its ground truth (authority only).</summary>
     public FakeTradeAuthority? TradeAuthority { get; internal set; }
     // ---- M1-F3: teams
@@ -361,6 +373,7 @@ public static partial class LiveRunner
         if (o.Commander != CommanderMode.None)
             await WriteCommanderSummaryAsync(o, stats, lines).ConfigureAwait(false);
         await WriteTradeSummaryAsync(stats, lines).ConfigureAwait(false);
+        long economyErrors = await WriteEconomySummaryAsync(o, stats, lines).ConfigureAwait(false);
         run.OnFinished?.Invoke(stats);
         await WriteTeamSummaryAsync(o, stats, lines).ConfigureAwait(false);
         long verifyErrors = stats.Where(s => s.Impairment is not { Slow: not null }).Sum(s => s.VerifyErrors); // a slow reader is allowed to fall behind
@@ -378,7 +391,7 @@ public static partial class LiveRunner
         await WriteInjectionSummaryAsync(o, stats, lines).ConfigureAwait(false);
         if (inspector is not null)
             await lines.WriteAsync(inspector.Summary()).ConfigureAwait(false);
-        long errors = stats.Sum(s => s.Errors) + verifyErrors;
+        long errors = stats.Sum(s => s.Errors) + verifyErrors + economyErrors;
         await lines.WriteAsync($"summary: nodes={stats.Count} joined={stats.Count(s => s.Pings > 0)} errors={errors} pings={stats.Sum(s => s.Pings)} " +
                                $"rtt avg={Ms(Average(stats))} max={Ms(stats.Count == 0 ? TimeSpan.Zero : stats.Max(s => s.MaxRtt))} " +
                                $"elapsed={clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s ingame={stats.Count(s => s.InGame)}").ConfigureAwait(false);
