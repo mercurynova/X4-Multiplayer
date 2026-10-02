@@ -98,6 +98,32 @@ public sealed class SqliteModStoreTests : TeamDbFixture
     }
 
     [Fact]
+    public async Task RefusedReportsOfAnUnboundKeyAreFiledByKeyAndMoveToThePlayerWhenItIsAdmitted()
+    {
+        byte[] key = [9, 9, 9];
+        var store = NewStore();
+        store.RecordReport(new ExtensionReportRecord(0, null, T0, [], [Ext("ws_1")], ModReportOutcome.Rejected, null, 3, key, "Zed"));
+        store.RecordReport(new ExtensionReportRecord(0, null, T0.AddMinutes(1), [], [Ext("ws_2")], ModReportOutcome.Rejected, null, 3, key, "Zed"));
+        store.RecordReport(new ExtensionReportRecord(0, null, T0, [], [Ext("ws_3")], ModReportOutcome.Rejected, null, 3, [7], "Other"));
+        await Writer.FlushAsync();
+        Assert.Equal(0, Scalar<long>("SELECT COUNT(*) FROM mod_catalog")); // an unauthenticated refusal teaches the catalog nothing
+        Assert.Empty(store.LatestReports());
+
+        var fresh = NewStore(); // restart
+        var unbound = fresh.UnboundReports();
+        Assert.Equal(["Zed", "Other"], unbound.Select(r => r.AttemptedName).Order().Reverse()); // newest per key
+        Assert.Equal("ws_2", unbound.Single(r => r.AttemptedName == "Zed").Items.Single().Id);
+
+        fresh.AttachKey(key, Players[1]);
+        await Writer.FlushAsync();
+        Assert.Equal(["Other"], fresh.UnboundReports().Select(r => r.AttemptedName));
+        Assert.Equal(["ws_2", "ws_1"], fresh.Reports(Players[1], 10).Select(r => r.Items.Single().Id));
+        var again = NewStore();
+        Assert.Equal(["ws_2", "ws_1"], again.Reports(Players[1], 10).Select(r => r.Items.Single().Id));
+        Assert.Single(again.UnboundReports());
+    }
+
+    [Fact]
     public async Task TheJanitorKeepsTwentyReportsPerPlayer()
     {
         var store = NewStore();

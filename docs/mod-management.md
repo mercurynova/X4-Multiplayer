@@ -509,9 +509,10 @@ under `session_id = 0` with no foreign key (it is edited before any session row 
 admin's order (`sort`). `PersistentModPolicyProvider` (`IModPolicyEditor`) loads it on first use; the three knobs come from the
 `X4MP:Mods` settings until the first edit, afterwards the stored policy is the truth and a later settings change is adopted as a
 newer edit (version + 1, last writer wins). Every real change bumps `version` by one, an edit that changes nothing does not. Every
-`ClientHello` stores its full list and the verdict (the gateway holds a rejection back until the player is identified, so an
-unauthenticated client can neither learn the policy nor fill the table); the newest 20 reports per player are kept (pruned in the
-insert transaction). Reports also teach `mod_catalog` names and Workshop ids (an admin's edit is never overwritten).
+`ClientHello` stores its full list and the verdict. A refused connection never binds a name: its report goes to the player that
+already owns the key, else it is filed by key (`player_id` NULL, `key_hash`, `attempted_name`; newest 20 per key, 200 overall, never
+feeds the catalog) and moves to the player's history when that key is admitted. Admins list these at `GET /api/v1/mods/rejections`.
+The newest 20 reports per player are kept (pruned in the insert transaction). Reports also teach `mod_catalog` names and Workshop ids (an admin's edit is never overwritten).
 `ModPolicyChanged` goes to every announced node on every change; nobody is kicked.
 
 REST (flat, like `/teams`: the server runs one session, so there is no `/sessions/{sid}` prefix). Roles: `Viewer` reads, `ModEditor`

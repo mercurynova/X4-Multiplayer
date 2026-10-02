@@ -35,6 +35,7 @@ internal static partial class ModEndpoints
         g.MapPost("/import-from-authority", ImportAsync).RequireAuthorization(AdminPolicies.ModEditor);
         g.MapGet("/save-requirements", SaveRequirements).RequireAuthorization(AdminPolicies.Viewer);
         g.MapGet("/catalog", CatalogAsync).RequireAuthorization(AdminPolicies.Viewer);
+        g.MapGet("/rejections", RejectionsAsync).RequireAuthorization(AdminPolicies.Viewer);
         g.MapPut("/catalog/{extId}", PutCatalogAsync).RequireAuthorization(AdminPolicies.ModEditor);
 
         routes.MapGet("/api/v1/players/{id:long}/extensions", PlayerExtensionsAsync).RequireAuthorization(AdminPolicies.Viewer);
@@ -139,6 +140,20 @@ internal static partial class ModEndpoints
 
         var current = views.Policy.Current;
         return Results.Json([.. views.Store.Catalog().Select(c => ModViews.CatalogEntry(c, current))], ApiJsonContext.Default.ListModCatalogEntryDto);
+    }
+
+    private static IResult RejectionsAsync(HttpContext context, ModViews views)
+    {
+        if (!views.Access(context.User).CanSeePlayers)
+        {
+            return Hidden();
+        }
+
+        return Results.Json(
+            [.. views.Store.UnboundReports().Select(r => new UnboundRejectionDto(
+                Convert.ToHexStringLower(r.KeyHash ?? [])[..Math.Min(12, (r.KeyHash?.Length ?? 0) * 2)], r.AttemptedName ?? string.Empty, r.At, r.PolicyVersion,
+                r.Items.Count, ModViews.ViolationDto(r.Violation)))],
+            ApiJsonContext.Default.ListUnboundRejectionDto);
     }
 
     private static IResult PlayerExtensionsAsync(long id, int? limit, HttpContext context, ModViews views, SqliteAdminQueries queries, TimeProvider time)

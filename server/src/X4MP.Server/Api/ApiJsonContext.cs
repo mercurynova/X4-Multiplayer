@@ -116,4 +116,6 @@ namespace X4MP.Server.Api;
 [JsonSerializable(typeof(PutModCatalogRequest))]
 [JsonSerializable(typeof(SavePatchDto))]
 [JsonSerializable(typeof(SaveRequirementsDto))]
+[JsonSerializable(typeof(UnboundRejectionDto))]
+[JsonSerializable(typeof(List<UnboundRejectionDto>))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext;

@@ -128,35 +128,59 @@ public sealed class SqliteModStore(SqliteConnectionFactory factory, PersistenceW
     public void RecordReport(ExtensionReportRecord report)
     {
         ArgumentNullException.ThrowIfNull(report);
+        bool unbound = report.PlayerId == 0;
         lock (_gate)
         {
-            var list = CacheFor(report.PlayerId);
-            list.Insert(0, report);
-            if (list.Count > IModStore.ReportsPerPlayer)
+            if (unbound)
             {
-                list.RemoveRange(IModStore.ReportsPerPlayer, list.Count - IModStore.ReportsPerPlayer);
+                EnsureUnboundLoaded();
+                InMemoryModStore.AddUnbound(_unbound, report);
             }
-
-            foreach (var e in report.Items)
+            else
             {
-                ModCatalogLearning.Learn(_learned, e, report.At);
+                var list = CacheFor(report.PlayerId);
+                list.Insert(0, report);
+                if (list.Count > IModStore.ReportsPerPlayer)
+                {
+                    list.RemoveRange(IModStore.ReportsPerPlayer, list.Count - IModStore.ReportsPerPlayer);
+                }
+
+                foreach (var e in report.Items)
+                {
+                    ModCatalogLearning.Learn(_learned, e, report.At);
+                }
             }
         }
 
         string itemsJson = JsonSerializer.Serialize(report.Items.Select(StoredExtension.From).ToList(), Json);
         string? violationJson = report.Violation is null ? null : JsonSerializer.Serialize(StoredViolation.From(report.Violation), Json);
-        var catalog = report.Items.Where(ModCatalogLearning.IsCatalogable).ToList();
+        var catalog = unbound ? [] : report.Items.Where(ModCatalogLearning.IsCatalogable).ToList(); // an unauthenticated refusal teaches nothing
         string stamp = Stamp(report.At);
         writer.TryEnqueue((connection, tx) =>
         {
             connection.Execute(
-                "INSERT INTO player_extension_reports (player_id, session_id, ts, ext_hash, items_json, outcome, violation_json, policy_version) VALUES (@player, @session, @ts, @hash, @items, @outcome, @violation, @version)",
-                new { player = report.PlayerId, session = report.SessionId, ts = stamp, hash = report.ExtensionsHash, items = itemsJson, outcome = EnumName(report.Outcome), violation = violationJson, version = (long)report.PolicyVersion },
+                "INSERT INTO player_extension_reports (player_id, key_hash, attempted_name, session_id, ts, ext_hash, items_json, outcome, violation_json, policy_version) VALUES (@player, @key, @attempted, @session, @ts, @hash, @items, @outcome, @violation, @version)",
+                new { player = unbound ? (int?)null : report.PlayerId, key = unbound ? report.KeyHash : null, attempted = unbound ? report.AttemptedName : null, session = report.SessionId, ts = stamp, hash = report.ExtensionsHash, items = itemsJson, outcome = EnumName(report.Outcome), violation = violationJson, version = (long)report.PolicyVersion },
                 tx);
-            connection.Execute(
-                "DELETE FROM player_extension_reports WHERE player_id = @player AND id NOT IN (SELECT id FROM player_extension_reports WHERE player_id = @player ORDER BY ts DESC, id DESC LIMIT @keep)",
-                new { player = report.PlayerId, keep = IModStore.ReportsPerPlayer },
-                tx);
+            if (unbound)
+            {
+                connection.Execute(
+                    "DELETE FROM player_extension_reports WHERE player_id IS NULL AND key_hash = @key AND id NOT IN (SELECT id FROM player_extension_reports WHERE player_id IS NULL AND key_hash = @key ORDER BY ts DESC, id DESC LIMIT @keep)",
+                    new { key = report.KeyHash, keep = IModStore.ReportsPerPlayer },
+                    tx);
+                connection.Execute(
+                    "DELETE FROM player_extension_reports WHERE player_id IS NULL AND id NOT IN (SELECT id FROM player_extension_reports WHERE player_id IS NULL ORDER BY ts DESC, id DESC LIMIT @max)",
+                    new { max = InMemoryModStore.MaxUnbound },
+                    tx);
+            }
+            else
+            {
+                connection.Execute(
+                    "DELETE FROM player_extension_reports WHERE player_id = @player AND id NOT IN (SELECT id FROM player_extension_reports WHERE player_id = @player ORDER BY ts DESC, id DESC LIMIT @keep)",
+                    new { player = report.PlayerId, keep = IModStore.ReportsPerPlayer },
+                    tx);
+            }
+
             foreach (var e in catalog)
             {
                 ulong ws = e.WorkshopId != 0 ? e.WorkshopId : X4MP.Protocol.ModLinks.WorkshopIdOf(e.Id);
@@ -172,6 +196,66 @@ public sealed class SqliteModStore(SqliteConnectionFactory factory, PersistenceW
             }
         });
         ReportRecorded?.Invoke(report);
+    }
+
+    private readonly List<ExtensionReportRecord> _unbound = [];
+    private bool _unboundLoaded;
+
+    /// <summary>Loads the refused-and-unbound reports once (newest first). Call with the lock held.</summary>
+    private void EnsureUnboundLoaded()
+    {
+        if (_unboundLoaded)
+        {
+            return;
+        }
+
+        _unboundLoaded = true;
+        using var connection = factory.Open();
+        _unbound.AddRange(connection.Query<ReportRow>(
+                "SELECT player_id AS PlayerId, session_id AS SessionId, ts AS Ts, ext_hash AS Hash, items_json AS Items, outcome AS Outcome, violation_json AS Violation, policy_version AS PolicyVersion, key_hash AS KeyHash, attempted_name AS AttemptedName FROM player_extension_reports WHERE player_id IS NULL ORDER BY ts DESC, id DESC LIMIT @max",
+                new { max = InMemoryModStore.MaxUnbound })
+            .Select(ToRecord));
+    }
+
+    public void AttachKey(byte[] keyHash, int playerId)
+    {
+        ArgumentNullException.ThrowIfNull(keyHash);
+        lock (_gate)
+        {
+            EnsureUnboundLoaded();
+            var mine = _unbound.Where(r => r.KeyHash is { } k && k.AsSpan().SequenceEqual(keyHash)).ToList();
+            if (mine.Count == 0)
+            {
+                return;
+            }
+
+            _unbound.RemoveAll(mine.Contains);
+            var list = CacheFor(playerId);
+            list.AddRange(mine.Select(r => r with { PlayerId = playerId }));
+            list.Sort((a, b) => b.At.CompareTo(a.At));
+            if (list.Count > IModStore.ReportsPerPlayer)
+            {
+                list.RemoveRange(IModStore.ReportsPerPlayer, list.Count - IModStore.ReportsPerPlayer);
+            }
+        }
+
+        writer.TryEnqueue((connection, tx) =>
+        {
+            connection.Execute("UPDATE player_extension_reports SET player_id = @player WHERE player_id IS NULL AND key_hash = @key", new { player = playerId, key = keyHash }, tx);
+            connection.Execute(
+                "DELETE FROM player_extension_reports WHERE player_id = @player AND id NOT IN (SELECT id FROM player_extension_reports WHERE player_id = @player ORDER BY ts DESC, id DESC LIMIT @keep)",
+                new { player = playerId, keep = IModStore.ReportsPerPlayer },
+                tx);
+        });
+    }
+
+    public IReadOnlyList<ExtensionReportRecord> UnboundReports()
+    {
+        lock (_gate)
+        {
+            EnsureUnboundLoaded();
+            return [.. _unbound.GroupBy(r => Convert.ToHexString(r.KeyHash ?? [])).Select(g => g.First()).OrderByDescending(r => r.At)];
+        }
     }
 
     public ExtensionReportRecord? LatestReport(int playerId)
@@ -195,7 +279,7 @@ public sealed class SqliteModStore(SqliteConnectionFactory factory, PersistenceW
         List<int> players;
         using (var connection = factory.Open())
         {
-            players = [.. connection.Query<long>("SELECT DISTINCT player_id FROM player_extension_reports").Select(p => (int)p)];
+            players = [.. connection.Query<long>("SELECT DISTINCT player_id FROM player_extension_reports WHERE player_id IS NOT NULL").Select(p => (int)p)];
         }
 
         lock (_gate)
@@ -215,7 +299,7 @@ public sealed class SqliteModStore(SqliteConnectionFactory factory, PersistenceW
 
         using var connection = factory.Open();
         list = [.. connection.Query<ReportRow>(
-                "SELECT player_id AS PlayerId, session_id AS SessionId, ts AS Ts, ext_hash AS Hash, items_json AS Items, outcome AS Outcome, violation_json AS Violation, policy_version AS PolicyVersion FROM player_extension_reports WHERE player_id = @playerId ORDER BY ts DESC, id DESC LIMIT @limit",
+                "SELECT player_id AS PlayerId, session_id AS SessionId, ts AS Ts, ext_hash AS Hash, items_json AS Items, outcome AS Outcome, violation_json AS Violation, policy_version AS PolicyVersion, key_hash AS KeyHash, attempted_name AS AttemptedName FROM player_extension_reports WHERE player_id = @playerId ORDER BY ts DESC, id DESC LIMIT @limit",
                 new { playerId, limit = IModStore.ReportsPerPlayer })
             .Select(ToRecord)];
         _cache[playerId] = list;
@@ -223,14 +307,16 @@ public sealed class SqliteModStore(SqliteConnectionFactory factory, PersistenceW
     }
 
     private static ExtensionReportRecord ToRecord(ReportRow r) => new(
-        (int)r.PlayerId,
+        (int)(r.PlayerId ?? 0),
         r.SessionId,
         Parse(r.Ts),
         r.Hash ?? [],
         [.. (JsonSerializer.Deserialize<List<StoredExtension>>(r.Items, Json) ?? []).Select(e => e.ToProto())],
         ParseEnum(r.Outcome, ModReportOutcome.Admitted),
         r.Violation is null ? null : JsonSerializer.Deserialize<StoredViolation>(r.Violation, Json)?.ToProto(),
-        (uint)Math.Max(0, r.PolicyVersion));
+        (uint)Math.Max(0, r.PolicyVersion),
+        r.KeyHash,
+        r.AttemptedName);
 
     // ------------------------------------------------------------------ catalog
 
@@ -334,7 +420,7 @@ public sealed class SqliteModStore(SqliteConnectionFactory factory, PersistenceW
 
     private sealed class ReportRow
     {
-        public long PlayerId { get; set; }
+        public long? PlayerId { get; set; }
 
         public long? SessionId { get; set; }
 
@@ -349,6 +435,10 @@ public sealed class SqliteModStore(SqliteConnectionFactory factory, PersistenceW
         public string? Violation { get; set; }
 
         public long PolicyVersion { get; set; }
+
+        public byte[]? KeyHash { get; set; }
+
+        public string? AttemptedName { get; set; }
     }
 
     private sealed class CatalogRow
