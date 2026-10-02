@@ -1,6 +1,8 @@
 export interface Screen {
   path: string;
   title: string;
+  /** Hidden from the nav (and shown as forbidden) for Viewer sessions. */
+  adminOnly?: boolean;
 }
 
 /** The admin screens from server-design 5.1, in nav order. */
