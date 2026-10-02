@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/http';
 import type { DashboardSnapshotDto, ServerInfoDto, SessionSummaryDto } from '../generated/generated';
 import { E, groups, SNAPSHOT_EVENT } from '../hub/contract';
-import { useHubGroup, useHubState } from '../hub/HubProvider';
+import { useHub, useHubGroup, useHubState } from '../hub/HubProvider';
 
 // Pushes keep the header live; this poll is only a slow safety net.
 const FALLBACK_REFRESH_MS = 60_000;
@@ -19,12 +19,18 @@ function formatUptime(totalSeconds: number): string {
 export function SessionStatus() {
   const [server, setServer] = useState<ServerInfoDto | null>(null);
   const [session, setSession] = useState<SessionSummaryDto | null | undefined>(undefined);
+  // `fresh` is false from the moment the hub drops until a push or REST answer confirms the session state again.
+  const [fresh, setFresh] = useState(false);
   const hubState = useHubState();
+  const hub = useHub();
 
   const refresh = useCallback(() => {
     api
       .get<SessionSummaryDto | undefined>('/api/v1/sessions/current')
-      .then((s) => setSession(s ?? null))
+      .then((s) => {
+        setSession(s ?? null);
+        setFresh(true);
+      })
       .catch(() => undefined); // keep the last value; a 401 is handled globally
   }, []);
 
@@ -45,10 +51,23 @@ export function SessionStatus() {
   useEffect(() => {
     if (hubState === 'connected') refresh();
   }, [hubState, refresh]);
+  useEffect(
+    () =>
+      hub.subscribeState((s) => {
+        if (s !== 'connected') setFresh(false);
+      }),
+    [hub],
+  );
   useHubGroup(groups.dashboard, (event, payload) => {
-    if (event === E.SessionChanged) setSession(payload as SessionSummaryDto);
-    else if (event === SNAPSHOT_EVENT) setSession((payload as DashboardSnapshotDto).session);
+    if (event === E.SessionChanged) {
+      setSession(payload as SessionSummaryDto);
+      setFresh(true);
+    } else if (event === SNAPSHOT_EVENT) {
+      setSession((payload as DashboardSnapshotDto).session);
+      setFresh(true);
+    }
   });
+  const stale = !fresh || hubState !== 'connected';
 
   return (
     <div className="session-status">
@@ -58,8 +77,16 @@ export function SessionStatus() {
       ) : (
         <span>
           <span className="muted">Session</span> &ldquo;{session.name}&rdquo;{' '}
-          <span className={`state state-${session.state.toLowerCase()}`}>{session.state.toUpperCase()}</span>{' '}
-          {session.uptimeSeconds > 0 && <span className="muted">{formatUptime(session.uptimeSeconds)}</span>}
+          {stale ? (
+            <span className="state state-unknown" title="Reconnecting: the last known state may be out of date">
+              UNKNOWN (reconnecting)
+            </span>
+          ) : (
+            <>
+              <span className={`state state-${session.state.toLowerCase()}`}>{session.state.toUpperCase()}</span>{' '}
+              {session.uptimeSeconds > 0 && <span className="muted">{formatUptime(session.uptimeSeconds)}</span>}
+            </>
+          )}
         </span>
       )}
     </div>
