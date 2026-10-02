@@ -9,7 +9,7 @@ public sealed class EconomyAdminTradeTests
     private const string Admin = "admin:root";
 
     [Fact]
-    public void ReversingATradeSettlementRefundsTheBuyerAndFlagsTheTradeButKeepsItCompleted()
+    public void ReversingTradeMoneyIsRefusedAndTheAuditorStaysClean()
     {
         var kit = new TradeKit();
         kit.World.AllowAssetTransfer = true;
@@ -20,20 +20,22 @@ public sealed class EconomyAdminTradeTests
         Assert.Equal(sellerBefore + 2_000, kit.Balance(1));
         Assert.Equal(buyerBefore - 2_000, kit.Balance(3));
         var settlement = kit.Kit.Store.Transactions.Single(t => t.Kind == TxKind.TradeSettle);
-        var seen = new List<(long Id, TradeState State)>();
-        kit.Service.TradeObserved += (t, _) => seen.Add((t.Id, t.State));
 
-        var reversed = kit.Service.AdminReverse(Admin, settlement.Id, "the ship was duped");
-        Assert.True(reversed.Ok, reversed.Error + " " + reversed.Detail);
-        Assert.Equal(sellerBefore, kit.Balance(1)); // credits only: the escrow side goes back to the payer, not into a dead escrow
-        Assert.Equal(buyerBefore, kit.Balance(3));
-        Assert.Equal(0, kit.Escrow(trade.Id));
+        foreach (var force in new[] { false, true })
+        {
+            var refused = kit.Service.AdminReverse(Admin, settlement.Id, "the ship was duped", force);
+            Assert.Equal(EconomyAdminError.NotReversible, refused.Error);
+            Assert.Contains("trade admin actions", refused.Detail, StringComparison.Ordinal);
+        }
 
-        var after = kit.Service.FindTrade(trade.Id)!;
-        Assert.True(after.Reversed);
-        Assert.Equal(TradeState.Completed, after.State);
-        Assert.Contains((trade.Id, TradeState.Completed), seen); // the hub hears about the flag
-        Assert.Equal(EconomyAdminError.AlreadyReversed, kit.Service.AdminReverse(Admin, settlement.Id, "again").Error);
+        foreach (var kind in new[] { TxKind.TradeEscrow })
+        {
+            var tx = kit.Kit.Store.Transactions.Single(t => t.Kind == kind);
+            Assert.Equal(EconomyAdminError.NotReversible, kit.Service.AdminReverse(Admin, tx.Id, "x", force: true).Error);
+        }
+
+        Assert.DoesNotContain(kit.Kit.Store.Transactions, t => t.Kind == TxKind.Reversal);
+        Assert.Equal(sellerBefore + 2_000, kit.Balance(1));
         kit.AssertSound();
     }
 

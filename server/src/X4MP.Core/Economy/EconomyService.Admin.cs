@@ -147,7 +147,7 @@ public sealed partial class EconomyService
     /// <summary>
     /// Reverses a committed transaction with a <see cref="TxKind.Reversal"/> that negates its entries and links both ways. At most once.
     /// Refused when it would take a wallet below zero, unless <paramref name="force"/> is set (player and shared wallets then go overdrawn).
-    /// A trade settlement is reversed in credits only (back to the payer), and the trade is flagged <see cref="TradeRecord.Reversed"/>.
+    /// Money that belongs to a loan or a trade (escrow, disbursement, repayments, auto-repay splits, settle, refund) is never reversed here: it answers <see cref="EconomyAdminError.NotReversible"/> and points to the loan or trade admin actions, which keep the loan and trade state consistent.
     /// </summary>
     public EconomyAdminResult AdminReverse(string actor, string txId, string reason, bool force = false, string? idempotencyKey = null)
     {
@@ -183,8 +183,12 @@ public sealed partial class EconomyService
         {
             TxKind.Reversal => "a reversal cannot be reversed",
             TxKind.ModeMigration or TxKind.TeamMove => "migrations follow the credit layout and cannot be reversed",
-            TxKind.LoanEscrow or TxKind.LoanRefund or TxKind.TradeEscrow or TxKind.TradeRefund => "escrow movements are internal to a loan or trade: cancel or resolve it instead",
-            TxKind.LoanDisburse when !allowLoanDisbursement => "cancel the loan with reverseDisbursement instead",
+            TxKind.LoanEscrow or TxKind.LoanRefund or TxKind.LoanRepay or TxKind.LoanAutoRepay =>
+                "this money belongs to a loan: use the loan admin actions (forgive, or cancel with reverseDisbursement) instead",
+            TxKind.TradeEscrow or TxKind.TradeSettle or TxKind.TradeRefund =>
+                "this money belongs to a trade: use the trade admin actions (resolve, cancel) instead",
+            TxKind.GameIncome when original.Entries.Count > 2 => "this income was split by loan auto-repay: use the loan admin actions instead",
+            TxKind.LoanDisburse when !allowLoanDisbursement => "this money belongs to a loan: use the loan admin actions (cancel with reverseDisbursement) instead",
             _ => null,
         };
         if (refusal is not null)
@@ -194,7 +198,6 @@ public sealed partial class EconomyService
 
         // Negate every entry. The escrow side of a loan disbursement or trade settlement goes back to whoever funded the escrow.
         var sums = new SortedDictionary<WalletId, long>(Comparer<WalletId>.Create(CompareWallets));
-        TradeRecord? trade = null;
         foreach (var entry in original.Entries)
         {
             var wallet = entry.Wallet;
@@ -203,10 +206,6 @@ public sealed partial class EconomyService
                 if (original.Kind == TxKind.LoanDisburse && original.RefId is { } loanId && FindLoan(loanId) is { } loan)
                 {
                     wallet = EffectiveWallet(loan.LenderId);
-                }
-                else if (original.Kind == TxKind.TradeSettle && original.RefId is { } tradeId && _trades.TryGetValue(tradeId, out trade))
-                {
-                    wallet = EffectiveWallet(PayerOf(trade));
                 }
                 else
                 {
@@ -248,14 +247,6 @@ public sealed partial class EconomyService
         }
 
         Finish(outcome, LedgerReason.AdminAdjust, string.Empty, null);
-        if (trade is not null)
-        {
-            trade.Reversed = true;
-            trade.UpdatedAt = _time.GetUtcNow();
-            Persist(trade);
-            RaiseTradeChanged(trade, trade.State);
-        }
-
         PublishAdmin(actor, "economy.reverse", "tx:" + original.Id, reason, new Dictionary<string, string?>
         {
             ["reversal"] = outcome.TxId,
