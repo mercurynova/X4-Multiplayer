@@ -21,29 +21,8 @@ internal static class DiagnosticsEndpoints
 
     // ------------------------------------------------------------------ connections
 
-    private static LaneStatsDto LaneOf(ConnectionStats stats, Lane lane) =>
-        new(stats.BytesReceivedOn(lane), stats.BytesSentOn(lane), stats.Dropped(lane), stats.Coalesced(lane), stats.MaxQueuedBytes(lane));
-
-    private static async Task<IResult> ConnectionsAsync(AdminSessions sessions, IServiceProvider services)
-    {
-        var snapshot = await sessions.Actor.GetSnapshotAsync();
-        var now = sessions.Time.GetUtcNow();
-        var list = new List<ConnectionStatsDto>();
-        foreach (var node in services.GetService<NodeGateway>()?.AdmittedNodes ?? [])
-        {
-            var stats = node.Connection.Stats;
-            var info = snapshot.Nodes.FirstOrDefault(n => n.PlayerId == node.PlayerId);
-            double flushAvgMs = stats.FlushCount == 0 ? 0 : stats.FlushTicksTotal * 1000.0 / System.Diagnostics.Stopwatch.Frequency / stats.FlushCount;
-            list.Add(new ConnectionStatsDto(
-                node.Connection.Id.Value, node.Name, node.Roles.ToString(), "tcp", node.RemoteAddress.ToString(),
-                info is null ? 0 : (long)Math.Max(0, (now - info.JoinedAt).TotalSeconds), info?.RttMs ?? 0,
-                stats.BytesReceived, stats.BytesSent, stats.FramesReceived, stats.FramesSent, stats.FramesCoalesced, stats.FramesDropped,
-                stats.Violations, stats.InboundDropped, flushAvgMs, stats.FlushTicksMax * 1000.0 / System.Diagnostics.Stopwatch.Frequency,
-                LaneOf(stats, Lane.Control), LaneOf(stats, Lane.Realtime), LaneOf(stats, Lane.Bulk)));
-        }
-
-        return Results.Json([.. list.OrderBy(c => c.ConnectionId)], ApiJsonContext.Default.ListConnectionStatsDto);
-    }
+    private static async Task<IResult> ConnectionsAsync(AdminSessions sessions, IServiceProvider services) =>
+        Results.Json(await ConnectionStatsBuilder.BuildAsync(sessions, services), ApiJsonContext.Default.ListConnectionStatsDto);
 
     private static async Task<IResult> TraceAsync(long id, TraceRequest? body, AdminSessions sessions, IServiceProvider services)
     {
@@ -74,36 +53,12 @@ internal static class DiagnosticsEndpoints
 
     // ------------------------------------------------------------------ galaxy
 
-    private static SectorDto ToDto(GalaxySector sector, Dictionary<string, long> clusters) => new(
-        sector.Index, sector.Macro, sector.Name, clusters.TryGetValue(sector.ClusterMacro, out var cluster) ? cluster : 0,
-        new Vec2Dto(sector.GalaxyPos.X, sector.GalaxyPos.Z), null);
-
-    private static Dictionary<string, long> ClusterIds(GalaxyModel model)
-    {
-        var ids = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (var sector in model.Sectors)
-        {
-            ids.TryAdd(sector.ClusterMacro, ids.Count + 1);
-        }
-
-        return ids;
-    }
-
     private static async Task<IResult> GalaxyAsync(AdminSessions sessions, WorldMirror mirror)
     {
-        var model = await sessions.Actor.CallAsync(() => mirror.Galaxy.Current);
-        if (model is null)
-        {
-            return Problems.Result(StatusCodes.Status404NotFound, "GalaxyUnavailable", "Not found.", "No galaxy is loaded yet: the authority has not sent its galaxy metadata.");
-        }
-
-        var clusters = ClusterIds(model);
-        var dto = new GalaxyDto(
-            model.SaveSha256Hex,
-            [.. clusters.Select(c => new ClusterDto(c.Value, c.Key))],
-            [.. model.Sectors.Select(s => ToDto(s, clusters))],
-            [.. model.Links.Select(l => new GateLinkDto(l.From, l.To, l.Kind.ToString().ToLowerInvariant()))]);
-        return Results.Json(dto, ApiJsonContext.Default.GalaxyDto);
+        var dto = await GalaxyDtoBuilder.BuildAsync(sessions, mirror);
+        return dto is null
+            ? Problems.Result(StatusCodes.Status404NotFound, "GalaxyUnavailable", "Not found.", "No galaxy is loaded yet: the authority has not sent its galaxy metadata.")
+            : Results.Json(dto, ApiJsonContext.Default.GalaxyDto);
     }
 
     private static async Task<IResult> SectorAsync(int id, AdminSessions sessions, WorldMirror mirror)
@@ -128,7 +83,7 @@ internal static class DiagnosticsEndpoints
 
         var live = await sessions.GetLiveAsync();
         var dto = new SectorDetailDto(
-            ToDto(detail.Sector, ClusterIds(detail.Model)),
+            GalaxyDtoBuilder.ToDto(detail.Sector, GalaxyDtoBuilder.ClusterIds(detail.Model)),
             detail.Neighbors,
             detail.Summary is { } c ? c.ShipsXs + c.ShipsS + c.ShipsM + c.ShipsL + c.ShipsXl : null,
             detail.Summary?.Stations,

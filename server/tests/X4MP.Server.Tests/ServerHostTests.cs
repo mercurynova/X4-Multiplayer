@@ -71,13 +71,21 @@ public class ServerHostTests(ServerFactory factory) : IClassFixture<ServerFactor
 
     [Theory]
     [InlineData("/api/v1/nothing")]
-    [InlineData("/hubs/admin")]
+    [InlineData("/hubs/nothing")] // /hubs/admin itself is the SignalR hub since M1-S3
     [InlineData("/files/x")]
     [InlineData("/assets/does-not-exist")]
     public async Task ReservedAndMissingAssetPathsAreNotTheSpa(string path)
     {
         var response = await _client.GetAsync(new Uri(path, UriKind.Relative));
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TheAdminHubRouteIsTheHubNotTheSpa()
+    {
+        var response = await _client.PostAsync(new Uri("/hubs/admin/negotiate?negotiateVersion=1", UriKind.Relative), content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode); // anonymous: refused by the hub's authorization, never index.html
+        Assert.NotEqual("text/html", response.Content.Headers.ContentType?.MediaType);
     }
 
     [Fact]
