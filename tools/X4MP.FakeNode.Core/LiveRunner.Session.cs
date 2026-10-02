@@ -31,8 +31,25 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
     public Action<Frame>? Handler
     {
         get => _handler;
-        set => _handler = value;
+        set
+        {
+            // Frames that arrived while no handler was set (the server can answer a join within milliseconds, before the runner got
+            // here) are replayed to the new handler first, in order, so none is lost.
+            lock (_dispatchGate)
+            {
+                _handler = value;
+                if (value is null)
+                    return;
+                var early = _early;
+                _early = null;
+                if (early is not null)
+                    foreach (var frame in early)
+                        value(frame);
+            }
+        }
     }
+
+    private List<Frame>? _early = [];
 
     private volatile int _team;
 
@@ -113,7 +130,10 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
                 break;
         }
 
-        _handler?.Invoke(frame);
+        if (_handler is { } handler)
+            handler(frame);
+        else
+            _early?.Add(frame);
     }
 
     /// <summary>True when the server announced a session (a real session actor); false after <paramref name="timeout"/> or when the connection ended first.</summary>
