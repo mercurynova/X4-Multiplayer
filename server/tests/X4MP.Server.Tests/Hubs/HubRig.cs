@@ -30,6 +30,13 @@ internal sealed class HubRecorder
         connection.On<X4MP.Server.Api.AlertDto>("Alert", p => recorder.Add("Alert", p));
         connection.On<X4MP.Server.Api.SettingsDto>("SettingsChanged", p => recorder.Add("SettingsChanged", p));
         connection.On<X4MP.Server.Api.PermissionDeniedDto>("PermissionDenied", p => recorder.Add("PermissionDenied", p));
+        connection.On<X4MP.Server.Api.WalletDto>("WalletChanged", p => recorder.Add("WalletChanged", p));
+        connection.On<X4MP.Server.Api.LedgerTxDto>("LedgerPosted", p => recorder.Add("LedgerPosted", p));
+        connection.On<X4MP.Server.Api.LoanDto>("LoanChanged", p => recorder.Add("LoanChanged", p));
+        connection.On<X4MP.Server.Api.TradeOfferDto>("TradeChanged", p => recorder.Add("TradeChanged", p));
+        connection.On<X4MP.Server.Api.EconomyEventDto>("EconomyEvent", p => recorder.Add("EconomyEvent", p));
+        connection.On<X4MP.Server.Api.EconomySummaryDto>("EconomySummary", p => recorder.Add("EconomySummary", p));
+        connection.On<X4MP.Server.Api.AlertDto>("EconomyAlert", p => recorder.Add("EconomyAlert", p));
         return recorder;
     }
 

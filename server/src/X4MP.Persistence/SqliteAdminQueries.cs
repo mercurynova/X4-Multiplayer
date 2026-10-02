@@ -287,6 +287,28 @@ public sealed class SqliteAdminQueries(SqliteConnectionFactory factory)
         return [.. rows.Select(r => new SessionEventRecord(r.Id, r.SessionId, Parse(r.Ts), r.ServerSeq, r.Type, r.PlayerId, r.SectorId, r.DataJson)).Reverse()];
     }
 
+    /// <summary>
+    /// The economy part of the event log: loan and trade state changes, completed player actions, migrations, freezes and the admin actions whose
+    /// name starts with <c>economy.</c>. Newest first, at most <paramref name="limit"/>, optionally only after <paramref name="since"/>.
+    /// </summary>
+    public IReadOnlyList<SessionEventRecord> EconomyEvents(long sessionId, DateTimeOffset? since, int limit)
+    {
+        using var db = factory.Open();
+        var sql =
+            "SELECT id, session_id, ts, server_seq, type, player_id, sector_id, data_json FROM session_events WHERE session_id = @sessionId AND " +
+            "(type IN ('LoanStateChanged','TradeStateChanged','EconomyActionCompleted','EconomyMigrated','EconomyFrozen','EconomyUnfrozen') " +
+            "OR (type = 'AdminActionTaken' AND json_extract(data_json, '$.action') LIKE 'economy.%'))";
+        if (since is not null)
+        {
+            sql += " AND ts > @since";
+        }
+
+        sql += " ORDER BY id DESC LIMIT @limit";
+        var rows = db.Query<(long Id, long SessionId, string Ts, long? ServerSeq, string Type, long? PlayerId, long? SectorId, string? DataJson)>(
+            sql, new { sessionId, since = since is { } s ? Stamp(s) : null, limit });
+        return [.. rows.Select(r => new SessionEventRecord(r.Id, r.SessionId, Parse(r.Ts), r.ServerSeq, r.Type, r.PlayerId, r.SectorId, r.DataJson))];
+    }
+
     // ------------------------------------------------------------------ chat and audit
 
     /// <summary>The newest <paramref name="limit"/> chat lines with id below <paramref name="beforeId"/> (all when null), oldest first.</summary>

@@ -69,7 +69,25 @@ public sealed record LedgerTransaction(
     long? RefId,
     string? Reverses,
     string? Note,
-    IReadOnlyList<LedgerEntry> Entries);
+    IReadOnlyList<LedgerEntry> Entries,
+    string? ReversedBy = null);
+
+/// <summary>Filter of a ledger listing: newest first by default, oldest first with <see cref="Ascending"/>. <see cref="Before"/> and <see cref="After"/> are id cursors (smaller or greater ids only).</summary>
+public sealed record LedgerQuery(
+    WalletId? Wallet = null,
+    TxKind? Kind = null,
+    string? Actor = null,
+    string? RefType = null,
+    long? RefId = null,
+    DateTimeOffset? Since = null,
+    DateTimeOffset? Until = null,
+    string? Before = null,
+    string? After = null,
+    bool Ascending = false,
+    int Limit = 100);
+
+/// <summary>A durable ledger commit as observers (the admin hub) see it: the transaction (null for a flag-only change) and the wallets it changed.</summary>
+public sealed record LedgerCommit(LedgerTransaction? Transaction, IReadOnlyList<WalletState> Wallets);
 
 /// <summary>The cached state of one wallet. Mutated only by <see cref="EconomyLedger"/> on the actor thread.</summary>
 public sealed class WalletState

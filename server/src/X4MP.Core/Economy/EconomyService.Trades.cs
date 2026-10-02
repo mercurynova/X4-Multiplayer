@@ -43,6 +43,22 @@ public sealed partial class EconomyService
     /// <summary>Raised after every change of a trade (state, version, acceptance): the module sends <c>TradeStatus</c> and, for final states, <c>TradeResult</c>. Arguments: the trade and its previous state.</summary>
     public Action<TradeRecord, TradeState>? TradeChanged { get; set; }
 
+    /// <summary>Raised after every change of a trade, next to <see cref="TradeChanged"/> but multicast (the admin hub observes here). Handlers must be quick and must not throw.</summary>
+    public event Action<TradeRecord, TradeState>? TradeObserved;
+
+    private void RaiseTradeChanged(TradeRecord trade, TradeState previous)
+    {
+        TradeChanged?.Invoke(trade, previous);
+        try
+        {
+            TradeObserved?.Invoke(trade, previous);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _ = ex; // an observer must never break the trade engine
+        }
+    }
+
     /// <summary>Confirmations that arrived for a trade that was not waiting for one (duplicates and late ones): ignored.</summary>
     public long DuplicateConfirms { get; private set; }
 
@@ -180,7 +196,7 @@ public sealed partial class EconomyService
         IndexRequests(trade);
         LockAll(trade);
         PublishTrade(trade, TradeState.Proposed, TradeState.Proposed, EconomyReject.None, Actor(player), "proposed");
-        TradeChanged?.Invoke(trade, TradeState.Proposed);
+        RaiseTradeChanged(trade, TradeState.Proposed);
         return new TradeActionResult(EconomyReject.None, null, trade);
     }
 
@@ -245,7 +261,7 @@ public sealed partial class EconomyService
         LockAll(trade);
         IndexRequests(trade);
         PublishTrade(trade, previous, trade.State, EconomyReject.None, Actor(player), "countered");
-        TradeChanged?.Invoke(trade, previous);
+        RaiseTradeChanged(trade, previous);
         return new TradeActionResult(EconomyReject.None, null, trade);
     }
 
@@ -307,7 +323,7 @@ public sealed partial class EconomyService
 
             IndexRequests(trade);
             PublishTrade(trade, previous, trade.State, EconomyReject.None, Actor(player), "accepted");
-            TradeChanged?.Invoke(trade, previous);
+            RaiseTradeChanged(trade, previous);
             return new TradeActionResult(EconomyReject.None, null, trade);
         }
 
@@ -414,7 +430,7 @@ public sealed partial class EconomyService
             return TradeActionResult.Rejected(EconomyReject.AuthorityUnavailable, "the authority went away", trade);
         }
 
-        TradeChanged?.Invoke(trade, previous);
+        RaiseTradeChanged(trade, previous);
         return new TradeActionResult(EconomyReject.None, null, trade, escrow);
     }
 
@@ -740,7 +756,7 @@ public sealed partial class EconomyService
 
         Persist(trade);
         PublishTrade(trade, from, to, reason, actor, detail);
-        TradeChanged?.Invoke(trade, from);
+        RaiseTradeChanged(trade, from);
     }
 
     private void PublishTrade(TradeRecord trade, TradeState from, TradeState to, EconomyReject reason, string actor, string? detail) =>
