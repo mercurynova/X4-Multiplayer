@@ -37,6 +37,13 @@ internal sealed class HubRecorder
         connection.On<X4MP.Server.Api.EconomyEventDto>("EconomyEvent", p => recorder.Add("EconomyEvent", p));
         connection.On<X4MP.Server.Api.EconomySummaryDto>("EconomySummary", p => recorder.Add("EconomySummary", p));
         connection.On<X4MP.Server.Api.AlertDto>("EconomyAlert", p => recorder.Add("EconomyAlert", p));
+        connection.On<X4MP.Server.Api.TeamDto>("TeamUpserted", p => recorder.Add("TeamUpserted", p));
+        connection.On<long>("TeamDeleted", p => recorder.Add("TeamDeleted", p));
+        connection.On<X4MP.Server.Api.TeamMemberDto>("TeamMemberChanged", p => recorder.Add("TeamMemberChanged", p));
+        connection.On<X4MP.Server.Api.TeamRelationsDto>("TeamRelationsChanged", p => recorder.Add("TeamRelationsChanged", p));
+        connection.On<X4MP.Server.Api.TeamPolicyDto>("TeamPolicyChanged", p => recorder.Add("TeamPolicyChanged", p));
+        connection.On<X4MP.Server.Api.TeamsStateDto>("TeamsReset", p => recorder.Add("TeamsReset", p));
+        connection.On<X4MP.Server.Api.TeamMemberDto>("PlayerAwaitingTeam", p => recorder.Add("PlayerAwaitingTeam", p));
         return recorder;
     }
 
