@@ -21,21 +21,22 @@ namespace X4MP.Server.Tests.Net;
 [Collection("net")]
 public sealed class TradeLiveTests(ITestOutputHelper output)
 {
-    private static int FreePort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        int port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
-    }
+    private static int FreePort() => TestPorts.FreeTcp();
 
     private sealed class Host : IAsyncDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "x4mp-trade-" + Guid.NewGuid().ToString("N"));
-        private readonly WebApplication _app;
+        private WebApplication _app;
+
+        private readonly string[] _settings;
 
         public Host()
+        {
+            _settings = [];
+            _app = Build();
+        }
+
+        private WebApplication Build()
         {
             TcpPort = FreePort();
             string[] args =
@@ -46,10 +47,10 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
                 "--X4MP:Economy:TradeExecuteTimeoutSeconds=2", "--X4MP:Economy:TradeQueryIntervalSeconds=1",
             ];
             var cli = CliArguments.Parse(args);
-            _app = ServerHost.Build(cli.Remaining, cli, isService: false);
+            return ServerHost.Build(cli.Remaining, cli, isService: false);
         }
 
-        public int TcpPort { get; }
+        public int TcpPort { get; private set; }
 
         public EconomyModule Economy => (EconomyModule)_app.Services.GetService(typeof(EconomyModule))!;
 
@@ -57,7 +58,11 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
 
         public WorldMirror Mirror => (WorldMirror)_app.Services.GetService(typeof(WorldMirror))!;
 
-        public Task StartAsync() => _app.StartAsync();
+        public Task StartAsync() => TestPorts.StartWithRetryAsync(() => _app.StartAsync(), async () =>
+        {
+            await _app.DisposeAsync();
+            _app = Build();
+        });
 
         public async ValueTask DisposeAsync()
         {

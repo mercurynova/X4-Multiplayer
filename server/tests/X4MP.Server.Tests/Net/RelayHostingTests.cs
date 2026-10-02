@@ -22,16 +22,12 @@ public sealed class RelayHostingTests : IAsyncLifetime
     private WebApplication _app = null!;
     private int _tcpPort;
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync() => TestPorts.StartWithRetryAsync(StartOnceAsync);
+
+    private async Task StartOnceAsync()
     {
-        var tcp = new TcpListener(IPAddress.Loopback, 0);
-        tcp.Start();
-        _tcpPort = ((IPEndPoint)tcp.LocalEndpoint).Port;
-        tcp.Stop();
-        var http = new TcpListener(IPAddress.Loopback, 0);
-        http.Start();
-        int httpPort = ((IPEndPoint)http.LocalEndpoint).Port;
-        http.Stop();
+        _tcpPort = TestPorts.FreeTcp();
+        int httpPort = TestPorts.FreeTcp();
         string[] args =
         [
             "--data-dir", _dir, "--port", httpPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -39,7 +35,15 @@ public sealed class RelayHostingTests : IAsyncLifetime
         ];
         var cli = CliArguments.Parse(args);
         _app = ServerHost.Build(cli.Remaining, cli, isService: false);
-        await _app.StartAsync();
+        try
+        {
+            await _app.StartAsync();
+        }
+        catch
+        {
+            await _app.DisposeAsync();
+            throw;
+        }
     }
 
     public async Task DisposeAsync()
