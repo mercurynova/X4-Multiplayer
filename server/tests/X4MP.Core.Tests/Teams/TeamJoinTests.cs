@@ -727,6 +727,32 @@ public class TeamJoinTests
     }
 
     [Fact]
+    public async Task APerPlayerPresetPlacesOnlyAttachedNodesSoDetachedOnesCannotExhaustTheFactionSlots()
+    {
+        await using var rig = new TeamRig(new TeamOptions { JoinMode = TeamJoinMode.AdminAssign });
+        var nodes = await rig.JoinManyAsync(10); // 10 known players: more than the 8 faction slots
+        foreach (var gone in nodes.Take(3))
+        {
+            gone.Connection.Drop();
+        }
+
+        foreach (var gone in nodes.Take(3))
+        {
+            await rig.WaitForPhaseAsync(gone, NodePhase.Detached);
+        }
+
+        var result = await rig.Teams.ApplyPresetAsync(TeamPreset.FreeForAll);
+        await rig.SettleAsync();
+
+        Assert.True(result.Ok, result.Detail);
+        Assert.Equal(7, rig.Teams.Teams.Count);
+        Assert.All(nodes.Skip(3), n => Assert.NotNull(rig.Teams.TeamOf(n.PlayerId)));
+        Assert.All(nodes.Take(3), n => Assert.Null(rig.Teams.TeamOf(n.PlayerId))); // unassigned; the normal join path places them on return
+        var preview = await rig.Teams.PreviewPresetAsync(TeamPreset.FreeForAll);
+        Assert.Equal(default, preview.Blocked);
+    }
+
+    [Fact]
     public async Task TheDefaultRelationSettingAppliesToUnsetPairs()
     {
         await using var rig = new TeamRig(new TeamOptions { AutoAssign = AutoAssignStrategy.NewTeamPerPlayer, DefaultRelation = TeamRelation.Hostile });

@@ -29,8 +29,10 @@ public static class WorldKit
             State = new EntityStateT { NetId = netId, Sector = sector, Px = px, Py = py, Pz = pz },
         };
 
-    public static byte[] SpawnPayload(params EntityRecordT[] records) =>
-        MessageEncoder.EncodePayload(b => EntitySpawn.Pack(b, new EntitySpawnT { Entities = [.. records] }), 512);
+    public static byte[] SpawnPayload(params EntityRecordT[] records) => SpawnPayloadAt(0, records);
+
+    public static byte[] SpawnPayloadAt(double gameTime, params EntityRecordT[] records) =>
+        MessageEncoder.EncodePayload(b => EntitySpawn.Pack(b, new EntitySpawnT { Entities = [.. records], GameTime = gameTime }), 512);
 
     public static byte[] DespawnPayload(DespawnReason reason, uint killer, params uint[] netIds) =>
         MessageEncoder.EncodePayload(
