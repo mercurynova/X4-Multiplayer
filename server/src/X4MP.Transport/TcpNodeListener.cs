@@ -43,6 +43,10 @@ public sealed class NodeConnectionHandler(TcpNodeListener listener) : Connection
             using var registration = connection.ConnectionClosed.Register(static state => ((PipeNodeConnection)state!).Abort(), node);
             await node.Completion.ConfigureAwait(false);
             await node.DrainInputAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); // let the peer read the Disconnect before the socket closes
+            if (node.MustAbortSocket)
+            {
+                connection.Abort(); // a slow consumer never reads what is queued in the socket: without this Kestrel keeps the socket open for it
+            }
         }
     }
 }

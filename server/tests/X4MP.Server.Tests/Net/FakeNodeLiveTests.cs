@@ -74,12 +74,14 @@ public class FakeNodeLiveTests
     }
 
     [Fact]
-    public async Task InspectIsStillStubbedWithAMessage()
+    public async Task InspectConnectsListensAndSummarisesTheFramesItSaw()
     {
-        var options = CliParser.Parse(["inspect", "--sector", "3"]).Options!;
+        await using var harness = (TcpHarness)await NetHarness.CreateAsync("tcp", Roomy(), withGateway: true, useActor: UseActor);
+        var options = CliParser.Parse(["inspect", "--no-join", "--duration", "1"]).Options! with { Port = harness.Port };
         var output = new StringWriter();
-        Assert.Equal(3, await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None));
-        Assert.Contains("not available yet", output.ToString());
+        Assert.Equal(0, await LiveRunner.RunAsync(options, output, Quick, CancellationToken.None));
+        Assert.Contains("inspect: connected", output.ToString());
+        Assert.Contains("inspect: frames-received=", output.ToString());
     }
 }
 

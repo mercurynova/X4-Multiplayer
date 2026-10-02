@@ -436,6 +436,9 @@ public sealed class ReplicationRig : IAsyncDisposable
                 var sha = Enumerable.Range(0, 32).Select(i => (byte)(i + 1)).ToArray();
                 rig.Mirror.HandleForTest(new InboundFrame(AsFrame(MsgType.GalaxyMetadata, LineGalaxy(sha, lineSectors)), 0), authority: true, 99);
             }
+
+            // Replication holds its entries until the first WorldUpdate (its game time is their reference): an empty one stands in for it.
+            rig.Mirror.IngestWorldUpdate(UpdatePayload(0, 0, []));
         });
 
         return rig;

@@ -17,7 +17,13 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
     private volatile Action<Frame>? _handler;
     private readonly object _dispatchGate = new();
 
-    public TcpNodeClient Client { get; } = client;
+    public TcpNodeClient Client { get; private set; } = client;
+
+    private int _generation;
+    private CancellationToken _readerToken;
+
+    /// <summary>True while the node swaps its connection (<c>--disconnect-every</c>, <c>--reload-every</c>): the old socket is gone, the new one is not up yet.</summary>
+    public volatile bool Resuming;
 
     /// <summary>The UDP Realtime lane when this node asked for it and it is (being) bound; sends use it when <see cref="UdpRealtimeClient.Bound"/>.</summary>
     public UdpRealtimeClient? Udp { get; set; }
@@ -56,20 +62,43 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
     /// <summary>The team the server last reported for this node (<c>RosterUpdate</c>); 0 = none yet.</summary>
     public int Team => _team;
 
-    public bool Closed { get; private set; }
+    public volatile bool Closed;
 
     public DisconnectCode? DisconnectedBy { get; private set; }
 
     public Exception? Failure { get; private set; }
 
-    public void Start(CancellationToken ct) => _reader = Task.Run(() => ReadAsync(ct), CancellationToken.None);
+    public void Start(CancellationToken ct)
+    {
+        _readerToken = ct;
+        int generation = Volatile.Read(ref _generation);
+        var current = Client;
+        _reader = Task.Run(() => ReadAsync(current, generation, ct), CancellationToken.None);
+    }
 
-    private async Task ReadAsync(CancellationToken ct)
+    /// <summary>
+    /// Ends the old connection's reader (call after the old client was aborted), then continues on <paramref name="replacement"/> with a new reader.
+    /// Frames of the old connection that are still in flight are not dispatched. The handler and the phase the server reported stay.
+    /// </summary>
+    public async Task RebindAsync(TcpNodeClient replacement)
+    {
+        Interlocked.Increment(ref _generation);
+        await StopAsync().ConfigureAwait(false);
+        Failure = null;
+        DisconnectedBy = null;
+        Client = replacement;
+        Closed = false;
+        Start(_readerToken);
+    }
+
+    private async Task ReadAsync(TcpNodeClient reading, int generation, CancellationToken ct)
     {
         try
         {
-            while (await Client.ReceiveAsync(ct).ConfigureAwait(false) is { } frame)
+            while (await reading.ReceiveAsync(ct).ConfigureAwait(false) is { } frame)
             {
+                if (generation != Volatile.Read(ref _generation))
+                    return;
                 Dispatch(frame);
             }
         }
@@ -79,12 +108,16 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
         }
         catch (Exception ex)
         {
-            Failure = ex;
+            if (generation == Volatile.Read(ref _generation))
+                Failure = ex;
         }
         finally
         {
-            Closed = true;
-            _session.TrySetResult(false);
+            if (generation == Volatile.Read(ref _generation))
+            {
+                Closed = true;
+                _session.TrySetResult(false);
+            }
         }
     }
 
@@ -108,8 +141,12 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
             DispatchLocked(frame);
     }
 
+    /// <summary>Sees every frame before anything else does (<c>inspect</c>).</summary>
+    public Action<Frame>? Tap { get; set; }
+
     private void DispatchLocked(Frame frame)
     {
+        Tap?.Invoke(frame);
         switch (frame.Type)
         {
             case MsgType.SessionState:
@@ -193,9 +230,26 @@ public static partial class LiveRunner
         long pongs = stats.Pings;
         while (!ct.IsCancellationRequested)
         {
+            if (link.Resuming)
+            {
+                // The node swaps its connection (--disconnect-every/--reload-every): wait for the new one and do not count the gap against the Pongs.
+                await Task.Delay(50, ct).ConfigureAwait(false);
+                lastPongAt.Restart();
+                pongs = stats.Pings;
+                continue;
+            }
+
             if (link.Closed)
                 throw new IOException(link.DisconnectedBy is { } code ? $"server closed the connection ({code})" : "connection closed");
-            await link.Client.SendPingAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await link.Client.SendPingAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (link.Resuming && ex is IOException or ObjectDisposedException or System.Net.Sockets.SocketException)
+            {
+                continue; // the socket was dropped under us on purpose
+            }
+
             await Task.Delay(run.PingInterval, ct).ConfigureAwait(false);
 
             if (stats.Pings > pongs)
@@ -203,7 +257,7 @@ public static partial class LiveRunner
                 pongs = stats.Pings;
                 lastPongAt.Restart();
             }
-            else if (lastPongAt.Elapsed > run.PingTimeout)
+            else if (lastPongAt.Elapsed > run.PingTimeout && stats.Impairment is not { SlowActive: true })
             {
                 throw new TimeoutException("ping timed out");
             }
@@ -583,6 +637,16 @@ public static partial class LiveRunner
 
         run.OnClientReady?.Invoke(handle);
 
+        if (stats.Impairment is { Slow: not null } slowReader)
+        {
+            slowReader.ActivateSlowReader();
+            await lines.WriteAsync($"[{name}] slow reader on: reading {slowReader.Slow} from now").ConfigureAwait(false);
+        }
+
+        int clientCount = o.Command == FakeNodeCommand.Swarm ? o.Clients : 1;
+        double nextDisconnect = o.DisconnectEverySeconds > 0 ? FirstResumeAt(o.DisconnectEverySeconds, ordinal, clientCount) : double.MaxValue;
+        double nextReload = o.ReloadEverySeconds > 0 ? FirstResumeAt(o.ReloadEverySeconds, ordinal + (clientCount / 2), clientCount) + 1.5 : double.MaxValue;
+        PendingResume? pendingResume = null;
         var clock = Stopwatch.StartNew();
         long lastTick = -1;
         long nextStale = 0;
@@ -594,6 +658,40 @@ public static partial class LiveRunner
         {
             if (link.Closed)
                 throw new IOException(link.DisconnectedBy is { } code ? $"server closed the connection ({code})" : "connection closed");
+            if (stats.Impairment is { SlowActive: true } && !link.Resuming && link.Client.PeerClosed)
+                throw new IOException("the server closed the connection (reset); a slow reader only finds out this way"); // it is not reading, so the reader never sees the end
+            double sinceInGame = clock.Elapsed.TotalSeconds;
+            if (sinceInGame >= nextDisconnect || sinceInGame >= nextReload)
+            {
+                bool reload = sinceInGame >= nextReload && nextReload <= nextDisconnect;
+                if (pendingResume is not null)
+                    NoteMissingKeyframes(stats, session, pendingResume);
+                if (reload)
+                    nextReload = sinceInGame + o.ReloadEverySeconds;
+                else
+                    nextDisconnect = sinceInGame + o.DisconnectEverySeconds;
+                while (outbox.Reader.TryRead(out _))
+                {
+                    // replies to frames of the connection that is about to go
+                }
+
+                await ResumeAsync(link, o, stats, session, run, lines, name, reload, ct).ConfigureAwait(false);
+                pendingResume = new PendingResume();
+            }
+            else if (pendingResume is not null)
+            {
+                if (session.KeyframesSinceResume > 0)
+                {
+                    stats.CountKeyframe(pendingResume.Since.Elapsed);
+                    pendingResume = null;
+                }
+                else if (pendingResume.Since.Elapsed > run.ResumeKeyframeTimeout)
+                {
+                    NoteMissingKeyframes(stats, session, pendingResume);
+                    pendingResume = null;
+                }
+            }
+
             while (outbox.Reader.TryRead(out var reply))
                 await link.Client.SendPayloadAsync(reply.Type, reply.Payload, ct).ConfigureAwait(false);
             stats.TeamId = link.Team;
@@ -651,7 +749,7 @@ public static partial class LiveRunner
 
     private static async Task WriteVerifySummaryAsync(List<LiveNodeStats> stats, SynchronizedWriter lines)
     {
-        var sessions = stats.Where(s => s.Session is not null).Select(s => (s.Name, Session: s.Session!)).ToList();
+        var sessions = stats.Where(s => s.Session is not null && s.Impairment is not { Slow: not null }).Select(s => (s.Name, Session: s.Session!)).ToList();
         if (sessions.Count == 0)
         {
             await lines.WriteAsync("verify: no client received a session (is the server running with a session actor, and an authority connected?)").ConfigureAwait(false);
