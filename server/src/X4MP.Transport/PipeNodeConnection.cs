@@ -160,7 +160,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
     /// </summary>
     public bool MustAbortSocket { get; private set; }
 
-    public void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0)
+    public void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0, ModPolicyViolationT? modViolation = null)
     {
         if (Interlocked.CompareExchange(ref _state, StateClosing, StateOpen) != StateOpen)
         {
@@ -178,7 +178,7 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
                 Volatile.Write(ref _graceful, 1);
             }
 
-            var final = ControlFrames.Disconnect(reason, detail, expected, retryAfterMs);
+            var final = ControlFrames.Disconnect(reason, detail, expected, retryAfterMs, modViolation);
             _queue.Complete(discardControl: reason == DisconnectCode.SlowConsumer, final);
             final.Release();
             _abortCts.CancelAfter(_options.CloseFlushTimeoutMs);

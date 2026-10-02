@@ -302,8 +302,21 @@ public class NodeGatewayTests
         await using var _ = net;
         await using var __ = authority;
         await using var client = await net.ConnectAsync(IPAddress.Parse("10.0.0.5"));
-        var (_, reply) = await new TestNode("Alice") { Extensions = ["something_else@1"] }.JoinAsync(client);
+        var (_, reply) = await new TestNode("Alice") { Extensions = ["ego_dlc_boron@1.0", "something_else@1"] }.JoinAsync(client);
         TestNode.AsWelcome(reply);
+    }
+
+    [Fact]
+    public async Task ADlcMismatchIsRefusedEvenWhenDowngradedToAWarning()
+    {
+        var (net, authority) = await WithAuthorityAsync(new NetOptions { ExtensionsMismatchIsWarning = true });
+        await using var _ = net;
+        await using var __ = authority;
+        await using var client = await net.ConnectAsync(IPAddress.Parse("10.0.0.5"));
+        var (_, reply) = await new TestNode("Alice") { Extensions = ["something_else@1"] }.JoinAsync(client);
+        var d = TestNode.AsDisconnect(reply);
+        Assert.Equal(DisconnectCode.ExtensionsMismatch, d.Code);
+        Assert.Equal("ego_dlc_boron", d.ModViolation!.Value.Install(0)!.Value.Id);
     }
 
     // ---- identity ----

@@ -77,6 +77,7 @@ verification found at least one error; 3 means the requested feature is not buil
 | option | meaning |
 |---|---|
 | `--team <id\|name>` | client/swarm: join this team. A lobby (`Teams.JoinMode=Lobby`) gets a `TeamChoice`; a name that does not exist is created when `Teams.AllowCreateInLobby` is on. A node that Auto already placed elsewhere asks for a move once in game (`TeamChangeRequest`; the server needs `Teams.AllowSelfTeamChange`) |
+| `--extensions FILE` | client/swarm: send the extensions listed in a JSON file as `ClientHello.extension_list` (and the matching `extensions_hash`). The file is an array of `{id, name, version, source, enabled, workshopId, classHint, contentHash, ...}` (enums by name, `enabled` defaults to true). A mismatch with the session mod policy gets `ExtensionsMismatch` with the exact install/enable/disable/update lists. Presets come with M1-X5 |
 | `--team-pick lobby-random` | client/swarm: answer the lobby with a random open team (not locked, not full, no password); with creating allowed, "a new team named after the player" is one more choice |
 | `--teams N` | swarm: client i joins the team called `Team (i mod N)+1` (created on first use when the lobby allows it). The authority tags its ships for team ids 1..N (implies `--team-assets`) |
 | `--relations coop\|allied\|ffa\|twoteams` | swarm: a layout. Implies `--teams` (coop 1, twoteams 2, allied/ffa one per client) and prints the server settings it needs (`server-settings=[...]`) |

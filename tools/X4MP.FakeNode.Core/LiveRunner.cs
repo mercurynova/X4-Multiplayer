@@ -517,6 +517,7 @@ public static partial class LiveRunner
             PlayerName = plan.Name,
             PlayerKey = DeriveKey(o.Seed, plan.Name),
             Password = o.Password,
+            ExtensionList = o.Extensions,
             RequestedRoles = plan.Role,
             ClientCaps = o.Udp ? (ulong)Capability.UdpRealtime : 0,
             StreamWrapper = impairment is null ? null : stream => new ImpairedStream(stream, impairment),

@@ -96,7 +96,7 @@ public sealed class FakeConnection(TimeProvider time) : INodeConnection
     {
     }
 
-    public void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0)
+    public void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0, ModPolicyViolationT? modViolation = null)
     {
         if (CloseCode is not null)
         {
@@ -342,7 +342,7 @@ public sealed class ActorRig : IAsyncDisposable
     /// </summary>
     public async Task<JoinedNode> JoinAsync(
         string name, Role roles = Role.Client, Id128T? resumeToken = null, ulong lastJournalSeq = 0,
-        string? modBuild = null)
+        string? modBuild = null, ModPolicyViolationT? modWarning = null)
     {
         if (!_identities.TryGetValue(name, out var identity))
         {
@@ -382,6 +382,7 @@ public sealed class ActorRig : IAsyncDisposable
             NegotiatedCaps = 0,
             Nonce = RandomNumberGenerator.GetBytes(32),
             RemoteAddress = IPAddress.Parse("10.0.0.7"),
+            ModWarning = modWarning,
             Welcome = new WelcomeT
             {
                 PlayerId = (ushort)identity.Id,

@@ -125,7 +125,7 @@ public sealed class AuthorityRecordingHandler(GatewayState state) : IAdmissionHa
         if (node.IsAuthority)
         {
             var h = node.Hello;
-            state.Authority = new AuthorityIdentity(h.GameBuild, h.ModVersion, h.ModBuild, h.ExtensionsHash.ToArray(), h.Extensions);
+            state.Authority = new AuthorityIdentity(h.GameBuild, h.ModVersion, h.ModBuild, h.ExtensionsHash.ToArray(), h.Extensions, h.ExtensionList);
             state.AuthorityLive = true;
             state.DesignatedAuthorityPlayerId = node.PlayerId;
             _ = node.Connection.Completion.ContinueWith(_ => state.AuthorityLive = false, TaskScheduler.Default);

@@ -7,12 +7,14 @@ namespace X4MP.Core.Net;
 public static class ControlFrames
 {
     /// <summary>A <c>Disconnect</c> frame (Control lane). Strings are truncated to keep the frame tiny.</summary>
-    public static OutboundFrame Disconnect(DisconnectCode code, string? message = null, string? expected = null, uint retryAfterMs = 0)
+    public static OutboundFrame Disconnect(
+        DisconnectCode code, string? message = null, string? expected = null, uint retryAfterMs = 0, ModPolicyViolationT? modViolation = null)
     {
-        var fbb = new FlatBufferBuilder(128);
+        var fbb = new FlatBufferBuilder(modViolation is null ? 128 : 512);
         var msg = message is null ? default : fbb.CreateString(Truncate(message));
         var exp = expected is null ? default : fbb.CreateString(Truncate(expected));
-        var offset = X4MP.Proto.Disconnect.CreateDisconnect(fbb, code, msg, exp, retryAfterMs);
+        var offset = X4MP.Proto.Disconnect.CreateDisconnect(
+            fbb, code, msg, exp, retryAfterMs, modViolation is null ? default : ModPolicyViolation.Pack(fbb, modViolation));
         fbb.Finish(offset.Value);
         return OutboundFrame.Create(MsgType.Disconnect, fbb);
     }

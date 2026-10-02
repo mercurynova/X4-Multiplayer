@@ -25,6 +25,12 @@ public sealed record NodeClientOptions
     public string X4NativeVersion { get; init; } = "fakenode";
     public string Platform { get; init; } = "win64";
 
+    /// <summary>
+    /// The extension report the node sends (<c>ClientHello.extension_list</c>); the extensions hash and the legacy <c>id@version</c> strings
+    /// are derived from it. Null = an empty report (a node that reports nothing).
+    /// </summary>
+    public IReadOnlyList<ExtensionInfoT>? ExtensionList { get; init; }
+
     /// <summary>Resume token from a previous <c>Welcome</c> (null = fresh join).</summary>
     public Id128T? ResumeToken { get; init; }
 
