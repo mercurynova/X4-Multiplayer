@@ -790,6 +790,7 @@ helper can curate the session mod list. All edits go to `audit_log`. This affect
   - Notes and naming conventions live in the server DB, keyed by stable ids (X4 id codes, sector macros),
     team-shared or private. Renames go through the normal `AssetRename` intent (M1-T4 permissions).
   - Phases: P1 knowledge + assets/fleets + notes/naming; P2 market snapshots + visibility; P3 planners.
+  - P3 trade-route finder takes the TaterTrader "DeadTater" auto-trade logic as a design reference (user idea 2026-10-02; reference only, own implementation).
 - **Consequences:** needs commander/subordinate relationships from the authority (schema change), a market
   snapshot message (Bulk lane), and spike items for the trade-offer API and X4's visibility rule.
 

@@ -80,6 +80,14 @@ User decisions (2026-10-02):
   sign-in link.
 - **P2:** market snapshots + per-team visibility (`Strict` / `KnownStations` / `Everything`).
 - **P3:** planners: production-chain calculator, trade-route finder, station build planner.
+  - **Trade-route finder reference (user idea 2026-10-02):** the TaterTrader mod's "DeadTater" auto-trade order
+    (Nexus mod 2246, a 9.x fork; queue-aware per-faction round-robin so traders don't pile onto one station,
+    fleet-aware so subordinates inherit the commander's order). Use it as a **reference for the scoring and
+    distribution logic only** (study, then write our own; check the mod's permissions first) and show the
+    result as a dashboard: best routes per ship/fleet from the team's visible offers, with the reasoning
+    (profit/jump, stock vs. demand, competing traders). Separately, players can simply run that mod in game
+    if the session's mod policy allows it; AI orders run on the authority, so it would need to be installed
+    there (an `AuthorityOnlyMD`-class mod, ADR-044 phase 3).
 
 ## 5. Dependencies and open questions
 - Depends on: M5 (economy in game, ownership, `AssetRename` through the authority), ADR-048
