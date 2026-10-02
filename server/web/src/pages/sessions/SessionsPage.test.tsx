@@ -184,6 +184,15 @@ describe('SessionsPage', () => {
     expect(calls.find((c) => c.method === 'DELETE')?.url).toBe(`/api/v1/saves/${SHA_A}`);
   });
 
+  it('hides a deleted save at once even if the (write-behind) list still returns it', async () => {
+    const { calls } = setup({ current: null, saves: [save()], history: [], onOther: (c) => (c.method === 'DELETE' ? new Response(null, { status: 204 }) : undefined) });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Delete save_017' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete save' }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Download save_017' })).toBeNull());
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+  });
+
   it('renders SaveTransfer pushes as per-player progress and updates them', async () => {
     const { hub } = setup({ current: session('Running'), saves: [], history: [] });
     await screen.findByText('Friday Run');

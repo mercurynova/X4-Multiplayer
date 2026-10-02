@@ -4,7 +4,7 @@ import { useAlerts } from '../../alerts/AlertsProvider';
 import type { SaveDto } from '../../generated/generated';
 import { problemToFormErrors } from '../../lib/problem';
 import { ConfirmDialog } from './ConfirmDialog';
-import { formatBytes, formatDateTime, percent } from './format';
+import { formatBytes, formatSaveTime, percent } from './format';
 import { uploadSave, type UploadProgress } from './uploader';
 
 interface UploadState {
@@ -29,12 +29,16 @@ export function SavesLibrary({
   selectedSha,
   onSelect,
   onChanged,
+  onUploaded,
+  onDeleted,
 }: {
   saves: readonly SaveDto[];
   isAdmin: boolean;
   selectedSha: string | null;
   onSelect: (sha: string | null) => void;
   onChanged: () => void;
+  onUploaded: (save: SaveDto) => void;
+  onDeleted: (sha256: string) => void;
 }) {
   const { toast } = useAlerts();
   const [upload, setUpload] = useState<UploadState | null>(null);
@@ -57,6 +61,7 @@ export function SavesLibrary({
       });
       toast('success', `Uploaded ${saved.displayName}.`);
       setUpload((u) => (u ? { ...u, progress: { phase: 'done', done: file.size, total: file.size, resumed: u.progress?.resumed ?? false } } : u));
+      onUploaded(saved);
       onChanged();
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -150,8 +155,10 @@ export function SavesLibrary({
           onConfirm={() => {
             const target = confirmDelete;
             setDeleteError(null);
-            void run(() => api.delete(`/api/v1/saves/${target.sha256}`), 'delete').then(() => {
+            void run(() => api.delete(`/api/v1/saves/${target.sha256}`), 'delete').then((ok) => {
+              if (!ok) return;
               setConfirmDelete(null);
+              onDeleted(target.sha256);
               if (selectedSha === target.sha256) onSelect(null);
             });
           }}
@@ -212,7 +219,7 @@ export function SavesLibrary({
                   <td>{formatBytes(s.sizeBytes)}</td>
                   <td>{s.source}</td>
                   <td>{s.gameVersion ?? '-'}</td>
-                  <td>{formatDateTime(s.saveTime ?? s.uploadedAt)}</td>
+                  <td>{formatSaveTime(s.saveTime, s.uploadedAt)}</td>
                   <td title={s.sha256}>
                     <code>{s.sha256.slice(0, 12)}</code>
                   </td>
