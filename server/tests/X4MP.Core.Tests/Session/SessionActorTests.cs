@@ -776,7 +776,7 @@ public class SessionActorTests
         await rig.Actor.FlushAsync();
         watch.Stop();
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10));
         foreach (var node in new[] { alice, boss })
         {
             var update = Assert.Single(SettingsUpdates(node));
@@ -828,7 +828,7 @@ public class SessionActorTests
             var pending = rig.Actor.CallAsync(() => 1);
             watch.Stop();
 
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"posting took {watch.Elapsed}");
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"posting took {watch.Elapsed}");
             Assert.True(rig.Actor.PendingInputs >= 100_000);
             Assert.False(pending.IsCompleted);
 

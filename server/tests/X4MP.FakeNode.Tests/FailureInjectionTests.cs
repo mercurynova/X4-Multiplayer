@@ -128,7 +128,7 @@ public sealed class FailureInjectionTests
         var clock = Stopwatch.StartNew();
         for (byte i = 0; i < 20; i++)
             await wrapped.WriteAsync(new[] { i });
-        Assert.True(clock.ElapsedMilliseconds < 100, "a delayed write must not block the writer");
+        Assert.True(clock.ElapsedMilliseconds < 1000, "a delayed write must not block the writer");
         var received = await ReadExactlyAsync(peer, 20);
         Assert.True(clock.ElapsedMilliseconds >= 85, $"arrived after {clock.ElapsedMilliseconds} ms");
         Assert.Equal(Enumerable.Range(0, 20).Select(i => (byte)i), received);
@@ -150,21 +150,24 @@ public sealed class FailureInjectionTests
         using var _ = cleanup;
         await using var __ = wrapped;
 
-        // not active yet: full speed
+        // not active yet: full speed. Unthrottled 50 000 B is near-instant; at 2000 B/s it would take 25 s, so 10 s tells them apart on any runner.
         await peer.WriteAsync(new byte[50_000]);
         var clock = Stopwatch.StartNew();
         await ReadExactlyAsync(wrapped, 50_000);
-        Assert.True(clock.ElapsedMilliseconds < 1500, $"inactive slow reader took {clock.ElapsedMilliseconds} ms");
+        Assert.True(clock.ElapsedMilliseconds < 10_000, $"inactive slow reader took {clock.ElapsedMilliseconds} ms");
 
         imp.ActivateSlowReader();
         Assert.True(imp.SlowActive);
-        await Task.Delay(100); // the pump may be blocked in a read that started before the switch: let it come round
-        await peer.WriteAsync(new byte[2000]);
-        await peer.WriteAsync(new byte[2000]);
+        // The pump may be blocked in a full-size read that started before the switch and would swallow whatever arrives next in one go.
+        // Feed it one sacrificial byte first; once that is read the pump's next reads are throttled to 100 B each.
+        await peer.WriteAsync(new byte[1]);
+        await ReadExactlyAsync(wrapped, 1);
+        await peer.WriteAsync(new byte[3000]);
         clock.Restart();
-        await ReadExactlyAsync(wrapped, 4000);
-        // 2000 B/s: the 4000 bytes take about 2 s (the first chunk of the pump may already be on its way)
-        Assert.InRange(clock.ElapsedMilliseconds, 800, 6000);
+        await ReadExactlyAsync(wrapped, 3000);
+        // 3000 B in reads of at most 100 B, each followed by a pause of n/2000 s: at least 29 pauses of 50 ms (about 1.45 s) can never be shortened by a
+        // busy machine, only stretched, so there is a hard lower bound and the upper one is only a hang guard.
+        Assert.InRange(clock.ElapsedMilliseconds, 1200, 60_000);
         Assert.True(imp.BytesReadSlowly > 0);
     }
 

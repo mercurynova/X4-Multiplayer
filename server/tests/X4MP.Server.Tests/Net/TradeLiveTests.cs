@@ -96,13 +96,13 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
         return new Run(exit, text.ToString(), stats);
     }
 
-    /// <summary>Waits until no trade is waiting for the authority any more (the timeline is a few seconds with the settings above).</summary>
+    /// <summary>Waits until no trade is waiting for the authority any more (the timeline is a few seconds with the settings above; the cap is for slow CI runners).</summary>
     private static async Task WaitForQuietAsync(Host host)
     {
-        var until = DateTime.UtcNow.AddSeconds(30);
+        var until = DateTime.UtcNow.AddSeconds(90);
         while (DateTime.UtcNow < until)
         {
-            if (await host.Actor.CallAsync(() => host.Economy.Service!.Trades.All(t => t.State != TradeState.Transferring)))
+            if (await host.Actor.CallAsync(() => host.Economy.Service!.Trades.All(t => t.State is not (TradeState.Accepted or TradeState.Escrowed or TradeState.Transferring))))
             {
                 return;
             }
@@ -111,13 +111,28 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// What the asserts need: the authority has seen enough orders of every kind, and clients were told both a completed and a refunded trade (so the
+    /// authority was not stopped before its confirms reached the server). The duration is only a hang guard for a slow runner.
+    /// </summary>
+    private static bool Settled(IReadOnlyList<LiveNodeStats> stats)
+    {
+        if (stats.FirstOrDefault(n => n.Role == Role.Authority)?.TradeAuthority is not { OrdersReceived: >= 8, Applied: >= 2, Failed: >= 1, Withheld: >= 1, Silent: >= 1 })
+        {
+            return false;
+        }
+
+        var results = stats.Where(n => n.Trader is not null).SelectMany(n => n.Trader!.Results).GroupBy(r => r.Key).ToDictionary(g => g.Key, g => g.Sum(r => r.Value));
+        return results.GetValueOrDefault(TradeState.Completed) >= 1 && results.GetValueOrDefault(TradeState.RolledBack) >= 1;
+    }
+
     [Fact]
     public async Task FailuresAreRefundedTimeoutsSettleOrGoInDoubtAndTheLedgerEndsAtZero()
     {
         await using var host = new Host();
         await host.StartAsync();
 
-        var run = await SwarmAsync(host, "20", "45", seconds: 50, stopWhen: s => s.FirstOrDefault(n => n.Role == Role.Authority)?.TradeAuthority is { OrdersReceived: >= 8, Applied: >= 2, Failed: >= 1, Withheld: >= 1, Silent: >= 1 });
+        var run = await SwarmAsync(host, "20", "45", seconds: 150, stopWhen: Settled);
 
         Assert.Equal(0, run.Exit);
         await WaitForQuietAsync(host);
@@ -134,8 +149,9 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
             {
                 if (!authority.Outcomes.TryGetValue((ulong)trade.Id, out var truth))
                 {
-                    // never ordered: it ended before the transfer started
-                    if (trade.State is TradeState.Transferring or TradeState.Completed or TradeState.InDoubt)
+                    // never ordered, or the order was still in flight when the swarm (and the authority) stopped: nothing was applied, so InDoubt
+                    // (parked when the authority left) is fine and gets refunded below
+                    if (trade.State is TradeState.Transferring or TradeState.Completed)
                     {
                         problems.Add($"trade {trade.Id} is {trade.State} but the authority never got an order");
                     }
@@ -151,7 +167,7 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
                     case TradeState.RolledBack when truth.Applied:
                         problems.Add($"trade {trade.Id} was refunded but the authority applied the transfer");
                         break;
-                    case TradeState.InDoubt when !truth.Silent:
+                    case TradeState.InDoubt when !truth.Silent && trade.Reason != EconomyReject.AuthorityUnavailable: // parked because the swarm stopped mid-query is fine
                         problems.Add($"trade {trade.Id} is InDoubt although the authority answers queries");
                         break;
                     case TradeState.Transferring:
@@ -163,6 +179,18 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
             return (Trades: trades.Select(t => (t.Id, t.State)).ToList(), Problems: problems);
         });
         Assert.Empty(report.Problems);
+
+        // Trades still negotiating when the swarm stopped hold locks until they expire (60 s): an admin cancels them.
+        await host.Actor.CallAsync(() =>
+        {
+            var service = host.Economy.Service!;
+            foreach (var trade in service.Trades.Where(t => t.IsNegotiating).ToList())
+            {
+                Assert.True(service.AdminCancelTrade(trade.Id, "admin:test").Ok);
+            }
+
+            return 0;
+        });
         Assert.Contains(report.Trades, t => t.State == TradeState.Completed);
         Assert.Contains(report.Trades, t => t.State == TradeState.RolledBack);
         output.WriteLine("server trades: " + string.Join(", ", report.Trades.GroupBy(t => t.State).OrderBy(g => g.Key).Select(g => $"{g.Key}={g.Count()}")));
@@ -174,7 +202,7 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
             var count = 0;
             foreach (var trade in service.Trades.Where(t => t.State == TradeState.InDoubt).ToList())
             {
-                Assert.True(service.AdminResolveTrade(trade.Id, authority.Outcomes[(ulong)trade.Id].Applied, "admin:test").Ok);
+                Assert.True(service.AdminResolveTrade(trade.Id, authority.Outcomes.TryGetValue((ulong)trade.Id, out var truth) && truth.Applied, "admin:test").Ok);
                 count++;
             }
 

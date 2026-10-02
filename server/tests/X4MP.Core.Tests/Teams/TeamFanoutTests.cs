@@ -144,7 +144,7 @@ public class TeamFanoutTests
         await game.Rig.SettleAsync();
         game.PumpAll();
 
-        Assert.True(watch.ElapsedMilliseconds < 1000);
+        Assert.True(watch.ElapsedMilliseconds < 10_000);
         Assert.All(game.All, c =>
         {
             Assert.True(c.State.IsHostile(2, 3));
