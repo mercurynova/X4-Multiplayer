@@ -40,6 +40,7 @@ below. The repo is the only memory that follows you between computers.
 |---|---|
 | [roadmap.md](roadmap.md) | Milestones M0–M6, task ids + acceptance criteria, spikes S1–S9, backlog |
 | [execution-plan.md](execution-plan.md) | Opus-plans/Sonnet-codes workflow, delegation waves, brief template, review checklist |
+| [m1-exit-report.md](m1-exit-report.md) | M1 exit evidence: each exit criterion with command, key numbers, verdict and issues found (2026-10-02) |
 
 ## Quick facts
 - Game: X4 9.00 build 611726 (pinned). Protected UI mode OFF. Same DLC set for all players.
