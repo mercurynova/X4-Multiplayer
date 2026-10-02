@@ -5,6 +5,9 @@ import { ChangePassword } from './pages/ChangePassword';
 import { ChatPage } from './pages/chat/ChatPage';
 import { Dashboard } from './pages/dashboard/Dashboard';
 import { DiagnosticsPage } from './pages/diagnostics/DiagnosticsPage';
+import { GalaxyPage } from './pages/map/GalaxyPage';
+import { MapPerfPage } from './pages/map/MapPerfPage';
+import { SectorPage } from './pages/map/SectorPage';
 import { LogsPage } from './pages/logs/LogsPage';
 import { Login } from './pages/Login';
 import { NotFound } from './pages/NotFound';
@@ -16,12 +19,11 @@ import { SettingsPage } from './pages/settings/SettingsPage';
 import { screens } from './screens';
 
 // Screens with a real page; the rest render a placeholder until their task lands.
-const implementedScreens = new Set(['/', '/players', '/sessions', '/chat', '/logs', '/settings', '/diagnostics']);
+const implementedScreens = new Set(['/', '/players', '/sessions', '/chat', '/logs', '/settings', '/diagnostics', '/map']);
 
 // Detail routes from server-design 5.1; the pages themselves arrive with W2-W6 and the M1-T/E tasks.
 const detailRoutes = [
   { path: '/economy/:tab', title: 'Economy' },
-  { path: '/map/:sectorId', title: 'Sector map' },
 ];
 
 export function AppRoutes() {
@@ -38,6 +40,9 @@ export function AppRoutes() {
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
+          <Route path="/map" element={<GalaxyPage />} />
+          <Route path="/map/:sectorId" element={<SectorPage />} />
+          {import.meta.env.DEV && <Route path="/map-perf" element={<MapPerfPage />} />}
           {screens
             .filter((s) => !implementedScreens.has(s.path))
             .map((s) => (
