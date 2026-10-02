@@ -21,6 +21,7 @@ public sealed class TcpNodeListener(NetOptions options, TimeProvider? time = nul
     {
         var remote = context.RemoteEndPoint ?? new IPEndPoint(IPAddress.IPv6None, 0);
         var connection = CreateConnection(context.Transport, remote);
+        connection.DrainOnClose = true;
         if (!Offer(connection))
         {
             connection.Abort(); // listener disposed or backlog full
@@ -41,6 +42,7 @@ public sealed class NodeConnectionHandler(TcpNodeListener listener) : Connection
         {
             using var registration = connection.ConnectionClosed.Register(static state => ((PipeNodeConnection)state!).Abort(), node);
             await node.Completion.ConfigureAwait(false);
+            await node.DrainInputAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); // let the peer read the Disconnect before the socket closes
         }
     }
 }

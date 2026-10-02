@@ -180,6 +180,55 @@ public class TransportTests(Xunit.Abstractions.ITestOutputHelper output)
         await serve;
     }
 
+    [Fact]
+    public async Task ACloseWhileThePeerStillSendsDeliversTheDisconnectInsteadOfAReset()
+    {
+        await using var net = await NetHarness.CreateAsync("tcp");
+        for (int round = 0; round < 5; round++)
+        {
+            var accepted = new TaskCompletionSource<INodeConnection>();
+            using var stop = new CancellationTokenSource();
+            var serve = net.Serve(c =>
+            {
+                accepted.SetResult(c);
+                return Task.CompletedTask;
+            }, stop.Token);
+
+            await using var client = await net.ConnectAsync();
+            var server = await accepted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // the peer keeps talking: bytes the server never reads are what turns a close into a reset
+            using var talking = new CancellationTokenSource();
+            var talker = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!talking.IsCancellationRequested)
+                    {
+                        await client.SendRawAsync(new byte[1024]);
+                        await Task.Delay(2);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException or System.Net.Sockets.SocketException)
+                {
+                    // the connection went away under us
+                }
+            });
+            await Task.Delay(100);
+
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            server.Close(DisconnectCode.Kicked, "afk griefing");
+            await Task.Delay(300); // the peer is busy: its next writes reach a socket the server closed, unless the server waits for it
+            var disconnect = await client.ReadAsync<Disconnect>(MsgType.Disconnect);
+            Assert.Equal(DisconnectCode.Kicked, disconnect.Code);
+            Assert.Equal("afk griefing", disconnect.Message);
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"the kick took {clock.Elapsed}");
+            await talking.CancelAsync(); // the peer has its reason and stops talking
+            await talker;
+            stop.Cancel();
+            await serve;
+        }
+    }
+
     [Theory]
     [MemberData(nameof(Kinds))]
     public async Task PeerDisconnectEndsReadAndReleasesTheConnection(string kind)
