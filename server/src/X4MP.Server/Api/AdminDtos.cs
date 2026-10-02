@@ -25,7 +25,7 @@ public sealed record AuthorityStatusDto(
 [TsContract]
 public sealed record PlayerLiveDto(
     long PlayerId, long? ConnectionId, string Name, string Roles, string Phase, bool Connected, string? RemoteAddress, double RttMs,
-    double Fps, long ConnectedSeconds, bool Muted);
+    double Fps, long ConnectedSeconds, bool Muted, long? TeamId = null, string? TeamName = null);
 
 /// <summary>
 /// Response of <c>GET /api/v1/dashboard</c> and the hub's 1 Hz <c>Dashboard</c> push (server-design 4.5). <c>TickP99Ms</c> is 0 until the
@@ -67,7 +67,7 @@ public sealed record SessionEventDto(long Id, DateTimeOffset At, string Type, lo
 [TsContract]
 public sealed record PlayerDto(
     long Id, string Name, DateTimeOffset FirstSeen, DateTimeOffset LastSeen, long TotalPlaytimeSeconds, bool Online, bool Muted,
-    DateTimeOffset? MutedUntil, BanDto? ActiveBan, string? LastIp, string? Notes);
+    DateTimeOffset? MutedUntil, BanDto? ActiveBan, string? LastIp, string? Notes, long? TeamId = null, string? TeamName = null);
 
 /// <summary>One session a player joined.</summary>
 [TsContract]

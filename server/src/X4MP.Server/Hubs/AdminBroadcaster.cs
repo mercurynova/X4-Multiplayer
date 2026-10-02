@@ -13,6 +13,8 @@ using X4MP.Protocol;
 using X4MP.Server.Admin;
 using X4MP.Server.Api;
 using X4MP.Server.Economy;
+using X4MP.Server.Teams;
+using X4MP.Core.Teams;
 using X4MP.Server.Logging;
 using X4MP.Server.Settings;
 
@@ -39,6 +41,8 @@ public sealed partial class AdminBroadcaster : BackgroundService
     private readonly ActiveAlerts _alerts;
     private readonly EconomyModule _economy;
     private readonly EconomyViews _economyViews;
+    private readonly TeamViews _teamViews;
+    private readonly TeamModule _teams;
     private readonly IServiceProvider _services;
     private readonly IOptionsMonitor<AdminHubOptions> _options;
     private readonly TimeProvider _time;
@@ -69,6 +73,9 @@ public sealed partial class AdminBroadcaster : BackgroundService
         ActiveAlerts alerts,
         EconomyModule economy,
         EconomyViews economyViews,
+        TeamViews teamViews,
+        TeamModule teams,
+        TeamsPushState teamsState,
         IServiceProvider services,
         IOptionsMonitor<AdminHubOptions> options,
         TimeProvider time,
@@ -87,6 +94,9 @@ public sealed partial class AdminBroadcaster : BackgroundService
         _alerts = alerts;
         _economy = economy;
         _economyViews = economyViews;
+        _teamViews = teamViews;
+        _teams = teams;
+        _teamsState = teamsState;
         _services = services;
         _options = options;
         _time = time;
@@ -116,6 +126,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
         await using var subscription = _bus.Subscribe(
             "admin-hub", OnEvent, new SubscriberOptions { Capacity = 1024, DropPolicy = EventDropPolicy.DropOldest });
         AttachEconomy();
+        AttachTeams();
         Action<IReadOnlyList<string>> onSettings = OnSettingsChanged;
         _settings.Changed += onSettings;
         try
@@ -129,6 +140,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
                 Loop(options.TransferIntervalMs, TransfersTickAsync, stoppingToken),
                 Loop(options.EconomyWalletIntervalMs, EconomyFlushAsync, stoppingToken),
                 Loop(options.EconomySummaryIntervalMs, EconomySummaryTickAsync, stoppingToken),
+                TeamsLoop(stoppingToken),
                 DirtyLoop(stoppingToken)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -139,6 +151,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
         {
             _settings.Changed -= onSettings;
             DetachEconomy();
+            DetachTeams();
         }
     }
 
@@ -425,6 +438,11 @@ public sealed partial class AdminBroadcaster : BackgroundService
 
     private ValueTask OnEvent(DomainEvent domainEvent, CancellationToken ct)
     {
+        if (domainEvent is PlayerJoined or PlayerResumed or PlayerDetached or PlayerLeft or NodePhaseChanged)
+        {
+            MarkTeamsDirty(); // the unassigned list and the online flags follow the roster
+        }
+
         switch (domainEvent)
         {
             case AlertRaised or AlertCleared:
@@ -521,7 +539,11 @@ public sealed partial class AdminBroadcaster : BackgroundService
 
     private void OnSettingsChanged(IReadOnlyList<string> keys)
     {
-        _ = keys;
+        if (keys.Any(k => k.StartsWith("Teams.", StringComparison.Ordinal)))
+        {
+            MarkTeamsDirty();
+        }
+
         if (_subs.ConnectionCount == 0)
         {
             return;
@@ -588,7 +610,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
             }
             else
             {
-                var dto = AdminMapping.ToLive(node, now, live.Muted);
+                var dto = AdminMapping.ToLive(node, now, live);
                 Built("player");
                 PostTo(clients, c => c.PlayerChanged(dto), "player:" + playerId.ToString(CultureInfo.InvariantCulture));
             }

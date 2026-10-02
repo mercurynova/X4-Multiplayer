@@ -118,7 +118,7 @@ internal sealed class DashboardBuilder(
     {
         var live = await sessions.GetLiveAsync().ConfigureAwait(false);
         var now = sessions.Time.GetUtcNow();
-        var players = live.Snapshot.Nodes.Select(n => AdminMapping.ToLive(n, now, live.Muted)).ToList();
+        var players = live.Snapshot.Nodes.Select(n => AdminMapping.ToLive(n, now, live)).ToList();
         var (entities, captured) = await sessions.Actor.CallAsync(() => (mirror.Count, interest.LastCaptureSectors.Count)).ConfigureAwait(false);
         return new DashboardSnapshotDto(
             now, live.Exists ? sessions.Summary(live) : null, live.Snapshot.Nodes.Count(n => n.Connected), net.MaxPlayers,
