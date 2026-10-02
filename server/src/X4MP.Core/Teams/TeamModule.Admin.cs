@@ -190,21 +190,18 @@ public sealed partial class TeamModule
             return result;
         });
 
-    private List<TeamPlayer> PresetPlayers()
-    {
-        var players = new Dictionary<int, TeamPlayer>();
-        foreach (var m in _registry.Members)
-        {
-            players[m.PlayerId] = new TeamPlayer(m.PlayerId, _names.GetValueOrDefault(m.PlayerId, $"Player {m.PlayerId}"));
-        }
-
-        foreach (var node in _nodes.Values.Where(n => (n.Roles & (Role.Authority | Role.Client)) != 0))
-        {
-            players[node.PlayerId] = new TeamPlayer(node.PlayerId, node.Name);
-        }
-
-        return [.. players.Values];
-    }
+    /// <summary>
+    /// The players a preset places: the nodes that are attached right now. Detached nodes (inside their resume grace) and players who left
+    /// are not placed, so a long-running server with many past players cannot run out of faction slots (<c>NoFactionSlot</c> at more than 8).
+    /// A preset rebuilds all memberships, so those players are left unassigned and take the normal team-join path when they come back.
+    /// </summary>
+    private List<TeamPlayer> PresetPlayers() =>
+    [
+        .. _nodes.Values
+            .Where(n => (n.Roles & (Role.Authority | Role.Client)) != 0 && n.IsAttached)
+            .OrderBy(n => n.PlayerId)
+            .Select(n => new TeamPlayer(n.PlayerId, n.Name)),
+    ];
 
     /// <summary>
     /// What <see cref="ApplyPresetAsync"/> would do, without changing anything: the teams and memberships that would result, how many
