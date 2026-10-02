@@ -126,7 +126,8 @@ kuertee UI Extensions and SirNukes Mod Support APIs."
 
 ### 5.x Testing with two real X4 instances (M2/M3+)
 
-Researched 2026-10-01 at the user's request.
+Researched 2026-10-01 at the user's request. **Decision: the user will buy a second copy** for the
+two-instance checks (needed from the M3 exit; not before M2 ends).
 - **One Steam copy on two PCs at once (one PC in Offline Mode) is not an option we use.**
   It may technically launch, and our server would not notice (identity is the per-install
   `player_key`, not the Steam id), but running one license on two machines at the same time
