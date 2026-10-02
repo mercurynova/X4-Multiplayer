@@ -210,11 +210,26 @@ tiny `changes` job. Run the same commands locally before pushing.
 | `protocol-cpp` | windows | `protocol/**`, `tools/flatc/**` | `protocol/cpp/build.ps1` (vcpkg, Catch2, golden vectors) |
 | `mod` | windows | `mod/**` (not `mod/spikes/**`), `protocol/**`, `tools/flatc/**` | `mod/build.ps1` (build, core tests, raw-remove guard, packaging check) |
 | `mod-lint` | ubuntu | same as `mod` | XML well-formedness of `mod/extension/**`; luacheck only if `.lua` files exist |
-| `e2e-smoke` | ubuntu | push to main, or `server/**` changed | publish linux-x64, start with a temp data dir, curl `/healthz` and `/players`, stop |
+| `e2e` (swarm) | ubuntu | `server/**`, `protocol/**`, `tools/X4MP.*`, `tools/flatc/**`, `tools/e2e.ps1`; always on push to main | `tools/e2e.ps1 -Steps Publish,Swarm`: publish linux-x64, bootstrap password change, `fakenode swarm --with-authority --teams 3 --relations ffa --economy casual --dupe-attack --verify --admin-url` |
+| `e2e` (playwright) | ubuntu | same | `tools/e2e.ps1 -Steps Publish,Playwright`: the Playwright suite (Chromium, browsers cached) against the published server exe |
+| `e2e-headless` | windows | `mod/**` (not spikes), `server/src/**`, `protocol/**`, `tools/X4MP.*`, `tools/flatc/**`; always on push to main | `tools/e2e.ps1 -Steps Publish,Headless`: builds the mod (shared vcpkg cache), then `x4mp-headless` joins a FakeNode-authority session: handshake, heartbeat, resume, save download |
 
 Everything runs when `ci.yml` itself changes or on manual dispatch. Newer pushes to the same
 ref cancel older runs. Test results and logs upload only on failure. Caches: NuGet, npm,
 `tools/flatc/bin` (keyed on `flatc.lock.json`) and the vcpkg binary cache.
+
+**End-to-end run (M1-C1) and how to reproduce it locally.** `tools/e2e.ps1` is the one script CI and developers run
+(PowerShell 5.1 or 7; `pwsh tools/e2e.ps1` on Linux). Steps `Publish` (single-file server for this OS, Release,
+`-p:SkipWebBuild=true`, plus FakeNode into `out/fakenode`), `Swarm`, `Playwright` and, on Windows, `Headless` (builds the
+mod with `mod/build.ps1 -NoTest` unless `-SkipModBuild`). Default: all that this OS can run. Every step runs even if an
+earlier one failed; the exit code is non-zero if any failed, and a timing table is printed (and added to the GitHub job
+summary). Useful switches: `-Steps Swarm -SkipPublish` (reuse `out/`), `-SwarmSeconds`, `-Clients`, `-PlaywrightArgs economy`
+(one spec), `-PlaywrightRetries` (CI uses 1: the economy specs are timing sensitive), `-SkipNpmInstall`, `-PortBase`
+(default 47960; servers use 47960-47965 / 47970-47972, Playwright's GUI 5274, so a normal dev server keeps running).
+Logs, `summary.md` and the Playwright traces go to `out/e2e/` (CI uploads them as `e2e-<name>-logs` on failure; open a trace
+with `npx playwright show-trace`). The headless step relaxes `Net.ModBuildStrict` on its throw-away server because the
+headless client reports mod build `dev` and FakeNode's authority `fakenode`. Reference timing on a developer PC (warm
+caches, mod already built): publish 26 s, swarm 48 s, Playwright 177 s, headless 7 s = about 4.5 min sequentially.
 
 **Nightly load job (M1-C2).** `.github/workflows/nightly.yml` (cron 03:17 UTC and manual dispatch; ubuntu, plus
 windows when the dispatch input `windows` is ticked) publishes the real server and FakeNode, then runs the
