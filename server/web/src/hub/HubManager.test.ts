@@ -144,6 +144,23 @@ describe('HubManager connection', () => {
   });
 });
 
+describe('HubManager sector views', () => {
+  it('re-issues SubscribeSector when a new session starts', async () => {
+    const m = makeManager();
+    m.start();
+    await flush();
+    m.acquire(groups.sector(7), () => undefined);
+    m.acquire(groups.dashboard, () => undefined);
+    await flush();
+    T(0).push('SessionChanged', { id: 1 });
+    T(0).push('SessionChanged', { id: 1 }); // same session: nothing
+    T(0).push('SessionChanged', { id: 2 });
+    await flush();
+    expect(T(0).methods().filter((x) => x === 'SubscribeSector')).toHaveLength(2);
+    expect(T(0).methods().filter((x) => x === 'SubscribeDashboard')).toHaveLength(1);
+  });
+});
+
 describe('HubManager groups', () => {
   it('subscribes once for several holders and unsubscribes with the last release', async () => {
     const m = makeManager();
@@ -222,8 +239,8 @@ describe('HubManager groups', () => {
     const m = makeManager();
     m.start();
     await flush();
-    m.acquire(groups.logs({ level: 'warn' }), () => undefined);
+    m.acquire(groups.logs({ level: 'warn', source: null, q: null }), () => undefined);
     await flush();
-    expect(T(0).invocations[0]).toEqual({ method: 'SubscribeLogs', args: [{ level: 'warn' }] });
+    expect(T(0).invocations[0]).toEqual({ method: 'SubscribeLogs', args: [{ level: 'warn', source: null, q: null }] });
   });
 });
