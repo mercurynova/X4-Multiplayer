@@ -23,7 +23,7 @@ v9.0.0-611726; symmetric team factions `x4mp_team_1..8`; persistent per-player a
 in-band save transfer; checkpoint manifest binding for static objects.
 Section 2 and 3 below are the original draft and are superseded by the docs above.
 
-Reference: `reference/` (clone of <previous-multiplayer-mod-repo>). Read-only. We use it
+Reference: `reference/` (clone of a previous X4 multiplayer mod). Read-only. We use it
 for what it *learned*, not for its code.
 
 ## 1. What the reference actually is

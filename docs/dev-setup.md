@@ -90,7 +90,7 @@ folder must ship with the mod, or the MD hooks silently do nothing.
 | What | Path |
 |---|---|
 | X4 install | `C:\Program Files (x86)\Steam\steamapps\common\X4 Foundations` |
-| User data (saves, config, logs) | `%USERPROFILE%\Documents\Egosoft\X4\<steam-user-id>\` (e.g. `...\X4\<steam-user-id>\`) |
+| User data (saves, config, logs) | `%USERPROFILE%\Documents\Egosoft\X4\<steam-user-id>\` (a numeric folder) |
 | Saves | `...\<steam-user-id>\save\*.xml.gz` (load by name **without** `.xml.gz`) |
 | User extensions | `%USERPROFILE%\Documents\Egosoft\X4\extensions\` |
 | Profile extension enable state | `...\<steam-user-id>\content.xml` (`<extension id="..." enabled="true\|false">`) |
@@ -149,8 +149,8 @@ These are ignored by `.gitignore` and must be rebuilt after a fresh clone.
 
 | Folder | What | How to recreate |
 |---|---|---|
-| `reference/` | read-only clone of the old mod (unlicensed: **never copy code**) | `git clone --depth 1 <previous-multiplayer-mod-repo> reference` |
-| `reference-analyzer/` | the user's own save-analysis tool (Python, **GPL-3.0**, private): reference only, never copy code or its extracted game-data CSVs; notes in `docs/research/save-analyzer-notes.md` | `gh repo clone <owner>/<save-analyzer> reference-analyzer` (plain `git clone` fails: the repo-local gh credential helper doesn't apply before the clone exists) |
+| `reference/` | read-only clone of a previous X4 multiplayer mod (unlicensed: **never copy code**) | clone the previous multiplayer mod into `reference/` (private reference; ask the repo owner for the URL) |
+| `reference-analyzer/` | the user's own save-analysis tool (Python, **GPL-3.0**, private): reference only, never copy code or its extracted game-data CSVs; notes in `docs/research/save-analyzer-notes.md` | clone the user's private save-analyzer repo into `reference-analyzer/` with `gh repo clone <owner>/<repo> reference-analyzer` (ask the owner; plain `git clone` fails: the repo-local gh credential helper doesn't apply before the clone exists) |
 | `reference-tatertrader/` | TaterTrader auto-trade mod (public, **GPL-3.0**): reference for the ADR-050 P3 trade-route finder only, never copy code; notes in `docs/research/tatertrader-notes.md` | `git clone --depth 1 https://github.com/DeadAirRT/TaterTrader reference-tatertrader` |
 | `x4-unpacked/` | game UI Lua (ffi signatures), MD scripts, libraries, used as the API reference | `python tools/x4cat_extract.py "<X4 install>" x4-unpacked "^(extensions/[^/]+/)?(ui/\|md/\|libraries/\|aiscripts/\|index/\|t/0001-l044)"` (~110 MB, ~1,600 files) |
 | `data/` | server runtime data (SQLite, saves, logs) | created by the server on first run |
