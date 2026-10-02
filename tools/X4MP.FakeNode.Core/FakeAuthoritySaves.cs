@@ -43,6 +43,7 @@ public sealed record FakeCheckpointResult(
 /// honouring <c>SaveChunkAck</c> and the resume offset of <c>SaveUploadAccept</c>. Feed it every frame the node receives
 /// (<see cref="Handle"/>); the upload runs as its own task so the receive loop keeps reading acks.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001", Justification = "The job CancellationTokenSource is only cancelled, never given a timer: nothing to release.")]
 public sealed class FakeAuthoritySaves
 {
     private readonly FakeAuthority _authority;
@@ -51,6 +52,11 @@ public sealed class FakeAuthoritySaves
     private readonly Channel<Frame> _inbox = Channel.CreateUnbounded<Frame>();
     private TcpNodeClient _client;
     private int _counter;
+
+    // The job of the previous connection (its upload may be parked waiting for an ack that will never come). It is cancelled by Attach and
+    // finished before the next job starts, or it would consume the next job's SaveUploadAccept from the shared inbox.
+    private CancellationTokenSource _jobCts = new();
+    private Task _job = Task.CompletedTask;
 
     // Checkpoint ids are authority-generated and unique (a real node uses fresh GUIDs): a restarted fake authority must not reuse the ids of its previous run.
     private readonly ulong _runNonce = (ulong)Random.Shared.NextInt64();
@@ -119,6 +125,8 @@ public sealed class FakeAuthoritySaves
     /// <summary>Continues on a new connection (after a drop): the next <see cref="RunCheckpointAsync"/> with <c>resume</c> reuses the files.</summary>
     public void Attach(TcpNodeClient client)
     {
+        _jobCts.Cancel();
+        _jobCts = new CancellationTokenSource();
         _client = client;
         Tracker = new FakePhaseTracker(client.Welcome.PlayerId);
     }
@@ -137,11 +145,11 @@ public sealed class FakeAuthoritySaves
                 {
                     uint id = request.RequestId;
                     var reason = request.Reason;
-                    _ = Task.Run(async () =>
+                    _job = Task.Run(async () =>
                     {
                         try
                         {
-                            await RunCheckpointAsync(id, reason, resume: false).ConfigureAwait(false);
+                            await RunJobAsync(id, reason, resume: false, default).ConfigureAwait(false);
                         }
                         catch (Exception ex) when (ex is IOException or OperationCanceledException or TimeoutException or InvalidOperationException or ObjectDisposedException)
                         {
@@ -165,6 +173,31 @@ public sealed class FakeAuthoritySaves
     /// </summary>
     public async Task<FakeCheckpointResult> RunCheckpointAsync(uint requestId, SaveReason reason, bool resume, CancellationToken ct = default)
     {
+        // Let the job of the previous connection end first (Attach cancelled it; it may still be parked waiting for an ack).
+        var previous = _job;
+        if (!previous.IsCompleted)
+        {
+            await _jobCts.CancelAsync().ConfigureAwait(false);
+            _jobCts = new CancellationTokenSource();
+            try
+            {
+                await previous.ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or OperationCanceledException or TimeoutException or InvalidOperationException or ObjectDisposedException)
+            {
+                // the dead job's own failure
+            }
+        }
+
+        return await RunJobAsync(requestId, reason, resume, ct).ConfigureAwait(false);
+    }
+
+    private async Task<FakeCheckpointResult> RunJobAsync(uint requestId, SaveReason reason, bool resume, CancellationToken callerCt)
+    {
+        // This job is bound to the connection and cancellation scope it started with: a later Attach cancels it, and it never writes to the new connection.
+        var client = _client;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(callerCt, _jobCts.Token);
+        var ct = linked.Token;
         Interlocked.Exchange(ref _jobRunning, 1);
         try
         {
@@ -189,23 +222,23 @@ public sealed class FakeAuthoritySaves
                 {
                     foreach (var m in _authority.StringTableMessages())
                     {
-                        await _client.SendPayloadAsync(m.Type, m.Payload, ct).ConfigureAwait(false);
+                        await client.SendPayloadAsync(m.Type, m.Payload, ct).ConfigureAwait(false);
                     }
 
                     _startupSent = true;
                 }
 
                 var galaxy = _authority.BuildGalaxyMetadata(_lastSave.Sha256);
-                await _client.SendPayloadAsync(galaxy.Type, galaxy.Payload, ct).ConfigureAwait(false);
-                await _client.SendAsync(
+                await client.SendPayloadAsync(galaxy.Type, galaxy.Payload, ct).ConfigureAwait(false);
+                await client.SendAsync(
                     MsgType.SaveStarted,
                     b => SaveStarted.Pack(b, new SaveStartedT { RequestId = requestId, CheckpointId = cp, GameTime = _lastGameTime, NextNetId = nextNetId }),
                     ct).ConfigureAwait(false);
             }
 
             var checkpoint = _lastCheckpoint!;
-            var (saveResult, saveResume) = await UploadAsync(UploadKind.Save, _lastSave!, checkpoint, "X4MP fake save", ct).ConfigureAwait(false);
-            var (manifestResult, manifestResume) = await UploadAsync(UploadKind.Manifest, _lastManifest!, checkpoint, "manifest", ct).ConfigureAwait(false);
+            var (saveResult, saveResume) = await UploadAsync(client, UploadKind.Save, _lastSave!, checkpoint, "X4MP fake save", ct).ConfigureAwait(false);
+            var (manifestResult, manifestResume) = await UploadAsync(client, UploadKind.Manifest, _lastManifest!, checkpoint, "manifest", ct).ConfigureAwait(false);
             var result = new FakeCheckpointResult(checkpoint, _lastSave!, _lastManifest!, saveResult, manifestResult, saveResume, manifestResume);
             LastResult = result;
             if (saveResult is SaveStoreResult.Stored or SaveStoreResult.StoredNotCurrent && manifestResult is SaveStoreResult.Stored or SaveStoreResult.StoredNotCurrent)
@@ -222,14 +255,14 @@ public sealed class FakeAuthoritySaves
         }
     }
 
-    private async Task<(SaveStoreResult Result, long ResumeOffset)> UploadAsync(UploadKind kind, FakeSaveFile file, Id128T checkpoint, string name, CancellationToken ct)
+    private async Task<(SaveStoreResult Result, long ResumeOffset)> UploadAsync(TcpNodeClient client, UploadKind kind, FakeSaveFile file, Id128T checkpoint, string name, CancellationToken ct)
     {
         while (_inbox.Reader.TryRead(out _))
         {
             // stale frames of an earlier attempt
         }
 
-        await _client.SendAsync(
+        await client.SendAsync(
             MsgType.SaveUploadBegin,
             b => SaveUploadBegin.Pack(b, new SaveUploadBeginT
             {
@@ -289,7 +322,7 @@ public sealed class FakeAuthoritySaves
                 var data = SaveChunk.CreateDataVectorBlock(fbb, new ArraySegment<byte>(buffer, 0, n));
                 fbb.Finish(SaveChunk.CreateSaveChunk(fbb, uploadId, (ulong)offset, data).Value);
                 var bb = fbb.DataBuffer;
-                await _client.SendRawFrameAsync(FrameCodec.Encode(MsgType.SaveChunk, bb.ToArraySegment(bb.Position, fbb.Offset).AsSpan()), ct).ConfigureAwait(false);
+                await client.SendRawFrameAsync(FrameCodec.Encode(MsgType.SaveChunk, bb.ToArraySegment(bb.Position, fbb.Offset).AsSpan()), ct).ConfigureAwait(false);
                 offset += n;
                 BytesSent += n;
                 _options.OnUploadProgress?.Invoke(offset, file.Size);
@@ -300,7 +333,7 @@ public sealed class FakeAuthoritySaves
             }
         }
 
-        await _client.SendAsync(MsgType.SaveUploadEnd, b => SaveUploadEnd.CreateSaveUploadEnd(b, uploadId), ct).ConfigureAwait(false);
+        await client.SendAsync(MsgType.SaveUploadEnd, b => SaveUploadEnd.CreateSaveUploadEnd(b, uploadId), ct).ConfigureAwait(false);
         var stored = await NextAsync(ct, MsgType.SaveStored).ConfigureAwait(false);
         var outcome = MessageRegistry.Default.Decode<SaveStored>(stored);
         _log?.Invoke($"{kind} upload {outcome.Result}{(string.IsNullOrEmpty(outcome.Detail) ? string.Empty : ": " + outcome.Detail)}");

@@ -79,6 +79,13 @@ public sealed class AuthorityRig : IAsyncDisposable
         });
     }
 
+    /// <summary>
+    /// Waits until this authority has read the server's final answer for its checkpoint. The session is <c>Running</c> as soon as the server stored
+    /// the manifest, which can be before the authority's receive loop has handled that <c>SaveStored</c> (<c>LastResult</c>, <c>CheckpointsStored</c>).
+    /// </summary>
+    public Task WaitForCheckpointStoredAsync(int count = 1, int timeoutMs = 30_000) =>
+        SaveServer.WaitUntilAsync(() => Saves.CheckpointsStored >= count && Saves.LastResult is not null, timeoutMs, "the authority has seen the upload result");
+
     /// <summary>"Loads" and reports <c>NodeReady</c> so the server asks for the first checkpoint.</summary>
     public Task ReportReadyAsync() => Saves.ReportReadyAsync(CancellationToken.None);
 
