@@ -61,20 +61,23 @@ internal sealed class ModPolicyPusher(IModPolicyEditor editor, SessionActor acto
     public Task StartAsync(CancellationToken cancellationToken)
     {
         editor.Changed += OnChanged;
-        if (services.GetService<X4MP.Server.Settings.SettingsService>() is { } settings)
+        _settings = services.GetService<X4MP.Server.Settings.SettingsService>(); // kept: the provider may be disposed by the time StopAsync runs
+        if (_settings is not null)
         {
-            settings.Changed += OnSettingsChanged;
+            _settings.Changed += OnSettingsChanged;
         }
 
         return Task.CompletedTask;
     }
 
+    private X4MP.Server.Settings.SettingsService? _settings;
+
     public Task StopAsync(CancellationToken cancellationToken)
     {
         editor.Changed -= OnChanged;
-        if (services.GetService<X4MP.Server.Settings.SettingsService>() is { } settings)
+        if (_settings is not null)
         {
-            settings.Changed -= OnSettingsChanged;
+            _settings.Changed -= OnSettingsChanged;
         }
 
         return Task.CompletedTask;
