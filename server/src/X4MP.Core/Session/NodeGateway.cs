@@ -36,6 +36,7 @@ public sealed partial class NodeGateway
     private readonly ILogger _logger;
     private readonly IUdpRealtimeHost? _udp;
     private readonly IModPolicyProvider _modPolicy;
+    private readonly IModStore? _modStore;
     private readonly long _startTimestamp;
 
     private readonly object _gate = new();
@@ -55,8 +56,10 @@ public sealed partial class NodeGateway
         TimeProvider? time = null,
         ILogger<NodeGateway>? logger = null,
         IUdpRealtimeHost? udp = null,
-        IModPolicyProvider? modPolicy = null)
+        IModPolicyProvider? modPolicy = null,
+        IModStore? modStore = null)
     {
+        _modStore = modStore;
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(players);
@@ -297,10 +300,12 @@ public sealed partial class NodeGateway
         }
 
         // 4. Extensions: the session mod policy (docs/mod-management.md 3.4). Hash equality is the fast path.
-        var modEvaluation = CheckMods(hello, authority);
+        var modEvaluation = CheckMods(hello, authority, out uint modPolicyVersion, out bool modPending);
         if (modEvaluation.Verdict == ModVerdict.Reject)
         {
             var violation = modEvaluation.Violation!;
+            // A refused connection never binds a name. Its report goes to the player that already owns the key, else it is filed by key.
+            await RecordRefusedModReportAsync(hello, playerKey, modEvaluation, modPolicyVersion, ct).ConfigureAwait(false);
             return Fail(
                 DisconnectCode.ExtensionsMismatch, "your mods do not match this session: " + ModPolicyEvaluator.Describe(violation),
                 DescribeExtensionDiff(authority?.ExtensionList, ExtensionReports.FromHello(hello)), modViolation: violation);
@@ -386,6 +391,7 @@ public sealed partial class NodeGateway
             Welcome = welcome,
             Nonce = nonce,
             ModWarning = modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? modEvaluation.Violation : null,
+            ModCheckPending = modPending,
         };
 
         AdmittedNode? superseded;
@@ -444,6 +450,8 @@ public sealed partial class NodeGateway
                 Unregister(node);
             },
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        RecordModReport(
+            bind.PlayerId, hello, modEvaluation, modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? ModReportOutcome.Warned : ModReportOutcome.Admitted, modPolicyVersion, keyHash);
         ServerMetrics.RecordHandshakeOk();
         LogAdmitted(connection.Id.Value, name, bind.PlayerId, granted);
         return new AdmitOutcome(node, null);
@@ -526,9 +534,12 @@ public sealed partial class NodeGateway
     }
 
     /// <summary>Fast path (equal hash, nothing in the policy that the hash cannot see), else the full policy evaluation.</summary>
-    private ModEvaluation CheckMods(ClientHelloT hello, AuthorityIdentity? authority)
+    private ModEvaluation CheckMods(ClientHelloT hello, AuthorityIdentity? authority, out uint policyVersion, out bool pending)
     {
         var policy = _modPolicy.Current;
+        policyVersion = policy.Version;
+        // AuthorityDefines with no authority known yet decides nothing: the actor judges the node when the authority arrives (SessionActor.Mods).
+        pending = authority is null && policy.SourceMode == ModSourceMode.AuthorityDefines;
         if (authority is not null && policy.SourceMode == ModSourceMode.AuthorityDefines && policy.Entries is not { Count: > 0 }
             && policy.UnknownDefault != UnknownModDefault.Block
             && authority.ExtensionsHash.AsSpan().SequenceEqual(hello.ExtensionsHash?.ToArray() ?? []))
@@ -543,6 +554,62 @@ public sealed partial class NodeGateway
         }
 
         return ModPolicyEvaluator.Evaluate(list, policy, authority?.ExtensionList);
+    }
+
+    private static IReadOnlyList<ExtensionInfoT> LimitedItems(ClientHelloT hello)
+    {
+        var items = ExtensionReports.FromHello(hello);
+        return items.Count > ModPolicyConstants.MaxExtensionEntries ? [.. items.Take(ModPolicyConstants.MaxExtensionEntries)] : items;
+    }
+
+    /// <summary>
+    /// Files a refused connection's report without binding the name: under the player that owns the key (looked up, never created), else
+    /// with player 0 and the key hash, to be attached if that key is ever admitted. Never fails the handshake.
+    /// </summary>
+    private async ValueTask RecordRefusedModReportAsync(ClientHelloT hello, byte[] playerKey, ModEvaluation evaluation, uint policyVersion, CancellationToken ct)
+    {
+        if (_modStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var keyHash = SHA256.HashData(playerKey);
+            int player = await _players.FindByKeyAsync(keyHash, ct).ConfigureAwait(false) ?? 0;
+            string attempted = hello.PlayerName ?? string.Empty;
+            _modStore.RecordReport(new ExtensionReportRecord(
+                player, null, _time.GetUtcNow(), hello.ExtensionsHash?.ToArray() ?? [], LimitedItems(hello), ModReportOutcome.Rejected, evaluation.Violation, policyVersion,
+                player == 0 ? keyHash : null, attempted.Length > 24 ? attempted[..24] : attempted));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogReportFailed(0, ex);
+        }
+    }
+
+    /// <summary>Stores the node's full extension report with the verdict (task M1-X3). Never fails the handshake.</summary>
+    private void RecordModReport(int playerId, ClientHelloT hello, ModEvaluation evaluation, ModReportOutcome outcome, uint policyVersion, byte[]? keyHash = null)
+    {
+        if (_modStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (keyHash is not null)
+            {
+                _modStore.AttachKey(keyHash, playerId); // attempts this key made while it was unbound join the player's history
+            }
+
+            _modStore.RecordReport(new ExtensionReportRecord(
+                playerId, null, _time.GetUtcNow(), hello.ExtensionsHash?.ToArray() ?? [], LimitedItems(hello), outcome, evaluation.Violation, policyVersion));
+        }
+        catch (Exception ex)
+        {
+            LogReportFailed(playerId, ex);
+        }
     }
 
     private static string DescribeExtensionDiff(IReadOnlyList<ExtensionInfoT>? authority, IReadOnlyList<ExtensionInfoT> node)
@@ -677,6 +744,9 @@ public sealed partial class NodeGateway
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "conn {ConnectionId}: extensions differ from the authority's (admitted anyway): {Diff}")]
     private partial void LogExtensionsWarning(long connectionId, string diff);
+
+    [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "player {PlayerId}: storing the extension report failed")]
+    private partial void LogReportFailed(int playerId, Exception ex);
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Error, Message = "conn {ConnectionId}: handshake failed")]
     private partial void LogHandshakeFailed(long connectionId, Exception ex);

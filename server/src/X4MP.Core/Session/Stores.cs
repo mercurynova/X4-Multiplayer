@@ -26,6 +26,9 @@ public interface IPlayerStore
     /// asking for it gets <see cref="PlayerBindStatus.NameTaken"/>. Updates last-seen and last-IP.
     /// </summary>
     ValueTask<PlayerBindResult> BindAsync(string name, ReadOnlyMemory<byte> keyHash, IPAddress? ip, DateTimeOffset now, CancellationToken ct);
+
+    /// <summary>The player id bound to this key hash, or null. Never creates a row and never claims a name (used to file a refused connection's report).</summary>
+    ValueTask<int?> FindByKeyAsync(ReadOnlyMemory<byte> keyHash, CancellationToken ct) => ValueTask.FromResult<int?>(null);
 }
 
 /// <summary>Bans by player key hash and by IP or CIDR (temporary IP bans use an expiry).</summary>
@@ -66,6 +69,15 @@ public sealed class InMemoryNodeStore : IPlayerStore, IBanStore
             int id = _players.Count + 1;
             _players.Add((id, name, keyHash.ToArray()));
             return ValueTask.FromResult(new PlayerBindResult(PlayerBindStatus.Ok, id, true));
+        }
+    }
+
+    public ValueTask<int?> FindByKeyAsync(ReadOnlyMemory<byte> keyHash, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            var i = _players.FindIndex(p => keyHash.Span.SequenceEqual(p.KeyHash));
+            return ValueTask.FromResult<int?>(i >= 0 ? _players[i].Id : null);
         }
     }
 

@@ -43,7 +43,11 @@ public static class SessionActorExtensions
                 sp.GetRequiredService<ISessionStore>(),
                 sp.GetService<IEventPublisher>(),
                 sp.GetServices<ISessionModule>(),
-                sp.GetService<ILogger<SessionActor>>());
+                sp.GetService<ILogger<SessionActor>>())
+            {
+                ModPolicy = sp.GetService<X4MP.Core.Mods.IModPolicyProvider>(),
+                ModStore = sp.GetService<X4MP.Core.Mods.IModStore>(),
+            };
         });
         services.RemoveAll<IAdmissionHandler>();
         services.AddSingleton<IAdmissionHandler>(sp => sp.GetRequiredService<SessionActor>());

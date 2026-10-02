@@ -57,7 +57,11 @@ public static class AdminAuthExtensions
                 .RequireClaim(AdminPrincipal.KindClaim, AdminPrincipal.KindSession))
             .AddPolicy(AdminPolicies.Viewer, p => p
                 .RequireAuthenticatedUser()
-                .RequireRole(AdminRoles.Admin, AdminRoles.Viewer)
+                .RequireRole(AdminRoles.Admin, AdminRoles.Viewer, AdminRoles.ModEditor)
+                .RequireAssertion(c => !AdminPrincipal.MustChange(c.User)))
+            .AddPolicy(AdminPolicies.ModEditor, p => p
+                .RequireAuthenticatedUser()
+                .RequireRole(AdminRoles.Admin, AdminRoles.ModEditor)
                 .RequireAssertion(c => !AdminPrincipal.MustChange(c.User)))
             .AddPolicy(AdminPolicies.Admin, p => p
                 .RequireAuthenticatedUser()

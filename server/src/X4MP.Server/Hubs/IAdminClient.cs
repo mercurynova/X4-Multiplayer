@@ -86,6 +86,12 @@ public interface IAdminClient
     /// <summary>The picture changed too much to patch (a preset, a player gone): the whole state (teams topic).</summary>
     Task TeamsReset(TeamsStateDto state);
 
+    /// <summary>The session mod policy changed (mods topic): the whole policy with its entries, per-mod player counts filled in only for clients that may see players' mod lists.</summary>
+    Task ModPolicyChanged(ModPolicyDto policy);
+
+    /// <summary>A player's extension report arrived (a join, admitted, warned or rejected; mods topic; only for clients that may see players' mod lists). Keyed per player: the latest wins when the queue is busy.</summary>
+    Task PlayerModsReported(PlayerModStatusDto status);
+
     /// <summary>A connected player is waiting for a team (AdminAssign or an unmade Lobby choice; teams topic).</summary>
     Task PlayerAwaitingTeam(TeamMemberDto member);
 }

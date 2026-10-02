@@ -245,6 +245,7 @@ public sealed partial class SessionActor
                 var h = node.Hello;
                 _gateway.Authority = new AuthorityIdentity(h.GameBuild ?? string.Empty, h.ModVersion ?? string.Empty, h.ModBuild ?? string.Empty,
                     h.ExtensionsHash?.ToArray() ?? [], h.Extensions ?? [], h.ExtensionList);
+                RecheckPendingMods(_gateway.Authority); // nodes that joined before the authority were not judged yet
             }
 
             switch (_phase)

@@ -20,6 +20,17 @@ public sealed partial class SessionActor
     /// <summary>Sends the full node-relevant set to every announced node (a change of any flagged live setting).</summary>
     private void BroadcastSettings(SessionSettingsSnapshot snapshot) => Broadcast(EncodeSettings(snapshot));
 
+    /// <summary>
+    /// Tells every announced node the session mod policy changed (<c>ModPolicyChanged</c>, task M1-X4). Nobody is kicked: a node that no longer
+    /// matches is judged at its next join. A node that attaches later reads the policy from its Welcome.
+    /// </summary>
+    public bool PushModPolicy(X4MP.Proto.ModPolicyT policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        return Post(() => Broadcast(ControlFrames.Encode(
+            MsgType.ModPolicyChanged, fbb => ModPolicyChanged.Pack(fbb, new ModPolicyChangedT { Policy = policy }).Value, 1024)));
+    }
+
     private static OutboundFrame EncodeSettings(SessionSettingsSnapshot snapshot)
     {
         var update = new ServerSettingsUpdateT { Version = (ulong)Math.Max(0, snapshot.Version), Entries = [] };
