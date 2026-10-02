@@ -63,6 +63,7 @@ public sealed partial class EconomyModule : ISessionModule
         Service = new EconomyService(ledger, _store, _teams, _options, _time, _events, () => _phase) { Changed = Send };
         Auditor = new EconomyAuditor(ledger, _store, _time, () => TimeSpan.FromSeconds(Math.Max(1, _options().AuditIntervalSeconds)));
         Service.Start();
+        BeginTrades(Service, Auditor);
         InitLoanHooks(Service, Auditor);
         if (_teams is not null && !_subscribed)
         {
@@ -90,6 +91,7 @@ public sealed partial class EconomyModule : ISessionModule
             ? service.Ledger.Wallets.Select(w => new WalletBalanceAfter(w.Id, w.Balance, w.Version)).ToList()
             : [.. service.VisibleBalances(node.PlayerId)];
         SendTo(node, balances, LedgerReason.GameIncome, new Id128T());
+        TradesNodeAttached(node, resumed);
         SendOpenLoans(node, service);
     }
 
@@ -98,6 +100,7 @@ public sealed partial class EconomyModule : ISessionModule
         ArgumentNullException.ThrowIfNull(node);
         _nodes.Remove(node.PlayerId);
         Service?.ForgetRate(node.PlayerId);
+        TradesNodeLeft(node);
     }
 
     public void OnSessionPhaseChanged(SessionPhase previous, SessionPhase current)
@@ -117,6 +120,7 @@ public sealed partial class EconomyModule : ISessionModule
         }
 
         Auditor?.Tick(timestamp);
+        TradesTick();
         TickLoans(service, timestamp);
         var mode = _options().CreditMode;
         if (mode != _lastMode || service.MigrationPending)
@@ -128,6 +132,11 @@ public sealed partial class EconomyModule : ISessionModule
 
     public bool OnMessage(SessionNode node, InboundFrame frame)
     {
+        if (TradeOnMessage(node, frame))
+        {
+            return true;
+        }
+
         if (frame.Type is MsgType.CreditTransferRequest or MsgType.DonateRequest or MsgType.PoolDepositRequest or MsgType.PoolWithdrawRequest)
         {
             return OnPlayerAction(node, frame);

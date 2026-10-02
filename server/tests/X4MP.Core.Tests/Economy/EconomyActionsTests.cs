@@ -262,6 +262,7 @@ public sealed class EconomyActionsTests
             var mismatch = run("key-" + name, 51);
             Assert.False(mismatch.Ok, name);
             Assert.Contains("different payload", mismatch.Detail);
+            Assert.Equal(EconomyReject.RequestIdReuse, mismatch.Reason);
 
             Assert.Equal(balancesAfterFirst, kit.Balance(WalletId.Player(player)));
             Assert.Equal(txCount, kit.Store.Transactions.Count);
@@ -305,13 +306,13 @@ public sealed class EconomyActionsTests
     public void SharedModeRejectsSameWalletActionsPerServerDesign()
     {
         // "In Shared mode, actions between two members of the same team are rejected with SameWallet" (2.14 Action scopes);
-        // the wire enum has no SameWallet, so the reason is NotApplicableInSharedMode.
+        // the wire reason is SameWallet (added with M1-E5); the pool actions have no counter-party and stay NotApplicableInSharedMode.
         var kit = Kit(members: OneTeam, teams: [1]);
         Assert.Equal(EffectiveCreditMode.Shared, kit.Service.AppliedMode);
         kit.Fund(1, 500);
 
-        Assert.Equal(EconomyReject.NotApplicableInSharedMode, kit.Service.Transfer(1, "a", 2, 10).Reason);
-        Assert.Equal(EconomyReject.NotApplicableInSharedMode, kit.Service.Donate(1, "b", 2, 10).Reason);
+        Assert.Equal(EconomyReject.SameWallet, kit.Service.Transfer(1, "a", 2, 10).Reason);
+        Assert.Equal(EconomyReject.SameWallet, kit.Service.Donate(1, "b", 2, 10).Reason);
         Assert.Equal(EconomyReject.NotApplicableInSharedMode, kit.Service.PoolDeposit(1, "c", 10).Reason);
         Assert.Equal(EconomyReject.NotApplicableInSharedMode, kit.Service.PoolWithdraw(1, "d", 10).Reason);
         Assert.Equal(500, kit.Balance(WalletId.TeamShared(1)));
@@ -336,7 +337,7 @@ public sealed class EconomyActionsTests
         kit.Options.SharedWalletSpend = SharedWalletSpendPolicy.LeaderOnly; // leader of team 1 is player 1
         Assert.Equal(EconomyReject.NotParty, kit.Service.Donate(2, "b", 3, 10).Reason);
         Assert.True(kit.Service.Donate(1, "c", 3, 10).Ok);
-        Assert.Equal(EconomyReject.NotApplicableInSharedMode, kit.Service.Transfer(1, "d", 2, 10).Reason);
+        Assert.Equal(EconomyReject.SameWallet, kit.Service.Transfer(1, "d", 2, 10).Reason);
         Assert.Equal(0, kit.Ledger.TotalBalance());
     }
 

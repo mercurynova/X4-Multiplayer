@@ -185,7 +185,7 @@ public sealed class LoanModuleTests
             Assert.Equal(700, module.Service!.Ledger.BalanceOf(WalletId.Player(boss.PlayerId)));
 
             await rig.SendAsync(boss, MsgType.LoanCancel, Cancel(4, first));
-            Assert.Equal(X4MP.Proto.LoanState.Cancelled, LastStatus(pilot).State); // Withdrawn shows as Cancelled on the wire
+            Assert.Equal(X4MP.Proto.LoanState.Withdrawn, LastStatus(pilot).State);
             await rig.SendAsync(pilot, MsgType.LoanRespond, Respond(1, second, accept: false));
             Assert.Equal(X4MP.Proto.LoanState.Declined, LastStatus(boss).State);
             Assert.Equal(900, module.Service.Ledger.BalanceOf(WalletId.Player(boss.PlayerId)));

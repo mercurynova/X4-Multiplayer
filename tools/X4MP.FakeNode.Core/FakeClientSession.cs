@@ -109,6 +109,20 @@ public sealed class FakeClientSession
         return (pick.Key, pick.Value.Sector);
     }
 
+    /// <summary>
+    /// A ghost owned by <paramref name="team"/> (any player), the <paramref name="n"/>-th round-robin by net_id: what a trading client offers (M1-E5).
+    /// </summary>
+    public (uint NetId, ushort Sector)? PickTeamAsset(int team, int n)
+    {
+        if (team == 0)
+            return null;
+        var candidates = _ghosts.Where(g => g.Value.OwnerTeam == team).OrderBy(g => g.Key).ToList();
+        if (candidates.Count == 0)
+            return null;
+        var pick = candidates[n % candidates.Count];
+        return (pick.Key, pick.Value.Sector);
+    }
+
     public long SpawnsApplied { get; private set; }
 
     public long DespawnsApplied { get; private set; }
