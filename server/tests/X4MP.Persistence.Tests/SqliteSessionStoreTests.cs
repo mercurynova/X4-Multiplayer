@@ -31,7 +31,7 @@ public sealed class SqliteSessionStoreTests : IDisposable
     public void Dispose()
     {
         _writer.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        SqliteConnection.ClearAllPools();
+        X4MP.Persistence.SqliteConnectionFactory.ClearPool(_dir);
         try
         {
             Directory.Delete(_dir, recursive: true);
