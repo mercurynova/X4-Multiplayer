@@ -5,6 +5,7 @@ import { ChangePassword } from './pages/ChangePassword';
 import { Login } from './pages/Login';
 import { NotFound } from './pages/NotFound';
 import { Placeholder } from './pages/Placeholder';
+import { SessionsPage } from './pages/sessions/SessionsPage';
 import { screens } from './screens';
 
 // Detail routes from server-design 5.1; the pages themselves arrive with W2-W6 and the M1-T/E tasks.
@@ -21,7 +22,7 @@ export function AppRoutes() {
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
           {screens.map((s) => (
-            <Route key={s.path} path={s.path} element={<Placeholder title={s.title} />} />
+            <Route key={s.path} path={s.path} element={s.path === '/sessions' ? <SessionsPage /> : <Placeholder title={s.title} />} />
           ))}
           {detailRoutes.map((r) => (
             <Route key={r.path} path={r.path} element={<Placeholder title={r.title} />} />
