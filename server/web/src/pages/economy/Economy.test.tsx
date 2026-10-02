@@ -44,7 +44,7 @@ const trade = (id: number, extra: Partial<TradeOfferDto> = {}): TradeOfferDto =>
   id, initiatorId: 3, initiator: 'Eve', counterpartyId: 4, counterparty: 'Carol',
   initiatorGives: [{ kind: 'Ship', amount: 1, wareRef: 0, asset: 77 }], counterpartyGives: [{ kind: 'Credits', amount: 6000, wareRef: 0, asset: 0 }],
   state: 'InDoubt', version: 3, expiresAt: '2026-10-02T22:00:00Z', queryAttempts: 3, escrowAmount: 6000, reason: null, detail: null, resolvedBy: null,
-  reversed: false, createdAt: '2026-10-02T20:00:00Z', x: 0, y: 0, z: 0, ...extra,
+  reversed: false, createdAt: '2026-10-02T20:00:00Z', updatedAt: '2026-10-02T20:00:00Z', memo: null, ...extra,
 });
 
 const policy: EconomyPolicyDto = {
