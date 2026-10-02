@@ -11,6 +11,7 @@ export const screens: readonly Screen[] = [
   { path: '/players', title: 'Players' },
   { path: '/map', title: 'Map' },
   { path: '/sessions', title: 'Sessions & Saves' },
+  { path: '/mods', title: 'Mods' },
   { path: '/teams', title: 'Teams & Factions' },
   { path: '/economy', title: 'Economy' },
   { path: '/chat', title: 'Chat' },
