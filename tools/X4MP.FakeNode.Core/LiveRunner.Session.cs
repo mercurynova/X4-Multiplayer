@@ -64,6 +64,9 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
 
     public volatile bool Closed;
 
+    /// <summary>Receives the text of every <c>ServerNotice</c> (M1-X5: the Warn-mode mod notice).</summary>
+    public Action<string>? NoticeSink { get; init; }
+
     public DisconnectCode? DisconnectedBy { get; private set; }
 
     public Exception? Failure { get; private set; }
@@ -161,6 +164,9 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
                         _team = p.TeamId;
                     }
                 }
+                break;
+            case MsgType.ServerNotice:
+                NoticeSink?.Invoke(MessageRegistry.Default.Decode<ServerNotice>(frame).Text ?? string.Empty);
                 break;
             case MsgType.Disconnect:
                 DisconnectedBy = MessageRegistry.Default.Decode<Disconnect>(frame).Code;
@@ -538,14 +544,9 @@ public static partial class LiveRunner
                 while (captures.TryDequeue(out var set))
                     authority.OnCaptureSet(set, tick);
                 var tickMessages = authority.Tick(tick);
-                // A tick that spawns goes out entirely on the ordered TCP lane (see FakeAuthority.NeedsOrderedLane).
-                bool ordered = FakeAuthority.NeedsOrderedLane(tickMessages);
                 foreach (var message in tickMessages)
                 {
-                    if (ordered)
-                        await link.Client.SendPayloadAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
-                    else
-                        await link.SendRealtimeAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
+                    await link.SendRealtimeAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
                     sentMessages++;
                 }
 

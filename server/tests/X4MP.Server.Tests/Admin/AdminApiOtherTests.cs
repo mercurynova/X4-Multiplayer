@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using X4MP.Core.Session;
 using X4MP.Proto;
+using X4MP.Protocol;
 using X4MP.Server.Tests.Saves;
 
 namespace X4MP.Server.Tests.Admin;
@@ -105,7 +106,13 @@ public sealed class AdminApiOtherTests(AdminServerFixture f) : IClassFixture<Adm
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var info = await response.JsonAsync();
             Assert.False(string.IsNullOrEmpty(info.GetProperty("version").GetString()));
-            Assert.Equal(X4MP.Server.Hosting.ServerInfo.ProtocolMin, info.GetProperty("protocolRange").GetProperty("min").GetInt32());
+            var range = info.GetProperty("protocolRange");
+            Assert.Equal(X4MP.Server.Hosting.ServerInfo.ProtocolMin, range.GetProperty("min").GetInt32());
+            // wire version as major * 1000 + minor: this build speaks 0.1 => 1, never the old 0..0
+            Assert.Equal((ProtocolConstants.ProtocolMajor * 1000) + ProtocolConstants.ProtocolMinor, range.GetProperty("max").GetInt32());
+            Assert.True(range.GetProperty("max").GetInt32() > 0);
+            // the node TCP listener is not a GUI URL
+            Assert.DoesNotContain(info.GetProperty("adminUrls").EnumerateArray().Select(e => e.GetString()), u => u!.EndsWith($":{f.Server.TcpPort}", StringComparison.Ordinal));
             Assert.Contains($"tcp://127.0.0.1:{f.Server.TcpPort}", info.GetProperty("nodeEndpoints").EnumerateArray().Select(e => e.GetString()));
             Assert.False(info.GetProperty("https").GetBoolean());
         }
