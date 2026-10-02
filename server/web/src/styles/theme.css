@@ -96,6 +96,7 @@ input[aria-invalid='true'] { border-color: var(--danger); }
 .state-running { color: var(--ok); }
 .state-starting, .state-loading, .state-stopping, .state-paused { color: var(--warn); }
 .state-failed, .state-crashed { color: var(--danger); }
+.state-unknown { color: var(--muted); font-style: italic; }
 
 .user-menu { position: relative; }
 .user-menu summary { cursor: pointer; list-style: none; }
