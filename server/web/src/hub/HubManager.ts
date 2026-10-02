@@ -191,6 +191,14 @@ export class HubManager implements HubClient {
     }, delay);
   }
 
+  /** The server clears admin sector views when a session ends, so a different session id means re-issue SubscribeSector. */
+  private onSessionChanged(id: number | null) {
+    const previous = this.lastSessionId;
+    this.lastSessionId = id;
+    if (previous === null || id === null || previous === id) return;
+    for (const g of this.groups.values()) if (g.spec.key.startsWith('sector:')) this.join(g);
+  }
+
   private join(entry: GroupEntry) {
     const t = this.transport;
     if (!t || this.state !== 'connected') return; // joined on (re)connect
@@ -211,8 +219,11 @@ export class HubManager implements HubClient {
     );
   }
 
+  private lastSessionId: number | null = null;
+
   private dispatch(gen: number, event: string, payload: unknown) {
     if (gen !== this.generation) return;
+    if (event === 'SessionChanged') this.onSessionChanged((payload as { id?: number } | null)?.id ?? null);
     this.eventListeners.get(event)?.forEach((h) => h(payload));
     for (const g of this.groups.values()) {
       if (g.spec.events.includes(event)) g.handlers.forEach((h) => h(event, payload));
