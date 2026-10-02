@@ -16,7 +16,7 @@ switch (options.Command)
         return 0;
 
     case FakeNodeCommand.Galaxy:
-        var galaxy = FakeGalaxy.Generate(options.Seed, new GalaxyOptions { SectorCount = options.Sectors, ShipCount = options.Ships });
+        var galaxy = FakeGalaxy.Generate(options.Seed, new GalaxyOptions { SectorCount = options.Sectors, ShipCount = options.Ships, MaxShipsPerSector = options.MaxShipsPerSector });
         Console.WriteLine($"seed={options.Seed} {GalaxyStats.Of(galaxy)}");
         return 0;
 

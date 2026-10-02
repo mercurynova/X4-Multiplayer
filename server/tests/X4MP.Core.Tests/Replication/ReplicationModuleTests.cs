@@ -56,6 +56,35 @@ public sealed class ReplicationModuleTests(ITestOutputHelper output)
             rig.Mirror.IngestWorldUpdate(UpdatePayload((uint)rig.Tick, rig.GameTime, [State(id, sector, px, py, pz, flags, vx)]));
         });
 
+    // ------------------------------------------------------------------ tick timing (M1-C2)
+
+    [Fact]
+    public async Task EveryTickRecordsItsDurationSoThePercentilesAreRealMeasurements()
+    {
+        var (rig, _) = await SetupAsync();
+        await using var _r = rig;
+        long before = X4MP.Core.Metrics.ServerMetrics.TickCount;
+        await rig.RunAsync(8);
+        Assert.True(X4MP.Core.Metrics.ServerMetrics.TickCount - before >= 8);
+        double p99 = X4MP.Core.Metrics.ServerMetrics.TickPercentileMs(99);
+        double p50 = X4MP.Core.Metrics.ServerMetrics.TickPercentileMs(50);
+        Assert.True(p99 >= p50 && p50 >= 0);
+        Assert.InRange(p99, 0, 5000);
+    }
+
+    [Fact]
+    public void TickPercentilesComeFromTheRecordedDurations()
+    {
+        for (int i = 0; i < 3000; i++)
+        {
+            X4MP.Core.Metrics.ServerMetrics.RecordTick(i % 100 == 99 ? 40.0 : 1.0);
+        }
+
+        // The counters are process-wide and other tests tick too, so assert only what a concurrent tick cannot break.
+        Assert.True(X4MP.Core.Metrics.ServerMetrics.TickPercentileMs(100) >= 40.0 - 0.001);
+        Assert.True(X4MP.Core.Metrics.ServerMetrics.TickPercentileMs(50) <= X4MP.Core.Metrics.ServerMetrics.TickPercentileMs(99));
+    }
+
     // ------------------------------------------------------------------ spawn before state
 
     [Fact]

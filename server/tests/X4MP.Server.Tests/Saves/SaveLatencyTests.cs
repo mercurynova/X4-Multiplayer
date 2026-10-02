@@ -142,7 +142,9 @@ public sealed class SaveLatencyTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>Wall-clock and load-sensitive: excluded from the default run (<c>--filter "Category!=Perf"</c>), run by the nightly job.</summary>
     [Fact]
+    [Trait("Category", "Perf")]
     public async Task ATransferRaisesAnInGameNodesP99LatencyByNoMoreThan10Ms()
     {
         // A loaded CI machine can hit one bad scheduling second: judge the best of two attempts, and report both.

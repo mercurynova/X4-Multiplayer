@@ -28,8 +28,8 @@ public sealed record PlayerLiveDto(
     double Fps, long ConnectedSeconds, bool Muted, long? TeamId = null, string? TeamName = null);
 
 /// <summary>
-/// Response of <c>GET /api/v1/dashboard</c> and the hub's 1 Hz <c>Dashboard</c> push (server-design 4.5). <c>TickP99Ms</c> is 0 until the
-/// session actor measures its tick time.
+/// Response of <c>GET /api/v1/dashboard</c> and the hub's 1 Hz <c>Dashboard</c> push (server-design 4.5). <c>TickP99Ms</c> is the p99 of the last ~2000 replication ticks (0 before the first tick,
+/// that is, while no client is attached).
 /// </summary>
 [TsContract]
 public sealed record DashboardSnapshotDto(
