@@ -44,8 +44,8 @@ public sealed class SaveJoinTests(ITestOutputHelper output)
 
         Assert.Equal(3, client.Saves.CatchUpEntries);
         Assert.Equal(authority.Authority.Strings.Entries.Count, client.Saves.StringEntries);
-        var snapshot = await server.Actor.GetSnapshotAsync();
-        Assert.Equal(NodePhase.InGame, snapshot.Nodes.Single(n => n.Name == "Late").Phase);
+        // NodeReady is sent by the client, then the server moves the node on (CatchingUp -> InGame): wait for it instead of asserting at once
+        await server.WaitForAsync(s => s.Nodes.Any(n => n.Name == "Late" && n.Phase == NodePhase.InGame), 10_000, "the late node in game");
     }
 
     [Fact]
