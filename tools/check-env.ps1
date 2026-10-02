@@ -150,7 +150,7 @@ Report "game" "user data / saves folder" ($saveDirs.Count -gt 0) $(if ($saveDirs
 Write-Host "         note: Protected UI mode must be OFF (Settings > Extensions); this script can't check it." -ForegroundColor DarkGray
 
 # --- Local-only folders ---
-Report "repo" "reference/ (old mod, read-only)" (Test-Path (Join-Path $root "reference\README.md")) "" "git clone --depth 1 <previous-multiplayer-mod-repo> reference"
+Report "repo" "reference/ (old mod, read-only)" (Test-Path (Join-Path $root "reference\README.md")) "" "clone the previous multiplayer mod into reference/ (ask the repo owner for the URL; see docs/dev-setup.md section 6)"
 Report "repo" "x4-unpacked/ (game API reference)" (Test-Path (Join-Path $root "x4-unpacked\ui")) "" "see docs/dev-setup.md section 6"
 
 Write-Host ""
