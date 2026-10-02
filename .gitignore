@@ -1,6 +1,7 @@
 # Local-only reference material (regenerate per machine; see docs/dev-setup.md §6)
 /reference/
 /reference-analyzer/
+/reference-tatertrader/
 /x4-unpacked/
 
 # Server runtime data (SQLite, saves, logs, initial admin password)
