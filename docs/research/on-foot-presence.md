@@ -352,6 +352,9 @@ foot (ship is docked). About 40 B per sample, so at most 400 B/s per walking pla
 
 **`PlayerAppearance`** (Control lane, once per change): `character_macro_ref`, `race`,
 `is_female`, `clothing_ware_ref`. Sent at join and on change, and relayed to all players.
+**Amended by ADR-051 (2026-10-02):** the appearance is the player's **chosen** one (race + variants, default from
+the team origin, free choice, affects only how others see you), stored and validated by the server against a
+per-build appearance catalogue; it does not mirror the local character.
 
 **`PresenceRoster`** (S→C, Control lane, on change, at most 1 Hz): per player
 `{player_id, mode, container_net_id, outer_container_net_id, roomtype, room_name_ref}` for the
