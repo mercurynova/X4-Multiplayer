@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using X4MP.Core.Economy;
 using X4MP.Core.Events;
 using X4MP.Core.Interest;
 using X4MP.Core.Metrics;
@@ -13,6 +14,7 @@ using X4MP.Persistence;
 using X4MP.Server.Admin;
 using X4MP.Server.Api;
 using X4MP.Server.Auth;
+using X4MP.Server.Economy;
 using X4MP.Server.Logging;
 using X4MP.Server.Settings;
 
@@ -63,6 +65,8 @@ public static class AdminHubExtensions
             sp.GetRequiredService<RingBufferSink>(),
             sp.GetRequiredService<IChatControl>(),
             sp.GetRequiredService<AdminStore>(),
+            sp.GetRequiredService<EconomyModule>(),
+            sp.GetRequiredService<EconomyViews>(),
             sp.GetRequiredService<IOptionsMonitor<AdminHubOptions>>(),
             sp.GetRequiredService<ILogger<AdminHubCore>>()));
         services.TryAddSingleton(sp => new AdminBroadcaster(
@@ -77,6 +81,8 @@ public static class AdminHubExtensions
             sp.GetRequiredService<RingBufferSink>(),
             sp.GetRequiredService<SettingsService>(),
             sp.GetRequiredService<ActiveAlerts>(),
+            sp.GetRequiredService<EconomyModule>(),
+            sp.GetRequiredService<EconomyViews>(),
             sp,
             sp.GetRequiredService<IOptionsMonitor<AdminHubOptions>>(),
             sp.GetRequiredService<TimeProvider>(),

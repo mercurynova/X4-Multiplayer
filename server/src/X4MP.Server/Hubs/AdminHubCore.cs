@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
+using X4MP.Core.Economy;
 using X4MP.Core.Interest;
 using X4MP.Core.Relay;
 using X4MP.Core.Session;
@@ -7,6 +8,7 @@ using X4MP.Core.World;
 using X4MP.Server.Admin;
 using X4MP.Server.Api;
 using X4MP.Server.Auth;
+using X4MP.Server.Economy;
 using X4MP.Server.Logging;
 
 namespace X4MP.Server.Hubs;
@@ -29,6 +31,8 @@ public sealed class AdminHubCore
     private readonly RingBufferSink _ring;
     private readonly IChatControl _chat;
     private readonly AdminStore _audit;
+    private readonly EconomyModule _economy;
+    private readonly EconomyViews _economyViews;
     private readonly IOptionsMonitor<AdminHubOptions> _options;
     private readonly ILogger<AdminHubCore> _logger;
 
@@ -43,6 +47,8 @@ public sealed class AdminHubCore
         RingBufferSink ring,
         IChatControl chat,
         AdminStore audit,
+        EconomyModule economy,
+        EconomyViews economyViews,
         IOptionsMonitor<AdminHubOptions> options,
         ILogger<AdminHubCore> logger)
     {
@@ -56,6 +62,8 @@ public sealed class AdminHubCore
         _ring = ring;
         _chat = chat;
         _audit = audit;
+        _economy = economy;
+        _economyViews = economyViews;
         _options = options;
         _logger = logger;
     }
@@ -107,6 +115,15 @@ public sealed class AdminHubCore
     {
         _subscriptions.Join(Client(connectionId), HubTopic.Galaxy);
         return await GalaxyDtoBuilder.BuildAsync(_sessions, _mirror).ConfigureAwait(false);
+    }
+
+    /// <summary>Joins the economy topic and returns the current overview (a zeroed one while no session exists).</summary>
+    public async Task<EconomySummaryDto> SubscribeEconomyAsync(string connectionId)
+    {
+        _subscriptions.Join(Client(connectionId), HubTopic.Economy);
+        return await _actor.CallAsync(() => _economy.Service is { } service
+            ? _economyViews.Summary(service, _economy.Auditor)
+            : _economyViews.EmptySummary()).ConfigureAwait(false);
     }
 
     public void Subscribe(string connectionId, HubTopic topic) => _subscriptions.Join(Client(connectionId), topic);

@@ -46,4 +46,25 @@ public interface IAdminClient
 
     /// <summary>A client's action was refused by the asset permission policy (dashboard topic, at most 5 per second).</summary>
     Task PermissionDenied(PermissionDeniedDto denied);
+
+    /// <summary>A wallet changed (economy topic). Coalesced per wallet, at most every <c>EconomyWalletIntervalMs</c> (250 ms, 4 Hz).</summary>
+    Task WalletChanged(WalletDto wallet);
+
+    /// <summary>A transaction was committed (economy topic, every one; the GUI filters).</summary>
+    Task LedgerPosted(LedgerTxDto transaction);
+
+    /// <summary>A loan changed state or balance, including Overdue (economy topic; the latest state of a loan wins when the queue is busy).</summary>
+    Task LoanChanged(LoanDto loan);
+
+    /// <summary>A trade changed state or version (economy topic; the latest state of a trade wins when the queue is busy).</summary>
+    Task TradeChanged(TradeOfferDto trade);
+
+    /// <summary>An economy event of the log (economy topic, at most 10 per second).</summary>
+    Task EconomyEvent(EconomyEventDto economyEvent);
+
+    /// <summary>1 Hz while the economy topic has members: the overview with the state of the auditor.</summary>
+    Task EconomySummary(EconomySummaryDto summary);
+
+    /// <summary>An economy alert was raised or cleared: an invariant breach, an overdrawn wallet, an InDoubt trade (economy topic).</summary>
+    Task EconomyAlert(AlertDto alert);
 }

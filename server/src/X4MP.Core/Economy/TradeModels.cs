@@ -94,6 +94,9 @@ public sealed class TradeRecord
 
     public string? ResolvedBy { get; set; }
 
+    /// <summary>An admin reversed the settlement (credits only; the state stays Completed).</summary>
+    public bool Reversed { get; set; }
+
     public List<TradeRequestMark> Requests { get; set; } = [];
 
     public uint AcceptedBy(int player) => player == Initiator ? InitiatorAccepted : player == Counterparty ? CounterpartyAccepted : 0;

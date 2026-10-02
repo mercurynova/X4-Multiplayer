@@ -171,6 +171,20 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
                     cmd.ExecuteNonQuery();
                 }
 
+                if (tx.Reverses is { } original)
+                {
+                    // The one allowed update of a ledger row (see the trigger): link the reversal, once. The unique index on reverses_tx
+                    // already refuses a second reversal; the guard also refuses an unknown original.
+                    using var link = Command(db, "UPDATE ledger_tx SET reversed_by_tx = $new WHERE id = $orig AND session_id = $s AND reversed_by_tx IS NULL", commit.SessionId);
+                    link.Transaction = transaction;
+                    link.Parameters.AddWithValue("$new", tx.Id);
+                    link.Parameters.AddWithValue("$orig", original);
+                    if (link.ExecuteNonQuery() != 1)
+                    {
+                        throw new InvalidOperationException("the transaction to reverse is unknown or already reversed");
+                    }
+                }
+
                 var seq = 0;
                 foreach (var entry in tx.Entries)
                 {
@@ -331,6 +345,121 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
         }
 
         return new LedgerAuditData(unbalanced, sums, balances);
+    }
+
+    public LedgerTransaction? GetTransaction(long sessionId, string txId)
+    {
+        ArgumentNullException.ThrowIfNull(txId);
+        using var cmd = Command(Db, TxSelect + " WHERE t.session_id = $s AND t.id = $id", sessionId);
+        cmd.Parameters.AddWithValue("$id", txId);
+        return ReadTransactions(cmd).FirstOrDefault();
+    }
+
+    public IReadOnlyList<LedgerTransaction> QueryTransactions(long sessionId, LedgerQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var sql = new System.Text.StringBuilder(TxSelect).Append(" WHERE t.session_id = $s");
+        using var cmd = Command(Db, string.Empty, sessionId);
+        if (query.Wallet is { } wallet)
+        {
+            sql.Append(" AND EXISTS (SELECT 1 FROM ledger_entries w WHERE w.tx_id = t.id AND w.wallet_kind = $wk AND w.wallet_owner_id = $wo)");
+            cmd.Parameters.AddWithValue("$wk", KindName(wallet.Kind));
+            cmd.Parameters.AddWithValue("$wo", wallet.OwnerId);
+        }
+
+        if (query.Kind is { } kind)
+        {
+            sql.Append(" AND t.kind = $kind");
+            cmd.Parameters.AddWithValue("$kind", kind.ToString());
+        }
+
+        if (query.Actor is { } actor)
+        {
+            sql.Append(" AND t.actor = $actor");
+            cmd.Parameters.AddWithValue("$actor", actor);
+        }
+
+        if (query.RefType is { } refType)
+        {
+            sql.Append(" AND t.ref_type = $rt");
+            cmd.Parameters.AddWithValue("$rt", refType);
+        }
+
+        if (query.RefId is { } refId)
+        {
+            sql.Append(" AND t.ref_id = $rid");
+            cmd.Parameters.AddWithValue("$rid", refId);
+        }
+
+        if (query.Since is { } since)
+        {
+            sql.Append(" AND t.ts >= $since");
+            cmd.Parameters.AddWithValue("$since", Iso(since));
+        }
+
+        if (query.Until is { } until)
+        {
+            sql.Append(" AND t.ts < $until");
+            cmd.Parameters.AddWithValue("$until", Iso(until));
+        }
+
+        if (query.Before is { } before)
+        {
+            sql.Append(" AND t.id < $before");
+            cmd.Parameters.AddWithValue("$before", before);
+        }
+
+        if (query.After is { } after)
+        {
+            sql.Append(" AND t.id > $after");
+            cmd.Parameters.AddWithValue("$after", after);
+        }
+
+        sql.Append(query.Ascending ? " ORDER BY t.id ASC LIMIT $limit" : " ORDER BY t.id DESC LIMIT $limit");
+        cmd.Parameters.AddWithValue("$limit", Math.Max(1, query.Limit));
+        cmd.CommandText = sql.ToString();
+        return ReadTransactions(cmd);
+    }
+
+    private const string TxSelect =
+        "SELECT t.id, t.ts, t.kind, t.actor, t.request_id, t.ref_type, t.ref_id, t.reverses_tx, t.reversed_by_tx, t.note FROM ledger_tx t";
+
+    private List<LedgerTransaction> ReadTransactions(SqliteCommand cmd)
+    {
+        var heads = new List<(string Id, DateTimeOffset At, TxKind Kind, string Actor, string? Request, string? RefType, long? RefId, string? Reverses, string? ReversedBy, string? Note)>();
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                heads.Add((
+                    reader.GetString(0), ParseTime(reader.GetString(1)), Enum.Parse<TxKind>(reader.GetString(2)), reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4), reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9)));
+            }
+        }
+
+        var result = new List<LedgerTransaction>(heads.Count);
+        var session = Convert.ToInt64(cmd.Parameters["$s"].Value, CultureInfo.InvariantCulture);
+        foreach (var head in heads)
+        {
+            var entries = new List<LedgerEntry>();
+            using (var entryCmd = Db.CreateCommand())
+            {
+                entryCmd.CommandText = "SELECT wallet_kind, wallet_owner_id, amount, balance_after FROM ledger_entries WHERE tx_id = $id ORDER BY seq";
+                entryCmd.Parameters.AddWithValue("$id", head.Id);
+                using var reader = entryCmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    entries.Add(new LedgerEntry(new WalletId(ParseKind(reader.GetString(0)), reader.GetInt64(1)), reader.GetInt64(2), reader.GetInt64(3)));
+                }
+            }
+
+            result.Add(new LedgerTransaction(
+                head.Id, session, head.At, head.Kind, head.Actor, head.Request, head.RefType, head.RefId, head.Reverses, head.Note, entries, head.ReversedBy));
+        }
+
+        return result;
     }
 
     private static SqliteCommand Command(SqliteConnection db, string sql, long sessionId)
