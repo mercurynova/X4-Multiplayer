@@ -39,7 +39,7 @@ public class FrameCodecTests
         var expected = Enum.GetValues<MsgType>().Where(t => t != MsgType.Invalid && t != MsgType.DamageReport).Order().ToArray();
         var actual = Registry.Descriptors.Select(d => d.Type).Order().ToArray();
         Assert.Equal(expected, actual);
-        Assert.Equal(90, actual.Length);
+        Assert.Equal(91, actual.Length);
     }
 
     [Fact]

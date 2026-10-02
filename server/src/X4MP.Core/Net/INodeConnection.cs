@@ -93,9 +93,9 @@ public interface INodeConnection : IAsyncDisposable
     /// <summary>
     /// Orderly close: queues a Disconnect (Control lane, bypassing caps), flushes pending Control frames
     /// (bounded by a short timeout) and closes. Idempotent. Never throws.
-    /// <paramref name="expected"/> and <paramref name="retryAfterMs"/> fill the matching Disconnect fields.
+    /// <paramref name="expected"/>, <paramref name="retryAfterMs"/> and <paramref name="modViolation"/> fill the matching Disconnect fields.
     /// </summary>
-    void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0);
+    void Close(DisconnectCode reason, string? detail = null, string? expected = null, uint retryAfterMs = 0, ModPolicyViolationT? modViolation = null);
 }
 
 /// <summary>Accepts node connections (server-design 2.2).</summary>

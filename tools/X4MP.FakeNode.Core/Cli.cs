@@ -1,4 +1,5 @@
 using System.Globalization;
+using X4MP.Proto;
 using X4MP.Protocol;
 
 namespace X4MP.FakeNode;
@@ -86,6 +87,9 @@ public sealed record CliOptions
     /// <summary>swarm: also start one authority node.</summary>
     public bool WithAuthority { get; init; }
     public string? Password { get; init; }
+
+    /// <summary>client/swarm: the extension report every node sends in <c>ClientHello.extension_list</c> (<c>--extensions file.json</c>, see <see cref="ExtensionListFile"/>); null = none.</summary>
+    public IReadOnlyList<ExtensionInfoT>? Extensions { get; init; }
 
     /// <summary>client/swarm: send <c>AssetOrder</c>s for assets of this kind (default: none).</summary>
     public CommanderMode Commander { get; init; } = CommanderMode.None;
@@ -226,6 +230,7 @@ public static class CliParser
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
           --with-authority     swarm: also connect one authority node
           --password PW        session password
+          --extensions FILE    client/swarm: report the extensions listed in this JSON file in ClientHello (array of {id,name,version,source,enabled,workshopId,classHint,...})
           --commander shared|own|foreign   clients send AssetOrders for teammates' / own team-common / another team's ships (0.5 s apart)
           --team <id|name>     client/swarm: join this team (a lobby gets a TeamChoice, or a TeamCreateRequest when the team does not exist and the lobby allows creating; a node that already has another team asks for a move)
           --team-pick lobby-random   client/swarm: answer the lobby with a random open team
@@ -401,6 +406,9 @@ public static class CliParser
                 return (o with { NamePrefix = value }, null);
             case "password":
                 return (o with { Password = value }, null);
+            case "extensions":
+                var (list, error) = ExtensionListFile.Load(value);
+                return list is null ? (o, error) : (o with { Extensions = list }, null);
             case "commander":
                 return Enum.TryParse<CommanderMode>(value, ignoreCase: true, out var c) && Enum.IsDefined(c) && c != CommanderMode.None
                     ? (o with { Commander = c }, null) : (o, $"--commander must be shared|own|foreign (got '{value}')");

@@ -22,40 +22,40 @@
       "file": "0x0001_ServerHello.bin",
       "kind": "frame",
       "size": 256,
-      "sha256": "88ffaa092d08895fb5aa5615e5451800d59e31c0310aa79e57919c36953e15af",
+      "sha256": "41ec90e399fbe54ec78c6b85f5ae008291fd9e29b311ca78052c315b1c7484a7",
       "msgType": 1,
       "msgName": "ServerHello",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
       "payloadLength": 248,
-      "fields": {"Auth":1,"ExtensionsHash":"01020304","Nonce":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f","Phase":3,"ProtocolMajor":0,"ProtocolMinor":1,"RequiredGameBuild":"900-611726","RequiredModVersion":"0.1.0","ServerCaps":8193,"ServerName":"Test server","ServerVersion":"0.1.0","SessionId":{"Hi":28,"Lo":9},"SupportedGameBuilds":["900-611726","900-611727"]}
+      "fields": {"Auth":1,"ExtensionsHash":"01020304","ModPolicyVersion":7,"Nonce":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f","Phase":3,"ProtocolMajor":0,"ProtocolMinor":1,"RequiredGameBuild":"900-611726","RequiredModVersion":"0.1.0","ServerCaps":8193,"ServerName":"Test server","ServerVersion":"0.1.0","SessionId":{"Hi":28,"Lo":9},"SupportedGameBuilds":["900-611726","900-611727"]}
     },
     {
       "file": "0x0002_ClientHello.bin",
       "kind": "frame",
-      "size": 392,
-      "sha256": "b73ea20e26b9d82022bb2cd0f49ede12bca5bafbd0ca4f369812b3f790d5feb2",
+      "size": 944,
+      "sha256": "d553c24b71a214d3b7d8a2b76b4b2ee26b725c620e8d2e5e38a72e5a98782900",
       "msgType": 2,
       "msgName": "ClientHello",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 384,
-      "fields": {"AdminProof":"0606","AuthProof":"050505","CachedSaves":[{"Sha256":"020202"}],"ClientCaps":16383,"Extensions":["x4mp@0.1.0","other@1.0"],"ExtensionsHash":"090807","GameBuild":"900-611726","GameVersion":"9.00","LastJournalSeq":4242,"LoadedSaveSha256":"01010101","ModBuild":"abc1234","ModVersion":"0.1.0","Platform":"win64","PlayerKey":"6465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80818283","PlayerName":"Alice","PreferredTeam":2,"ProtocolMajor":0,"ProtocolMinor":1,"RequestedRoles":10,"ResumeToken":{"Hi":31,"Lo":10},"X4nativeVersion":"9.0.0"}
+      "payloadLength": 936,
+      "fields": {"AdminProof":"0606","AuthProof":"050505","CachedSaves":[{"Sha256":"020202"}],"ClientCaps":16383,"ExtensionList":[{"ClassHint":1,"ContentHash":"","Dependencies":[],"Egosoft":true,"Enabled":true,"HasNativeDll":false,"HashKind":0,"Id":"ego_dlc_split","Name":"Split Vendetta","ReplacesBasegame":false,"SaveDependent":false,"Source":0,"Version":"900","WorkshopId":0},{"ClassHint":2,"ContentHash":"fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0","Dependencies":[{"Id":"ws_2042901274","Optional":false},{"Id":"kuerteeUIExtensionsAndHUD","Optional":true}],"Egosoft":false,"Enabled":true,"Error":"missing dependency","HasNativeDll":true,"HashKind":1,"Id":"ws_1234567890","Name":"Warehouse Fleets","ReplacesBasegame":true,"SaveDependent":true,"Source":3,"Version":"1.4","Warning":"old","WorkshopId":1234567890},{"ClassHint":3,"ContentHash":"","Dependencies":[],"Egosoft":false,"Enabled":false,"HasNativeDll":false,"HashKind":0,"Id":"x4mp","Name":"X4MP","ReplacesBasegame":false,"SaveDependent":false,"Source":1,"Version":"0.1.0","WorkshopId":0}],"Extensions":["x4mp@0.1.0","other@1.0"],"ExtensionsHash":"090807","GameBuild":"900-611726","GameVersion":"9.00","LastJournalSeq":4242,"LoadedSaveSha256":"01010101","ModBuild":"abc1234","ModVersion":"0.1.0","Platform":"win64","PlayerKey":"6465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80818283","PlayerName":"Alice","PreferredTeam":2,"ProtocolMajor":0,"ProtocolMinor":1,"RequestedRoles":10,"ResumeToken":{"Hi":31,"Lo":10},"X4nativeVersion":"9.0.0"}
     },
     {
       "file": "0x0003_Welcome.bin",
       "kind": "frame",
-      "size": 672,
-      "sha256": "144c322841339c092d35450073d53d8f19e5710b3800866211816afeb2c45002",
+      "size": 1008,
+      "sha256": "7cb8b10f1582dd593bdbd92ff69798696e9a54473772b675977c6dfc3b26f5eb",
       "msgType": 3,
       "msgName": "Welcome",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 664,
-      "fields": {"ConnId":3735928559,"FactionSlot":2,"GrantedRoles":2,"HeartbeatIntervalMs":1000,"HeartbeatTimeoutMs":10000,"HttpBaseUrl":"http://127.0.0.1:47790","MaxGhosts":4000,"NegotiatedCaps":31,"PlayerId":4,"Relations":{"DefaultRelation":0,"Entries":[{"Relation":-1,"TeamA":1,"TeamB":2},{"Relation":1,"TeamA":1,"TeamB":3}],"Full":true,"Version":4},"ResumeGraceS":60,"ResumeToken":{"Hi":34,"Lo":11},"Resumed":true,"ServerTimeUs":999999999,"Settings":{"Economy":{"AllowAlliedTransfers":true,"CreditMode":1,"DonateScope":3,"EffectiveMode":0,"LoanScope":2,"MaxOpenLoansPerPlayer":2,"MaxOpenTradesPerPlayer":3,"MaxTransferAmount":1000000000,"PoolWithdrawDailyLimit":500000,"PoolWithdrawPolicy":1,"TeamPoolEnabled":false,"TradeScope":1,"TradeShipsEnabled":false,"TradeStationsEnabled":true},"Team":{"AllowAssetTransfer":true,"AllowCreateInLobby":true,"AllowFriendlyFire":true,"AllowSelfTeamChange":true,"AssetPolicy":2,"AutoAssign":1,"JoinMode":1,"MaxTeams":8,"MoveAssetsWithPlayer":1,"RelationChangePolicy":1},"Version":5},"TeamId":2,"TeamRole":1,"Teams":{"Full":true,"Removed":[7,8],"Teams":[{"ColorRgb":16746496,"FactionSlot":1,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 1","PasswordProtected":true,"TeamId":1},{"ColorRgb":16746496,"FactionSlot":2,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 2","PasswordProtected":true,"TeamId":2}],"Version":3},"UdpPort":47781,"UdpToken":81985529216486895}
+      "payloadLength": 1000,
+      "fields": {"ConnId":3735928559,"FactionSlot":2,"GrantedRoles":2,"HeartbeatIntervalMs":1000,"HeartbeatTimeoutMs":10000,"HttpBaseUrl":"http://127.0.0.1:47790","MaxGhosts":4000,"NegotiatedCaps":31,"PlayerId":4,"Relations":{"DefaultRelation":0,"Entries":[{"Relation":-1,"TeamA":1,"TeamB":2},{"Relation":1,"TeamA":1,"TeamB":3}],"Full":true,"Version":4},"ResumeGraceS":60,"ResumeToken":{"Hi":34,"Lo":11},"Resumed":true,"ServerTimeUs":999999999,"Settings":{"Economy":{"AllowAlliedTransfers":true,"CreditMode":1,"DonateScope":3,"EffectiveMode":0,"LoanScope":2,"MaxOpenLoansPerPlayer":2,"MaxOpenTradesPerPlayer":3,"MaxTransferAmount":1000000000,"PoolWithdrawDailyLimit":500000,"PoolWithdrawPolicy":1,"TeamPoolEnabled":false,"TradeScope":1,"TradeShipsEnabled":false,"TradeStationsEnabled":true},"ModPolicy":{"Enforcement":1,"Entries":[{"ContentHash":"010203","Enabled":true,"Id":"ws_1234567890","ModClass":2,"Name":"Warehouse Fleets","NexusUrl":"https://www.nexusmods.com/x4foundations/mods/1234","Notes":"needs SirNukes too","Rule":0,"Version":"1.4","VersionRule":1,"WorkshopId":1234567890},{"ContentHash":"","Enabled":true,"Id":"cheat_menu","ModClass":0,"Name":"Cheat Menu","Rule":2,"VersionRule":2,"WorkshopId":0}],"SourceMode":1,"UnknownDefault":1,"Version":7},"Team":{"AllowAssetTransfer":true,"AllowCreateInLobby":true,"AllowFriendlyFire":true,"AllowSelfTeamChange":true,"AssetPolicy":2,"AutoAssign":1,"JoinMode":1,"MaxTeams":8,"MoveAssetsWithPlayer":1,"RelationChangePolicy":1},"Version":5},"TeamId":2,"TeamRole":1,"Teams":{"Full":true,"Removed":[7,8],"Teams":[{"ColorRgb":16746496,"FactionSlot":1,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 1","PasswordProtected":true,"TeamId":1},{"ColorRgb":16746496,"FactionSlot":2,"LeaderPlayer":4,"Locked":true,"MaxMembers":8,"Members":[{"Name":"Alice","Online":true,"PlayerId":4,"Role":1},{"Name":"Bob","Online":false,"PlayerId":5,"Role":0}],"Name":"Team 2","PasswordProtected":true,"TeamId":2}],"Version":3},"UdpPort":47781,"UdpToken":81985529216486895}
     },
     {
       "file": "0x0004_Disconnect.bin",
@@ -69,6 +69,19 @@
       "payloadOffset": 8,
       "payloadLength": 64,
       "fields": {"Code":6,"Expected":"900-611726","Message":"reload","RetryAfterMs":5000}
+    },
+    {
+      "file": "0x0004_Disconnect_ModViolation.bin",
+      "kind": "frame",
+      "size": 576,
+      "sha256": "c9fc5d69f0e9e6f42c9170f825632b728b45bb0a74f70f52244009123cace500",
+      "msgType": 4,
+      "msgName": "Disconnect",
+      "variant": "ModViolation",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 568,
+      "fields": {"Code":13,"Expected":"policy 7","Message":"mods differ","ModViolation":{"Disable":[{"HaveVersion":"1.0","Id":"cheat_menu","Name":"Cheat Menu","WorkshopId":0}],"Enable":[{"HaveVersion":"2.0","Id":"reactive_docking","Name":"Reactive Docking","WorkshopId":0}],"Install":[{"Id":"ws_1234567890","Name":"Warehouse Fleets","NexusUrl":"https://www.nexusmods.com/x4foundations/mods/1234","Notes":"needs SirNukes too","Version":"1.4","WorkshopId":1234567890}],"PolicyVersion":7,"Update":[{"HaveVersion":"2.1","Id":"deadair","Name":"DeadAir Scripts","Version":"2.3","WorkshopId":99}]},"RetryAfterMs":0}
     },
     {
       "file": "0x0005_Ping.bin",
@@ -164,15 +177,28 @@
     {
       "file": "0x0102_SessionSettings.bin",
       "kind": "frame",
-      "size": 144,
-      "sha256": "b3a5f35136b2905344b64b307c3304b51c7b717f2c8eee8c8b919dc5862e73b3",
+      "size": 480,
+      "sha256": "5e7d094e8dceaed5745e6721f3f90cab884485190fc1dde540dc3b4638b5cd49",
       "msgType": 258,
       "msgName": "SessionSettings",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 136,
-      "fields": {"Economy":{"AllowAlliedTransfers":true,"CreditMode":1,"DonateScope":3,"EffectiveMode":0,"LoanScope":2,"MaxOpenLoansPerPlayer":2,"MaxOpenTradesPerPlayer":3,"MaxTransferAmount":1000000000,"PoolWithdrawDailyLimit":500000,"PoolWithdrawPolicy":1,"TeamPoolEnabled":false,"TradeScope":1,"TradeShipsEnabled":false,"TradeStationsEnabled":true},"Team":{"AllowAssetTransfer":true,"AllowCreateInLobby":true,"AllowFriendlyFire":true,"AllowSelfTeamChange":true,"AssetPolicy":2,"AutoAssign":1,"JoinMode":1,"MaxTeams":8,"MoveAssetsWithPlayer":1,"RelationChangePolicy":1},"Version":5}
+      "payloadLength": 472,
+      "fields": {"Economy":{"AllowAlliedTransfers":true,"CreditMode":1,"DonateScope":3,"EffectiveMode":0,"LoanScope":2,"MaxOpenLoansPerPlayer":2,"MaxOpenTradesPerPlayer":3,"MaxTransferAmount":1000000000,"PoolWithdrawDailyLimit":500000,"PoolWithdrawPolicy":1,"TeamPoolEnabled":false,"TradeScope":1,"TradeShipsEnabled":false,"TradeStationsEnabled":true},"ModPolicy":{"Enforcement":1,"Entries":[{"ContentHash":"010203","Enabled":true,"Id":"ws_1234567890","ModClass":2,"Name":"Warehouse Fleets","NexusUrl":"https://www.nexusmods.com/x4foundations/mods/1234","Notes":"needs SirNukes too","Rule":0,"Version":"1.4","VersionRule":1,"WorkshopId":1234567890},{"ContentHash":"","Enabled":true,"Id":"cheat_menu","ModClass":0,"Name":"Cheat Menu","Rule":2,"VersionRule":2,"WorkshopId":0}],"SourceMode":1,"UnknownDefault":1,"Version":7},"Team":{"AllowAssetTransfer":true,"AllowCreateInLobby":true,"AllowFriendlyFire":true,"AllowSelfTeamChange":true,"AssetPolicy":2,"AutoAssign":1,"JoinMode":1,"MaxTeams":8,"MoveAssetsWithPlayer":1,"RelationChangePolicy":1},"Version":5}
+    },
+    {
+      "file": "0x0117_ModPolicyChanged.bin",
+      "kind": "frame",
+      "size": 360,
+      "sha256": "61909898e82840820ed91558066dfa85e3fd62755912eee3c973307357b08b9a",
+      "msgType": 279,
+      "msgName": "ModPolicyChanged",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 352,
+      "fields": {"Policy":{"Enforcement":1,"Entries":[{"ContentHash":"010203","Enabled":true,"Id":"ws_1234567890","ModClass":2,"Name":"Warehouse Fleets","NexusUrl":"https://www.nexusmods.com/x4foundations/mods/1234","Notes":"needs SirNukes too","Rule":0,"Version":"1.4","VersionRule":1,"WorkshopId":1234567890},{"ContentHash":"","Enabled":true,"Id":"cheat_menu","ModClass":0,"Name":"Cheat Menu","Rule":2,"VersionRule":2,"WorkshopId":0}],"SourceMode":1,"UnknownDefault":1,"Version":7}}
     },
     {
       "file": "0x0103_RequestSave.bin",
@@ -3432,8 +3458,8 @@
     {
       "file": "bad_truncated.bin",
       "kind": "reject-frame",
-      "size": 336,
-      "sha256": "edc65d372a2806b39fdbdc3906e965bd6d69e97e7bc2fc75170eee03662fc171",
+      "size": 504,
+      "sha256": "8411515a248802baf4dcef468b2abbd7874342e59fcf5772448db832b233196e",
       "expect": "TruncatedFrame"
     },
     {
