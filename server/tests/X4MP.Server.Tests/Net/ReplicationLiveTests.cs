@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Data.Sqlite;
 using X4MP.Core.Replication;
 using X4MP.FakeNode;
+using X4MP.Proto;
 using X4MP.Server.Hosting;
 using Xunit.Abstractions;
 
@@ -71,7 +72,7 @@ public sealed partial class ReplicationLiveTests(ITestOutputHelper output)
         }
     }
 
-    private async Task<(int Exit, string Text)> SwarmAsync(Host host, int clients, int seconds, Action<FakeClientSession>? onSession = null, string behavior = "wander")
+    private async Task<(int Exit, string Text)> SwarmAsync(Host host, int clients, int seconds, Action<FakeClientSession>? onSession = null, string behavior = "wander", Func<IReadOnlyList<LiveNodeStats>, bool>? stopWhen = null)
     {
         var options = CliParser.Parse(
             ["swarm", "--clients", clients.ToString(CultureInfo.InvariantCulture), "--with-authority", "--verify", "--behavior", behavior, "--duration", seconds.ToString(CultureInfo.InvariantCulture)]).Options!
@@ -80,7 +81,7 @@ public sealed partial class ReplicationLiveTests(ITestOutputHelper output)
         int exit = await LiveRunner.RunAsync(
             options,
             text,
-            new LiveRunOptions { ReportInterval = TimeSpan.FromSeconds(5), ConnectStagger = TimeSpan.FromMilliseconds(30), OnClientSession = onSession },
+            new LiveRunOptions { ReportInterval = TimeSpan.FromSeconds(5), ConnectStagger = TimeSpan.FromMilliseconds(30), OnClientSession = onSession, StopWhen = stopWhen },
             CancellationToken.None);
         output.WriteLine(text.ToString());
         return (exit, text.ToString());
@@ -98,7 +99,7 @@ public sealed partial class ReplicationLiveTests(ITestOutputHelper output)
         await using var host = new Host();
         await host.StartAsync();
 
-        var (exit, text) = await SwarmAsync(host, clients: 3, seconds: 14, behavior: "explore");
+        var (exit, text) = await SwarmAsync(host, clients: 3, seconds: 14, behavior: "explore", stopWhen: s => LiveStop.Verified(s, 3, 1500) && s.Sum(x => x.Session?.Ghosts ?? 0) > 0);
 
         var v = Verify(text);
         Assert.True(v.Success, "no verify line in the output");
@@ -118,12 +119,12 @@ public sealed partial class ReplicationLiveTests(ITestOutputHelper output)
         await using var host = new Host("--X4MP:Replication:BandwidthBudgetKBps=32");
         await host.StartAsync();
 
-        var (exit, text) = await SwarmAsync(host, clients: 2, seconds: 12);
+        var (exit, text) = await SwarmAsync(host, clients: 2, seconds: 8);
 
         Assert.Equal(0, exit);
         Assert.Equal("0", Verify(text).Groups["errors"].Value);
         var stats = host.Replication.Stats;
-        double perClientPerSecond = stats.BytesSent / 2.0 / 11.0; // about 11 s of streaming after the join pipeline
+        double perClientPerSecond = stats.BytesSent / 2.0 / 7.0; // about 7 s of streaming after the join pipeline
         output.WriteLine($"32 KB/s budget: {stats.BytesSent} B in {stats.FramesSent} frames => {perClientPerSecond / 1000:F1} KB/s per client");
         Assert.True(stats.FramesSent > 100);
         Assert.True(perClientPerSecond <= 32_000 * 1.15, $"{perClientPerSecond:F0} B/s per client");
@@ -136,7 +137,7 @@ public sealed partial class ReplicationLiveTests(ITestOutputHelper output)
         await host.StartAsync();
 
         int sessions = 0;
-        var (exit, text) = await SwarmAsync(host, clients: 2, seconds: 12, onSession: session =>
+        var (exit, text) = await SwarmAsync(host, clients: 2, seconds: 12, stopWhen: s => s.Where(x => x.Role == Role.Client).Sum(x => x.Session?.ChecksumsOk ?? 0) >= 10 && s.Sum(x => x.Session?.ResyncsRequested ?? 0) >= 1, onSession: session =>
         {
             // the first client's view of itself is off by one ghost at its next checksum
             if (Interlocked.Increment(ref sessions) == 1)

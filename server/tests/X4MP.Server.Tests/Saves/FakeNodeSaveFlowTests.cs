@@ -97,18 +97,17 @@ public sealed class FakeNodeSaveFlowTests(ITestOutputHelper output)
         await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0");
         var options = CliParser.Parse(["swarm", "--clients", "2", "--with-authority", "--verify", "--save-mb", "2", "--sectors", "20", "--ships", "200", "--duration", "60"]).Options!
             with { Port = server.TcpPort };
-        var run = new LiveRunOptions { PingInterval = TimeSpan.FromMilliseconds(100), ReportInterval = TimeSpan.FromMilliseconds(300), ConnectStagger = TimeSpan.FromMilliseconds(10) };
+        var run = new LiveRunOptions { PingInterval = TimeSpan.FromMilliseconds(100), ReportInterval = TimeSpan.FromMilliseconds(300), ConnectStagger = TimeSpan.FromMilliseconds(10), StopWhen = s => Net.LiveStop.Verified(s, 2, 400) };
         var text = new LockedWriter();
         using var cts = new CancellationTokenSource();
         var runner = Task.Run(() => LiveRunner.RunAsync(options, text, run, cts.Token));
 
-        await SaveServer.WaitUntilAsync(() => text.Snapshot().Contains("ingame=3", StringComparison.Ordinal), 30_000, "all three nodes in game");
-        await Task.Delay(4000); // let replication flow to the verifying clients
-        await cts.CancelAsync();
-        int exit = await runner;
+        // the run ends itself once both clients are in game and have verified replication entries (StopWhen); the duration is only the upper bound
+        int exit = await runner.WaitAsync(TimeSpan.FromSeconds(90));
         string result = text.Snapshot();
         output.WriteLine(result);
         Assert.Equal(0, exit);
+        Assert.Contains("ingame=3", result);
         Assert.Contains("verify: clients=2", result);
         Assert.Contains("errors=0", result);
     }
