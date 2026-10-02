@@ -346,7 +346,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
 
         if (_inFlight is null && _authority?.Connection is not null && _authority.Phase == NodePhase.InGame)
         {
-            if (_current is null)
+            if (_current is null || _phase == SessionPhase.AuthorityLoading)
             {
                 TryRequestInitialSave();
             }

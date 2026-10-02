@@ -168,6 +168,10 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
             _queue.Complete(discardControl: reason == DisconnectCode.SlowConsumer, final);
             final.Release();
             _abortCts.CancelAfter(_options.CloseFlushTimeoutMs);
+            if (DrainOnClose)
+            {
+                Volatile.Write(ref _graceful, 1);
+            }
         }
         catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException)
         {
@@ -216,6 +220,27 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         }
     }
 
+    private int _graceful;
+
+    /// <summary>
+    /// A graceful <see cref="Close"/> keeps the output open (no FIN) until <see cref="DrainInputAsync"/> ends: the owner of the socket (the Kestrel
+    /// handler) must call it. Kestrel closes the socket as soon as the output completes, and data the peer sends after that makes the OS answer
+    /// with a reset that can wipe the <c>Disconnect</c> frame the peer has not read yet.
+    /// </summary>
+    public bool DrainOnClose { get; set; }
+
+    private void CompleteOutput()
+    {
+        try
+        {
+            _pipe.Output.Complete();
+        }
+        catch (InvalidOperationException)
+        {
+            // already completed
+        }
+    }
+
     private async Task RunWriterAsync()
     {
         try
@@ -246,13 +271,9 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         Interlocked.Exchange(ref _state, StateClosed);
         SignalClosed();
         _slowTimer.Dispose();
-        try
+        if (Volatile.Read(ref _graceful) == 0)
         {
-            _pipe.Output.Complete();
-        }
-        catch (InvalidOperationException)
-        {
-            // already completed
+            CompleteOutput();
         }
 
         TryCompleteInput();
@@ -261,10 +282,53 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         _onClosed?.Invoke(this);
     }
 
+    /// <summary>
+    /// After a graceful <see cref="Close"/>: keeps reading (and discarding) what the peer still sends until it closes its side or
+    /// <paramref name="timeout"/> passes, then completes the input. Closing a socket that still has unread data makes the OS send a TCP reset, and
+    /// a reset can destroy the <c>Disconnect</c> frame the peer has not read yet; draining lets the FIN arrive first so the reason is not lost.
+    /// Does nothing after <see cref="Abort"/>.
+    /// </summary>
+    public async Task DrainInputAsync(TimeSpan timeout)
+    {
+        if (Volatile.Read(ref _graceful) == 0)
+        {
+            return;
+        }
+
+        using var cts = new CancellationTokenSource(timeout);
+        try
+        {
+            while (Volatile.Read(ref _reading) != 0)
+            {
+                await Task.Delay(5, cts.Token).ConfigureAwait(false);
+            }
+
+            while (true)
+            {
+                var result = await _pipe.Input.ReadAsync(cts.Token).ConfigureAwait(false);
+                _pipe.Input.AdvanceTo(result.Buffer.End);
+                if (result.IsCompleted)
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or InvalidOperationException or ObjectDisposedException)
+        {
+            // timed out, reset or already completed: close now
+        }
+        finally
+        {
+            Volatile.Write(ref _graceful, 0);
+            CompleteOutput();
+            TryCompleteInput();
+        }
+    }
+
     /// <summary>Completes the input side once no read is in progress.</summary>
     private void TryCompleteInput()
     {
-        if (Volatile.Read(ref _finished) == 0 || Volatile.Read(ref _reading) != 0)
+        if (Volatile.Read(ref _finished) == 0 || Volatile.Read(ref _reading) != 0 || Volatile.Read(ref _graceful) != 0)
         {
             return;
         }
