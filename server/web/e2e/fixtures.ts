@@ -110,7 +110,10 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
     async ({}, use) => {
       const launcher = new BotLauncher();
       try {
-        const bot = launcher.start({ command: 'authority', duration: 1800 });
+        // --team-assets and --trade-timeout make the authority a trade partner (economy.spec): ships get team owners, and every
+        // trade order's confirm is withheld, a third of those never answering a TradeQuery so they end InDoubt. Specs that
+        // do not trade are not affected.
+        const bot = launcher.start({ command: 'authority', duration: 1800, args: ['--team-assets', '--trade-timeout', '100'] });
         await bot.waitForLine(/checkpoint stored/, 30_000);
         await use(bot);
       } finally {

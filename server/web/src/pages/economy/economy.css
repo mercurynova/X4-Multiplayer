@@ -1,0 +1,43 @@
+.economy .head-title { margin: 0 auto 0 0; font-size: 1.1rem; }
+.economy .econ-strip { margin: 0; }
+.economy .warn-text { color: var(--warn); }
+.economy .tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.economy .tabs a { padding: 0.4rem 0.8rem; color: var(--text); text-decoration: none; border-radius: 6px 6px 0 0; display: inline-flex; gap: 0.4rem; align-items: center; }
+.economy .tabs a:hover { background: var(--surface); }
+.economy .tabs a.active { background: var(--accent); color: var(--accent-text); }
+.economy .badge-warn { border-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
+.economy .tabs a.active .badge-warn { background: var(--surface); }
+
+.economy .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.economy .tile { padding: 0.6rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.economy .tile-label { color: var(--muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; }
+.economy .tile-value { font-size: 1.3rem; font-weight: 600; overflow-wrap: anywhere; }
+.economy .tile-sub { color: var(--muted); font-size: 0.85em; }
+.economy .tile-warn { border-color: var(--warn); background: var(--warn-bg); }
+.economy .tile-danger { border-color: var(--danger); background: var(--danger-bg); }
+
+.economy td.num, .economy th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.economy label.inline { display: inline-flex; align-items: center; gap: 0.4rem; }
+.economy label.inline select, .economy label.inline input { width: auto; margin: 0; }
+.economy .flag-frozen, .economy .flag-info { background: var(--info-bg); color: var(--accent); }
+.economy .flag-overdrawn, .economy .flag-danger { background: var(--danger-bg); color: var(--danger); }
+.economy .flag-warn { background: var(--warn-bg); color: var(--warn); }
+.economy .tx-reversed td { color: var(--muted); }
+.economy .button-link { padding: 0.3rem 0.7rem; border: 1px solid var(--border); border-radius: 6px; color: var(--text); text-decoration: none; }
+.economy .banner { margin-bottom: 1rem; }
+.economy .grow { flex: 1; min-width: 14rem; }
+.economy .policy fieldset { margin: 0 0 1rem; }
+.economy .policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem 1rem; }
+.economy .policy-grid label { display: grid; gap: 0.15rem; align-content: start; }
+.economy .policy-grid label.check { display: flex; }
+.economy ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
+.economy ul.preview { margin: 0.25rem 0; padding-left: 1.2rem; }
+.economy button.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; }
+
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 30; width: min(32rem, 100vw); overflow-y: auto; padding: 1rem 1.25rem;
+  background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 16px rgb(0 0 0 / 0.25); }
+.drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.drawer-head h2 { margin: 0; font-size: 1.15rem; }
+.drawer h3 { margin: 1rem 0 0.4rem; font-size: 1rem; }
+.drawer .drawer-balance { font-size: 1.4rem; font-weight: 600; margin: 0.5rem 0; }
+.drawer table.data { font-size: 0.9em; }

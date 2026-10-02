@@ -4,6 +4,7 @@ import { RequireAuth } from './components/RequireAuth';
 import { ChangePassword } from './pages/ChangePassword';
 import { ChatPage } from './pages/chat/ChatPage';
 import { Dashboard } from './pages/dashboard/Dashboard';
+import { EconomyPage } from './pages/economy/EconomyPage';
 import { DiagnosticsPage } from './pages/diagnostics/DiagnosticsPage';
 import { LogsPage } from './pages/logs/LogsPage';
 import { Login } from './pages/Login';
@@ -16,11 +17,10 @@ import { SettingsPage } from './pages/settings/SettingsPage';
 import { screens } from './screens';
 
 // Screens with a real page; the rest render a placeholder until their task lands.
-const implementedScreens = new Set(['/', '/players', '/sessions', '/chat', '/logs', '/settings', '/diagnostics']);
+const implementedScreens = new Set(['/', '/players', '/sessions', '/chat', '/logs', '/settings', '/diagnostics', '/economy']);
 
 // Detail routes from server-design 5.1; the pages themselves arrive with W2-W6 and the M1-T/E tasks.
 const detailRoutes = [
-  { path: '/economy/:tab', title: 'Economy' },
   { path: '/map/:sectorId', title: 'Sector map' },
 ];
 
@@ -38,6 +38,7 @@ export function AppRoutes() {
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
+          <Route path="/economy/:tab?" element={<EconomyPage />} />
           {screens
             .filter((s) => !implementedScreens.has(s.path))
             .map((s) => (
