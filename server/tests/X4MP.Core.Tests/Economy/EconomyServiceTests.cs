@@ -523,6 +523,16 @@ public sealed class EconomyServiceTests
     }
 
     [Fact]
+    public void SaveHeaderMoneyIsWholeCreditsNotCents()
+    {
+        var kit = Kit();
+        var meta = new X4MP.Core.Saves.SaveMeta("900", null, "Jack", 5_447_419);
+        var seeder = new X4MP.Core.Saves.EconomySaveSeeder(() => kit.Service);
+        seeder.OnInitialSaveStored(new X4MP.Core.Saves.InitialSaveInfo(1, 3, default, "sha", meta, 0, 0));
+        Assert.Equal(5_447_419, kit.Balance(WalletId.TeamPool(2)));
+    }
+
+    [Fact]
     public void SaveMoneyHonoursTheConfiguredInheritTeamAndSplitMode()
     {
         var inherit = Kit(o => o.InheritTeam = 1);
