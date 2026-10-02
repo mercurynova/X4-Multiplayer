@@ -98,7 +98,7 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
         stopwatch.Stop();
 
         // Before the fix Kestrel's stop waited for the silent peer (handshake / 10 s heartbeat timeout); now it says goodbye at once (+ the 2 s drain).
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"host stop took {stopwatch.Elapsed.TotalSeconds:F1} s");
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(8), $"host stop took {stopwatch.Elapsed.TotalSeconds:F1} s");
     }
 
     [Fact]

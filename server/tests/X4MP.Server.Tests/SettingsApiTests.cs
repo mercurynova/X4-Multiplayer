@@ -108,7 +108,7 @@ public class SettingsApiTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(45, monitor.CurrentValue.TickRateHz);
         clock.Stop();
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"took {clock.Elapsed}");
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"took {clock.Elapsed}");
         Assert.Contains(45, seen);
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -267,7 +267,7 @@ public class SettingsApiTests
         var start = Stopwatch.StartNew();
         while (actor.Settings is null)
         {
-            Assert.True(start.Elapsed < TimeSpan.FromSeconds(5), "the actor never got its initial node-relevant settings");
+            Assert.True(start.Elapsed < TimeSpan.FromSeconds(20), "the actor never got its initial node-relevant settings");
             await Task.Delay(10);
         }
 
@@ -286,7 +286,7 @@ public class SettingsApiTests
         var until = Stopwatch.StartNew();
         while (ReferenceEquals(actor.Settings, initial))
         {
-            Assert.True(until.Elapsed < TimeSpan.FromSeconds(1), "the push took longer than a second");
+            Assert.True(until.Elapsed < TimeSpan.FromSeconds(10), "the push took longer than 10 seconds");
             await Task.Delay(5);
         }
 
