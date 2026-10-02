@@ -37,6 +37,7 @@ jobs:
       protocol_cpp: ${{ steps.f.outputs.protocol_cpp }}
       mod: ${{ steps.f.outputs.mod }}
       e2e: ${{ steps.f.outputs.e2e }}
+      e2e_win: ${{ steps.f.outputs.e2e_win }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,12 +74,15 @@ jobs:
           protocol_cpp=$(has '^(protocol/|tools/flatc/)')
           # mod/spikes/** alone must not trigger the mod job.
           if echo "$files" | grep -Ev '^mod/spikes/' | grep -Eq '^(mod/|protocol/|tools/flatc/)'; then mod=true; else mod=false; fi
-          e2e=$(has '^server/')
-          if [ "$EVENT" = "push" ]; then e2e=true; fi   # a push to main always smoke-tests the exe
-          if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; fi
+          # E2E (M1-C1): the ubuntu jobs (swarm, Playwright) need the server, web, FakeNode, protocol or the script itself;
+          # the windows headless-client job also needs the mod. mod/spikes/** alone triggers nothing.
+          e2e=$(has '^(server/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$|Directory\..*\.props$|global\.json$)')
+          if echo "$files" | grep -Ev '^mod/spikes/' | grep -Eq '^mod/'; then e2e_win=true; else e2e_win=$(has '^(server/src/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$)'); fi
+          if [ "$EVENT" = "push" ]; then e2e=true; e2e_win=true; fi   # a push to main always runs the whole E2E
+          if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; e2e_win=true; fi
           {
             echo "web=$web"; echo "dotnet=$dotnet"; echo "protocol_cpp=$protocol_cpp"
-            echo "mod=$mod"; echo "e2e=$e2e"
+            echo "mod=$mod"; echo "e2e=$e2e"; echo "e2e_win=$e2e_win"
           } | tee -a "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------------------------
@@ -248,13 +252,28 @@ jobs:
           luacheck mod/extension --no-color
 
   # ---------------------------------------------------------------------------------------------
-  # Publish the linux-x64 single-file exe, start it on a temp data dir, probe it, stop it.
+  # End-to-end (M1-C1). The same script runs locally: `pwsh tools/e2e.ps1` (docs/dev-setup.md section 10).
+  # Two ubuntu jobs in parallel, each publishing the linux-x64 single-file server (Release):
+  #   swarm:      server on a temp data dir, bootstrap password change over the API, `fakenode swarm --with-authority
+  #               --teams 3 --relations ffa --economy casual --dupe-attack --verify --admin-url ...`, any non-zero
+  #               exit (drift, duplicate effect, invariant failure) fails the job.
+  #   playwright: the Playwright suite (Chromium) against the published server exe.
+  # plus a windows job (e2e-headless) with the C++ x4mp-headless client: handshake, heartbeat, resume, save download.
   # ---------------------------------------------------------------------------------------------
-  e2e-smoke:
+  e2e:
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
+    name: e2e (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: swarm
+            steps: Publish,Swarm
+          - name: playwright
+            steps: Publish,Playwright
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -267,42 +286,72 @@ jobs:
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
-      - run: bash tools/flatc/fetch-flatc.sh
-      - run: dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=linux-x64 -p:SkipWebBuild=true
-      - name: Smoke test the published server
-        run: |
-          set -u
-          data="$(mktemp -d)"
-          out/linux-x64/x4mp-server --data-dir "$data" > "$RUNNER_TEMP/server.log" 2>&1 &
-          pid=$!
-          ok=false
-          for _ in $(seq 1 40); do
-            if curl -fsS http://127.0.0.1:47790/healthz -o "$RUNNER_TEMP/healthz.json"; then ok=true; break; fi
-            kill -0 "$pid" 2>/dev/null || { echo "server exited early"; break; }
-            sleep 1
-          done
-          rc=0
-          if [ "$ok" = true ]; then
-            cat "$RUNNER_TEMP/healthz.json"; echo
-            grep -q '"status":"ok"' "$RUNNER_TEMP/healthz.json" || { echo "healthz is not ok"; rc=1; }
-            # /players is a GUI route today (served by the SPA fallback); it becomes a REST check later.
-            curl -fsS -o /dev/null -w "players: HTTP %{http_code}\n" http://127.0.0.1:47790/players || rc=1
-          else
-            rc=1
-          fi
-          kill "$pid" 2>/dev/null || true
-          wait "$pid" 2>/dev/null || true
-          if [ "$rc" -ne 0 ]; then
-            echo "::group::server stdout/stderr"
-            cat "$RUNNER_TEMP/server.log" || true
-            echo "::endgroup::"
-          fi
-          exit "$rc"
-      - name: Upload server log
+      - uses: actions/setup-node@v7
+        if: matrix.name == 'playwright'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/web/package-lock.json
+      - name: Cache Playwright browsers
+        if: matrix.name == 'playwright'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('server/web/package-lock.json') }}
+      - name: E2E (${{ matrix.steps }})
+        shell: pwsh
+        run: ./tools/e2e.ps1 -Steps ${{ matrix.steps }}
+      - name: Upload E2E logs and traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-server-log
-          path: ${{ runner.temp }}/server.log
+          name: e2e-${{ matrix.name }}-logs
+          path: |
+            out/e2e/summary.md
+            out/e2e/logs
+            out/e2e/playwright-test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  e2e-headless:
+    needs: changes
+    if: needs.changes.outputs.e2e_win == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      # Same cache key as the `mod` job, so a warm cache makes the mod build here a few minutes.
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-archives
+          key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
+          restore-keys: vcpkg-mod-${{ runner.os }}-
+      - name: Create vcpkg cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+      - name: E2E (Publish,Headless)
+        shell: pwsh
+        run: ./tools/e2e.ps1 -Steps Publish,Headless
+      - name: Upload E2E logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-headless-logs
+          path: |
+            out/e2e/summary.md
+            out/e2e/logs
           if-no-files-found: ignore
           retention-days: 7
