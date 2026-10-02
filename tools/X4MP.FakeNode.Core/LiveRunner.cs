@@ -33,6 +33,12 @@ public sealed record LiveRunOptions
     /// <summary>Called once with every node's counters when the run has ended (tests read the traders and the fake authority's ground truth).</summary>
     public Action<IReadOnlyList<LiveNodeStats>>? OnFinished { get; init; }
 
+    /// <summary>
+    /// Early stop: polled about every 25 ms against the live node counters; when it returns true the run ends as if <c>--duration</c> had elapsed
+    /// (the duration stays the upper bound). Lets tests end a run as soon as its goal is observable instead of sleeping the full duration.
+    /// </summary>
+    public Func<IReadOnlyList<LiveNodeStats>, bool>? StopWhen { get; init; }
+
     /// <summary>Size of the fake save the authority uploads (null = <c>--save-mb</c>, default 4 MiB).</summary>
     public long? SaveBytes { get; init; }
 
@@ -344,9 +350,11 @@ public static partial class LiveRunner
         }
 
         var reporter = single ? Task.CompletedTask : ReportLoopAsync(stats, run, lines, clock, cts.Token);
+        var stopWatcher = run.StopWhen is { } stopWhen ? StopWhenAsync(stats, stopWhen, cts) : Task.CompletedTask;
         await Task.WhenAll(tasks).ConfigureAwait(false);
         await cts.CancelAsync().ConfigureAwait(false);
         await reporter.ConfigureAwait(false);
+        await stopWatcher.ConfigureAwait(false);
 
         foreach (var s in stats.Where(s => s.Session is not null))
             s.Session!.CheckStale();
@@ -387,6 +395,35 @@ public static partial class LiveRunner
         }
 
         return errors == 0 ? ExitOk : ExitErrors;
+    }
+
+    private static async Task StopWhenAsync(IReadOnlyList<LiveNodeStats> stats, Func<IReadOnlyList<LiveNodeStats>, bool> stopWhen, CancellationTokenSource cts)
+    {
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                await Task.Delay(25, cts.Token).ConfigureAwait(false);
+                bool done;
+                try
+                {
+                    done = stopWhen(stats);
+                }
+                catch (InvalidOperationException)
+                {
+                    done = false; // a node mutated a collection under the predicate: ask again
+                }
+
+                if (done)
+                {
+                    await cts.CancelAsync().ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     /// <summary>The M1-T4 result: what the commanders sent, what the server answered, and what reached the authority.</summary>

@@ -87,13 +87,18 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
 
     private static readonly LiveRunOptions Fast = new() { ReportInterval = TimeSpan.FromSeconds(5), ConnectStagger = TimeSpan.FromMilliseconds(30) };
 
+    private static LiveRunOptions Until(Func<IReadOnlyList<LiveNodeStats>, bool> stopWhen) => Fast with { StopWhen = stopWhen };
+
+    private static bool AllPlaced(IReadOnlyList<LiveNodeStats> s, int clients) =>
+        s.Count(n => n.Role == Role.Client && n.InGame && n.TeamId != 0) >= clients && s.Any(n => n.Role == Role.Authority && n.InGame);
+
     private static CliOptions Swarm(Host host, params string[] args) =>
         CliParser.Parse(["swarm", .. args]).Options! with { Port = host.TcpPort };
 
-    private async Task<(int Exit, string Text)> RunAsync(CliOptions options, LiveRunOptions? run = null)
+    private async Task<(int Exit, string Text)> RunAsync(CliOptions options, LiveRunOptions? run = null, CancellationToken stop = default)
     {
         var text = new StringWriter();
-        int exit = await LiveRunner.RunAsync(options, text, run ?? Fast, CancellationToken.None);
+        int exit = await LiveRunner.RunAsync(options, text, run ?? Fast, stop);
         output.WriteLine(text.ToString());
         return (exit, text.ToString());
     }
@@ -130,7 +135,8 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         await using var host = new Host(LobbyWithCreate);
         await host.StartAsync();
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--teams", "2", "--commander", "foreign", "--duration", "14"));
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--teams", "2", "--commander", "foreign", "--duration", "14"),
+            Until(s => AllPlaced(s, 4) && LiveStop.OrdersSent(s) >= 12 && LiveStop.OrdersAnswered(s) == LiveStop.OrdersSent(s)));
 
         Assert.Equal(0, exit);
         var teams = TeamsLine().Match(text);
@@ -157,7 +163,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         foreach (string name in new[] { "Alpha", "Beta", "Gamma" })
             Assert.True((await host.Teams.CreateTeamAsync(name)).Ok);
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--team-pick", "lobby-random", "--duration", "10"));
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--team-pick", "lobby-random", "--duration", "10"), Until(s => AllPlaced(s, 6)));
 
         Assert.Equal(0, exit);
         var teams = TeamsLine().Match(text);
@@ -175,7 +181,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         await using var host = new Host(LobbyWithCreate);
         await host.StartAsync();
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--teams", "3", "--duration", "10"));
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--teams", "3", "--duration", "10"), Until(s => AllPlaced(s, 6)));
 
         Assert.Equal(0, exit);
         var teams = TeamsLine().Match(text);
@@ -192,7 +198,8 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         await using var host = new Host(LobbyWithCreate.Append("--X4MP:Teams:DefaultRelation=Hostile").ToArray());
         await host.StartAsync();
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--relations", "twoteams", "--verify", "--commander", "own", "--duration", "14"));
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--relations", "twoteams", "--verify", "--commander", "own", "--duration", "14"),
+            Until(s => AllPlaced(s, 4) && LiveStop.Verified(s, 4, 1500) && s.Sum(n => n.Session?.ChecksumsOk ?? 0) >= 4));
 
         Assert.Equal(0, exit);
         var v = VerifyLine().Match(text);
@@ -222,7 +229,8 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
             OnClientReady = h => handles[h.Name] = h,
         };
         var options = Swarm(host, "--clients", "3", "--with-authority", "--commander", "own", "--verify", "--sectors", "12", "--ships", "4000", "--duration", "24");
-        var swarm = RunAsync(options, run);
+        using var stopSwarm = new CancellationTokenSource(); // the test body is the whole scenario: the swarm ends when it does
+        var swarm = RunAsync(options, run, stopSwarm.Token);
 
         var report = new List<string>();
         bool failed = false;
@@ -274,6 +282,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         }
         finally
         {
+            await stopSwarm.CancelAsync();
             var (exit, text) = await swarm;
             foreach (string line in report)
                 output.WriteLine(line);
@@ -297,7 +306,8 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
 
         FakeAuthority? authority = null;
         var run = new LiveRunOptions { ReportInterval = TimeSpan.FromSeconds(5), ConnectStagger = TimeSpan.FromMilliseconds(30), OnAuthority = a => authority = a };
-        var swarm = RunAsync(Swarm(host, "--clients", "2", "--with-authority", "--team-assets", "--duration", "14"), run);
+        using var stopSwarm = new CancellationTokenSource();
+        var swarm = RunAsync(Swarm(host, "--clients", "2", "--with-authority", "--team-assets", "--duration", "14"), run, stopSwarm.Token);
         var lags = new List<double>();
         bool failed = false;
         try
@@ -332,6 +342,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         }
         finally
         {
+            await stopSwarm.CancelAsync();
             var (exit, text) = await swarm;
             output.WriteLine("relation change -> hostility lag (ms): " + string.Join(", ", lags.Select(l => l.ToString("F0", CultureInfo.InvariantCulture))));
             if (!failed)
