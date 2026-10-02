@@ -116,6 +116,32 @@ public sealed class AuthorityAndVerifierTests
     }
 
     [Fact]
+    public void ATickThatSpawnsEntitiesPutsAClockUpdateFirstAndGoesOutOnTheOrderedLane()
+    {
+        var w = NewWorld();
+        var a = new FakeAuthority(w);
+        a.OnCaptureSet(Capture(1, (BusySector(w), 10)), tick: 0);
+
+        bool sawSpawnTick = false;
+        for (long t = 0; t < 40; t++)
+        {
+            var o = a.Tick(t);
+            bool spawns = o.Any(m => m.Type == MsgType.EntitySpawn);
+            Assert.Equal(spawns, FakeAuthority.NeedsOrderedLane(o));
+            if (!spawns)
+                continue;
+            sawSpawnTick = true;
+            // the spawns are stamped with the game time of the update in front of them
+            Assert.Equal(MsgType.WorldUpdate, o[0].Type);
+            var clock = Decode<WorldUpdate>(o[0]).UnPack();
+            Assert.Empty(clock.States);
+            Assert.Equal((uint)t, clock.AuthorityTick);
+        }
+        Assert.True(sawSpawnTick);
+        Assert.False(FakeAuthority.NeedsOrderedLane([]));
+    }
+
+    [Fact]
     public void OutOfRangeSectorsAreRejected()
     {
         var a = new FakeAuthority(NewWorld());
