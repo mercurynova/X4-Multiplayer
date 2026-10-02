@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ApiError, http, postJson } from '../api/http';
+import { ApiError, http, onUnauthorized, postJson } from '../api/http';
 import type { MeDto } from '../generated/generated';
 
 export interface AuthState {
@@ -8,6 +8,9 @@ export interface AuthState {
   me: MeDto | null;
   isAuthenticated: boolean;
   mustChangePassword: boolean;
+  /** Set when the session ended on its own (expiry); the login page shows it. */
+  notice: string | null;
+  isAdmin: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
@@ -31,6 +34,19 @@ async function fetchMe(): Promise<MeDto | null> {
 export function AuthProvider({ children, initialMe }: { children: ReactNode; initialMe?: MeDto | null }) {
   const [me, setMe] = useState<MeDto | null>(initialMe ?? null);
   const [loading, setLoading] = useState(initialMe === undefined);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Any API call answering 401 outside the auth probes means the cookie expired or was invalidated.
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        setMe((current) => {
+          if (current) setNotice('Your session has expired. Please sign in again.');
+          return null;
+        });
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (initialMe !== undefined) return;
@@ -52,6 +68,7 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
 
   const login = useCallback(async (username: string, password: string) => {
     await postJson('/api/v1/auth/login', { username, password });
+    setNotice(null);
     setMe(await fetchMe());
   }, []);
 
@@ -59,6 +76,7 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
     try {
       await postJson('/api/v1/auth/logout');
     } finally {
+      setNotice(null);
       setMe(null);
     }
   }, []);
@@ -74,11 +92,13 @@ export function AuthProvider({ children, initialMe }: { children: ReactNode; ini
       me,
       isAuthenticated: me !== null,
       mustChangePassword: me?.mustChangePassword ?? false,
+      notice,
+      isAdmin: me?.role === 'Admin',
       login,
       logout,
       changePassword,
     }),
-    [loading, me, login, logout, changePassword],
+    [loading, me, notice, login, logout, changePassword],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
