@@ -134,6 +134,20 @@ Report back (≤ 250 words): what was built, files touched, test results (counts
    implementer (SendMessage) rather than fixing in the Opus session.
 6. Merge, update `roadmap.md` task status, and record any design change as an ADR.
 
+### 6.1 Long-running agents (user request, 2026-10-01)
+
+Sonnet tasks usually finish in 10–50 minutes. When one runs much longer, the lead checks
+what it is doing (worktree `git status`/`git diff`, running processes) and tells the user
+**why** it is slow. A slow agent is fine if the time is really needed (e.g. a large task, or a
+verification loop the brief asked for); it is not fine if the agent is going in circles.
+
+- Flake hunts and other open-ended investigations get a time box in the brief (about 45 min):
+  after it, commit what exists and report the failure, message and best hypothesis.
+- Loops of the form "run N times until it passes" must state their cost up front
+  (a failing run of a test with a 60 s timeout costs 60–90 s per iteration).
+- Record the reason for any run over ~1 hour in the wave status note in roadmap.md
+  (what took the time, whether it was needed), so we can tune briefs.
+
 ## 7. Open items for the user
 
 1. ~~Install prerequisites~~ Done on the dev machine (repeat per machine via dev-setup.md).
