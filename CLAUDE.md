@@ -10,6 +10,7 @@ Private GitHub: https://github.com/mercurynova/X4-Multiplayer (account `mercuryn
 This clone uses gh for git credentials (repo-local `credential.helper = !gh auth git-credential`),
 so pushes go through the **active** gh account. If push says "Repository not found",
 run `gh auth switch -u mercurynova`.
+**History was rewritten on 2026-10-02** (scrubbed personal data before going public): any clone made before that must be deleted and re-cloned, never pulled or merged.
 
 ## Start here
 - `docs/README.md`: map of all project knowledge (read it first in a new session).
