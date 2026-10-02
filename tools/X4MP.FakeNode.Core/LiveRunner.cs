@@ -53,6 +53,15 @@ public sealed record LiveRunOptions
 
     /// <summary>How long a client waits for the server's answer to a lobby team request.</summary>
     public TimeSpan TeamRequestTimeout { get; init; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>How long a <c>--reload-every</c> client stays away (the simulated extension reload).</summary>
+    public TimeSpan ReloadDelay { get; init; } = TimeSpan.FromMilliseconds(400);
+
+    /// <summary>How long a client waits for the keyframes after a resume before it reports them missing.</summary>
+    public TimeSpan ResumeKeyframeTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Test hook for <c>inspect</c>: receives the printed lines in addition to the output writer.</summary>
+    public Action<string>? OnInspectLine { get; init; }
 }
 
 /// <summary>Counters of one connected (or failed) node; read by the reporter, written by the node's loop.</summary>
@@ -195,6 +204,64 @@ public sealed class LiveNodeStats(string name, Role role)
         _rejectReasons.AddOrUpdate(result.Reason, 1, (_, n) => n + 1);
     }
 
+    // ---- M1-F2: failure injection
+
+    private int _disconnects;
+    private int _reloads;
+    private int _resumeFailures;
+    private int _resumeNoKeyframe;
+    private int _resumeKeyframes;
+    private long _resumeKeyframeMs;
+    private long _resumeKeyframeMaxMs;
+
+    /// <summary>The latency / slow-reader settings of this node's TCP stream (null = none).</summary>
+    public StreamImpairment? Impairment { get; internal set; }
+
+    /// <summary>Set when the server closed a slow reader (the expected outcome): why and how long after the slow reading began. Not an error.</summary>
+    public string? ExpectedClose { get; internal set; }
+
+    /// <summary>Abrupt socket drops followed by a resume (<c>--disconnect-every</c>).</summary>
+    public int Disconnects => Volatile.Read(ref _disconnects);
+
+    /// <summary><c>ClientReload</c> departures followed by a resume (<c>--reload-every</c>).</summary>
+    public int Reloads => Volatile.Read(ref _reloads);
+
+    /// <summary>Resumes the server did not accept as a resume (a fresh slot, ResumeExpired, handshake errors that did not clear).</summary>
+    public int ResumeFailures => Volatile.Read(ref _resumeFailures);
+
+    /// <summary>Resumes after which no keyframe arrived within the timeout.</summary>
+    public int ResumesWithoutKeyframe => Volatile.Read(ref _resumeNoKeyframe);
+
+    /// <summary>Resumes after which keyframes arrived, and how long the first took.</summary>
+    public int ResumesWithKeyframe => Volatile.Read(ref _resumeKeyframes);
+
+    public TimeSpan MaxKeyframeDelay => TimeSpan.FromMilliseconds(Interlocked.Read(ref _resumeKeyframeMaxMs));
+
+    public TimeSpan AvgKeyframeDelay => ResumesWithKeyframe == 0 ? TimeSpan.Zero : TimeSpan.FromMilliseconds(Interlocked.Read(ref _resumeKeyframeMs) / ResumesWithKeyframe);
+
+    internal void CountResume(bool reload)
+    {
+        if (reload)
+            Interlocked.Increment(ref _reloads);
+        else
+            Interlocked.Increment(ref _disconnects);
+    }
+
+    internal void CountResumeFailure() => Interlocked.Increment(ref _resumeFailures);
+
+    internal void CountNoKeyframe() => Interlocked.Increment(ref _resumeNoKeyframe);
+
+    internal void CountKeyframe(TimeSpan after)
+    {
+        Interlocked.Increment(ref _resumeKeyframes);
+        long ms = (long)after.TotalMilliseconds;
+        Interlocked.Add(ref _resumeKeyframeMs, ms);
+        long max;
+        while (ms > (max = Interlocked.Read(ref _resumeKeyframeMaxMs)) && Interlocked.CompareExchange(ref _resumeKeyframeMaxMs, ms, max) != max)
+        {
+        }
+    }
+
     internal void MarkConnected() => Volatile.Write(ref _connected, 1);
 
     internal void MarkDisconnected() => Volatile.Write(ref _connected, 0);
@@ -239,11 +306,8 @@ public static partial class LiveRunner
         ArgumentNullException.ThrowIfNull(output);
         run ??= new LiveRunOptions();
 
-        if (o.Command == FakeNodeCommand.Inspect)
-        {
-            await output.WriteLineAsync("fakenode inspect: needs sector replication (M1-05..08); not available yet.").ConfigureAwait(false);
-            return ExitNotAvailable;
-        }
+        if (o.Command == FakeNodeCommand.Fuzz)
+            return await RunFuzzAsync(o, output, stop).ConfigureAwait(false);
 
         var plan = Plan(o);
         var lines = new SynchronizedWriter(output);
@@ -255,6 +319,9 @@ public static partial class LiveRunner
         var stats = plan.Select(p => new LiveNodeStats(p.Name, p.Role)).ToList();
         var galaxy = new Lazy<FakeGalaxy>(() => FakeGalaxy.Generate(o.Seed, new GalaxyOptions { SectorCount = o.Sectors, ShipCount = o.Ships }), LazyThreadSafetyMode.ExecutionAndPublication);
         bool single = plan.Count == 1;
+        var inspector = o.Command == FakeNodeCommand.Inspect
+            ? new FrameInspector(o, line => { lines.WriteAsync(line); run.OnInspectLine?.Invoke(line); }, () => cts.Cancel())
+            : null;
         await lines.WriteAsync($"fakenode {o.Command.ToString().ToLowerInvariant()}: {plan.Count} node(s) -> {o.Host}:{o.Port}" +
                                (o.Duration is { } d ? $" for {d}s" : " until Ctrl+C")).ConfigureAwait(false);
         var clock = Stopwatch.StartNew();
@@ -262,7 +329,7 @@ public static partial class LiveRunner
         var tasks = new List<Task>();
         for (int i = 0; i < plan.Count; i++)
         {
-            tasks.Add(RunNodeAsync(o, plan[i], i, stats[i], single, run, lines, galaxy, saveRoot, cts.Token));
+            tasks.Add(RunNodeAsync(o, plan[i], i, stats[i], single, run, lines, galaxy, saveRoot, cts.Token, inspector));
             if (i + 1 < plan.Count)
             {
                 try
@@ -288,7 +355,7 @@ public static partial class LiveRunner
         await WriteTradeSummaryAsync(stats, lines).ConfigureAwait(false);
         run.OnFinished?.Invoke(stats);
         await WriteTeamSummaryAsync(o, stats, lines).ConfigureAwait(false);
-        long verifyErrors = stats.Sum(s => s.VerifyErrors);
+        long verifyErrors = stats.Where(s => s.Impairment is not { Slow: not null }).Sum(s => s.VerifyErrors); // a slow reader is allowed to fall behind
         if (o.Verify)
             await WriteVerifySummaryAsync(stats, lines).ConfigureAwait(false);
         if (o.Udp)
@@ -300,6 +367,9 @@ public static partial class LiveRunner
                 $"simulated-drops={lanes.Sum(s => s.Udp!.SimulatedDrops)} rx-loss-max={(lanes.Count == 0 ? 0 : lanes.Max(s => s.Udp!.RxLossPercent)):F1}%")).ConfigureAwait(false);
         }
 
+        await WriteInjectionSummaryAsync(o, stats, lines).ConfigureAwait(false);
+        if (inspector is not null)
+            await lines.WriteAsync(inspector.Summary()).ConfigureAwait(false);
         long errors = stats.Sum(s => s.Errors) + verifyErrors;
         await lines.WriteAsync($"summary: nodes={stats.Count} joined={stats.Count(s => s.Pings > 0)} errors={errors} pings={stats.Sum(s => s.Pings)} " +
                                $"rtt avg={Ms(Average(stats))} max={Ms(stats.Count == 0 ? TimeSpan.Zero : stats.Max(s => s.MaxRtt))} " +
@@ -402,6 +472,9 @@ public static partial class LiveRunner
             case FakeNodeCommand.Authority:
                 plan.Add(new NodePlan(o.Name, Role.Authority));
                 break;
+            case FakeNodeCommand.Inspect:
+                plan.Add(new NodePlan(o.Name, Role.Client));
+                break;
             case FakeNodeCommand.Client:
                 if (o.Clients == 1)
                     plan.Add(new NodePlan(o.Name, Role.Client));
@@ -430,8 +503,15 @@ public static partial class LiveRunner
 
     private static async Task RunNodeAsync(
         CliOptions o, NodePlan plan, int index, LiveNodeStats stats, bool print, LiveRunOptions run, SynchronizedWriter lines,
-        Lazy<FakeGalaxy> galaxy, string saveRoot, CancellationToken ct)
+        Lazy<FakeGalaxy> galaxy, string saveRoot, CancellationToken ct, FrameInspector? inspector = null)
     {
+        // Failure injection (M1-F2): latency for every node, a slow reader for the first --slow-clients clients.
+        int ordinal = o.Command == FakeNodeCommand.Swarm && o.WithAuthority ? index - 1 : index;
+        var slowSpec = plan.Role == Role.Client && o.IsSlowReader(ordinal) ? o.SlowReader : null;
+        var impairment = o.LatencyMs > 0 || o.JitterMs > 0 || slowSpec is not null
+            ? new StreamImpairment(TimeSpan.FromMilliseconds(o.LatencyMs), TimeSpan.FromMilliseconds(o.JitterMs), slowSpec, BitConverter.ToInt32(DeriveKey(o.Seed, plan.Name), 4))
+            : null;
+        stats.Impairment = impairment;
         var options = new NodeClientOptions
         {
             PlayerName = plan.Name,
@@ -439,6 +519,8 @@ public static partial class LiveRunner
             Password = o.Password,
             RequestedRoles = plan.Role,
             ClientCaps = o.Udp ? (ulong)Capability.UdpRealtime : 0,
+            StreamWrapper = impairment is null ? null : stream => new ImpairedStream(stream, impairment),
+            ReceiveBufferBytes = slowSpec is null ? 0 : 4096, // a small window: flow control stops the server's sender soon after the node stops reading
         };
 
         TcpNodeClient client;
@@ -469,13 +551,19 @@ public static partial class LiveRunner
 
             client.PongReceived += stats.RecordRtt;
             var link = new NodeLink(client, w.PlayerId);
+            if (inspector is not null)
+                link.Tap = inspector.Tap;
             using var readerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             link.Start(readerCts.Token);
             Task? udpBind = StartUdp(o, link, stats, lines, plan.Name, ct);
             try
             {
                 // Against a session actor the node plays its role; against a bare gateway it only keeps the socket alive.
-                if (await link.WaitForSessionAsync(run.SessionDetect, ct).ConfigureAwait(false))
+                if (o.Command == FakeNodeCommand.Inspect && o.NoJoin)
+                {
+                    await InspectOnlyAsync(link, o, run, lines, ct).ConfigureAwait(false);
+                }
+                else if (await link.WaitForSessionAsync(run.SessionDetect, ct).ConfigureAwait(false))
                 {
                     await RunSessionNodeAsync(o, plan, index, link, stats, run, lines, galaxy.Value, Path.Combine(saveRoot, plan.Name), print, ct).ConfigureAwait(false);
                 }
@@ -487,6 +575,13 @@ public static partial class LiveRunner
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 // normal end: Ctrl+C or --duration
+            }
+            catch (Exception ex) when (impairment is { SlowActive: true } && ex is IOException or System.Net.Sockets.SocketException or TimeoutException)
+            {
+                // A slow reader that the server closed is the outcome the injection is after (SlowConsumer, or the heartbeat for a node that never answers).
+                var code = link.DisconnectedBy?.ToString() ?? "connection reset";
+                stats.ExpectedClose = $"{code} after {impairment.SlowFor.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s of slow reading";
+                await lines.WriteAsync($"[{plan.Name}] slow reader closed by the server: {stats.ExpectedClose}").ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -526,6 +621,8 @@ public static partial class LiveRunner
 
         int seed = BitConverter.ToInt32(DeriveKey(o.Seed, name), 0);
         var udp = new UdpRealtimeClient(o.Host, w.UdpPort, w.ConnId, w.UdpToken, o.LossPercent / 100.0, seed);
+        udp.Latency = TimeSpan.FromMilliseconds(o.LatencyMs);
+        udp.Jitter = TimeSpan.FromMilliseconds(o.JitterMs);
         udp.FrameReceived = link.DispatchDatagram;
         link.Udp = udp;
         stats.Udp = udp;

@@ -123,6 +123,32 @@ public sealed class FakeClientSession
         return (pick.Key, pick.Value.Sector);
     }
 
+    /// <summary>Times the connection was resumed (<see cref="ResetForResume"/>): <c>--disconnect-every</c>, <c>--reload-every</c>.</summary>
+    public int Resumes { get; private set; }
+
+    /// <summary>Full-state entries (keyframes) received since the last <see cref="ResetForResume"/>: the server restarts the baselines of a resumed node.</summary>
+    public long KeyframesSinceResume { get; private set; }
+
+    /// <summary>Ghosts held when the last resume happened.</summary>
+    public int GhostsBeforeResume { get; private set; }
+
+    /// <summary>
+    /// The connection was replaced (protocol.md 6.6): the server clears this client's baselines and re-sends spawns and keyframes for its whole interest
+    /// set, so the ghost table starts empty (a ghost the server despawned during the gap would otherwise live on). Counters keep adding up.
+    /// </summary>
+    public void ResetForResume()
+    {
+        GhostsBeforeResume = _ghosts.Count;
+        _ghosts.Clear();
+        _tombstones.Clear();
+        _held.Clear();
+        _heldCount = 0;
+        _mismatchStreak = 0;
+        Verifier.Reset();
+        KeyframesSinceResume = 0;
+        Resumes++;
+    }
+
     public long SpawnsApplied { get; private set; }
 
     public long DespawnsApplied { get; private set; }
@@ -175,6 +201,9 @@ public sealed class FakeClientSession
     public string Summary() => string.Create(CultureInfo.InvariantCulture,
         $"ghosts={Ghosts} spawns={SpawnsApplied} despawns={DespawnsApplied} frames={ReplicationFrames} entries={ReplicationEntries} " +
         $"checksums={ChecksumsOk}/{ChecksumsOk + ChecksumMismatches} resyncs={ResyncsRequested} errors={Errors}");
+
+    /// <summary>Records a protocol-level failure found by the runner (for example a resume that never got its keyframes).</summary>
+    public void Report(string kind, string detail) => Fail(kind, 0, detail);
 
     private void Fail(string kind, uint netId, string detail)
     {
@@ -409,6 +438,7 @@ public sealed class FakeClientSession
         if ((entry.Mask & Complete) == Complete)
         {
             ghost.GotFull = true;
+            KeyframesSinceResume++;
         }
         else if (!ghost.GotFull)
         {

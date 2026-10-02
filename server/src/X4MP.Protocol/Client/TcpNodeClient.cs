@@ -59,11 +59,18 @@ public sealed class TcpNodeClient : IAsyncDisposable
     /// <summary>Opens a TCP connection and runs the handshake.</summary>
     public static async Task<TcpNodeClient> ConnectAsync(string host, int port, NodeClientOptions options, CancellationToken ct = default)
     {
-        var tcp = new TcpClient { NoDelay = true };
+        var tcp = options.LocalAddress is { } local
+            ? new TcpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Parse(local), 0)) { NoDelay = true }
+            : new TcpClient { NoDelay = true };
+        if (options.ReceiveBufferBytes > 0)
+            tcp.ReceiveBufferSize = options.ReceiveBufferBytes;
         try
         {
             await tcp.ConnectAsync(host, port, ct).ConfigureAwait(false);
-            var client = new TcpNodeClient(tcp.GetStream(), options, tcp);
+            Stream stream = tcp.GetStream();
+            if (options.StreamWrapper is { } wrap)
+                stream = wrap(stream);
+            var client = new TcpNodeClient(stream, options, tcp);
             await client.HandshakeAsync(ct).ConfigureAwait(false);
             return client;
         }
