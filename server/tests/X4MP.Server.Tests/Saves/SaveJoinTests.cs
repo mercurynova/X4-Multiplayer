@@ -22,6 +22,7 @@ public sealed class SaveJoinTests(ITestOutputHelper output)
     {
         var authority = await AuthorityRig.StartAsync(server, Options(server), sectors: sectors, ships: ships);
         await server.WaitForAsync(s => s.Phase == SessionPhase.Running, 60_000, "first checkpoint");
+        await authority.WaitForCheckpointStoredAsync();
         return authority;
     }
 
@@ -182,6 +183,7 @@ public sealed class SaveJoinTests(ITestOutputHelper output)
         await server.WaitForAsync(s => s.Phase == SessionPhase.Ended, 30_000, "session ended by the save service");
 
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(30), "ended long before the 120 s stop timeout");
+        await authority.WaitForCheckpointStoredAsync(2); // the session ends when the server stored the final save; the authority reads its SaveStored a moment later
         Assert.Equal(2, authority.Saves.CheckpointsStored); // the final save was uploaded
         output.WriteLine($"final save + StopCompleted in {clock.Elapsed.TotalMilliseconds:F0} ms");
     }

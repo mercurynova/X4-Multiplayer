@@ -53,6 +53,7 @@ public sealed class SaveTransferTests(ITestOutputHelper output)
             var clock = Stopwatch.StartNew();
             await using var authority = await AuthorityRig.StartAsync(server, AuthorityOptions(server, megabytes));
             await server.WaitForAsync(s => s.Phase == SessionPhase.Running, timeoutMs: 60_000, what: "first checkpoint stored");
+            await authority.WaitForCheckpointStoredAsync();
             double uploadSeconds = clock.Elapsed.TotalSeconds;
 
             var result = authority.Saves.LastResult!;
