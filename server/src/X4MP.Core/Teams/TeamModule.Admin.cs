@@ -6,6 +6,11 @@ namespace X4MP.Core.Teams;
 /// <summary>A player who has no team yet and waits for one (AdminAssign, or a Lobby choice not made).</summary>
 public sealed record UnassignedPlayer(int PlayerId, string Name, bool IsAuthority, bool Connected);
 
+/// <summary>What applying a preset would do (<see cref="TeamModule.PreviewPresetAsync"/>). Empty lists and a <see cref="Blocked"/> reason when it would be refused.</summary>
+public sealed record TeamPresetPreview(
+    TeamPreset Preset, TeamPresetPlan Plan, IReadOnlyList<Team> Teams, IReadOnlyList<TeamMembership> Members, int PlayersMoved, int TeamsRemoved,
+    TeamRejectReason Blocked, string? BlockedDetail);
+
 public sealed partial class TeamModule
 {
     // The admin side of the module (M1-T1; REST and the GUI come with M1-T5). Every method runs on the actor thread, one
@@ -127,6 +132,32 @@ public sealed partial class TeamModule
             return result;
         });
 
+    /// <summary>Sets several pairs at once (one fan-out, one change notification). All pairs are checked first: nothing changes when one is bad.</summary>
+    public Task<TeamResult> SetRelationsAsync(IReadOnlyList<(int TeamA, int TeamB, TeamRelation Relation)> entries) =>
+        OnActor(() =>
+        {
+            foreach (var (a, b, _) in entries)
+            {
+                if (_registry.Find(a) is null || _registry.Find(b) is null)
+                {
+                    return new TeamResult(TeamRejectReason.UnknownTeam, "unknown team");
+                }
+
+                if (a == b)
+                {
+                    return new TeamResult(TeamRejectReason.SameTeam, "a team is always allied with itself");
+                }
+            }
+
+            foreach (var (a, b, relation) in entries)
+            {
+                _registry.SetRelation(a, b, relation);
+            }
+
+            AfterChange();
+            return TeamResult.Success;
+        });
+
     /// <summary>
     /// Applies a preset atomically: replaces the team table, the memberships and the matrix. Everyone the session knows (all
     /// members and every connected player node) is placed. The result carries the settings the preset goes with
@@ -135,16 +166,7 @@ public sealed partial class TeamModule
     public Task<TeamResult<TeamPresetPlan>> ApplyPresetAsync(TeamPreset preset, string assignedBy = "preset") =>
         OnActor(() =>
         {
-            var players = new Dictionary<int, TeamPlayer>();
-            foreach (var m in _registry.Members)
-            {
-                players[m.PlayerId] = new TeamPlayer(m.PlayerId, _names.GetValueOrDefault(m.PlayerId, $"Player {m.PlayerId}"));
-            }
-
-            foreach (var node in _nodes.Values.Where(n => (n.Roles & (Role.Authority | Role.Client)) != 0))
-            {
-                players[node.PlayerId] = new TeamPlayer(node.PlayerId, node.Name);
-            }
+            var players = PresetPlayers();
 
             // A dry run on a copy would be exact; the presets are deterministic, so check the authority's place in the plan:
             // while Running, the authority's player must keep its team.
@@ -152,14 +174,14 @@ public sealed partial class TeamModule
             {
                 var plan = new TeamRegistry();
                 plan.Restore(_registry.Snapshot());
-                var dry = plan.ApplyPreset(preset, players.Values, _time.GetUtcNow(), assignedBy);
+                var dry = plan.ApplyPreset(preset, players, _time.GetUtcNow(), assignedBy);
                 if (dry.Ok && plan.TeamOf(authority.PlayerId) != _registry.TeamOf(authority.PlayerId))
                 {
                     return TeamResults.Fail<TeamPresetPlan>(TeamRejectReason.SessionRunningRestricted, AuthorityMoveDetail);
                 }
             }
 
-            var result = _registry.ApplyPreset(preset, players.Values, _time.GetUtcNow(), assignedBy);
+            var result = _registry.ApplyPreset(preset, players, _time.GetUtcNow(), assignedBy);
             if (result.Ok)
             {
                 AfterChange();
@@ -168,16 +190,69 @@ public sealed partial class TeamModule
             return result;
         });
 
+    private List<TeamPlayer> PresetPlayers()
+    {
+        var players = new Dictionary<int, TeamPlayer>();
+        foreach (var m in _registry.Members)
+        {
+            players[m.PlayerId] = new TeamPlayer(m.PlayerId, _names.GetValueOrDefault(m.PlayerId, $"Player {m.PlayerId}"));
+        }
+
+        foreach (var node in _nodes.Values.Where(n => (n.Roles & (Role.Authority | Role.Client)) != 0))
+        {
+            players[node.PlayerId] = new TeamPlayer(node.PlayerId, node.Name);
+        }
+
+        return [.. players.Values];
+    }
+
+    /// <summary>
+    /// What <see cref="ApplyPresetAsync"/> would do, without changing anything: the teams and memberships that would result, how many
+    /// players change team and how many teams go. <see cref="TeamPresetPreview.Blocked"/> carries the reason when it would be refused.
+    /// </summary>
+    public Task<TeamPresetPreview> PreviewPresetAsync(TeamPreset preset) => OnActor(() => PreviewPreset(preset));
+
+    /// <summary>Synchronous <see cref="PreviewPresetAsync"/>; call it on the actor thread.</summary>
+    public TeamPresetPreview PreviewPreset(TeamPreset preset)
+    {
+        var plan = TeamPresetPlan.For(preset);
+        var copy = new TeamRegistry();
+        copy.Restore(_registry.Snapshot());
+        var dry = copy.ApplyPreset(preset, PresetPlayers(), _time.GetUtcNow(), "preset");
+        if (!dry.Ok)
+        {
+            return new TeamPresetPreview(preset, plan, [], [], 0, 0, dry.Reason, dry.Detail);
+        }
+
+        var snapshot = copy.Snapshot();
+        int moved = snapshot.Members.Count(m => _registry.TeamOf(m.PlayerId) != m.TeamId);
+        var reason = TeamRejectReason.None;
+        string? detail = null;
+        if (_sessionPhase == SessionPhase.Running && AuthorityNodeWithTeam() is { } authority
+            && copy.TeamOf(authority.PlayerId) != _registry.TeamOf(authority.PlayerId))
+        {
+            reason = TeamRejectReason.SessionRunningRestricted;
+            detail = AuthorityMoveDetail;
+        }
+
+        return new TeamPresetPreview(preset, plan, snapshot.Teams, snapshot.Members, moved, _registry.Teams.Count, reason, detail);
+    }
+
+    /// <summary>The name the session last knew for a player (null when never seen); call it on the actor thread.</summary>
+    public string? KnownName(int playerId) => _names.TryGetValue(playerId, out var name) ? name : null;
+
     private SessionNode? AuthorityNodeWithTeam() =>
         _nodes.Values.FirstOrDefault(n => n.IsAuthority && _registry.MembershipOf(n.PlayerId) is not null);
 
     /// <summary>The connected players still waiting for a team (the GUI's "Unassigned" list).</summary>
-    public Task<IReadOnlyList<UnassignedPlayer>> GetUnassignedAsync() =>
-        OnActor<IReadOnlyList<UnassignedPlayer>>(() =>
-        [
-            .. _nodes.Values
-                .Where(n => (n.Roles & (Role.Authority | Role.Client)) != 0 && _registry.MembershipOf(n.PlayerId) is null)
-                .OrderBy(n => n.PlayerId)
-                .Select(n => new UnassignedPlayer(n.PlayerId, n.Name, n.IsAuthority, n.IsAttached)),
-        ]);
+    public Task<IReadOnlyList<UnassignedPlayer>> GetUnassignedAsync() => OnActor(Unassigned);
+
+    /// <summary>Synchronous <see cref="GetUnassignedAsync"/>; call it on the actor thread.</summary>
+    public IReadOnlyList<UnassignedPlayer> Unassigned() =>
+    [
+        .. _nodes.Values
+            .Where(n => (n.Roles & (Role.Authority | Role.Client)) != 0 && _registry.MembershipOf(n.PlayerId) is null)
+            .OrderBy(n => n.PlayerId)
+            .Select(n => new UnassignedPlayer(n.PlayerId, n.Name, n.IsAuthority, n.IsAttached)),
+    ];
 }

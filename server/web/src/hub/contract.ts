@@ -68,4 +68,19 @@ export const groups = {
     events: [E.Diagnostics],
   },
   chat: { key: 'chat', subscribe: M.SubscribeChat, unsubscribe: M.UnsubscribeChat, args: [], events: [E.Chat] },
+  teams: {
+    key: 'teams',
+    subscribe: M.SubscribeTeams,
+    unsubscribe: M.UnsubscribeTeams,
+    args: [],
+    events: [
+      E.TeamUpserted,
+      E.TeamDeleted,
+      E.TeamMemberChanged,
+      E.TeamRelationsChanged,
+      E.TeamPolicyChanged,
+      E.TeamsReset,
+      E.PlayerAwaitingTeam,
+    ],
+  },
 } as const satisfies Record<string, GroupSpec | ((...a: never[]) => GroupSpec)>;

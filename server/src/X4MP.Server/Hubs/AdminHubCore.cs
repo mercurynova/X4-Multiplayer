@@ -9,6 +9,7 @@ using X4MP.Server.Admin;
 using X4MP.Server.Api;
 using X4MP.Server.Auth;
 using X4MP.Server.Economy;
+using X4MP.Server.Teams;
 using X4MP.Server.Logging;
 
 namespace X4MP.Server.Hubs;
@@ -33,6 +34,8 @@ public sealed class AdminHubCore
     private readonly AdminStore _audit;
     private readonly EconomyModule _economy;
     private readonly EconomyViews _economyViews;
+    private readonly TeamViews _teamViews;
+    private readonly TeamsPushState _teamsState;
     private readonly IOptionsMonitor<AdminHubOptions> _options;
     private readonly ILogger<AdminHubCore> _logger;
 
@@ -49,6 +52,8 @@ public sealed class AdminHubCore
         AdminStore audit,
         EconomyModule economy,
         EconomyViews economyViews,
+        TeamViews teamViews,
+        TeamsPushState teamsState,
         IOptionsMonitor<AdminHubOptions> options,
         ILogger<AdminHubCore> logger)
     {
@@ -64,6 +69,8 @@ public sealed class AdminHubCore
         _audit = audit;
         _economy = economy;
         _economyViews = economyViews;
+        _teamViews = teamViews;
+        _teamsState = teamsState;
         _options = options;
         _logger = logger;
     }
@@ -124,6 +131,15 @@ public sealed class AdminHubCore
         return await _actor.CallAsync(() => _economy.Service is { } service
             ? _economyViews.Summary(service, _economy.Auditor)
             : _economyViews.EmptySummary()).ConfigureAwait(false);
+    }
+
+    /// <summary>Joins the teams topic and returns the whole picture (teams, members, waiting players, relations, settings).</summary>
+    public async Task<TeamsStateDto> SubscribeTeamsAsync(string connectionId)
+    {
+        _subscriptions.Join(Client(connectionId), HubTopic.Teams);
+        var state = await _actor.CallAsync(_teamViews.State).ConfigureAwait(false);
+        _teamsState.SeedIfEmpty(state);
+        return state;
     }
 
     public void Subscribe(string connectionId, HubTopic topic) => _subscriptions.Join(Client(connectionId), topic);

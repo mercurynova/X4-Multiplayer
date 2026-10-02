@@ -28,6 +28,13 @@ export const AdminHubEvents = {
   EconomyEvent: 'EconomyEvent',
   EconomySummary: 'EconomySummary',
   EconomyAlert: 'EconomyAlert',
+  TeamUpserted: 'TeamUpserted',
+  TeamDeleted: 'TeamDeleted',
+  TeamMemberChanged: 'TeamMemberChanged',
+  TeamRelationsChanged: 'TeamRelationsChanged',
+  TeamPolicyChanged: 'TeamPolicyChanged',
+  TeamsReset: 'TeamsReset',
+  PlayerAwaitingTeam: 'PlayerAwaitingTeam',
 } as const;
 
 export const AdminHubMethods = {
@@ -47,6 +54,8 @@ export const AdminHubMethods = {
   SendChat: 'SendChat',
   SubscribeEconomy: 'SubscribeEconomy',
   UnsubscribeEconomy: 'UnsubscribeEconomy',
+  SubscribeTeams: 'SubscribeTeams',
+  UnsubscribeTeams: 'UnsubscribeTeams',
 } as const;
 
 export interface AlertDto {
@@ -83,6 +92,16 @@ export interface ApiTokenDto {
   lastUsedAt: string | null;
   revoked: boolean;
   owner: string | null;
+}
+
+export interface ApplyPresetRequest {
+  preset: string | null;
+  confirm: boolean | null;
+}
+
+export interface AssignMemberRequest {
+  teamId: number | null;
+  role: string | null;
 }
 
 export interface AuditEconomyRequest {
@@ -132,6 +151,15 @@ export interface BeginUploadRequest {
   fileName: string | null;
   size: number;
   sha256: string | null;
+}
+
+export interface BulkAssignRequest {
+  assignments: BulkAssignmentDto[] | null;
+}
+
+export interface BulkAssignmentDto {
+  playerId: number;
+  teamId: number | null;
 }
 
 export interface CancelLoanRequest {
@@ -202,6 +230,15 @@ export interface CreateSessionRequest {
   name: string | null;
   saveId: string | null;
   settings: Record<string, unknown> | null;
+}
+
+export interface CreateTeamRequest {
+  name: string | null;
+  color: string | null;
+  factionSlot: number | null;
+  maxMembers: number | null;
+  locked: boolean | null;
+  password: string | null;
 }
 
 export interface CreateTokenRequest {
@@ -490,6 +527,31 @@ export interface PatchSaveRequest {
   pinned: boolean | null;
 }
 
+export interface PatchTeamPolicyRequest {
+  joinMode: string | null;
+  autoAssign: string | null;
+  allowCreateInLobby: boolean | null;
+  lobbyTimeoutSeconds: number | null;
+  maxTeams: number | null;
+  defaultRelation: string | null;
+  assetPolicy: string | null;
+  allowFriendlyFire: boolean | null;
+  allowAssetTransfer: boolean | null;
+  moveAssetsWithPlayer: string | null;
+  allowSelfTeamChange: boolean | null;
+  relationChangePolicy: string | null;
+}
+
+export interface PatchTeamRequest {
+  name: string | null;
+  color: string | null;
+  factionSlot: number | null;
+  leaderPlayerId: number | null;
+  locked: boolean | null;
+  maxMembers: number | null;
+  password: string | null;
+}
+
 export interface PermissionDeniedDto {
   at: string;
   playerId: number;
@@ -518,6 +580,8 @@ export interface PlayerDto {
   activeBan: BanDto | null;
   lastIp: string | null;
   notes: string | null;
+  teamId: number | null;
+  teamName: string | null;
 }
 
 export interface PlayerLiveDto {
@@ -532,6 +596,8 @@ export interface PlayerLiveDto {
   fps: number;
   connectedSeconds: number;
   muted: boolean;
+  teamId: number | null;
+  teamName: string | null;
 }
 
 export interface PlayerSessionDto {
@@ -541,6 +607,15 @@ export interface PlayerSessionDto {
   leftAt: string | null;
   leaveReason: string | null;
   role: string;
+}
+
+export interface PresetConfirmProblem {
+  type: string;
+  title: string;
+  status: number;
+  code: string;
+  detail: string | null;
+  preview: TeamPresetPreviewDto;
 }
 
 export interface ProtocolRangeDto {
@@ -672,6 +747,14 @@ export interface SessionSummaryDto {
   players: number;
 }
 
+export interface SetRelationRequest {
+  relation: string | null;
+}
+
+export interface SetRelationsRequest {
+  entries: TeamRelationEntryDto[] | null;
+}
+
 export interface SettingSchemaDto {
   key: string;
   section: string;
@@ -705,6 +788,85 @@ export interface StartSessionRequest {
 export interface StopSessionRequest {
   requestFinalSave: boolean | null;
   message: string | null;
+}
+
+export interface TeamDetailDto {
+  team: TeamDto;
+  members: TeamMemberDto[];
+}
+
+export interface TeamDto {
+  id: number;
+  name: string;
+  color: string;
+  factionSlot: number;
+  leaderPlayerId: number | null;
+  locked: boolean;
+  maxMembers: number | null;
+  hasPassword: boolean;
+  memberCount: number;
+}
+
+export interface TeamMemberDto {
+  playerId: number;
+  name: string;
+  teamId: number | null;
+  role: string;
+  online: boolean;
+  isAuthority: boolean;
+  assignedBy: string;
+  since: string | null;
+}
+
+export interface TeamPolicyDto {
+  joinMode: string;
+  autoAssign: string;
+  allowCreateInLobby: boolean;
+  lobbyTimeoutSeconds: number;
+  maxTeams: number;
+  maxFactionSlots: number;
+  defaultRelation: string;
+  assetPolicy: string;
+  allowFriendlyFire: boolean;
+  allowAssetTransfer: boolean;
+  moveAssetsWithPlayer: string;
+  allowSelfTeamChange: boolean;
+  relationChangePolicy: string;
+}
+
+export interface TeamPresetPreviewDto {
+  preset: string;
+  running: boolean;
+  requiresConfirm: boolean;
+  blocked: string | null;
+  blockedDetail: string | null;
+  teams: TeamDto[];
+  members: TeamMemberDto[];
+  playersMoved: number;
+  teamsRemoved: number;
+  autoAssign: string;
+  relation: string | null;
+}
+
+export interface TeamRelationEntryDto {
+  teamA: number;
+  teamB: number;
+  relation: string;
+}
+
+export interface TeamRelationsDto {
+  version: number;
+  entries: TeamRelationEntryDto[];
+  defaultRelation: string;
+}
+
+export interface TeamsStateDto {
+  teams: TeamDto[];
+  members: TeamMemberDto[];
+  unassigned: TeamMemberDto[];
+  relations: TeamRelationsDto;
+  policy: TeamPolicyDto;
+  sessionPhase: string;
 }
 
 export interface TraceRequest {

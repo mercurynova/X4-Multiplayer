@@ -62,6 +62,14 @@ public sealed class AdminHub(AdminHubCore core) : Hub<IAdminClient>
 
     public void UnsubscribeEconomy() => core.Unsubscribe(Context.ConnectionId, HubTopic.Economy);
 
+    /// <summary>
+    /// Joins the teams topic (team, member, relation, settings and awaiting-team pushes) and returns the current state. Team changes themselves
+    /// are made through REST (<c>/api/v1/teams</c>), so they are validated and audited in one place.
+    /// </summary>
+    public Task<TeamsStateDto> SubscribeTeams() => core.SubscribeTeamsAsync(Context.ConnectionId);
+
+    public void UnsubscribeTeams() => core.Unsubscribe(Context.ConnectionId, HubTopic.Teams);
+
     /// <summary>Sends an admin chat message (same rules and audit as <c>POST /api/v1/chat</c>). Admin role only.</summary>
     [Authorize(Policy = AdminPolicies.Admin)]
     public Task SendChat(SendChatRequest request) => core.SendChatAsync(Context, request);

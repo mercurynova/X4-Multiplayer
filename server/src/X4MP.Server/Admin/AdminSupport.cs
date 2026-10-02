@@ -141,9 +141,13 @@ internal static class AdminMapping
     public static BanDto ToDto(BanRecord ban, DateTimeOffset now) => new(
         ban.Id, ban.PlayerId, ban.PlayerName, ban.IpCidr, ban.Reason, ban.CreatedBy, ban.CreatedAt, ban.ExpiresAt, ban.IsActive(now));
 
-    public static PlayerLiveDto ToLive(NodeSnapshot node, DateTimeOffset now, IReadOnlySet<int> muted) => new(
-        node.PlayerId, node.ConnectionId, node.Name, node.Roles.ToString(), node.Phase.ToString(), node.Connected, node.RemoteAddress,
-        node.RttMs, node.Stats?.Fps ?? 0, (long)Math.Max(0, (now - node.JoinedAt).TotalSeconds), muted.Contains(node.PlayerId));
+    public static PlayerLiveDto ToLive(NodeSnapshot node, DateTimeOffset now, LiveSession live)
+    {
+        var (teamId, teamName) = live.TeamOf(node.PlayerId);
+        return new(
+            node.PlayerId, node.ConnectionId, node.Name, node.Roles.ToString(), node.Phase.ToString(), node.Connected, node.RemoteAddress,
+            node.RttMs, node.Stats?.Fps ?? 0, (long)Math.Max(0, (now - node.JoinedAt).TotalSeconds), live.Muted.Contains(node.PlayerId), teamId, teamName);
+    }
 
     public static AuthorityStatusDto? ToDto(AuthoritySnapshot authority) =>
         authority.Status == AuthorityStatus.None
@@ -151,9 +155,9 @@ internal static class AdminMapping
             : new AuthorityStatusDto(authority.PlayerId, authority.Name, authority.Status.ToString(), authority.GraceRemainingSeconds, authority.GameBuild, authority.ModVersion);
 
     public static PlayerDto ToDto(
-        PlayerRecord player, bool online, MuteEntry? mute, BanRecord? activeBan, DateTimeOffset now) => new(
+        PlayerRecord player, bool online, MuteEntry? mute, BanRecord? activeBan, DateTimeOffset now, (long? Id, string? Name) team = default) => new(
         player.Id, player.Name, player.FirstSeen, player.LastSeen, player.TotalSeconds, online, mute is not null, mute?.Until,
-        activeBan is null ? null : ToDto(activeBan, now), player.LastIp, player.Notes);
+        activeBan is null ? null : ToDto(activeBan, now), player.LastIp, player.Notes, team.Id, team.Name);
 
     public static AuditEntryDto ToDto(AuditRecord row)
     {
