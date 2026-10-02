@@ -537,9 +537,15 @@ public static partial class LiveRunner
                 long tick = ++lastTick;
                 while (captures.TryDequeue(out var set))
                     authority.OnCaptureSet(set, tick);
-                foreach (var message in authority.Tick(tick))
+                var tickMessages = authority.Tick(tick);
+                // A tick that spawns goes out entirely on the ordered TCP lane (see FakeAuthority.NeedsOrderedLane).
+                bool ordered = FakeAuthority.NeedsOrderedLane(tickMessages);
+                foreach (var message in tickMessages)
                 {
-                    await link.SendRealtimeAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
+                    if (ordered)
+                        await link.Client.SendPayloadAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
+                    else
+                        await link.SendRealtimeAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
                     sentMessages++;
                 }
 
