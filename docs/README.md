@@ -26,6 +26,7 @@ below. The repo is the only memory that follows you between computers.
 |---|---|
 | [x4-api-notes.md](x4-api-notes.md) | X4 9.00 + X4Native API facts: exported functions, Lua globals, MD events, gaps |
 | [requirements.md](requirements.md) | Audit of the old mod: REQ list, PIT pitfalls, known bugs, Windows UX lessons |
+| [research/player-portal.md](research/player-portal.md) | Player-facing web tab: market knowledge, fleets, empire notes and naming (ADR-050, post-M5) |
 | [research/library-mods.md](research/library-mods.md) | SirNukes Mod Support APIs and kuertee UI Extensions: licenses, internals, coexistence (ADR-043) |
 | `../x4-unpacked/` (local only) | Extracted game Lua/MD/libraries; search for `ffi.cdef` signatures and MD usage |
 | `../reference/` (local only) | Old mod clone: lessons only, never copy code |
