@@ -144,3 +144,23 @@ input[aria-invalid='true'] { border-color: var(--danger); }
   .content { padding: 1rem; }
   .topbar { gap: 0.5rem; padding: 0.5rem 1rem; }
 }
+
+/* Sessions & Saves page */
+.row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin: 0.5rem 0; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0.5rem 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+.confirm { display: grid; gap: 0.5rem; padding: 0.75rem; margin: 0.5rem 0; background: var(--warn-bg); border: 1px solid var(--border); border-radius: 6px; }
+.table-wrap { overflow-x: auto; }
+.table-wrap table { border-collapse: collapse; width: 100%; }
+.table-wrap th, .table-wrap td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.actions { display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; }
+.dropzone { padding: 0.75rem; border: 2px dashed var(--border); border-radius: 6px; margin-bottom: 0.75rem; display: grid; gap: 0.5rem; }
+.dropzone-over { border-color: var(--accent); background: var(--info-bg); }
+.badge-warn { border-color: var(--warn); color: var(--warn); }
+.form-grid { display: grid; gap: 0.5rem; max-width: 28rem; }
+.form-grid label { display: grid; gap: 0.2rem; }
+button.danger { background: var(--danger); color: #fff; }
+.transfers { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.transfers li { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.events { margin: 0; padding-left: 1rem; }
