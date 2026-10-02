@@ -124,6 +124,24 @@ X4 Multiplayer page still appears, and whether chat round-trips (including a Sir
 There is no player-facing install step. The player README says: "Works with or without
 kuertee UI Extensions and SirNukes Mod Support APIs."
 
+### 5.x Testing with two real X4 instances (M2/M3+)
+
+Researched 2026-10-01 at the user's request.
+- **One Steam copy on two PCs at once (one PC in Offline Mode) is not an option we use.**
+  It may technically launch, and our server would not notice (identity is the per-install
+  `player_key`, not the Steam id), but running one license on two machines at the same time
+  is against Steam's terms. Steam Families does not help either: each game can only be
+  played by one family member at a time unless the family owns more copies.
+- **Most testing needs only one real X4.** The design lets FakeNode fill the other role:
+  the real X4 as the authority with FakeNode clients, or the real X4 as a client with a
+  FakeNode authority (`swarm --with-authority`). Use this for nearly all M2/M3 work.
+- **For the real two-instance checks** (the M3 exit and later), use a second license:
+  a teammate/friend with their own copy (also gives a realistic internet test), or a second
+  copy on sale. The handshake hash covers **enabled** DLCs only, so a base-game-only second
+  copy can join a session if the other player disables their DLCs in Extensions for that
+  session (verify in a spike). A GOG copy is a separate build: check that X4Native and our
+  pinned build (9.00 / 611726) support it before buying.
+
 ## 6. Local-only folders (not in git): regenerate on each machine
 
 These are ignored by `.gitignore` and must be rebuilt after a fresh clone.
