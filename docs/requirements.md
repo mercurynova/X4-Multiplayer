@@ -2,7 +2,7 @@
 
 > See docs/architecture.md — it is authoritative where this doc differs.
 
-Source: full read of `reference/` (clone of <previous-multiplayer-mod-repo>):
+Source: full read of `reference/` (clone of a previous X4 multiplayer mod):
 README.md, STATE.md (all 1172 lines), FOLLOWUP.md, from_LLM_to_LLM.md, FEATURES.csv,
 install.sh, scripts/*.sh, x4mp_linux/*, x4mp_windows/* (READ ME FIRST.txt, README.txt,
 TESTING.md, all .bat, tools/*.ps1, tools/fake_client.py, patches/0001-*.patch), every
