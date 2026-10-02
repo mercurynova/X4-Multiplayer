@@ -46,6 +46,12 @@ public sealed class AdmittedNode
     /// <summary>Set when the node was admitted despite mod violations (enforcement Warn): the session layer tells the player.</summary>
     public ModPolicyViolationT? ModWarning { get; init; }
 
+    /// <summary>
+    /// True while the node was admitted without a real mod check because no authority had reported its extensions yet (the policy source is <c>AuthorityDefines</c>).
+    /// The session actor judges it when the authority is admitted (<c>docs/mod-management.md</c> 3.4a) and clears the flag.
+    /// </summary>
+    public bool ModCheckPending { get; set; }
+
     public bool IsAdmin => (Roles & Role.Admin) != 0;
 
     public bool IsAuthority => (Roles & Role.Authority) != 0;

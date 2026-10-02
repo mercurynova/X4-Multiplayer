@@ -71,8 +71,13 @@ public static class AdminHubExtensions
             sp.GetRequiredService<EconomyViews>(),
             sp.GetRequiredService<TeamViews>(),
             sp.GetRequiredService<TeamsPushState>(),
+            sp.GetRequiredService<X4MP.Server.Mods.ModViews>(),
             sp.GetRequiredService<IOptionsMonitor<AdminHubOptions>>(),
             sp.GetRequiredService<ILogger<AdminHubCore>>()));
+        services.AddHostedService(sp => new ModsBroadcaster(
+            sp.GetRequiredService<AdminSubscriptions>(),
+            sp.GetRequiredService<X4MP.Server.Mods.ModViews>(),
+            sp.GetRequiredService<ILogger<ModsBroadcaster>>()));
         services.TryAddSingleton(sp => new AdminBroadcaster(
             sp.GetRequiredService<IEventBus>(),
             sp.GetRequiredService<AdminSubscriptions>(),

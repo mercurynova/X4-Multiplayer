@@ -88,6 +88,38 @@ public sealed class InMemoryModPolicyProvider : IModPolicyProvider
 
 public static class ModPolicyCopy
 {
+    /// <summary>True when two policies have the same knobs and the same entries in the same order (the version is not compared).</summary>
+    public static bool Equivalent(ModPolicyT a, ModPolicyT b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        if (a.SourceMode != b.SourceMode || a.UnknownDefault != b.UnknownDefault || a.Enforcement != b.Enforcement)
+        {
+            return false;
+        }
+
+        var x = a.Entries ?? [];
+        var y = b.Entries ?? [];
+        if (x.Count != y.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < x.Count; i++)
+        {
+            var l = x[i];
+            var r = y[i];
+            if (l.Id != r.Id || l.Name != r.Name || l.Rule != r.Rule || l.Enabled != r.Enabled || l.ModClass != r.ModClass
+                || l.VersionRule != r.VersionRule || l.Version != r.Version || l.NexusUrl != r.NexusUrl || l.WorkshopId != r.WorkshopId
+                || l.Notes != r.Notes || !(l.ContentHash ?? []).SequenceEqual(r.ContentHash ?? []))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>A deep-enough copy (entries are copied) to edit without touching the shared instance.</summary>
     public static ModPolicyT Clone(this ModPolicyT policy)
     {
