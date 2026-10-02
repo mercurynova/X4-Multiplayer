@@ -54,6 +54,14 @@ public sealed class AdminHub(AdminHubCore core) : Hub<IAdminClient>
 
     public void UnsubscribeChat() => core.Unsubscribe(Context.ConnectionId, HubTopic.Chat);
 
+    /// <summary>
+    /// Joins the economy topic (wallet, transaction, loan, trade, event, summary and alert pushes) and returns the current overview. Economy changes
+    /// themselves are made through REST (<c>/api/v1/economy</c>), so they are validated and audited in one place.
+    /// </summary>
+    public Task<EconomySummaryDto> SubscribeEconomy() => core.SubscribeEconomyAsync(Context.ConnectionId);
+
+    public void UnsubscribeEconomy() => core.Unsubscribe(Context.ConnectionId, HubTopic.Economy);
+
     /// <summary>Sends an admin chat message (same rules and audit as <c>POST /api/v1/chat</c>). Admin role only.</summary>
     [Authorize(Policy = AdminPolicies.Admin)]
     public Task SendChat(SendChatRequest request) => core.SendChatAsync(Context, request);

@@ -202,6 +202,29 @@ public sealed class EconomyLedger
         return sum;
     }
 
+    /// <summary>
+    /// The stored outcome of an earlier idempotent posting with the same key and payload (<see cref="PostOutcome.Replayed"/> set), a
+    /// <see cref="PostReject.PayloadMismatch"/> rejection when the key was used with another payload, or null when the key is new.
+    /// </summary>
+    public PostOutcome? FindReplay(int playerId, string requestId, byte[] payloadHash)
+    {
+        ArgumentNullException.ThrowIfNull(requestId);
+        ArgumentNullException.ThrowIfNull(payloadHash);
+        var existing = _store.FindRequest(SessionId, playerId, requestId);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        if (existing.PayloadHash.AsSpan().SequenceEqual(payloadHash))
+        {
+            return JsonSerializer.Deserialize<PostOutcome>(existing.ResultJson, ResultJson)! with { Replayed = true };
+        }
+
+        RequestIdReuseCount++;
+        return PostOutcome.Reject(PostReject.PayloadMismatch, "request id reused with a different payload");
+    }
+
     /// <summary>Validates, commits (durably) and applies a posting.</summary>
     public PostOutcome Post(PostRequest request)
     {
@@ -332,8 +355,31 @@ public sealed class EconomyLedger
             LoanCommitted?.Invoke(loan, old);
         }
 
+        RaiseCommitted(new LedgerCommit(transaction, changed));
         return outcome;
     }
+
+    /// <summary>Raised on the actor thread after every durable commit that changed a wallet or posted a transaction (not for replays). Handlers must be quick and must not throw.</summary>
+    public event Action<LedgerCommit>? Committed;
+
+    private void RaiseCommitted(LedgerCommit commit)
+    {
+        try
+        {
+            Committed?.Invoke(commit);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // an observer (the admin hub) must never break a posting that is already durable
+            _ = ex;
+        }
+    }
+
+    /// <summary>One committed transaction with its entries and reversal link, or null.</summary>
+    public LedgerTransaction? FindTransaction(string txId) => _store.GetTransaction(SessionId, txId);
+
+    /// <summary>Committed transactions matching the filter, newest first.</summary>
+    public IReadOnlyList<LedgerTransaction> QueryTransactions(LedgerQuery query) => _store.QueryTransactions(SessionId, query);
 
     /// <summary>Freezes every posting until <see cref="Unfreeze"/> (the auditor calls this on a violation).</summary>
     public void Freeze(string reason, IReadOnlyList<string>? violations = null)
@@ -377,6 +423,7 @@ public sealed class EconomyLedger
         }
 
         _wallets[id] = next;
+        RaiseCommitted(new LedgerCommit(null, [next]));
         return true;
     }
 

@@ -18,6 +18,11 @@ public static class AdminApiExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(sp => new SqliteAdminQueries(sp.GetRequiredService<SqliteConnectionFactory>()));
         services.TryAddSingleton<AdminSessions>();
+        services.TryAddSingleton(sp => new X4MP.Server.Economy.EconomyViews(
+            sp.GetRequiredService<SqliteAdminQueries>(),
+            sp.GetService<X4MP.Core.Teams.ITeamDirectory>(),
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<X4MP.Core.Economy.EconomyOptions>>(),
+            sp.GetRequiredService<TimeProvider>()));
 
         // A malformed body answers 400 (turned into a problem by the status code pages) instead of throwing.
         services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = false);
@@ -32,6 +37,7 @@ public static class AdminApiExtensions
         ChatLogEndpoints.Map(routes);
         DiagnosticsEndpoints.Map(routes);
         TokenEndpoints.Map(routes);
+        EconomyEndpoints.Map(routes);
         return routes;
     }
 }

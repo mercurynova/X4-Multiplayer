@@ -29,6 +29,15 @@ public sealed class AdminHubOptions
     /// <summary>Sector views one admin connection may hold.</summary>
     public int MaxSectorsPerAdmin { get; set; } = 2;
 
+    /// <summary>Wallet changes are collected for this long and sent once per wallet: 4 Hz.</summary>
+    public int EconomyWalletIntervalMs { get; set; } = 250;
+
+    /// <summary>The economy overview rate while the economy topic has members: 1 Hz.</summary>
+    public int EconomySummaryIntervalMs { get; set; } = 1000;
+
+    /// <summary><c>EconomyEvent</c> pushes per second (the rest are dropped; they stay in the event log).</summary>
+    public int EconomyEventsPerSecond { get; set; } = 10;
+
     /// <summary>Sends waiting per connection. When full the oldest event is dropped.</summary>
     public int ClientQueueCapacity { get; set; } = 256;
 

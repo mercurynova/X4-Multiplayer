@@ -25,4 +25,10 @@ public interface IEconomyStore
 
     /// <summary>Recomputes the ledger invariants from the persisted rows.</summary>
     LedgerAuditData ReadAuditData(long sessionId);
+
+    /// <summary>One committed transaction with its entries and its reversal link, or null.</summary>
+    LedgerTransaction? GetTransaction(long sessionId, string txId);
+
+    /// <summary>Committed transactions matching the filter, newest first (by id), at most <see cref="LedgerQuery.Limit"/>.</summary>
+    IReadOnlyList<LedgerTransaction> QueryTransactions(long sessionId, LedgerQuery query);
 }

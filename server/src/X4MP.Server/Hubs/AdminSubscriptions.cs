@@ -12,6 +12,7 @@ public enum HubTopic
     Logs,
     Diagnostics,
     Chat,
+    Economy,
 }
 
 /// <summary>The server-side filter of one client's log tail.</summary>

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Threading.Channels;
 using Microsoft.Extensions.Options;
+using X4MP.Core.Economy;
 using X4MP.Core.Events;
 using X4MP.Core.Interest;
 using X4MP.Core.Relay;
@@ -11,6 +12,7 @@ using X4MP.Core.World;
 using X4MP.Protocol;
 using X4MP.Server.Admin;
 using X4MP.Server.Api;
+using X4MP.Server.Economy;
 using X4MP.Server.Logging;
 using X4MP.Server.Settings;
 
@@ -35,6 +37,8 @@ public sealed partial class AdminBroadcaster : BackgroundService
     private readonly RingBufferSink _ring;
     private readonly SettingsService _settings;
     private readonly ActiveAlerts _alerts;
+    private readonly EconomyModule _economy;
+    private readonly EconomyViews _economyViews;
     private readonly IServiceProvider _services;
     private readonly IOptionsMonitor<AdminHubOptions> _options;
     private readonly TimeProvider _time;
@@ -63,6 +67,8 @@ public sealed partial class AdminBroadcaster : BackgroundService
         RingBufferSink ring,
         SettingsService settings,
         ActiveAlerts alerts,
+        EconomyModule economy,
+        EconomyViews economyViews,
         IServiceProvider services,
         IOptionsMonitor<AdminHubOptions> options,
         TimeProvider time,
@@ -79,6 +85,8 @@ public sealed partial class AdminBroadcaster : BackgroundService
         _ring = ring;
         _settings = settings;
         _alerts = alerts;
+        _economy = economy;
+        _economyViews = economyViews;
         _services = services;
         _options = options;
         _time = time;
@@ -107,6 +115,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
         var options = _options.CurrentValue;
         await using var subscription = _bus.Subscribe(
             "admin-hub", OnEvent, new SubscriberOptions { Capacity = 1024, DropPolicy = EventDropPolicy.DropOldest });
+        AttachEconomy();
         Action<IReadOnlyList<string>> onSettings = OnSettingsChanged;
         _settings.Changed += onSettings;
         try
@@ -118,6 +127,8 @@ public sealed partial class AdminBroadcaster : BackgroundService
                 Loop(options.DiagnosticsIntervalMs, DiagnosticsTickAsync, stoppingToken),
                 Loop(options.LogBatchIntervalMs, LogsTickAsync, stoppingToken),
                 Loop(options.TransferIntervalMs, TransfersTickAsync, stoppingToken),
+                Loop(options.EconomyWalletIntervalMs, EconomyFlushAsync, stoppingToken),
+                Loop(options.EconomySummaryIntervalMs, EconomySummaryTickAsync, stoppingToken),
                 DirtyLoop(stoppingToken)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -127,6 +138,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
         finally
         {
             _settings.Changed -= onSettings;
+            DetachEconomy();
         }
     }
 
@@ -423,6 +435,16 @@ public sealed partial class AdminBroadcaster : BackgroundService
                     PostTo(_subs.Clients, c => c.Alert(alert));
                 }
 
+                if (alert is not null && alert.Code.StartsWith("economy", StringComparison.Ordinal) && _subs.Count(HubTopic.Economy) > 0)
+                {
+                    Built("economy-alert");
+                    PostTo(_subs.In(HubTopic.Economy), c => c.EconomyAlert(alert));
+                }
+
+                break;
+
+            case var economy when _subs.Count(HubTopic.Economy) > 0 && EconomyViews.IsEconomyEvent(economy):
+                PushEconomyEvent(economy);
                 break;
 
             case ChatPosted chat when _subs.Count(HubTopic.Chat) > 0:
