@@ -79,7 +79,7 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
 
     private sealed record Run(int Exit, string Text, IReadOnlyList<LiveNodeStats> Stats);
 
-    private async Task<Run> SwarmAsync(Host host, string failPercent, string timeoutPercent, int seconds, int clients = 3)
+    private async Task<Run> SwarmAsync(Host host, string failPercent, string timeoutPercent, int seconds, int clients = 3, Func<IReadOnlyList<LiveNodeStats>, bool>? stopWhen = null)
     {
         var options = CliParser.Parse(
         [
@@ -90,7 +90,7 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
         IReadOnlyList<LiveNodeStats> stats = [];
         int exit = await LiveRunner.RunAsync(
             options, text,
-            new LiveRunOptions { ReportInterval = TimeSpan.FromSeconds(10), ConnectStagger = TimeSpan.FromMilliseconds(30), OnFinished = s => stats = s },
+            new LiveRunOptions { ReportInterval = TimeSpan.FromSeconds(10), ConnectStagger = TimeSpan.FromMilliseconds(30), OnFinished = s => stats = s, StopWhen = stopWhen },
             CancellationToken.None);
         output.WriteLine(text.ToString());
         return new Run(exit, text.ToString(), stats);
@@ -117,7 +117,7 @@ public sealed class TradeLiveTests(ITestOutputHelper output)
         await using var host = new Host();
         await host.StartAsync();
 
-        var run = await SwarmAsync(host, "20", "45", seconds: 50);
+        var run = await SwarmAsync(host, "20", "45", seconds: 50, stopWhen: s => s.FirstOrDefault(n => n.Role == Role.Authority)?.TradeAuthority is { OrdersReceived: >= 8, Applied: >= 2, Failed: >= 1, Withheld: >= 1, Silent: >= 1 });
 
         Assert.Equal(0, run.Exit);
         await WaitForQuietAsync(host);

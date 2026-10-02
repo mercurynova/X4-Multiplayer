@@ -78,7 +78,14 @@ public sealed partial class AssetPermissionLiveTests(ITestOutputHelper output)
             with { Port = host.TcpPort };
         var text = new StringWriter();
         int exit = await LiveRunner.RunAsync(
-            options, text, new LiveRunOptions { ReportInterval = TimeSpan.FromSeconds(5), ConnectStagger = TimeSpan.FromMilliseconds(30) }, CancellationToken.None);
+            options, text, new LiveRunOptions
+            {
+                ReportInterval = TimeSpan.FromSeconds(5),
+                ConnectStagger = TimeSpan.FromMilliseconds(30),
+                // enough orders, and none still in flight (so the server's and the authority's counts have settled too)
+                StopWhen = s => LiveStop.OrdersSent(s) >= 12 && LiveStop.OrdersAnswered(s) == LiveStop.OrdersSent(s),
+            },
+            CancellationToken.None);
         output.WriteLine(text.ToString());
         var m = CommanderLine().Match(text.ToString());
         Assert.True(m.Success, "no commander summary line");
