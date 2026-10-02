@@ -994,6 +994,8 @@ client players. That is a known v1 gameplay gap, and it is the largest one.
 
 ### 6.2 Save hygiene
 
+> **Authority checkpoint upload and reconnects (learned in M1, 2026-10-02):** an upload job belongs to the connection it started on. On a reconnect/resume, cancel the old job and wait for it to end before the resumed upload starts, and never let the old job read from the new connection's inbox or write to the new socket. The FakeNode authority hit exactly this: the old job, parked waiting for a `SaveChunkAck` (window full), consumed the resumed job's `SaveUploadAccept`, so the resumed upload timed out after 60 s on slow machines. Also fill `EntitySpawn.game_time` (wave K) so spawns don't depend on lane ordering.
+
 Goal: no ghost or mod helper object ever lands in a save file. Team-owned
 assets (avatars, built stations, bought or captured ships) are **real session
 data**. They do go into authority session saves, by design (1.2, 11.8).
