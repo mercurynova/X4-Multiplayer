@@ -48,8 +48,8 @@ describe('routing', () => {
   });
 
   it('serves detail routes as placeholders', () => {
-    renderAt('/players/12', true);
-    expect(screen.getByRole('heading', { name: 'Player' })).toBeInTheDocument();
+    renderAt('/economy/wallets', true);
+    expect(screen.getByRole('heading', { name: 'Economy' })).toBeInTheDocument();
   });
 
   it('shows the signed-in role in the user menu', () => {

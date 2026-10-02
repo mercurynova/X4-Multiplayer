@@ -2,7 +2,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const backend = 'http://localhost:47790';
+// X4MP_BACKEND lets the e2e run point the dev proxy at its own server.
+const backend = process.env['X4MP_BACKEND'] ?? 'http://localhost:47790';
 
 export default defineConfig({
   plugins: [react()],

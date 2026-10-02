@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@microsoft/signalr": "^10.0.11",

@@ -1,0 +1,47 @@
+.page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.page-head h1 { margin: 0 auto 0 0; }
+.page-head .search { width: 16rem; margin: 0; }
+.seg { display: inline-flex; gap: 0; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+
+.table-wrap { overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); }
+table.data th, table.data td { padding: 0.45rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.data thead th { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+table.data tbody th { font-weight: 600; }
+
+.presence-on { color: var(--ok); }
+.presence-off { color: var(--muted); }
+.flag { display: inline-block; margin-right: 0.3rem; padding: 0 0.4rem; font-size: 0.75em; font-weight: 700; border-radius: 4px; }
+.flag-ban { background: var(--danger-bg); color: var(--danger); }
+.flag-mute { background: var(--warn-bg); color: var(--warn); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.player-detail > .actions { margin-bottom: 1rem; }
+
+.panel { margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.panel h2 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1rem; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.2rem 1rem; margin: 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; }
+
+textarea {
+  display: block; width: 100%; margin-top: 0.25rem; padding: 0.5rem; font: inherit; resize: vertical;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+textarea[aria-invalid='true'] { border-color: var(--danger); }
+
+.dialog-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgb(0 0 0 / 0.5); padding: 1rem; }
+.dialog { width: min(30rem, 100%); max-height: 90vh; overflow: auto; display: grid; gap: 0.75rem; padding: 1.25rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.dialog h2 { margin: 0; }
+.dialog form { display: grid; gap: 0.75rem; }
+.dialog fieldset { border: 1px solid var(--border); border-radius: 6px; margin: 0; }
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 0.5rem; }
+label.check { display: flex; align-items: center; gap: 0.5rem; }
+label.check input { width: auto; margin: 0; }
+button.danger { background: var(--danger); color: var(--bg); }
