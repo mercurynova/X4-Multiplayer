@@ -64,6 +64,9 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
 
     public volatile bool Closed;
 
+    /// <summary>Receives the text of every <c>ServerNotice</c> (M1-X5: the Warn-mode mod notice).</summary>
+    public Action<string>? NoticeSink { get; init; }
+
     public DisconnectCode? DisconnectedBy { get; private set; }
 
     public Exception? Failure { get; private set; }
@@ -161,6 +164,9 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
                         _team = p.TeamId;
                     }
                 }
+                break;
+            case MsgType.ServerNotice:
+                NoticeSink?.Invoke(MessageRegistry.Default.Decode<ServerNotice>(frame).Text ?? string.Empty);
                 break;
             case MsgType.Disconnect:
                 DisconnectedBy = MessageRegistry.Default.Decode<Disconnect>(frame).Code;
