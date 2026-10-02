@@ -34,7 +34,10 @@ under `test-results/` (`npx playwright show-trace <trace.zip>`).
     `namePrefix`, `withAuthority`. Everything is killed when the test ends. A bot keeps its identity per `name`, so
     starting `Bob` again is the same player rejoining (that is how the ban/unban spec works).
   - `authority`: worker-scoped fake authority that uploads the first checkpoint and so starts the session. Request it in
-    any spec that starts clients: `test.beforeEach(({ authority }) => {})`.
+    any spec that starts clients: `test.beforeEach(({ authority }) => {})`. It reports the built-in `modded` extension set
+    (`--authority-extensions modded`) and `bots.start` gives every client `--extensions-preset modded` unless the spec passes its
+    own, so all bots match the session mod list; `mods.spec.ts` uses `--extensions-preset mismatch` to get refused. A spec that
+    changes the mod policy must restore `AuthorityDefines` with no entries when it is done.
   - `api`: signed-in admin REST client (`api.get('/api/v1/players')`) for arranging or checking state.
 - `e2e/env.ts`: ports and paths.
 
