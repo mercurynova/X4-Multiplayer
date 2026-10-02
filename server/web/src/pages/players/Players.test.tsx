@@ -33,6 +33,8 @@ const player = (id: number, name: string, extra: Partial<PlayerDto> = {}): Playe
   activeBan: null,
   lastIp: '10.0.0.' + id,
   notes: null,
+  teamId: null,
+  teamName: null,
   ...extra,
 });
 
@@ -48,6 +50,8 @@ const live = (playerId: number, name: string): PlayerLiveDto => ({
   fps: 60,
   connectedSeconds: 10,
   muted: false,
+  teamId: null,
+  teamName: null,
 });
 
 let calls: Call[];
