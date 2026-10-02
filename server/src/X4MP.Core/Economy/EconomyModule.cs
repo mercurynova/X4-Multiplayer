@@ -52,6 +52,28 @@ public sealed partial class EconomyModule : ISessionModule
 
     public EconomyAuditor? Auditor { get; private set; }
 
+    /// <summary>Raised on the actor thread once the service exists (the session row was created), so observers such as the admin hub can attach to its events.</summary>
+    public event Action<EconomyService>? ServiceStarted;
+
+    /// <summary>
+    /// Runs the invariant check now (actor thread). With <paramref name="acknowledge"/> an admin first lifts a freeze caused by an
+    /// earlier breach; the check runs afterwards and freezes again if the breach is still there.
+    /// </summary>
+    public AuditReport? RunAudit(string actor, bool acknowledge)
+    {
+        if (Service is not { } service || Auditor is not { } auditor)
+        {
+            return null;
+        }
+
+        if (acknowledge)
+        {
+            service.Ledger.Unfreeze(actor);
+        }
+
+        return auditor.RunNow();
+    }
+
     public void OnSessionBegun(long sessionId)
     {
         if (Service is not null)
@@ -65,6 +87,14 @@ public sealed partial class EconomyModule : ISessionModule
         Service.Start();
         BeginTrades(Service, Auditor);
         InitLoanHooks(Service, Auditor);
+        try
+        {
+            ServiceStarted?.Invoke(Service);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogObserverFailed(ex);
+        }
         if (_teams is not null && !_subscribed)
         {
             _subscribed = true;
@@ -263,6 +293,9 @@ public sealed partial class EconomyModule : ISessionModule
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "malformed {Type} from player {PlayerId}")]
     private partial void LogMalformedAction(Exception ex, int playerId, MsgType type);
+
+    [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "an economy observer failed while attaching")]
+    private partial void LogObserverFailed(Exception ex);
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "malformed CreditDelta from player {PlayerId}")]
     private partial void LogMalformedDelta(Exception ex, int playerId);

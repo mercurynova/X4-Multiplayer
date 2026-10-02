@@ -591,7 +591,10 @@ public sealed partial class EconomyService
     // ------------------------------------------------------------------ migrations
 
     /// <summary>What switching to the desired mode and moving players to their current teams would do.</summary>
-    public MigrationPreview PreviewMigration() => BuildPlan().Preview;
+    public MigrationPreview PreviewMigration() => BuildPlan(null).Preview;
+
+    /// <summary>What the layout change would be if the credit mode setting were <paramref name="mode"/> (the settings are not touched). For the admin GUI before it confirms a mode switch.</summary>
+    public MigrationPreview PreviewMigration(CreditMode mode) => BuildPlan(mode).Preview;
 
     /// <summary>
     /// Brings the balances in line with the desired mode and the directory. While the session is live (Running, Paused) a
@@ -663,7 +666,8 @@ public sealed partial class EconomyService
         return new MigrationResult(MigrationStatus.Applied, plan.Preview, outcome);
     }
 
-    private bool IsLive => _phase() is SessionPhase.Running or SessionPhase.Paused;
+    /// <summary>The session is Running or Paused: a change of credit mode then needs an admin confirm.</summary>
+    public bool IsLive => _phase() is SessionPhase.Running or SessionPhase.Paused;
 
     private void ClearPending()
     {
@@ -678,11 +682,11 @@ public sealed partial class EconomyService
 
     private sealed record Plan(MigrationPreview Preview, IReadOnlyList<PostEntry> Entries, EconomyLayout Layout);
 
-    private Plan BuildPlan()
+    private Plan BuildPlan(CreditMode? overrideMode = null)
     {
         var options = _options();
         var layout = _ledger.Layout;
-        var desired = DesiredMode;
+        var desired = overrideMode is { } forced ? Resolve(forced, TeamCount) : DesiredMode;
         var firstTime = layout.AppliedMode is null;
         var applied = firstTime ? desired : AppliedMode;
         var poolEnabled = options.TeamPoolEnabled;

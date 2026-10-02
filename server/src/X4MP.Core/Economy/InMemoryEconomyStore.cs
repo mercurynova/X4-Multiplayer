@@ -35,6 +35,17 @@ public sealed class InMemoryEconomyStore : IEconomyStore
 
         if (commit.Transaction is { } tx)
         {
+            if (tx.Reverses is { } original)
+            {
+                var index = _transactions.FindIndex(t => t.Id == original);
+                if (index < 0 || _transactions[index].ReversedBy is not null)
+                {
+                    throw new InvalidOperationException("the transaction to reverse is unknown or already reversed");
+                }
+
+                _transactions[index] = _transactions[index] with { ReversedBy = tx.Id };
+            }
+
             _transactions.Add(tx);
         }
 
@@ -86,6 +97,62 @@ public sealed class InMemoryEconomyStore : IEconomyStore
 
         var balances = _wallets.Where(kv => kv.Key.Session == sessionId).ToDictionary(kv => kv.Key.Id, kv => kv.Value.Balance);
         return new LedgerAuditData(unbalanced, sums, balances);
+    }
+
+    public LedgerTransaction? GetTransaction(long sessionId, string txId) =>
+        _transactions.FirstOrDefault(t => t.SessionId == sessionId && t.Id == txId);
+
+    public IReadOnlyList<LedgerTransaction> QueryTransactions(long sessionId, LedgerQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var rows = _transactions.Where(t => t.SessionId == sessionId);
+        if (query.Wallet is { } wallet)
+        {
+            rows = rows.Where(t => t.Entries.Any(e => e.Wallet == wallet));
+        }
+
+        if (query.Kind is { } kind)
+        {
+            rows = rows.Where(t => t.Kind == kind);
+        }
+
+        if (query.Actor is { } actor)
+        {
+            rows = rows.Where(t => t.Actor == actor);
+        }
+
+        if (query.RefType is { } refType)
+        {
+            rows = rows.Where(t => t.RefType == refType);
+        }
+
+        if (query.RefId is { } refId)
+        {
+            rows = rows.Where(t => t.RefId == refId);
+        }
+
+        if (query.Since is { } since)
+        {
+            rows = rows.Where(t => t.At >= since);
+        }
+
+        if (query.Until is { } until)
+        {
+            rows = rows.Where(t => t.At < until);
+        }
+
+        if (query.Before is { } before)
+        {
+            rows = rows.Where(t => string.CompareOrdinal(t.Id, before) < 0);
+        }
+
+        if (query.After is { } after)
+        {
+            rows = rows.Where(t => string.CompareOrdinal(t.Id, after) > 0);
+        }
+
+        var ordered = query.Ascending ? rows.OrderBy(t => t.Id, StringComparer.Ordinal) : rows.OrderByDescending(t => t.Id, StringComparer.Ordinal);
+        return [.. ordered.Take(Math.Max(1, query.Limit))];
     }
 
     /// <summary>Test hook: overwrite a stored wallet balance without a ledger entry.</summary>

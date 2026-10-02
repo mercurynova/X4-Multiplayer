@@ -1609,7 +1609,8 @@ automatically (`withAutomaticReconnect`).
   `Chat` (live lines carry a negative local id), `SaveTransfer` (last push has `Finished`), `Alert` (raised and cleared, to every
   connection), `SettingsChanged` (every connection), `PermissionDenied` (dashboard topic, 5/s). Extra client methods:
   `UnsubscribeGalaxy`, `UnsubscribeChat`.
-- Not yet: the teams and economy topics and their pushes (M1-T5, M1-E6); `Dashboard.TickP99Ms` is 0 until the actor measures its tick.
+- Economy topic (M1-E6): `SubscribeEconomy` / `UnsubscribeEconomy` and the pushes of the economy group above; REST is `/api/v1/economy/...` (see the roadmap notes for M1-E6).
+- Not yet: the teams topic and its pushes (M1-T5); `Dashboard.TickP99Ms` is 0 until the actor measures its tick.
 - Method and event names are constants (`AdminHubMethods`, `AdminHubEvents`) emitted into `generated.ts`; a test keeps them in step with `AdminHub` and `IAdminClient`.
 
 ---
