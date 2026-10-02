@@ -145,6 +145,8 @@ verification loop the brief asked for); it is not fine if the agent is going in 
   after it, commit what exists and report the failure, message and best hypothesis.
 - Loops of the form "run N times until it passes" must state their cost up front
   (a failing run of a test with a 60 s timeout costs 60–90 s per iteration).
+- Agents' self-reported durations are unreliable (M1-S3 said ~2 h, the harness measured
+  26 min; M1-W1 said ~50 min, measured 9 min). Use the harness `duration_ms`.
 - Record the reason for any run over ~1 hour in the wave status note in roadmap.md
   (what took the time, whether it was needed), so we can tune briefs.
 
