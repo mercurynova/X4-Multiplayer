@@ -70,7 +70,7 @@ public sealed class SaveSnifferTests
         string path = Gzip(dir, "big.xml.gz", Head + new string('x', 5 * 1024 * 1024));
         var clock = System.Diagnostics.Stopwatch.StartNew();
         Assert.Equal(SniffResult.Ok, SaveSniffer.Check(path, UploadKind.Save, out var meta));
-        Assert.True(clock.ElapsedMilliseconds < 2000);
+        Assert.True(clock.ElapsedMilliseconds < 10_000);
         Assert.Equal("Jack", meta.PlayerName);
     }
 

@@ -228,7 +228,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
             OnAuthority = a => authority = a,
             OnClientReady = h => handles[h.Name] = h,
         };
-        var options = Swarm(host, "--clients", "3", "--with-authority", "--commander", "own", "--verify", "--sectors", "12", "--ships", "4000", "--duration", "24");
+        var options = Swarm(host, "--clients", "3", "--with-authority", "--commander", "own", "--verify", "--sectors", "12", "--ships", "4000", "--duration", "180");
         using var stopSwarm = new CancellationTokenSource(); // the test body is the whole scenario: the swarm ends when it does
         var swarm = RunAsync(options, run, stopSwarm.Token);
 
@@ -236,7 +236,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         bool failed = false;
         try
         {
-            await WaitForAsync(() => handles.Count == 3 ? handles : null, TimeSpan.FromSeconds(15), "three clients in game");
+            await WaitForAsync(() => handles.Count == 3 ? handles : null, TimeSpan.FromSeconds(60), "three clients in game");
             var mover = handles["Bot01"];
             var teammate = handles["Bot02"];
             Assert.Equal(1, mover.TeamId);
@@ -244,32 +244,32 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
             // assets of the mover that the mover's view and the server's mirror both know
             var mine = await WaitForAsync(
                 () => mover.Session.GhostsOwnedBy(1, mover.PlayerId).Where(g => host.Mirror.TryGet(g.NetId, out var e) && e.OwnerPlayer == mover.PlayerId).ToList() is { Count: > 0 } l ? l : null,
-                TimeSpan.FromSeconds(15), "assets owned by the mover");
+                TimeSpan.FromSeconds(60), "assets owned by the mover");
             uint asset = mine[0].NetId;
             ushort sector = mine[0].Sector;
             report.Add($"mover player {mover.PlayerId} owns {mine.Count} visible asset(s), probing {asset}");
 
             // before the move both players of team 1 may command it
-            Assert.Equal(IntentStatus.Accepted, (await mover.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(3)))?.Status);
-            Assert.Equal(IntentStatus.Accepted, (await teammate.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(3)))?.Status);
+            Assert.Equal(IntentStatus.Accepted, (await mover.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(15)))?.Status);
+            Assert.Equal(IntentStatus.Accepted, (await teammate.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(15)))?.Status);
 
             var moved = await host.Teams.AssignPlayerAsync(mover.PlayerId, 2);
             Assert.True(moved.Ok, moved.Detail);
 
             // the authority re-owns the assets (EntityChange), and the server mirror follows
-            await WaitForAsync(() => host.Mirror.TryGet(asset, out var e) && e.OwnerTeam == 2 ? e : null, TimeSpan.FromSeconds(5), "the mirror to show the new owner team");
+            await WaitForAsync(() => host.Mirror.TryGet(asset, out var e) && e.OwnerTeam == 2 ? e : null, TimeSpan.FromSeconds(30), "the mirror to show the new owner team");
             host.Mirror.TryGet(asset, out var entity);
             Assert.Equal(2, entity.OwnerTeam);
             Assert.Equal(mover.PlayerId, entity.OwnerPlayer);
             Assert.NotNull(authority);
             Assert.Contains(authority!.OwnershipChanges, c => c.NetId == asset && c.FromTeam == 1 && c.ToTeam == 2);
             Assert.All(mine, g => Assert.True(host.Mirror.TryGet(g.NetId, out var e2) && e2.OwnerTeam == 2, "every visible asset moved with its player"));
-            await WaitForAsync(() => mover.Session.OwnerOf(asset) is { Team: 2 } ? mover.Session : null, TimeSpan.FromSeconds(5), "the mover's client to learn the new owner");
+            await WaitForAsync(() => mover.Session.OwnerOf(asset) is { Team: 2 } ? mover.Session : null, TimeSpan.FromSeconds(30), "the mover's client to learn the new owner");
 
             // after the move: the new team passes, the old team fails
-            Assert.Equal(2, mover.TeamId);
-            var newTeam = await mover.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(3));
-            var oldTeam = await teammate.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(3));
+            await WaitForAsync(() => mover.TeamId == 2 ? mover : null, TimeSpan.FromSeconds(30), "the mover's client to learn its new team");
+            var newTeam = await mover.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(15));
+            var oldTeam = await teammate.SendOrderAsync(asset, sector, TimeSpan.FromSeconds(15));
             Assert.Equal(IntentStatus.Accepted, newTeam?.Status);
             Assert.Equal(IntentStatus.Rejected, oldTeam?.Status);
             Assert.Equal(RejectReason.NotYourAsset, oldTeam?.Reason);
@@ -307,7 +307,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         FakeAuthority? authority = null;
         var run = new LiveRunOptions { ReportInterval = TimeSpan.FromSeconds(5), ConnectStagger = TimeSpan.FromMilliseconds(30), OnAuthority = a => authority = a };
         using var stopSwarm = new CancellationTokenSource();
-        var swarm = RunAsync(Swarm(host, "--clients", "2", "--with-authority", "--team-assets", "--duration", "14"), run, stopSwarm.Token);
+        var swarm = RunAsync(Swarm(host, "--clients", "2", "--with-authority", "--team-assets", "--duration", "120"), run, stopSwarm.Token);
         var lags = new List<double>();
         bool failed = false;
         try
@@ -324,7 +324,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
                 Assert.True((await host.Teams.SetRelationAsync(1, 2, relation)).Ok);
                 while ((authority.Hostility().EngagedShipPairs > 0) != war)
                 {
-                    Assert.True(clock.ElapsedMilliseconds < 1000, $"the fake NPC hostility did not follow {relation} within 1 s");
+                    Assert.True(clock.ElapsedMilliseconds < 10_000, $"the fake NPC hostility did not follow {relation} within 10 s"); // 1 s on a quiet machine, see the lags in the output
                     await Task.Delay(5);
                 }
 

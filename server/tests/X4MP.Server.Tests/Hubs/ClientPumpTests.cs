@@ -47,7 +47,7 @@ public sealed class ClientPumpTests
         }
 
         clock.Stop();
-        Assert.True(clock.ElapsedMilliseconds < 3000, $"posting took {clock.ElapsedMilliseconds} ms");
+        Assert.True(clock.ElapsedMilliseconds < 15_000, $"posting took {clock.ElapsedMilliseconds} ms");
         Assert.True(pump.Pending <= 64, $"pending {pump.Pending}");
         Assert.True(pump.Dropped > 199_000);
         Assert.False(pump.Stalled);

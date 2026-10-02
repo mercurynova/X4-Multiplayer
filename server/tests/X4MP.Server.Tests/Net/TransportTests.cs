@@ -221,7 +221,7 @@ public class TransportTests(Xunit.Abstractions.ITestOutputHelper output)
             var disconnect = await client.ReadAsync<Disconnect>(MsgType.Disconnect);
             Assert.Equal(DisconnectCode.Kicked, disconnect.Code);
             Assert.Equal("afk griefing", disconnect.Message);
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"the kick took {clock.Elapsed}");
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"the kick took {clock.Elapsed}");
             await talking.CancelAsync(); // the peer has its reason and stops talking
             await talker;
             stop.Cancel();

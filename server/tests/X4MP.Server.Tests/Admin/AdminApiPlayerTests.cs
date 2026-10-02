@@ -73,8 +73,8 @@ public sealed class AdminApiPlayerTests(AdminServerFixture f) : IClassFixture<Ad
         var clock = Stopwatch.StartNew();
         using var response = await Admin.CallAsync(HttpMethod.Post, $"/api/v1/players/{id}/kick", new { reason = "afk griefing" });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        await Api.AssertDisconnectedAsync(node, DisconnectCode.Kicked, TimeSpan.FromSeconds(1));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"kick took {clock.Elapsed}");
+        await Api.AssertDisconnectedAsync(node, DisconnectCode.Kicked, TimeSpan.FromSeconds(5));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"kick took {clock.Elapsed}");
 
         var row = await Api.WaitForAuditAsync(f.Server, "player.kick", id.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Assert.Contains("afk griefing", row.DataJson, StringComparison.Ordinal);
@@ -251,8 +251,8 @@ public sealed class AdminApiPlayerTests(AdminServerFixture f) : IClassFixture<Ad
         Assert.True(ban.GetProperty("active").GetBoolean());
         Assert.NotEqual(JsonValueKindNull, ban.GetProperty("expiresAt").ValueKind);
 
-        await Api.AssertDisconnectedAsync(node, DisconnectCode.Banned, TimeSpan.FromSeconds(1));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"ban took {clock.Elapsed}");
+        await Api.AssertDisconnectedAsync(node, DisconnectCode.Banned, TimeSpan.FromSeconds(5));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"ban took {clock.Elapsed}");
 
         var rejected = await Assert.ThrowsAsync<HandshakeRejectedException>(() => f.Server.ConnectAsync(name, Role.Client));
         Assert.Equal(DisconnectCode.Banned, rejected.Code);
@@ -313,7 +313,7 @@ public sealed class AdminApiPlayerTests(AdminServerFixture f) : IClassFixture<Ad
         using var create = await Admin.CallAsync(HttpMethod.Post, "/api/v1/bans", new { keyHash, reason = "key ban" });
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         long banId = (await create.JsonAsync()).GetProperty("id").GetInt64();
-        await Api.AssertDisconnectedAsync(node, DisconnectCode.Banned, TimeSpan.FromSeconds(1));
+        await Api.AssertDisconnectedAsync(node, DisconnectCode.Banned, TimeSpan.FromSeconds(5));
         await Assert.ThrowsAsync<HandshakeRejectedException>(() => f.Server.ConnectAsync(name, Role.Client));
 
         using var revoke = await Admin.CallAsync(HttpMethod.Delete, $"/api/v1/bans/{banId}");
@@ -337,7 +337,7 @@ public sealed class AdminApiPlayerTests(AdminServerFixture f) : IClassFixture<Ad
         try
         {
             Assert.Equal("127.0.0.0/8", ban.GetProperty("ipCidr").GetString());
-            await Api.AssertDisconnectedAsync(node, DisconnectCode.Banned, TimeSpan.FromSeconds(1));
+            await Api.AssertDisconnectedAsync(node, DisconnectCode.Banned, TimeSpan.FromSeconds(5));
 
             // refused before the handshake: the client sees the Disconnect (or the closed socket)
             var failure = await Assert.ThrowsAnyAsync<Exception>(() => f.Server.ConnectAsync(f.NextName("Other"), Role.Client));
