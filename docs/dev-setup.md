@@ -150,6 +150,7 @@ These are ignored by `.gitignore` and must be rebuilt after a fresh clone.
 | Folder | What | How to recreate |
 |---|---|---|
 | `reference/` | read-only clone of the old mod (unlicensed: **never copy code**) | `git clone --depth 1 <previous-multiplayer-mod-repo> reference` |
+| `reference-analyzer/` | the user's own save-analysis tool (Python, **GPL-3.0**, private): reference only, never copy code or its extracted game-data CSVs; notes in `docs/research/save-analyzer-notes.md` | `gh repo clone <owner>/<save-analyzer> reference-analyzer` (plain `git clone` fails: the repo-local gh credential helper doesn't apply before the clone exists) |
 | `x4-unpacked/` | game UI Lua (ffi signatures), MD scripts, libraries, used as the API reference | `python tools/x4cat_extract.py "<X4 install>" x4-unpacked "^(extensions/[^/]+/)?(ui/\|md/\|libraries/\|aiscripts/\|index/\|t/0001-l044)"` (~110 MB, ~1,600 files) |
 | `data/` | server runtime data (SQLite, saves, logs) | created by the server on first run |
 | build outputs | `bin/`, `obj/`, `build/`, `web/dist/`, `node_modules/` | normal builds |
