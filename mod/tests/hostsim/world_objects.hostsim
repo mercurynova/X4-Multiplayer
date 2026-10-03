@@ -1,0 +1,99 @@
+# M3-04 DLL-free smoke (ctest hostsim.world_objects): the fake universe's objects behind the M3 exports, the world / expect-object /
+# expect-ghost / ghost-sample commands, driven by the stub extension through the real SDK function table.
+init
+expect-object player exists
+expect-object station exists
+expect-object count == 2
+expect-state objects == 2
+
+# SpawnObjectAtPos2 / GetObjectIDCode / GetComponentName / IsValidComponent / GetObjectPositionInSector / GetContextByClass
+lua x4stub.world spawn
+expect-lua x4stub.world_result 3000 json $.name == ship_arg_s_fighter_01_a_macro
+expect-state spawns == 1
+expect-object last owner == x4mp_team_1
+expect-object last sector == 100001
+expect-object last x == 10
+expect-object last yaw == 45
+expect-object last cls == ship
+expect-object last idcode contains HS
+expect-object macro=ship_arg_s_fighter_01_a_macro id == 400001
+expect-object count == 1 owner=x4mp_team_1
+expect-object count >= 3
+expect-object 999999999 absent
+expect-state objects == 3
+
+# a spawn into an unknown sector returns 0 and creates nothing
+lua x4stub.world bad_sector
+expect-lua x4stub.world_result 3000 json $.id == 0
+expect-state spawns == 1
+expect-state objects == 3
+
+# SetObjectSectorPos / ActivateObject / SetObjectForcedRadarVisible / SetComponentOwner / IsComponentWrecked
+lua x4stub.world dress
+expect-lua x4stub.world_result 3000 json $.sector == 100002
+expect-object last sector == 100002
+expect-object last x == 500
+expect-object last z == 600
+expect-object last yaw == 90
+expect-object last active == false
+expect-object last radar == true
+expect-object last owner == x4mp_team_2
+expect-object last wrecked == false
+expect-state set_pos_calls == 1
+expect-state activate_calls == 1
+expect-state radar_calls == 1
+expect-state owner_calls == 1
+world object wreck last
+expect-object last wrecked == true
+lua x4stub.world dress
+expect-lua x4stub.world_result 3000 json $.wrecked == true
+
+# world spawn-fail: the next spawn returns 0, the one after works
+world spawn-fail 1
+lua x4stub.world spawn
+expect-lua x4stub.world_result 3000 json $.id == 0
+expect-state spawns == 1
+lua x4stub.world spawn
+expect-lua x4stub.world_result 3000 json $.id > 400001
+expect-state spawns == 2
+
+# scripted placements are not mod spawns; selectors; owner / name edits; removal
+world sector add 100003
+world object add macro=station_tel_dock_01_macro sector=100003 owner=teladi name=Foo pos=1,2,3
+expect-state spawns == 2
+expect-object name=Foo cls == station
+expect-object name=Foo sector == 100003
+expect-object name=Foo owner == teladi
+world object owner name=Foo argon
+expect-object name=Foo owner == argon
+world object name name=Foo Bar
+expect-object name=Bar exists
+world object remove name=Bar
+expect-object name=Bar absent
+expect-state removed == 1
+
+# TeleportPlayerTo / CanTeleportPlayerTo: allowed, then denied with a reason
+lua x4stub.world spawn
+expect-lua x4stub.world_result 3000 json $.name == ship_arg_s_fighter_01_a_macro
+lua x4stub.world teleport
+expect-lua x4stub.world_result 3000 json $.ok == true
+expect-state teleports == 1
+expect-state seat == 1
+world teleport deny the pilot is busy
+lua x4stub.world teleport
+expect-lua x4stub.world_result 3000 json $.why contains busy
+expect-state teleports == 1
+
+# expect-ghost: a stub without samples (M3-10 provides them), then evaluated against samples
+expect-ghost bob err_p95 < 2
+expect-ghost bob samples == 0
+ghost-sample bob 0.1
+ghost-sample bob 0.2
+ghost-sample bob 0.3
+ghost-sample bob 0.4
+ghost-sample bob 5.0
+expect-ghost bob samples == 5
+expect-ghost bob err_p50 < 0.5
+expect-ghost bob err_max == 5
+expect-ghost bob err_p95 > 4
+expect-ghost carol err_p95 < 2

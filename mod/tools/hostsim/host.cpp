@@ -9,6 +9,12 @@
 
 #include <x4_game_offsets.h>
 
+#include "game/game_api.h"  // PosRotPod: the mod's SDK-free copy of UIPosRot must stay layout-identical
+
+static_assert(sizeof(x4mp::game::PosRotPod) == sizeof(UIPosRot), "PosRotPod must match the SDK UIPosRot");
+static_assert(offsetof(x4mp::game::PosRotPod, yaw) == offsetof(UIPosRot, yaw), "PosRotPod layout");
+static_assert(offsetof(x4mp::game::PosRotPod, roll) == offsetof(UIPosRot, roll), "PosRotPod layout");
+
 namespace hostsim {
 namespace {
 Host* g_host = nullptr;
@@ -210,6 +216,103 @@ struct Thunks {
     check_thread("AddPlayerMoney");
     g_host->money_delta += m;
   }
+
+  // ---- M3 fake universe exports (world.h). Signatures are the X4Native 9.0.0-611726 ones. ----
+  static UniverseID GetPlayerOccupiedShipID() {
+    check_thread("GetPlayerOccupiedShipID");
+    return g_host->world.occupied();
+  }
+  static UniverseID GetPlayerControlledShipID() {
+    check_thread("GetPlayerControlledShipID");
+    return g_host->world.controlled();
+  }
+  static UniverseID GetPlayerObjectID() {
+    check_thread("GetPlayerObjectID");
+    return g_host->world.player_ship;
+  }
+  static UniverseID GetPlayerContainerID() {
+    check_thread("GetPlayerContainerID");
+    return g_host->world.container();
+  }
+  static UniverseID GetContextByClass(UniverseID id, const char* cls, bool include_self) {
+    check_thread("GetContextByClass");
+    return g_host->world.context(id, cls ? cls : "", include_self);
+  }
+  static bool IsValidComponent(UniverseID id) {
+    check_thread("IsValidComponent");
+    World& w = g_host->world;
+    return id != 0 && (w.exists(id) || w.has_sector(id) || id == World::kPlayerEntity);
+  }
+  static UniverseID SpawnObjectAtPos2(const char* macro, UniverseID sector, UIPosRot pos, const char* owner) {
+    check_thread("SpawnObjectAtPos2");
+    return g_host->world.spawn(macro ? macro : "", sector, pos, owner ? owner : "");
+  }
+  static void ActivateObject(UniverseID id, bool active) {
+    check_thread("ActivateObject");
+    World& w = g_host->world;
+    w.activate_calls++;
+    if (Obj* o = w.find(id)) o->active = active;
+  }
+  static void SetObjectSectorPos(UniverseID id, UniverseID sector, UIPosRot pos) {
+    check_thread("SetObjectSectorPos");
+    World& w = g_host->world;
+    w.set_pos_calls++;
+    Obj* o = w.find(id);
+    if (!o || !w.has_sector(sector)) return;  // the game ignores a bad target; scripts see it via expect-object
+    o->sector = sector;
+    o->pos = pos;
+  }
+  static UIPosRot GetObjectPositionInSector(UniverseID id) {
+    check_thread("GetObjectPositionInSector");
+    const Obj* o = g_host->world.find(id);
+    return o ? o->pos : UIPosRot{};
+  }
+  static bool TeleportPlayerTo(UniverseID id, bool allow_controlling, bool, bool) {
+    check_thread("TeleportPlayerTo");
+    return g_host->world.teleport(id, allow_controlling);
+  }
+  static const char* CanTeleportPlayerTo(UniverseID id, bool, bool) {
+    check_thread("CanTeleportPlayerTo");
+    g_host->str_buf_ = g_host->world.can_teleport(id);
+    return g_host->str_buf_.c_str();
+  }
+  static void SetComponentOwner(UniverseID id, const char* faction) {
+    check_thread("SetComponentOwner");
+    World& w = g_host->world;
+    w.owner_calls++;
+    if (Obj* o = w.find(id)) o->owner = faction ? faction : "";
+  }
+  static void SetObjectForcedRadarVisible(UniverseID id, bool v) {
+    check_thread("SetObjectForcedRadarVisible");
+    World& w = g_host->world;
+    w.radar_calls++;
+    if (Obj* o = w.find(id)) o->radar = v;
+  }
+  static bool IsSetaActive() {
+    check_thread("IsSetaActive");
+    return g_host->world.seta;
+  }
+  static const char* GetObjectIDCode(UniverseID id) {
+    check_thread("GetObjectIDCode");
+    const Obj* o = g_host->world.find(id);
+    g_host->str_buf_ = o ? o->idcode : "";  // one shared buffer, like the game: callers must copy at once
+    return g_host->str_buf_.c_str();
+  }
+  static const char* GetComponentName(UniverseID id) {
+    check_thread("GetComponentName");
+    const Obj* o = g_host->world.find(id);
+    g_host->str_buf_ = o ? (o->name.empty() ? o->macro : o->name) : "";
+    return g_host->str_buf_.c_str();
+  }
+  static bool IsComponentWrecked(UniverseID id) {
+    check_thread("IsComponentWrecked");
+    const Obj* o = g_host->world.find(id);
+    return o && o->wrecked;
+  }
+  static bool IsPlayerOccupiedShipDocked() {
+    check_thread("IsPlayerOccupiedShipDocked");
+    return g_host->world.docked;
+  }
 };
 
 Host::Host(std::filesystem::path work_dir, std::string ext_id) : work_dir_(std::move(work_dir)), ext_id_(std::move(ext_id)) {
@@ -246,6 +349,25 @@ void Host::build_game() {
   game_->GetBuildVersionSuffix = &Thunks::GetBuildVersionSuffix;
   game_->GetPlayerID = &Thunks::GetPlayerID;
   game_->AddPlayerMoney = &Thunks::AddPlayerMoney;
+  game_->GetPlayerOccupiedShipID = &Thunks::GetPlayerOccupiedShipID;
+  game_->GetPlayerControlledShipID = &Thunks::GetPlayerControlledShipID;
+  game_->GetPlayerObjectID = &Thunks::GetPlayerObjectID;
+  game_->GetPlayerContainerID = &Thunks::GetPlayerContainerID;
+  game_->GetContextByClass = &Thunks::GetContextByClass;
+  game_->IsValidComponent = &Thunks::IsValidComponent;
+  game_->SpawnObjectAtPos2 = &Thunks::SpawnObjectAtPos2;
+  game_->ActivateObject = &Thunks::ActivateObject;
+  game_->SetObjectSectorPos = &Thunks::SetObjectSectorPos;
+  game_->GetObjectPositionInSector = &Thunks::GetObjectPositionInSector;
+  game_->TeleportPlayerTo = &Thunks::TeleportPlayerTo;
+  game_->CanTeleportPlayerTo = &Thunks::CanTeleportPlayerTo;
+  game_->SetComponentOwner = &Thunks::SetComponentOwner;
+  game_->SetObjectForcedRadarVisible = &Thunks::SetObjectForcedRadarVisible;
+  game_->IsSetaActive = &Thunks::IsSetaActive;
+  game_->GetObjectIDCode = &Thunks::GetObjectIDCode;
+  game_->GetComponentName = &Thunks::GetComponentName;
+  game_->IsComponentWrecked = &Thunks::IsComponentWrecked;
+  game_->IsPlayerOccupiedShipDocked = &Thunks::IsPlayerOccupiedShipDocked;
 #define X4HS_REG(name) game_fns_[#name] = reinterpret_cast<void*>(game_->name)
   X4HS_REG(GetCurrentGameTime);
   X4HS_REG(GetSaveFolderPath);
@@ -257,6 +379,25 @@ void Host::build_game() {
   X4HS_REG(GetBuildVersionSuffix);
   X4HS_REG(GetPlayerID);
   X4HS_REG(AddPlayerMoney);
+  X4HS_REG(GetPlayerOccupiedShipID);
+  X4HS_REG(GetPlayerControlledShipID);
+  X4HS_REG(GetPlayerObjectID);
+  X4HS_REG(GetPlayerContainerID);
+  X4HS_REG(GetContextByClass);
+  X4HS_REG(IsValidComponent);
+  X4HS_REG(SpawnObjectAtPos2);
+  X4HS_REG(ActivateObject);
+  X4HS_REG(SetObjectSectorPos);
+  X4HS_REG(GetObjectPositionInSector);
+  X4HS_REG(TeleportPlayerTo);
+  X4HS_REG(CanTeleportPlayerTo);
+  X4HS_REG(SetComponentOwner);
+  X4HS_REG(SetObjectForcedRadarVisible);
+  X4HS_REG(IsSetaActive);
+  X4HS_REG(GetObjectIDCode);
+  X4HS_REG(GetComponentName);
+  X4HS_REG(IsComponentWrecked);
+  X4HS_REG(IsPlayerOccupiedShipDocked);
 #undef X4HS_REG
   offsets_ = std::make_unique<std::uint8_t[]>(sizeof(X4GameOffsets));
   std::memset(offsets_.get(), 0, sizeof(X4GameOffsets));

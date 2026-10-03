@@ -26,6 +26,13 @@ struct GameVersionPod {
   int minor = 0;
 };
 
+// Binary-compatible with the SDK's UIPosRot {float x, y, z, yaw, pitch, roll;} (passed and returned by value by the
+// M3 object exports). hostsim static_asserts the layout against the SDK type.
+struct PosRotPod {
+  float x = 0, y = 0, z = 0;
+  float yaw = 0, pitch = 0, roll = 0;  // raw units as the game uses them (S13.2c settles degrees vs radians)
+};
+
 // Raw exports. Names match the X4 exports exactly (they are looked up by these strings).
 struct GameFns {
   // M2 exports
@@ -45,10 +52,24 @@ struct GameFns {
   UniverseId (*GetPlayerContainerID)() = nullptr;
   UniverseId (*GetContextByClass)(UniverseId componentid, const char* classname, bool includeself) = nullptr;
   bool (*IsValidComponent)(UniverseId componentid) = nullptr;
+  // M3 exports (M3-04): ghosts, avatars, own-ship tracking, takeover. Signatures verified against the X4Native 9.0.0-611726 table.
+  UniverseId (*SpawnObjectAtPos2)(const char* macroname, UniverseId sectorid, PosRotPod offset, const char* ownerid) = nullptr;
+  void (*ActivateObject)(UniverseId objectid, bool active) = nullptr;
+  void (*SetObjectSectorPos)(UniverseId objectid, UniverseId sectorid, PosRotPod offset) = nullptr;
+  PosRotPod (*GetObjectPositionInSector)(UniverseId objectid) = nullptr;
+  bool (*TeleportPlayerTo)(UniverseId controllableid, bool allowcontrolling, bool instant, bool force) = nullptr;
+  const char* (*CanTeleportPlayerTo)(UniverseId controllableid, bool allowcontrolling, bool force) = nullptr;  // "" / null = allowed
+  void (*SetComponentOwner)(UniverseId componentid, const char* factionid) = nullptr;
+  void (*SetObjectForcedRadarVisible)(UniverseId objectid, bool value) = nullptr;
+  bool (*IsSetaActive)() = nullptr;
+  const char* (*GetObjectIDCode)(UniverseId objectid) = nullptr;
+  const char* (*GetComponentName)(UniverseId componentid) = nullptr;
+  bool (*IsComponentWrecked)(UniverseId componentid) = nullptr;
+  bool (*IsPlayerOccupiedShipDocked)() = nullptr;
 };
 
 // Number of exports in GameFns (keep in step with resolve_game_fns / missing_exports; the self-test reports resolved/total).
-inline constexpr std::size_t kGameFnCount = 15;
+inline constexpr std::size_t kGameFnCount = 28;
 
 using GetFunctionFn =std::function<void*(const char* name)>;  // X4NativeAPI::get_game_function or a fake
 
@@ -92,6 +113,23 @@ class GameApi {
   [[nodiscard]] UniverseId context_by_class(UniverseId id, const char* classname, bool include_self) const noexcept;
   // true when the export is missing (cannot filter): callers treat "unknown" as valid.
   [[nodiscard]] bool is_valid_component(UniverseId id) const noexcept;
+
+  // ---- M3 exports (M3-04). All null-safe: a missing export or a failed main-thread check gives the stated default. ----
+  // 0 = missing / refused / the game returned 0. The owner is a faction id ("x4mp_team_1", "player").
+  [[nodiscard]] UniverseId spawn_object(const char* macro, UniverseId sector, const PosRotPod& pos, const char* owner) const noexcept;
+  bool activate_object(UniverseId id, bool active) const noexcept;                                      // true when the call was made
+  bool set_object_sector_pos(UniverseId id, UniverseId sector, const PosRotPod& pos) const noexcept;    // true when the call was made
+  [[nodiscard]] std::optional<PosRotPod> object_position(UniverseId id) const noexcept;                 // nullopt: missing / id 0
+  bool teleport_player_to(UniverseId id, bool allow_controlling, bool instant, bool force) const noexcept;  // false when missing / refused
+  // nullopt = the export is missing (unknown); "" = allowed; otherwise the game's reason text.
+  [[nodiscard]] std::optional<std::string> can_teleport_player_to(UniverseId id, bool allow_controlling, bool force) const;
+  bool set_component_owner(UniverseId id, const char* faction) const noexcept;                          // true when the call was made
+  bool set_object_forced_radar_visible(UniverseId id, bool value) const noexcept;                       // true when the call was made
+  [[nodiscard]] bool seta_active() const noexcept;                                                      // false when missing
+  [[nodiscard]] std::optional<std::string> object_id_code(UniverseId id) const;                         // copied at once (the game reuses a buffer)
+  [[nodiscard]] std::optional<std::string> component_name(UniverseId id) const;
+  [[nodiscard]] bool component_wrecked(UniverseId id) const noexcept;                                   // false when missing
+  [[nodiscard]] bool player_ship_docked() const noexcept;                                               // false when missing
 
  private:
   GameFns fns_{};

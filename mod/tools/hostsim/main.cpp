@@ -26,6 +26,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -337,6 +338,15 @@ class Runner {
     else if (cmd == "expect-sub") { need(t, 2, "expect-sub <event> [min]"); const int min = t.size() > 2 ? std::atoi(t[2].c_str()) : 1; const int n = host_.subscriber_count(t[1]); if (n < min) throw ScriptFail("the mod has " + std::to_string(n) + " subscriber(s) of '" + t[1] + "', want >= " + std::to_string(min)); }
     else if (cmd == "expect-bridge") { need(t, 2, "expect-bridge <lua-event>"); if (!host_.has_bridge(t[1])) throw ScriptFail("the mod did not call register_lua_bridge('" + t[1] + "')"); }
     else if (cmd == "expect-no-secret") cmd_expect_no_secret(t);
+    else if (cmd == "ship") cmd_ship(t);
+    else if (cmd == "seat") cmd_toggle(t, "seat on|off", host_.world.seat);
+    else if (cmd == "seta") cmd_toggle(t, "seta on|off", host_.world.seta);
+    else if (cmd == "dock") cmd_dock(t, true);
+    else if (cmd == "undock") cmd_dock(t, false);
+    else if (cmd == "world") cmd_world(t);
+    else if (cmd == "expect-object") cmd_expect_object(t);
+    else if (cmd == "expect-ghost") cmd_expect_ghost(t);
+    else if (cmd == "ghost-sample") cmd_ghost_sample(t);
     else throw UsageError("unknown command '" + cmd + "'");
   }
 
@@ -476,6 +486,7 @@ class Runner {
       fu.speed_multiplier = static_cast<float>(host_.speed);
       fu.game_paused = host_.paused.load();
       fu.frame_counter = static_cast<int>(host_.frames.load());
+      if (!host_.paused.load()) host_.world.advance(dt * host_.speed);  // the scripted player-ship path (ship path ...)
       fire("on_native_frame_update", &fu);
       fire("on_frame_update");
       costs.push_back(std::chrono::duration<double, std::milli>(Clock::now() - f0).count());
@@ -680,6 +691,19 @@ class Runner {
     else if (n == "hooks") got = static_cast<double>(host_.hook_count());
     else if (n == "lua_pending") got = static_cast<double>(host_.lua_pending());
     else if (n == "last_shutdown_ms") got = last_shutdown_ms_;
+    else if (n == "objects") got = static_cast<double>(host_.world.count());
+    else if (n == "spawns") got = static_cast<double>(host_.world.spawns);
+    else if (n == "set_pos_calls") got = static_cast<double>(host_.world.set_pos_calls);
+    else if (n == "teleports") got = static_cast<double>(host_.world.teleports);
+    else if (n == "owner_calls") got = static_cast<double>(host_.world.owner_calls);
+    else if (n == "activate_calls") got = static_cast<double>(host_.world.activate_calls);
+    else if (n == "radar_calls") got = static_cast<double>(host_.world.radar_calls);
+    else if (n == "removed") got = static_cast<double>(host_.world.removed);
+    else if (n == "seat") got = host_.world.seat ? 1 : 0;
+    else if (n == "docked") got = host_.world.docked ? 1 : 0;
+    else if (n == "seta") got = host_.world.seta ? 1 : 0;
+    else if (n == "path_active") got = host_.world.path_active() ? 1 : 0;
+    else if (n == "gate_jumps") got = static_cast<double>(host_.world.path_sector_changes());
     else if (n.rfind("subs.", 0) == 0) got = host_.subscriber_count(n.substr(5));
     else throw UsageError("unknown state '" + n + "'");
     const auto why = check_number(got, t[2], t[3]);
@@ -707,6 +731,279 @@ class Runner {
       }
     }
     host_.note("[hostsim]   secret scan clean (log, Lua events, stash, " + std::to_string(files) + " files)");
+  }
+
+
+  // ================================ fake universe commands (M3-04, world.h) ================================
+  // key=value arguments of a command (everything from token `from` on); bare words become flags with the value "1".
+  static std::map<std::string, std::string> kv_args(const std::vector<std::string>& t, std::size_t from) {
+    std::map<std::string, std::string> m;
+    for (std::size_t i = from; i < t.size(); ++i) {
+      const auto eq = t[i].find('=');
+      if (eq == std::string::npos) m[t[i]] = "1";
+      else m[t[i].substr(0, eq)] = t[i].substr(eq + 1);
+    }
+    return m;
+  }
+  static double kv_num(const std::map<std::string, std::string>& m, const char* key, double fallback, bool required = false) {
+    const auto it = m.find(key);
+    if (it == m.end()) {
+      if (required) throw UsageError(std::string("missing ") + key + "=");
+      return fallback;
+    }
+    if (!is_number(it->second)) throw UsageError(std::string(key) + "= needs a number, got '" + it->second + "'");
+    return std::atof(it->second.c_str());
+  }
+  static hostsim::Vec3 kv_vec(const std::map<std::string, std::string>& m, const char* key, const hostsim::Vec3& fallback, bool required = false) {
+    const auto it = m.find(key);
+    if (it == m.end()) {
+      if (required) throw UsageError(std::string("missing ") + key + "=x,y,z");
+      return fallback;
+    }
+    const auto v = hostsim::parse_vec3(it->second);
+    if (!v) throw UsageError(std::string(key) + "= needs x,y,z (no spaces), got '" + it->second + "'");
+    return *v;
+  }
+  static UIPosRot to_pos(const hostsim::Vec3& v, double yaw = 0) {
+    UIPosRot u{};
+    u.x = static_cast<float>(v.x);
+    u.y = static_cast<float>(v.y);
+    u.z = static_cast<float>(v.z);
+    u.yaw = static_cast<float>(yaw);
+    return u;
+  }
+
+  // Object selector: <id> | last | player | station | macro=<m> | owner=<o> | name=<n> (the newest match). 0 = none.
+  std::uint64_t resolve_object(const std::string& sel) {
+    auto& w = host_.world;
+    if (sel == "last") return w.last_spawned();
+    if (sel == "player") return w.player_ship;
+    if (sel == "station") return hostsim::World::kStation;
+    if (!sel.empty() && std::isdigit(static_cast<unsigned char>(sel[0])) != 0) return static_cast<std::uint64_t>(std::strtoull(sel.c_str(), nullptr, 10));
+    const auto eq = sel.find('=');
+    if (eq == std::string::npos) throw UsageError("bad object selector '" + sel + "' (id | last | player | station | macro=M | owner=O | name=N)");
+    const std::string key = sel.substr(0, eq), val = sel.substr(eq + 1);
+    std::uint64_t best = 0;
+    for (const auto& o : w.snapshot()) {
+      const bool hit = key == "macro" ? o.macro == val : key == "owner" ? o.owner == val : key == "name" ? o.name == val : throw UsageError("unknown selector key '" + key + "'");
+      if (hit && o.id > best) best = o.id;
+    }
+    return best;
+  }
+
+  static json obj_json(const hostsim::Obj& o) {
+    return json{{"id", o.id}, {"cls", o.cls}, {"macro", o.macro}, {"owner", o.owner}, {"name", o.name}, {"idcode", o.idcode}, {"sector", o.sector},
+                {"x", o.pos.x}, {"y", o.pos.y}, {"z", o.pos.z}, {"yaw", o.pos.yaw}, {"pitch", o.pos.pitch}, {"roll", o.pos.roll},
+                {"active", o.active}, {"radar", o.radar}, {"wrecked", o.wrecked}};
+  }
+
+  // seat on|off / seta on|off
+  void cmd_toggle(const std::vector<std::string>& t, const char* usage, bool& flag) {
+    need(t, 2, usage);
+    if (t[1] == "on" || t[1] == "1") flag = true;
+    else if (t[1] == "off" || t[1] == "0") flag = false;
+    else throw UsageError(std::string("usage: ") + usage);
+  }
+
+  // dock [on|off] / undock: IsPlayerOccupiedShipDocked. Docking also moves the ship into the station's sector.
+  void cmd_dock(const std::vector<std::string>& t, bool default_on) {
+    bool on = default_on;
+    if (t.size() > 1) {
+      if (t[1] == "off" || t[1] == "0") on = false;
+      else if (t[1] != "on" && t[1] != "1") throw UsageError("usage: dock [on|off] | undock");
+    }
+    auto& w = host_.world;
+    w.docked = on;
+    if (on) {
+      w.stop_path();
+      const auto* st = w.find(hostsim::World::kStation);
+      if (auto* s = w.find(w.player_ship); s && st) s->sector = st->sector;
+    }
+  }
+
+  // ship path circle radius=R speed=S [center=x,y,z] [sector=ID]
+  // ship path line  from=x,y,z to=x,y,z speed=S [sector=ID] [loop]
+  // ship path gate  from=x,y,z to=x,y,z speed=S sector=A to_sector=B [exit=x,y,z]
+  // ship path stop
+  // ship place sector=ID pos=x,y,z [yaw=deg]
+  void cmd_ship(const std::vector<std::string>& t) {
+    need(t, 2, "ship path circle|line|gate|stop ... | ship place sector=ID pos=x,y,z");
+    auto& w = host_.world;
+    if (t[1] == "place") {
+      const auto a = kv_args(t, 2);
+      auto* s = w.find(w.player_ship);
+      if (!s) throw ScriptFail("no player ship");
+      if (a.count("sector")) {
+        const auto id = static_cast<std::uint64_t>(kv_num(a, "sector", 0));
+        if (!w.has_sector(id)) throw ScriptFail("unknown sector " + std::to_string(id) + " (world sector add <id>)");
+        s->sector = id;
+      }
+      s->pos = to_pos(kv_vec(a, "pos", {s->pos.x, s->pos.y, s->pos.z}), kv_num(a, "yaw", s->pos.yaw));
+      w.stop_path();
+      return;
+    }
+    if (t[1] != "path") throw UsageError("usage: ship path ... | ship place ...");
+    need(t, 3, "ship path circle|line|gate|stop ...");
+    if (t[2] == "stop") {
+      w.stop_path();
+      return;
+    }
+    const auto a = kv_args(t, 3);
+    hostsim::Path p;
+    p.speed = kv_num(a, "speed", 0, true);
+    if (p.speed <= 0) throw UsageError("speed= must be > 0 (m/s)");
+    p.sector = static_cast<std::uint64_t>(kv_num(a, "sector", 0));
+    if (p.sector != 0 && !w.has_sector(p.sector)) throw ScriptFail("unknown sector " + std::to_string(p.sector) + " (world sector add <id>)");
+    if (t[2] == "circle") {
+      p.kind = hostsim::PathKind::Circle;
+      p.radius = kv_num(a, "radius", 0, true);
+      if (p.radius <= 0) throw UsageError("radius= must be > 0");
+      p.center = kv_vec(a, "center", {});
+    } else if (t[2] == "line" || t[2] == "gate") {
+      p.kind = t[2] == "line" ? hostsim::PathKind::Line : hostsim::PathKind::Gate;
+      p.from = kv_vec(a, "from", {}, true);
+      p.to = kv_vec(a, "to", {}, true);
+      p.loop = a.count("loop") != 0;
+      if (p.kind == hostsim::PathKind::Gate) {
+        p.to_sector = static_cast<std::uint64_t>(kv_num(a, "to_sector", 0, true));
+        if (!w.has_sector(p.to_sector)) throw ScriptFail("unknown to_sector " + std::to_string(p.to_sector) + " (world sector add <id>)");
+        p.exit = kv_vec(a, "exit", p.to);
+      }
+    } else {
+      throw UsageError("ship path wants circle|line|gate|stop");
+    }
+    w.start_path(p);
+    host_.note("[hostsim]   path started; the player ship moves during `frame` (game time, not while paused)");
+  }
+
+  // world sector add <id> | world object add macro=M owner=O sector=S pos=x,y,z [name=N] [yaw=deg] [class=ship|station]
+  // world object <wreck|remove|unwreck> <selector> | world object owner <selector> <faction> | world object name <selector> <text>
+  // world spawn-fail <n> | world teleport allow|deny [reason] | world controlled-when-docked on|off
+  void cmd_world(const std::vector<std::string>& t) {
+    need(t, 2, "world sector|object|spawn-fail|teleport|controlled-when-docked ...");
+    auto& w = host_.world;
+    if (t[1] == "sector") {
+      need(t, 4, "world sector add <id>");
+      if (t[2] != "add") throw UsageError("world sector add <id>");
+      w.add_sector(static_cast<std::uint64_t>(std::strtoull(t[3].c_str(), nullptr, 10)));
+    } else if (t[1] == "spawn-fail") {
+      need(t, 3, "world spawn-fail <count>");
+      w.spawn_fail_budget = std::atoi(t[2].c_str());
+    } else if (t[1] == "teleport") {
+      need(t, 3, "world teleport allow|deny [reason]");
+      w.teleport_allowed = t[2] == "allow";
+      if (t[2] != "allow" && t[2] != "deny") throw UsageError("world teleport allow|deny [reason]");
+      if (t.size() > 3) {
+        w.teleport_reason.clear();
+        for (std::size_t i = 3; i < t.size(); ++i) w.teleport_reason += (i > 3 ? " " : "") + t[i];
+      }
+    } else if (t[1] == "controlled-when-docked") {
+      cmd_toggle({"x", t.size() > 2 ? t[2] : ""}, "world controlled-when-docked on|off", w.controlled_when_docked);
+    } else if (t[1] == "object") {
+      need(t, 3, "world object add|wreck|unwreck|remove|owner|name ...");
+      if (t[2] == "add") {
+        const auto a = kv_args(t, 3);
+        if (!a.count("macro") || !a.count("sector")) throw UsageError("world object add macro=M sector=S [owner=O] [pos=x,y,z] [name=N] [yaw=deg] [class=station]");
+        const auto sector = static_cast<std::uint64_t>(kv_num(a, "sector", 0));
+        const auto owner = a.count("owner") ? a.at("owner") : std::string("argon");
+        const auto id = w.spawn(a.at("macro"), sector, to_pos(kv_vec(a, "pos", {}), kv_num(a, "yaw", 0)), owner);
+        if (id == 0) throw ScriptFail("world object add: refused (unknown sector " + std::to_string(sector) + " or a pending spawn-fail)");
+        w.spawns--;  // a scripted placement is not a mod spawn
+        if (auto* o = w.find(id)) {
+          if (a.count("name")) o->name = a.at("name");
+          if (a.count("class")) o->cls = a.at("class");
+        }
+        host_.note("[hostsim]   object id=" + std::to_string(id));
+      } else {
+        need(t, 4, "world object wreck|unwreck|remove|owner|name <selector> ...");
+        const auto id = resolve_object(t[3]);
+        auto* o = w.find(id);
+        if (!o) throw ScriptFail("no object matches '" + t[3] + "'");
+        if (t[2] == "wreck") o->wrecked = true;
+        else if (t[2] == "unwreck") o->wrecked = false;
+        else if (t[2] == "remove") { if (!w.remove(id)) throw ScriptFail("refused: the player ship and the station are never removed"); }
+        else if (t[2] == "owner") { need(t, 5, "world object owner <selector> <faction>"); o->owner = t[4]; }
+        else if (t[2] == "name") { need(t, 5, "world object name <selector> <text>"); o->name = t[4]; for (std::size_t i = 5; i < t.size(); ++i) o->name += " " + t[i]; }
+        else throw UsageError("world object add|wreck|unwreck|remove|owner|name ...");
+      }
+    } else {
+      throw UsageError("world sector|object|spawn-fail|teleport|controlled-when-docked ...");
+    }
+  }
+
+  // expect-object <selector> exists|absent
+  // expect-object <selector> <field> <op> <value>     fields: id cls macro owner name idcode sector x y z yaw pitch roll active radar wrecked
+  // expect-object count <op> <n> [macro=M] [owner=O] [sector=S] [name=N]
+  void cmd_expect_object(const std::vector<std::string>& t) {
+    need(t, 3, "expect-object <selector> exists|absent|<field> <op> <value> | expect-object count <op> <n> [filters]");
+    auto& w = host_.world;
+    if (t[1] == "count") {
+      need(t, 4, "expect-object count <op> <n> [macro=M] [owner=O] [sector=S] [name=N]");
+      const auto f = kv_args(t, 4);
+      double n = 0;
+      for (const auto& o : w.snapshot()) {
+        if (f.count("macro") && o.macro != f.at("macro")) continue;
+        if (f.count("owner") && o.owner != f.at("owner")) continue;
+        if (f.count("name") && o.name != f.at("name")) continue;
+        if (f.count("sector") && std::to_string(o.sector) != f.at("sector")) continue;
+        ++n;
+      }
+      const auto why = check_number(n, t[2], t[3]);
+      if (!why.empty()) throw ScriptFail("object count: " + why);
+      return;
+    }
+    const auto id = resolve_object(t[1]);
+    const auto* o = w.find(id);
+    if (t[2] == "exists") {
+      if (!o) throw ScriptFail("no object matches '" + t[1] + "'");
+      return;
+    }
+    if (t[2] == "absent") {
+      if (o) throw ScriptFail("object '" + t[1] + "' exists (id " + std::to_string(id) + ")");
+      return;
+    }
+    if (!o) throw ScriptFail("no object matches '" + t[1] + "'");
+    need(t, 4, "expect-object <selector> <field> <op> <value>");
+    std::string expected;
+    for (std::size_t k = 4; k < t.size(); ++k) expected += (k > 4 ? " " : "") + t[k];
+    const auto why = check_value(eval_path(obj_json(*o), t[2]), t[3], expected);
+    if (!why.empty()) throw ScriptFail("object " + std::to_string(id) + " " + t[2] + ": " + why);
+  }
+
+  // expect-ghost <player> err_p50|err_p95|err_max|samples <op> <value>
+  // The ghost error (metres between the ghost of <player> and that player's true pose) is measured by the ghost feature's
+  // test hook, which M3-10 adds; hostsim only stores the samples (World::ghost_errors, fed by `ghost-sample`). Until a
+  // scenario provides samples this command PARSES AND VALIDATES its arguments and prints "STUB" without failing, so wave-2
+  // scenarios can already contain the line. With samples it evaluates the percentile and fails on a violation.
+  void cmd_expect_ghost(const std::vector<std::string>& t) {
+    need(t, 5, "expect-ghost <player> err_p50|err_p95|err_max|samples <op> <value>");
+    const std::string& metric = t[2];
+    if (metric != "err_p50" && metric != "err_p95" && metric != "err_max" && metric != "samples") throw UsageError("expect-ghost metric must be err_p50, err_p95, err_max or samples");
+    if (!is_number(t[4])) throw UsageError("expect-ghost wants a number, got '" + t[4] + "'");
+    const auto it = host_.world.ghost_errors.find(t[1]);
+    if (it == host_.world.ghost_errors.end() || it->second.empty()) {
+      if (metric == "samples") {
+        const auto why = check_number(0, t[3], t[4]);
+        if (!why.empty()) throw ScriptFail("ghost samples for " + t[1] + ": " + why);
+        return;
+      }
+      host_.note("[hostsim]   expect-ghost STUB: no ghost error samples for '" + t[1] + "' (M3-10 provides the measurement); not evaluated");
+      return;
+    }
+    auto v = it->second;
+    std::sort(v.begin(), v.end());
+    const auto pct = [&](double p) { return v[std::min(v.size() - 1, static_cast<std::size_t>(p * static_cast<double>(v.size())))]; };
+    const double got = metric == "samples" ? static_cast<double>(v.size()) : metric == "err_max" ? v.back() : metric == "err_p50" ? pct(0.5) : pct(0.95);
+    const auto why = check_number(got, t[3], t[4]);
+    if (!why.empty()) throw ScriptFail("ghost " + t[1] + " " + metric + ": " + why);
+    host_.note("[hostsim]   ghost " + t[1] + " " + metric + " = " + std::to_string(got));
+  }
+
+  // ghost-sample <player> <metres>: records one ghost error sample (used by M3-10's hook and by the DLL-free smoke).
+  void cmd_ghost_sample(const std::vector<std::string>& t) {
+    need(t, 3, "ghost-sample <player> <metres>");
+    if (!is_number(t[2])) throw UsageError("ghost-sample wants a number");
+    host_.world.ghost_errors[t[1]].push_back(std::atof(t[2].c_str()));
   }
 
   // ---- server control ----

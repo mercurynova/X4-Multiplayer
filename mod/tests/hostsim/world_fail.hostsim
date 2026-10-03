@@ -1,0 +1,3 @@
+# expect-ghost must FAIL once the samples violate the bound (ctest hostsim.world_failure_exit_code: exit code 1 at line 3)
+ghost-sample bob 9.0
+expect-ghost bob err_p95 < 2
