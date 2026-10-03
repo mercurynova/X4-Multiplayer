@@ -94,7 +94,8 @@ function Start-Proc([string]$name, [string]$exe, [string[]]$argList, [hashtable]
     $err = Join-Path $logDir "$name.err.log"
     # Windows PowerShell 5.1 does not quote array elements that contain spaces.
     $quoted = @($argList | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
-    $p = Start-Process -FilePath $exe -ArgumentList $quoted -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+    if ($quoted.Count -eq 0) { $p = Start-Process -FilePath $exe -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err }
+    else { $p = Start-Process -FilePath $exe -ArgumentList $quoted -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err }
   }
   finally { foreach ($k in $old.Keys) { [System.Environment]::SetEnvironmentVariable($k, $old[$k]) } }
   $null = $p.Handle   # PS 5.1: without touching the handle, ExitCode reads as empty after exit
