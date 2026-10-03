@@ -22,6 +22,7 @@ struct JoinRequest {
   std::string admin_password;  // SECRET: optional, M2-09 (authority role); empty = none
   bool want_authority = false; // optional "role":"authority" (M2-09); the join flow only forwards it
   std::uint16_t team = 0;      // 0 = auto
+  std::vector<std::uint8_t> loaded_save_sha256;  // optional hex "loaded_save_sha256" (M2-09 test seam: an authority that already runs the session save)
 };
 
 // nullopt (with `error` set to a short machine code) when the text is not a valid join request.
