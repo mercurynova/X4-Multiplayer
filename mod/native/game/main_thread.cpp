@@ -37,10 +37,9 @@ void MainThread::reset() noexcept {
 
 void MainThread::capture_init() noexcept { state().init_thread.store(this_thread_token()); }
 
-void MainThread::capture_frame() noexcept {
-  std::uint64_t expected = 0;
-  state().frame_thread.compare_exchange_strong(expected, this_thread_token());
-}
+// Session-2 finding: on_frame_update was seen on two different thread ids in one run. "Main" is therefore the thread of the
+// CURRENT on_frame_update call (re-captured every frame), not the thread of the first one.
+void MainThread::capture_frame() noexcept { state().frame_thread.store(this_thread_token()); }
 
 bool MainThread::is_main() const noexcept {
   auto& s = state();

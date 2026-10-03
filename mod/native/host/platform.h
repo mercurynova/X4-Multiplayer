@@ -3,6 +3,7 @@
 // SDK-free and testable. The real implementation (game/x4_platform.cpp) wraps X4NativeAPI; tests use a fake.
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,26 @@ class IPlatform {
   // Pointer valid until the next set/remove of the same key; nullptr when absent.
   [[nodiscard]] virtual const void* stash_get(const char* key, std::uint32_t* size) = 0;
   virtual bool stash_remove(const char* key) = 0;
+
+  // ---- Lua bridge (M2-06). Not pure: a platform without a Lua side (most test fakes) keeps the defaults. ----
+  // Lua -> native verb: Lua calls __X4NATIVE_API.raise_event("<event>", "<json>") and X4Native raises the C++ event of the same
+  // name with the text as data. `handler` gets that text; it runs synchronously inside the Lua call (the UI thread in the game,
+  // but a feature must not rely on that: copy the text and act on it in on_frame). Returns false when unsupported.
+  using LuaVerbHandler = std::function<void(std::string_view payload)>;
+  virtual bool on_lua_verb(const char* event, LuaVerbHandler handler) {
+    (void)event;
+    (void)handler;
+    return false;
+  }
+  // Drops every on_lua_verb subscription (host shutdown). Handlers never run after this returns.
+  virtual void clear_lua_verbs() {}
+  // native -> Lua: raises the Lua event `event` (Lua: RegisterEvent) with a text parameter. UI (frame) thread only.
+  // 0 = ok, non-zero = failed or unsupported.
+  virtual int raise_lua(const char* event, std::string_view param) {
+    (void)event;
+    (void)param;
+    return -1;
+  }
 };
 
 }  // namespace x4mp::host

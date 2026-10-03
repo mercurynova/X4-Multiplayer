@@ -138,6 +138,9 @@ local ERROR_TEXT = { bad_address = 20, name_empty = 21, name_long = 22 }
 ------------------------------------------------------------------------------
 local ACTIVE_STATES = { connecting = true, handshaking = true, checking_save = true, downloading = true, loading = true,
 	matching = true, ingame = true }
+-- Reject tokens of x4mp.status.reject (native: features/join/join_json.cpp reject_for_code, or "build" from a refused host).
+-- Anything else (or a missing token) uses the generic text 38 with the server's message.
+local REJECT_TEXT = { build = 60, mod = 61, auth = 62, full = 63, banned = 64, name = 65 }
 local STATE_TEXT = { disconnected = 30, connecting = 31, handshaking = 32, checking_save = 33, downloading = 34,
 	loading = 35, matching = 36, ingame = 37, rejected = 38, error = 39 }
 
@@ -206,8 +209,17 @@ local function buildStatus(st, rows)
 	local label
 	if state == "downloading" and status and type(status.progress) == "number" then
 		label = T(34, string.format("%d%%", math.floor(status.progress * 100 + 0.5)))
-	elseif state == "rejected" or state == "error" then
-		label = T(STATE_TEXT[state], tostring(status and (status.detail or status.reject) or ""))
+	elseif state == "rejected" then
+		local detail = tostring(status and status.detail or "")
+		local id = status and REJECT_TEXT[status.reject]
+		if id then
+			label = T(id, detail)
+		else
+			label = T(STATE_TEXT.rejected, detail ~= "" and detail or tostring(status and status.reject or ""))
+		end
+		label = label:gsub("%s+$", "")
+	elseif state == "error" then
+		label = T(STATE_TEXT.error, tostring(status and (status.detail or status.reject) or ""))
 	else
 		label = T(STATE_TEXT[state] or 39, "")
 	end
@@ -270,6 +282,7 @@ end
 
 --- open(screen): opens the window on a screen. Returns false (and logs) when no renderer is registered.
 function S.open(screen)
+	B.loadingSave = nil -- opening a screen again means any earlier load is over (failed or done)
 	local st = S.initState()
 	st.screen = S.normalizeScreen(screen)
 	st.errors = {}

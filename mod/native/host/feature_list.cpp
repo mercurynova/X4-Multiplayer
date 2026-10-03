@@ -15,12 +15,13 @@
 #include "host/mod_host.h"
 
 // ---- feature includes (append, one per feature) ----
+#include "features/join/join_feature.h"
 
 namespace x4mp::host {
 
 void register_builtin_features(FeatureRegistry& registry) {
-  (void)registry;
   // ---- registry (append, one line per feature) ----
+  registry.add(std::make_unique<x4mp::features::JoinFeature>());
 }
 
 }  // namespace x4mp::host

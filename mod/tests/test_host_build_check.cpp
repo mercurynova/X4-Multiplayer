@@ -80,3 +80,31 @@ TEST_CASE("the version falls back to the SDK types build", "[host][build]") {
   const auto r = check_build(info("", "611726", std::nullopt, 900), "900-611726");
   CHECK(r.status == BuildStatus::Supported);
 }
+
+// Session 2: GetBuildVersionSuffix returns an empty string in the real game, so the build number comes from X4Native.
+TEST_CASE("an empty build suffix falls back to the X4Native release version", "[host][build]") {
+  auto b = info("9.00 (build 900)", "", x4mp::game::GameVersionPod{9, 0});
+  b.x4native_version = "v9.0.0-611726";
+  const auto ok = check_build(b, "900-611726");
+  CHECK(ok.status == BuildStatus::Supported);
+  CHECK(ok.detected == "900-611726");
+
+  b.x4native_version = "900-611726";
+  CHECK(check_build(b, "900-611726").status == BuildStatus::Supported);
+
+  // a known mismatch still refuses
+  b.x4native_version = "v9.0.0-700000";
+  const auto bad = check_build(b, "900-611726");
+  CHECK(bad.status == BuildStatus::Unsupported);
+  CHECK(bad.reason.find("900-611726") != std::string::npos);
+
+  // the suffix, when it has a number, wins over X4Native
+  b.x4native_version = "v9.0.0-611726";
+  b.build_suffix = "611727";
+  CHECK(check_build(b, "900-611726").status == BuildStatus::Unsupported);
+
+  // nothing readable anywhere stays unverified (not refused)
+  b.x4native_version = "9.0.0";
+  b.build_suffix = "";
+  CHECK(check_build(b, "900-611726").status == BuildStatus::Unverified);
+}

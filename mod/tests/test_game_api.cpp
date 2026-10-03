@@ -151,6 +151,18 @@ TEST_CASE("assert_main_thread: the first frame thread becomes main", "[game][thr
   CHECK(api.game_time() == 1234.5);  // and still works on main
 }
 
+TEST_CASE("the frame thread follows the current on_frame_update call", "[game][thread]") {
+  ResetMainThread guard;
+  auto& mt = main_thread();
+  std::thread([&] { mt.capture_frame(); }).join();  // thread A delivers a frame
+  CHECK_FALSE(mt.is_main());                        // this thread is not main now ...
+  mt.capture_frame();                               // ... but a later frame delivered on this thread makes it main (session 2: two tids)
+  CHECK(mt.is_main());
+  bool other = true;
+  std::thread([&] { other = mt.is_main(); }).join();
+  CHECK_FALSE(other);
+}
+
 TEST_CASE("the main-thread definition is swappable", "[game][thread]") {
   ResetMainThread guard;
   auto& mt = main_thread();
