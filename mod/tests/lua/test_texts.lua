@@ -1,7 +1,7 @@
 local t, env = ...
 local test, truthy, falsy = t.test, t.truthy, t.falsy
 
-local LUA_FILES = { "x4mp_bridge.lua", "x4mp_menu.lua", "x4mp_ui_standalone.lua", "x4mp_extensions.lua", "x4mp_authority.lua", "x4mp_join_mods.lua" }
+local LUA_FILES = { "x4mp_bridge.lua", "x4mp_menu.lua", "x4mp_ui_standalone.lua", "x4mp_extensions.lua", "x4mp_authority.lua", "x4mp_join_mods.lua", "x4mp_chat.lua", "x4mp_players.lua" }
 
 test("every text id used by the Lua code exists on page 92000", function()
 	env.reset()

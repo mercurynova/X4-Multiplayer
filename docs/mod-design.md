@@ -979,9 +979,9 @@ client players. That is a known v1 gameplay gap, and it is the largest one.
   announcements).
 - Native → Lua: `raise_lua("x4mp.chat_recv", json)`. The JSON is escaped, and
   multiple messages are batched per frame.
-- Slash commands are handled client-side: `/who`, `/ping`, `/me`, `/w <name>`.
-  Unknown commands are **not** passed to `ExecuteDebugCommand`, which is what
-  the vanilla chat window does for `/…` (`chatwindow.lua:465`).
+- **As built (M3-06):** the vanilla chat window sends `/command rest` to `ExecuteDebugCommand("command", "rest")`
+  (`chatwindow.lua:465`). `x4mp_chat.lua` handles only `/t text` (team) and `/w name text` (whisper, names may contain
+  blanks) and passes every other command to the previous function untouched. `/who`, `/ping`, `/me` are not built.
 
 ### 5.7 Summary table
 
@@ -1192,6 +1192,9 @@ header of `x4mp_bridge.lua`. Native side: `x4n::on("x4mp.<verb>", cb)` for verbs
 | Lua → native | `x4mp.game_saved` | **M2-10**. `{"v":1,"success":0\|1,"age":123.4}` for every completed game save (MD `event_game_saved` through the Lua event `x4mp.md_game_saved`, `md/x4mp_saves.xml`). Native logs a warning and forwards it as `LogForward` (rate limit one per 5 s) when it happens while connected as a client (quicksave bypasses the Lua wrapper) |
 | Lua → native | `x4mp.selftest` | **M2-10**. `{"v":1}`, sent by the chat command `/x4mp_selftest` (a chained `ExecuteDebugCommand` wrapper in `x4mp_saves.lua`). Native runs the self-test on the next frames and logs / forwards the PASS table (`SELFTEST <verdict> <check> <detail>` lines) |
 | Lua → native | `x4mp.saves_debug` | **M2-10 test seam**, honoured only with `selftest=true` in `x4mp.json`: `{"v":1,"role":"client\|authority\|none","connected":bool}` sets the node state the saves feature reacts to (hostsim drives it; the real source is the join feature through `DiagHub::set_connection`) |
+| Lua → native | `x4mp.chat_send` | **M3-06**. `{"v":1,"channel":"all\|team\|whisper","to":<player id, whisper only>,"text":"…"}` (text cleaned and cut at 256 characters natively). Native sends `ChatSend` on the Control lane; the server answers with a `ChatMessage` to every recipient, **the sender included**, so the sender's line appears when the server accepted it |
+| native → Lua | `x4mp.chat` | **M3-06**, handled by `x4mp_chat.lua`. `{"v":1,"replay":bool,"messages":[{"from":id,"name","team":N,"channel":"all\|team\|whisper\|admin\|system","text","t":<server µs>,"self":bool,"code":"not_connected\|no_recipient\|bad_request"}]}`; one batch per frame at most. `code` marks a message the node made itself (Lua shows the localised text). `replay:true` re-sends the last 50 messages to a fresh Lua state after `ui_ready` (no toasts) |
+| native → Lua | `x4mp.players` | **M3-06**, handled by `x4mp_players.lua`. `{"v":1,"self":id,"players":[{"id","name","team","team_role","roles","phase","in_game","online","ping","sector","ship"}],"events":[{"kind":"join\|leave","id","name"}]}`: the whole roster whenever `RosterUpdate` changed it (at most 2 Hz); `events` only on the push that announces a join / leave (never for the own id, never for the baseline roster); an empty list when the session ends; re-sent after `ui_ready` |
 | Lua → native | `x4mp.join` (M2-09 fields) | `"role":"authority","admin_password":"..."` when the Join dialog's "Host this session as the authority" is on (native requests roles Authority\|Client = 3 and sends only an HMAC proof). Optional test seam `"loaded_save_sha256":"<64 hex>"`: "this game already runs the session's start save" (ClientHello then makes the server skip the SessionSaveInfo). Without the seam native uses the sha it remembers in the stash (`join.authority`: the last loaded session save or stored checkpoint of this game run; cleared when the player loads another save) |
 | native → Lua | `x4mp.auth_collect` | **M2-09** (`x4mp_authority.lua`). `{"v":1}` (galaxy + ship) or `{"v":1,"ship_only":true}` (only the ship, answered by `P;...` or `N;`; close-out A item 3): asks MD (`AddUITriggeredEvent("X4MP_Authority","collect","1")`, `md/x4mp_galaxy.xml`) for the sectors and the player's ship; MD answers with the Lua event `x4mp.md_galaxy` strings `G;..` / `E;n` / `P;..` (format: `features/authority/authority_data.h`) which Lua relays unchanged |
 | Lua → native | `x4mp.auth_md` | **M2-09**. `{"v":1,"data":"<md message>"}` |

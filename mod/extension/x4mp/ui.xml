@@ -5,7 +5,8 @@
      Owners (M2 plan, shared-file rules): x4mp_bridge.lua, x4mp_menu.lua, x4mp_ui_standalone.lua, x4mp_extensions.lua = M2-05
      (x4mp_bridge.lua and x4mp_menu.lua are then edited by M2-06 only; M2-09 and M2-X3 add to x4mp_menu.lua after it).
      STUBS filled later by their own task: x4mp_saves.lua (M2-10), x4mp_optionsmenu_adapter.lua and x4mp_hud.lua (M2-11),
-     x4mp_join_mods.lua (M2-X3). Later tasks must not edit this file.
+     x4mp_join_mods.lua (M2-X3). M3-06 added x4mp_players.lua (player table, join/leave) and x4mp_chat.lua (vanilla chat window adapter).
+     Later tasks must not edit this file.
      __X4MP_USER (userdata storage, not in the save): { version, lastAddress, lastName }; never the password. -->
 <addon name="x4mp">
   <environment type="menus">
@@ -18,6 +19,8 @@
     <file name="ui/x4mp_optionsmenu_adapter.lua" />
     <file name="ui/x4mp_hud.lua" />
     <file name="ui/x4mp_join_mods.lua" />
+    <file name="ui/x4mp_players.lua" />
+    <file name="ui/x4mp_chat.lua" />
     <dependency name="ego_detailmonitorHelper" />
     <savedvariable name="__X4MP_USER" storage="userdata" />
   </environment>

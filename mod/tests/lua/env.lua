@@ -6,7 +6,7 @@ local ROOT = "."
 function E.setRoot(root) ROOT = root end
 function E.uiPath(file) return ROOT .. "/mod/extension/x4mp/ui/" .. file end
 
-local GLOBALS = { "X4MPBridge", "X4MPScreens", "X4MPMenu", "X4MPExtensions", "X4MPJoinMods","__X4MP_USER", "__X4NATIVE_API", "Menus",
+local GLOBALS = { "X4MPBridge", "X4MPScreens", "X4MPMenu", "X4MPExtensions", "X4MPJoinMods", "X4MPPlayers", "X4MPChat", "OnlineGetChatMessages", "OnlineSendChatMessage", "OnlineGetUserName", "__X4MP_USER", "__X4NATIVE_API", "Menus",
 	"OpenMenu", "Helper", "Color", "LoadGame", "getElapsedTime", "GetExtensionList", "ExecuteDebugCommand", "AddUITriggeredEvent" }
 
 local function readFile(path)

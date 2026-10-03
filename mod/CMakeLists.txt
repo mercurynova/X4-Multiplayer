@@ -538,3 +538,15 @@ if(X4MP_TESTS)
   set_tests_properties(smoke.headless_udp_real_server PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
 endif()
 # END M3-03 UDP realtime lane
+
+# =============================================================================================
+# BEGIN M3-06 chat + player list (features/chat/*.cpp is picked up by the M2-04 features glob; the hub in chat_json.* is the join
+# feature's hand-over point for ChatMessage / RosterUpdate frames). Appended by M3-06.
+#   x4mp_host_tests += tests/test_chat.cpp (chat_send parsing, ChatSend wire, roster tracker + join/leave events, hub)
+#   The Lua half is tested by tests/lua/test_chat.lua / test_players.lua (run_all.lua); the round trip through a real server is part of
+#   tests/hostsim/join_flow.hostsim (tools/e2e.ps1 -Steps Publish,JoinFlow).
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_chat.cpp)
+endif()
+# END M3-06 chat + player list
