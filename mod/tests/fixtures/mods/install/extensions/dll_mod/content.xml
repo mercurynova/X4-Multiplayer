@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<content id="dll_mod" name="Native DLL Fixture" version="900" save="0" enabled="1">
+  <dependency id="x4native" optional="false"/>
+</content>

@@ -275,3 +275,20 @@ if(X4MP_SPIKES)
   endif()
 endif()
 # X4MP_SPIKES end
+
+# =============================================================================================
+# BEGIN M2-03 core/mods (real extension list; docs/mod-management.md 8). Appended by M2-03.
+#   x4mp_core       += core/mods/mods.cpp (scanner, hasher, cache, ExtensionProvider: IExtensionProvider)
+#   x4mp_host       += host/extension_roots.cpp (Windows roots: install / Documents / Workshop; no file I/O)
+#   x4mp_core_tests += tests/test_mods.cpp over tests/fixtures/mods/ (hand-made synthetic folders)
+# =============================================================================================
+target_sources(x4mp_core PRIVATE native/core/mods/mods.cpp)
+target_sources(x4mp_host PRIVATE native/host/extension_roots.cpp)
+if(X4MP_TESTS)
+  target_sources(x4mp_core_tests PRIVATE tests/test_mods.cpp)
+  target_compile_definitions(x4mp_core_tests PRIVATE X4MP_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+  target_sources(x4mp_host_tests PRIVATE tests/test_host_extension_roots.cpp)
+endif()
+# =============================================================================================
+# END M2-03 core/mods
+# =============================================================================================
