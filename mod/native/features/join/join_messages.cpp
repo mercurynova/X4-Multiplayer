@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "admin_generated.h"
 #include "message_ids_generated.h"
 #include "session_generated.h"
 
@@ -37,6 +38,16 @@ Payload encode_node_ready(std::uint64_t universe_epoch, const std::vector<std::u
   fbb.Finish(P::CreateNodeReadyDirect(fbb, universe_epoch, &loaded_save_sha256));
   return take(fbb);
 }
+
+Payload encode_log_forward(int level, std::uint64_t time_us, std::string_view text) {
+  flatbuffers::FlatBufferBuilder fbb(256);
+  const std::string t(text.substr(0, 1024));
+  const auto line = P::CreateLogLineDirect(fbb, static_cast<P::LogLevel>(level < 0 ? 0 : (level > 3 ? 3 : level)), time_us, t.c_str());
+  const std::vector<flatbuffers::Offset<P::LogLine>> lines{line};
+  fbb.Finish(P::CreateLogForwardDirect(fbb, &lines));
+  return take(fbb);
+}
+std::uint16_t msg_log_forward() noexcept { return static_cast<std::uint16_t>(P::MsgType::LogForward); }
 
 std::uint16_t msg_load_status() noexcept { return static_cast<std::uint16_t>(P::MsgType::LoadStatus); }
 std::uint16_t msg_manifest_report() noexcept { return static_cast<std::uint16_t>(P::MsgType::ManifestReport); }

@@ -373,13 +373,6 @@ endif()
 # X4MP_AUTHORITY end
 
 # =============================================================================================
-# BEGIN M2-06 join feature (client join flow). Appended by M2-06.
-#   x4mp_host       += host/status_json.cpp (bridge topic payload builders), nlohmann (join verb parsing in features/join);
-#                      features/join/*.cpp is picked up by the M2-04 glob
-#   x4mp_host_tests += tests/test_join_json.cpp, tests/test_status_json.cpp
-#   hostsim         += scenarios that need no server (refused build text, bad join input); the server scenarios run through
-#                      tests/hostsim/join_flow_run.ps1 (not CI: tools/e2e.ps1 is M2-14's)
-# =============================================================================================
 target_sources(x4mp_host PRIVATE native/host/status_json.cpp)
 target_link_libraries(x4mp_host PRIVATE nlohmann_json::nlohmann_json)
 if(X4MP_TESTS)
@@ -395,3 +388,31 @@ endif()
 # =============================================================================================
 # END M2-06 join feature
 # =============================================================================================
+=======
+# BEGIN M2-10 save control + self-test + janitor skeleton (native/features/{saves,selftest,janitor,diag}). Appended by M2-10.
+#   x4mp_host        += nlohmann_json (the bridge payloads of the features are small JSON objects)
+#   x4mp_features_tests = Catch2 over a real ModHost + FakePlatform bridge (no SDK)
+#   hostsim.selftest = the real DLL: selftest=true, a chat-style trigger, the table in the mod log
+# =============================================================================================
+target_link_libraries(x4mp_host PRIVATE nlohmann_json::nlohmann_json)
+if(X4MP_TESTS)
+  add_executable(x4mp_features_tests tests/test_features_saves_selftest.cpp)
+  target_link_libraries(x4mp_features_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
+  x4mp_set_warnings(x4mp_features_tests)
+  catch_discover_tests(x4mp_features_tests TEST_PREFIX "features." PROPERTIES TIMEOUT 60)
+  cmake_language(DEFER CALL x4mp_assert_no_sdk x4mp_features_tests)
+
+  add_test(NAME hostsim.selftest
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/selftest.hostsim"
+            --var "SCRIPT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim")
+  set_tests_properties(hostsim.selftest PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+endif()
+# END M2-10
+
+# BEGIN M2-06 join feature (client join flow). Appended by M2-06.
+#   x4mp_host       += host/status_json.cpp (bridge topic payload builders), nlohmann (join verb parsing in features/join);
+#                      features/join/*.cpp is picked up by the M2-04 glob
+#   x4mp_host_tests += tests/test_join_json.cpp, tests/test_status_json.cpp
+#   hostsim         += scenarios that need no server (refused build text, bad join input); the server scenarios run through
+#                      tests/hostsim/join_flow_run.ps1 (not CI: tools/e2e.ps1 is M2-14's)
+# ======================================================================================

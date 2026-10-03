@@ -12,6 +12,7 @@
 
 #include "core/crypto/crypto.h"
 #include "core/version/version.h"
+#include "features/diag/diag_hub.h"
 #include "features/join/join_messages.h"
 #include "host/build_check.h"
 #include "host/extension_roots.h"
@@ -108,7 +109,7 @@ void JoinFeature::on_init(host::HostContext& ctx) {
     const std::string event = std::string("x4mp.") + verb;
     std::shared_ptr<Inbox> inbox = inbox_;
     const std::string v = verb;
-    if (!ctx.platform.on_lua_verb(event.c_str(), [inbox, v](std::string_view payload) { inbox->push(v, std::string(payload)); })) {
+    if (!ctx.platform.subscribe_event(event.c_str(), [inbox, v](std::string_view payload) { inbox->push(v, std::string(payload)); })) {
       X4MP_CLOG(ctx.log, Cat::Ui, Level::Warn, "lua verb {} could not be registered", event);
     }
   }
@@ -148,6 +149,10 @@ void JoinFeature::on_universe_ready(host::HostContext&) { universe_ready_flag_.s
 
 void JoinFeature::on_shutdown(host::HostContext& ctx) {
   if (inbox_) inbox_->close();
+  diag_sender_ = false;
+  diag_connected_ = false;
+  diag_hub().set_log_sender({});
+  diag_hub().set_connection(NodeRole::None, false);
   if (session_) {
     // M2-07 refines this (shutdown budget, epoch rule): a planned unload keeps the server slot for the resume grace.
     persist_state(stage_ == Stage::InGame ? "ingame" : (stage_ == Stage::Loading ? "loading" : "other"));
@@ -177,6 +182,7 @@ void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo&) {
   }
 
   pump_session(ctx);
+  update_diag(ctx);
   publish_status(ctx, false);
 }
 
@@ -353,6 +359,38 @@ bool JoinFeature::welcomed() const {
          (session_->state() == session::State::Joining || session_->state() == session::State::InSession);
 }
 
+// Tells the diag hub (save blocking, quicksave warning, self-test) what this node is, and installs the LogForward sender once the
+// server granted the capability (1<<10). The sender sends on the Control lane from the frame thread; <= 40 lines/s.
+void JoinFeature::update_diag(host::HostContext&) {
+  auto& hub = diag_hub();
+  const bool connected = welcomed();
+  const bool authority = connected && (session_->welcome().granted_roles & 1) != 0;
+  if (connected != diag_connected_) {
+    diag_connected_ = connected;
+    hub.set_connection(connected ? (authority ? NodeRole::Authority : NodeRole::Client) : NodeRole::None, connected);
+  }
+  const bool want_sender = connected && (session_->welcome().negotiated_caps & (std::uint64_t{1} << 10)) != 0;
+  if (want_sender && !diag_sender_) {
+    diag_sender_ = true;
+    hub.set_log_sender([this](log::Level level, std::string_view text) {
+      if (!session_ || !welcomed()) return false;
+      const auto now = Clock::now();
+      if (now - log_window_ >= std::chrono::seconds(1)) {
+        log_window_ = now;
+        log_in_window_ = 0;
+      }
+      if (++log_in_window_ > 40) return false;
+      const auto us = static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+      send_control(join::msg_log_forward(), join::encode_log_forward(static_cast<int>(level), us, text));
+      return true;
+    });
+  } else if (!want_sender && diag_sender_) {
+    diag_sender_ = false;
+    hub.set_log_sender({});
+  }
+}
+
 void JoinFeature::send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload) {
   if (session_) (void)session_->send(wire::Lane::Control, type, std::span<const std::uint8_t>(payload));
 }
@@ -502,7 +540,7 @@ void JoinFeature::issue_load(host::HostContext& ctx) {
   // Tell Lua (it keeps the start menu from being restored over the loading screen), then raise the vanilla event that
   // gameoptions.lua listens to: the path session 2 proved (the downloaded file is not in the Load list, loading by name works).
   raise_lua(ctx, "x4mp.load_save", host::make_load_save_json(save_name_, false));
-  const int rc = ctx.platform.raise_lua("loadSave", save_name_);
+  const int rc = ctx.platform.raise_lua("loadSave", save_name_) ? 0 : -1;
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "raised the Lua event loadSave for {} (rc={})", save_name_, rc);
   stage_ = Stage::Loading;
   load_issued_ = Clock::now();
@@ -592,7 +630,7 @@ std::string JoinFeature::build_status() const {
 }
 
 void JoinFeature::raise_lua(host::HostContext& ctx, const char* event, const std::string& payload) {
-  const int rc = ctx.platform.raise_lua(event, payload);
+  const int rc = ctx.platform.raise_lua(event, payload) ? 0 : -1;
   if (rc != 0) X4MP_CLOG(ctx.log, Cat::Ui, Level::Debug, "raise_lua({}) returned {}", event, rc);
 }
 

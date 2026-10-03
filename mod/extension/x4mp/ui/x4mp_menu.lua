@@ -140,7 +140,7 @@ local ACTIVE_STATES = { connecting = true, handshaking = true, checking_save = t
 	matching = true, ingame = true }
 -- Reject tokens of x4mp.status.reject (native: features/join/join_json.cpp reject_for_code, or "build" from a refused host).
 -- Anything else (or a missing token) uses the generic text 38 with the server's message.
-local REJECT_TEXT = { build = 60, mod = 61, auth = 62, full = 63, banned = 64, name = 65 }
+local REJECT_TEXT = { build = 70, mod = 71, auth = 72, full = 73, banned = 74, name = 75 }
 local STATE_TEXT = { disconnected = 30, connecting = 31, handshaking = 32, checking_save = 33, downloading = 34,
 	loading = 35, matching = 36, ingame = 37, rejected = 38, error = 39 }
 

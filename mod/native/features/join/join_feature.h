@@ -81,6 +81,7 @@ class JoinFeature final : public host::IFeature {
   void step_loading(host::HostContext& ctx);
   void complete_universe(host::HostContext& ctx);
   [[nodiscard]] bool welcomed() const;
+  void update_diag(host::HostContext& ctx);
   void send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload);
   void persist_state(const char* stage) const;
   [[nodiscard]] session::ClientIdentity make_identity(host::HostContext& ctx) const;
@@ -129,6 +130,12 @@ class JoinFeature final : public host::IFeature {
   std::string last_status_;
   Clock::time_point last_status_at_{};
   bool force_status_ = false;
+
+  // diag hub (M2-10): connection state + LogForward sender
+  bool diag_connected_ = false;
+  bool diag_sender_ = false;
+  Clock::time_point log_window_{};
+  int log_in_window_ = 0;
 };
 
 }  // namespace x4mp::features

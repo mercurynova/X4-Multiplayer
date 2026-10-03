@@ -1,5 +1,6 @@
 #include "game/x4_platform.h"
 
+#include <memory>
 #include <string>
 
 #include <x4n_core.h>
@@ -58,41 +59,46 @@ const void* X4Platform::stash_get(const char* key, std::uint32_t* size) {
 
 bool X4Platform::stash_remove(const char* key) { return api_ok() && ::x4n::stash::remove(key); }
 
+// ---- Lua <-> native bridge (M2-10) ----
+// The EventFn lives on the heap for as long as its subscription; X4Native hands it back as the userdata pointer.
 namespace {
-void verb_trampoline(const char*, void* data, void* userdata) {
-  auto* handler = static_cast<const host::IPlatform::LuaVerbHandler*>(userdata);
-  if (handler == nullptr || !*handler) return;
+std::vector<std::unique_ptr<host::IPlatform::EventFn>>& event_fns() {
+  static std::vector<std::unique_ptr<host::IPlatform::EventFn>> v;
+  return v;
+}
+void event_trampoline(const char*, void* data, void* userdata) {
+  auto* fn = static_cast<host::IPlatform::EventFn*>(userdata);
+  if (!fn || !*fn) return;
   try {
-    (*handler)(data != nullptr ? std::string_view(static_cast<const char*>(data)) : std::string_view());
+    (*fn)(data ? std::string_view(static_cast<const char*>(data)) : std::string_view());
   } catch (...) {
-    // A verb handler must never throw into X4Native.
+    // never throw into X4Native
   }
 }
 }  // namespace
 
-bool X4Platform::on_lua_verb(const char* event, LuaVerbHandler handler) {
-  if (!api_ok() || !::x4n::detail::g_api->subscribe || event == nullptr || !handler) return false;
-  auto verb = std::make_unique<Verb>();
-  verb->handler = std::move(handler);
-  verb->subscription = ::x4n::detail::g_api->subscribe(event, &verb_trampoline, &verb->handler, ::x4n::detail::g_api);
-  if (verb->subscription <= 0) return false;
-  verbs_.push_back(std::move(verb));
+bool X4Platform::subscribe_event(const char* name, EventFn fn) {
+  if (!api_ok() || !name || !fn || !::x4n::detail::g_api->subscribe) return false;
+  auto owned = std::make_unique<EventFn>(std::move(fn));
+  const int id = ::x4n::on(name, &event_trampoline, owned.get());
+  if (id <= 0) return false;
+  event_subscriptions_.push_back(id);
+  event_fns().push_back(std::move(owned));
   return true;
 }
 
-void X4Platform::clear_lua_verbs() {
-  for (auto& v : verbs_) {
-    if (api_ok() && ::x4n::detail::g_api->unsubscribe && v->subscription > 0) ::x4n::detail::g_api->unsubscribe(v->subscription);
-  }
-  verbs_.clear();
+bool X4Platform::raise_lua(const char* name, std::string_view text) {
+  if (!api_ok() || !name || !::x4n::detail::g_api->raise_lua_event) return false;
+  const std::string owned(text);
+  return ::x4n::raise_lua(name, owned.c_str()) == 0;
 }
 
-X4Platform::~X4Platform() { clear_lua_verbs(); }
-
-int X4Platform::raise_lua(const char* event, std::string_view param) {
-  if (!api_ok() || !::x4n::detail::g_api->raise_lua_event || event == nullptr) return -1;
-  const std::string text(param);  // NUL-terminated copy
-  return ::x4n::raise_lua(event, text.c_str());
+X4Platform::~X4Platform() {
+  if (api_ok() && ::x4n::detail::g_api->unsubscribe) {
+    for (const int id : event_subscriptions_) ::x4n::off(id);
+  }
+  event_subscriptions_.clear();
+  event_fns().clear();
 }
 
 }  // namespace x4mp::game

@@ -172,7 +172,7 @@ void ModHost::install_refused_responder() noexcept {
     const std::string status = make_status_json(StatusFields{.state = "rejected", .detail = build_.reason, .reject = "build"});
     IPlatform* platform = &platform_;
     const auto answer = [platform, status](std::string_view) { (void)platform->raise_lua("x4mp.status", status); };
-    for (const char* verb : {"x4mp.ui_ready", "x4mp.request_status", "x4mp.join"}) platform_.on_lua_verb(verb, answer);
+    for (const char* verb : {"x4mp.ui_ready", "x4mp.request_status", "x4mp.join"}) platform_.subscribe_event(verb, answer);
   } catch (...) {
   }
 }
