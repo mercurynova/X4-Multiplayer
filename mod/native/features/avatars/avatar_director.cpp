@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 
 #include "x4mp/wire.h"
@@ -15,6 +16,7 @@ constexpr double kIdleReassertS = 0.25;
 constexpr double kParkedSnapM = 0.5;
 constexpr double kPersistPeriodS = 2.0;
 constexpr double kRecordMoveM = 5.0;
+constexpr std::int64_t kMaxClockSkewUs = 2'000'000;
 
 ghost::Euler to_euler(const Pose& p) { return {p.yaw, p.pitch, p.roll}; }
 }  // namespace
@@ -53,6 +55,7 @@ struct AvatarDirector::Avatar {
   bool hint_nonzero = false;
   std::string waiting;                // why a spawn waits (logged when it changes)
   std::uint32_t dress_seq = 0;
+  bool clock_warned = false;
 };
 
 AvatarDirector::AvatarDirector(IAvatarEnv& env) : env_(env) {}
@@ -298,6 +301,16 @@ void AvatarDirector::on_player_state(const PlayerStateIn& s, std::int64_t arriva
   }
   ghost::Sample g;
   g.t_us = s.sample_time_us;
+  // A sender whose sample time is not on the server clock (no clock sync yet, a bot that counts ticks) would put every sample seconds away from the
+  // render time: the avatar would never move. Such samples are stamped with their arrival time less a typical 50 ms of transport instead.
+  if (arrival_server_us > 0 && std::llabs(g.t_us - arrival_server_us) > kMaxClockSkewUs) {
+    if (!av->clock_warned) {
+      av->clock_warned = true;
+      env_.log(LogLevel::Warn, std::format("avatars: PlayerState of player {} is not stamped with the server clock (off by {:.1f} s); using arrival times", av->rec.player_id,
+                                           static_cast<double>(g.t_us - arrival_server_us) / 1e6));
+    }
+    g.t_us = arrival_server_us - 50'000;
+  }
   g.sector = s.sector;
   g.flags = s.flags;
   g.pos = {s.pose.x, s.pose.y, s.pose.z};

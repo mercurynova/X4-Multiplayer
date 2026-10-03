@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
@@ -13,6 +14,7 @@
 #include "core/ghost/registry.h"
 #include "features/avatars/avatar_director.h"
 #include "features/avatars/avatar_hub.h"
+#include "features/diag/diag_hub.h"
 #include "features/join/platform_stash.h"
 #include "features/selfship/galaxy_map.h"
 #include "features/selfship/selfship_hub.h"
@@ -82,6 +84,8 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
   std::unique_ptr<av::AvatarDirector> dir;
   av::AvatarSettings settings;
   double now_s = 0;
+  double next_stats_s = 5;
+  av::DirectorStats last_stats{};
   bool inited = false;
   bool lost_authority_logged = false;
 
@@ -347,10 +351,28 @@ void AvatarsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
   for (const auto& m : md) s.handle_md(m);
   if (!hub.authority()) return;  // clients have no avatars (they take theirs over, M3-12)
   std::int64_t server_now = 0;
-  const bool have_clock = selfship::selfship_hub().server_now(server_now);
+  bool have_clock = selfship::selfship_hub().server_now(server_now);
+  if (!have_clock) {  // the same estimate from the net layer (local steady clock + the applied offset)
+    NetSample ns;
+    if (diag_hub().sample_net(ns) && ns.clock_offset_us != 0) {
+      server_now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + ns.clock_offset_us;
+      have_clock = true;
+    }
+  }
+  if (!have_clock && !in.states.empty()) server_now = in.states.back().sample_time_us + 100000;
   for (const auto& st : in.states) s.dir->on_player_state(st, have_clock ? server_now : st.sample_time_us + 100000);
-  if (!have_clock) server_now = in.states.empty() ? 0 : in.states.back().sample_time_us + 100000;
   s.dir->step(s.now_s, server_now);
+  if (s.now_s >= s.next_stats_s) {  // one line per 5 s while avatars exist and something changed (the [sync] numbers of the authority's half)
+    s.next_stats_s = s.now_s + 5.0;
+    const auto& st = s.dir->stats();
+    if (s.dir->size() > 0 && (st.states_in != s.last_stats.states_in || st.set_pose_calls != s.last_stats.set_pose_calls)) {
+      ctx.log.raw(Cat::Ghost, Level::Info,
+                  "avatars: [drive] avatars=" + std::to_string(s.dir->size()) + " live=" + std::to_string(s.dir->live_count()) + " states_in=" + std::to_string(st.states_in) +
+                      " unknown_net_id=" + std::to_string(st.states_unknown) + " set_pose=" + std::to_string(st.set_pose_calls) + " unmapped_sector=" +
+                      std::to_string(st.unmapped_sector) + " vel_hints=" + std::to_string(st.vel_hints) + " repairs=" + std::to_string(st.repairs));
+    }
+    s.last_stats = st;
+  }
   hub.set_max_net_id(s.dir->max_net_id());
   if (hub.services().reserve_net_ids_above) hub.services().reserve_net_ids_above(s.dir->max_net_id());
 }
