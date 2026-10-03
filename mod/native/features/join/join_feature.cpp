@@ -40,7 +40,7 @@ constexpr auto kLoadFallbackAfter = seconds(15);         // loadSave raised but 
 constexpr const char* kStateKey = "state";               // stash "join.state"
 constexpr const char* kExtReportedKey = "ext_reported";  // stash "join.ext_reported": the last x4mp.extensions payload from Lua
 
-constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions"};
+constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions", "load_session"};
 
 std::string endpoint_text(const std::string& host, std::uint16_t port) {
   return (host.find(':') != std::string::npos ? "[" + host + "]" : host) + ":" + std::to_string(port);
@@ -144,6 +144,11 @@ void JoinFeature::on_init(host::HostContext& ctx) {
     } else if (!resume::is_resumable_stage(state->stage)) {
       why = "nothing to resume in stage '" + state->stage + "'";
     }
+    if (why.empty() && state->stage == "rejoining") {
+      // The previous incarnation was re-joining after a fresh Welcome: its server slot never reached Matching, so join fresh again (the
+      // server sends the session save info anew) instead of resuming it.
+      resume_intent.resume_token = session::Id128{};
+    }
     if (!why.empty()) {
       // Clean fresh join: drop the saved stage and the resume token (a token the server cannot match would only be refused).
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "reload resume: {}; clean fresh join with the saved address", why);
@@ -168,6 +173,12 @@ void JoinFeature::on_init(host::HostContext& ctx) {
         if (st == "ingame") {
           stage_ = Stage::InGame;
           undecided_ = *state;  // /reloadui or a save load? decided when the universe is ready (decide_after_reload)
+        } else if (st == "rejoining") {
+          stage_ = Stage::Rejoining;
+          authority_ready_step_ = 0;
+          // /reloadui or a save load while re-joining? decided like for "ingame" when the universe is ready (decide_after_reload)
+          undecided_ = *state;
+          undecided_->stage = "ingame";
         } else if (st == "loading") {
           stage_ = Stage::Loading;
         } else if (st == "preparing") {
@@ -240,7 +251,7 @@ void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) 
   if (universe_ready_flag_.exchange(false)) {
     if (stage_ == Stage::Loading) {
       universe_pending_ = true;
-    } else if (stage_ == Stage::InGame && undecided_) {
+    } else if ((stage_ == Stage::InGame || stage_ == Stage::Rejoining) && undecided_) {
       decide_after_reload(ctx);  // M2-07
     } else {
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready outside the load flow (stage {}): nothing to report", static_cast<int>(stage_));
@@ -269,6 +280,8 @@ void JoinFeature::drain_inbox(host::HostContext& ctx) {
       force_status_ = true;
     } else if (verb == "extensions") {
       on_extensions(ctx, payload);
+    } else if (verb == "load_session") {
+      on_load_session(ctx);
     }
     wipe(payload);
   }
@@ -370,6 +383,8 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
   authority_ready_step_ = 0;  // M2-09
   my_phase_ = -1;
   ready_pending_ = false;
+  rejoin_report_ = false;
+  rejoin_choice_ = false;
 
   const auto fail = [&](const char* detail) {
     stage_ = Stage::Failed;
@@ -511,6 +526,7 @@ const char* JoinFeature::resume_stage_name() const {
     case Stage::Preparing: return "preparing";
     case Stage::Loading: return "loading";
     case Stage::InGame: return "ingame";
+    case Stage::Rejoining: return "rejoining";
     default: return "";
   }
 }
@@ -554,6 +570,14 @@ void JoinFeature::decide_after_reload(host::HostContext& ctx) {
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "reload resume: same universe (ui reload; {}): staying in-game, epoch {:016x} kept", d.reason, epoch_);
     return;
   }
+  if (stage_ == Stage::Rejoining) {
+    // A different universe than the one this node last reported: it is NOT the session save we know. Never report it as such and never
+    // load anything silently: forget the running universe's save so the session save counts as "different" and the player chooses.
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "reload resume: new universe while re-joining ({}): the player decides about the session save", d.reason);
+    save_sha_.clear();
+    fingerprint_ = resume::Fingerprint{};
+    return;
+  }
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "reload resume: new universe (save load; {}): matching again", d.reason);
   fingerprint_ = resume::Fingerprint{};
   stage_ = Stage::Loading;
@@ -580,6 +604,7 @@ void JoinFeature::pump_session(host::HostContext& ctx) {
   // M2-09: the authority's checkpoint flow and its "nothing to load" ready path.
   if (authority_) authority_->step(ctx);
   step_authority_ready(ctx);
+  step_rejoin(ctx);
   finish_ready(ctx);
 
   switch (stage_) {
@@ -614,6 +639,7 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       if (resumed_incarnation_ && !session_->welcome().resumed) {  // M2-07
         X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "reload resume: the server did not resume the slot (fresh Welcome); joining from scratch");
       }
+      if (!session_->welcome().resumed) begin_rejoin(ctx);
       break;
     case K::ServerDisconnect: {
       X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "server Disconnect code={} message='{}' expected_len={}", e.code, e.text, e.expected.size());
@@ -650,6 +676,11 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       detail_ = e.text;
       break;
     case K::SaveReady:
+      if (stage_ == Stage::Rejoining) {  // in-game, fresh Welcome: the running universe may already BE the session save (no load then)
+        save_ = e.save;
+        handle_rejoin_save(ctx);
+        break;
+      }
       if (stage_ == Stage::Loading || stage_ == Stage::InGame) break;  // M2-07: a resumed Welcome may re-announce the save; never load twice
       save_ = e.save;
       handle_save_ready(ctx);
@@ -690,6 +721,62 @@ void JoinFeature::handle_save_ready(host::HostContext& ctx) {
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "session save complete and verified as {}.xml.gz; preparing the load", save_name_);
   stage_ = Stage::Preparing;
   prep_step_ = PrepStep::ReloadList;
+}
+
+// Session 3, B4. The server was restarted (or the resume token expired) while this node was in-game: the net layer re-joined with a FRESH
+// Welcome, the session save was announced again and the download verified (usually "already present"). The old code ignored that save
+// (stage InGame) and never reported NodeReady, so the server kept the node in a pre-InGame phase while the HUD said "Connected".
+// Now the node goes back through the join steps WITHOUT touching the game: Rejoining -> (session save == running universe) -> Matching +
+// NodeReady for the running universe. A different save is never loaded silently: the status says so and the player chooses (x4mp.load_session).
+void JoinFeature::begin_rejoin(host::HostContext& ctx) {
+  // Joining/Downloading/Preparing/Loading already run the normal flow. A second fresh Welcome while re-joining (the server went away again)
+  // starts the re-join over: nothing reported for the lost slot counts.
+  if (stage_ != Stage::InGame && stage_ != Stage::Rejoining) return;
+  stage_ = Stage::Rejoining;
+  rejoin_report_ = false;
+  rejoin_choice_ = false;
+  ready_pending_ = false;
+  universe_pending_ = false;
+  authority_ready_step_ = 0;
+  my_phase_ = -1;
+  detail_.clear();
+  X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "rejoin: fresh Welcome while the universe is running (epoch {:016x}); waiting for the session save info", epoch_);
+}
+
+void JoinFeature::handle_rejoin_save(host::HostContext& ctx) {
+  if (!save_) return;
+  const bool same = !save_sha_.empty() && save_->sha256 == save_sha_;
+  if (!same) {
+    rejoin_choice_ = true;
+    detail_ = save_->display_name;
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn,
+              "rejoin: the session save '{}' ({}) is not the save this game runs; NOT loading it silently, waiting for the player (x4mp.load_session)",
+              save_->display_name, save_->local_file_name);
+    force_status_ = true;
+    return;
+  }
+  checkpoint_ = save_->checkpoint_id;
+  has_manifest_ = save_->manifest_sha256.size() == crypto::kSha256Size && save_->manifest_size > 0;
+  rejoin_report_ = true;
+  X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "rejoin: the session save is the running universe ({}); reporting it again without a load", save_->local_file_name);
+}
+
+// The running universe equals the session save: report Matching + NodeReady as soon as the game says the universe is ready.
+void JoinFeature::step_rejoin(host::HostContext& ctx) {
+  if (stage_ != Stage::Rejoining || !rejoin_report_ || !welcomed() || !ctx.gates.universe_ready) return;
+  rejoin_report_ = false;
+  complete_universe(ctx);
+}
+
+void JoinFeature::on_load_session(host::HostContext& ctx) {
+  if (stage_ != Stage::Rejoining || !rejoin_choice_ || !save_) {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "x4mp.load_session ignored (stage {}, nothing is waiting for a choice)", static_cast<int>(stage_));
+    return;
+  }
+  X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "rejoin: the player chose to load the session save");
+  rejoin_choice_ = false;
+  detail_.clear();
+  handle_save_ready(ctx);
 }
 
 void JoinFeature::step_preparing(host::HostContext& ctx) {
@@ -806,7 +893,10 @@ void JoinFeature::sync_authority(host::HostContext& ctx) {
 // An authority whose game is already loaded and that is NOT sent a SessionSaveInfo (no start save, or it already runs it) reports
 // Loading, Matching and NodeReady itself, 2.5 s after the Welcome (the server sends the info right after it).
 void JoinFeature::step_authority_ready(host::HostContext& ctx) {
-  if (!authority_ || stage_ != Stage::Joining || ready_pending_ || !welcomed() || !ctx.gates.universe_ready) return;
+  if (!authority_ || (stage_ != Stage::Joining && !(stage_ == Stage::Rejoining && !rejoin_choice_)) || ready_pending_ || !welcomed() ||
+      !ctx.gates.universe_ready) {
+    return;
+  }
   const auto now = Clock::now();
   if (authority_ready_step_ == 0) {
     if (now - welcomed_at_ < std::chrono::milliseconds(2500)) return;
@@ -835,6 +925,16 @@ std::string JoinFeature::build_status() const {
     case Stage::Idle: break;
     case Stage::Rejected: state = "rejected"; break;
     case Stage::Failed: state = "error"; break;
+    case Stage::Rejoining:
+      if (rejoin_choice_) {
+        state = "save_changed";
+        break;
+      }
+      if (ready_pending_) {
+        state = "matching";
+        break;
+      }
+      [[fallthrough]];
     case Stage::Joining:
       if (ss == session::State::Connecting || ss == session::State::Reconnecting || ss == session::State::Disconnected) {
         state = "connecting";
@@ -846,7 +946,7 @@ std::string JoinFeature::build_status() const {
       }
       break;
     case Stage::Downloading: state = "downloading"; f.progress = progress_; break;
-    case Stage::Preparing:
+    case Stage::Preparing: state = "loading"; break;
     case Stage::Loading: state = "loading"; break;
     case Stage::InGame:
       state = ss == session::State::Reconnecting ? "connecting" : "ingame";

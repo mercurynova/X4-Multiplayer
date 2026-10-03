@@ -12,7 +12,8 @@
 namespace x4mp::features::resume {
 
 bool is_resumable_stage(std::string_view stage) noexcept {
-  return stage == "joining" || stage == "downloading" || stage == "preparing" || stage == "loading" || stage == "ingame";
+  return stage == "joining" || stage == "downloading" || stage == "preparing" || stage == "loading" || stage == "ingame" ||
+         stage == "rejoining";
 }
 
 std::string to_json(const State& s) {

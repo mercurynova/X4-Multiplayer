@@ -14,7 +14,7 @@ namespace x4mp::host {
 
 // x4mp.status. Empty strings / nullopt fields are omitted.
 struct StatusFields {
-  std::string_view state = "disconnected";  // disconnected|connecting|handshaking|checking_save|downloading|loading|matching|ingame|rejected|error
+  std::string_view state = "disconnected";  // disconnected|connecting|handshaking|checking_save|downloading|loading|matching|ingame|save_changed|rejected|error
   std::string_view detail;
   std::string_view reject;  // build|mod|auth|full|banned|name|protocol|role|kicked|other
   std::string_view server;  // host:port

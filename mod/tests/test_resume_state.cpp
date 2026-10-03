@@ -82,6 +82,6 @@ TEST_CASE("parse refuses corrupt text and tolerates missing fields", "[resume]")
 }
 
 TEST_CASE("is_resumable_stage knows exactly the continuable stages", "[resume]") {
-  for (const char* s : {"joining", "downloading", "preparing", "loading", "ingame"}) CHECK(is_resumable_stage(s));
+  for (const char* s : {"joining", "downloading", "preparing", "loading", "ingame", "rejoining"}) CHECK(is_resumable_stage(s));
   for (const char* s : {"", "other", "idle", "failed", "rejected"}) CHECK_FALSE(is_resumable_stage(s));
 }

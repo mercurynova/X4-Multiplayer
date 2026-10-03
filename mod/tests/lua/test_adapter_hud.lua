@@ -234,7 +234,7 @@ local function hudSetup(user)
 			if menu.name == "X4MPHud" then
 				local present = false
 				for _, e in ipairs(_G.View.menus) do if e.name == "X4MPHud" then present = true end end
-				if not present then table.insert(_G.View.menus, { name = "X4MPHud", type = "Helper" }) end
+				if not present then table.insert(_G.View.menus, { name = "X4MPHud", type = "Helper", id = "Helper" .. props.layer, properties = props }) end
 			end
 		end
 		return frame
@@ -265,13 +265,10 @@ local function hudCells()
 	for _, c in ipairs(env.cells()) do out[#out + 1] = c.text end
 	return out
 end
-
 --- another menu opens: it is in View.menus and the engine closes our frame
+--- another menu opens: it is in View.menus and View.clearMenus runs our clearCallback (menu.onCloseElement), which must release our entry itself
 local function openOtherMenu(name)
 	table.insert(_G.View.menus, { name = name or "MapMenu", type = "Helper" })
-	for i = #_G.View.menus, 1, -1 do
-		if _G.View.menus[i].name == "X4MPHud" then table.remove(_G.View.menus, i) end
-	end
 	X4MPHud.menu.onCloseElement("close")
 end
 
@@ -355,7 +352,7 @@ test("hud: another menu closes the frame, it comes back after the menu closes", 
 	eq(#env.frames, 2, "drawn again by the timer loop alone")
 	truthy(X4MPHud.present())
 	eq(X4MPHud.reshows, 1)
-	advance(5)
+	advance(4)
 	eq(#env.frames, 2, "and not again while present")
 end)
 
@@ -376,44 +373,68 @@ test("hud: the chat window does not count as another menu", function()
 	falsy(X4MPHud.blocked())
 end)
 
-test("hud: chat open -> the tick never draws, closes or re-opens anything and never touches the chat", function()
+-- chatwindow.lua (vanilla): layer 3 ("Helper3"), viewHelperType "Chat", no keepHUDVisible; Enter (edit box) sets playerControls false. The vanilla
+-- cockpit HUD is therefore hidden by the chat itself, not by us. Our frame is Helper6, so it neither displaces nor needs to yield to the chat.
+test("hud: chat open persistently -> the line stays and keeps updating, the chat is never touched", function()
 	hudSetup()
 	status(INGAME)
-	eq(#env.frames, 1)
-	-- the chat window opens next to our frame (a different layer, so ours stays up)
-	table.insert(_G.View.menus, { name = "ChatWindow", type = "Helper" })
-	local chatClosed, opened0, cleared0, closeCalls = 0, #env.opened, env.cleared, 0
+	table.insert(_G.View.menus, { name = "ChatWindow", type = "Chat", id = "Helper3" })
+	local chatClosed, closeCalls = 0, 0
 	_G.Menus[#_G.Menus + 1] = { name = "ChatWindow", onCloseElement = function() chatClosed = chatClosed + 1 end }
 	_G.Helper.closeMenu = function() closeCalls = closeCalls + 1 end
-	local displayed = 0
-	local baseCreate = _G.Helper.createFrameHandle
-	_G.Helper.createFrameHandle = function(...) displayed = displayed + 1 return baseCreate(...) end
-	-- the status changes every second (ping) while the chat is open
 	for i = 1, 10 do
 		status('{"v":1,"state":"ingame","players":3,"ping_ms":' .. (50 + i) .. '}')
 		advance(1)
 	end
-	eq(displayed, 0, "no frame (re)built")
-	eq(#env.frames, 1, "no display call")
-	eq(#env.opened, opened0, "no OpenMenu")
-	eq(env.cleared, cleared0, "no clearFrame")
-	eq(closeCalls, 0, "no Helper.closeMenu")
-	eq(chatClosed, 0, "the chat window was never closed")
-	eq(X4MPHud.tick(true), "yielding")
-	local n = 0
-	for line in env.debugText():gmatch("[^\n]+") do if line:find("yielding to open menu ChatWindow", 1, true) then n = n + 1 end end
-	eq(n, 1, "one rate-limited log line")
-	-- the chat closes: the frame is still there and updates again
-	_G.View.menus = { { name = "X4MPHud", type = "Helper" } }
-	advance(1)
+	truthy(X4MPHud.present())
 	eq(hudCells()[1], "X4MP: Connected, 3 players, 60 ms")
+	eq(closeCalls, 0)
+	eq(chatClosed, 0)
+	for _, f in ipairs(env.frames) do eq(f.props.layer, 6) end
+end)
+
+test("hud: chat closed with X -> the line is redrawn within reshowDelay + interval even if the view entry outlived the frame", function()
+	hudSetup()
+	status(INGAME)
+	local n0 = #env.frames
+	table.insert(_G.View.menus, { name = "ChatWindow", type = "Chat", id = "Helper3" })
+	advance(3)
+	-- the engine lost our frame without telling us: our menu is no longer shown, the stale View entry stays
+	X4MPHud.menu.shown = nil
+	table.remove(_G.View.menus, 2) -- the chat closes
+	advance(3)
+	truthy(#env.frames > n0, "drawn again")
+	truthy(X4MPHud.present())
+end)
+
+test("hud: map opened and closed -> the line comes back even though a stale entry said 'present'", function()
+	hudSetup()
+	status(INGAME)
+	local n0 = #env.frames
+	-- a vanilla menu opens but our callback is not run (or the entry was left behind): entry present, frame not shown
+	table.insert(_G.View.menus, { name = "MapMenu", type = "Helper" })
+	X4MPHud.menu.shown = nil
+	advance(2)
+	closeOtherMenus()
+	table.insert(_G.View.menus, { name = "X4MPHud", type = "Helper", id = "Helper6", properties = {} }) -- stale entry
+	advance(3)
+	truthy(#env.frames > n0, "redrawn")
+	truthy(X4MPHud.present())
+end)
+
+test("hud: a lost frame is healed by the periodic refresh even when nothing signalled it", function()
+	hudSetup()
+	status(INGAME)
+	local n0 = #env.frames
+	advance(6)
+	truthy(#env.frames > n0, "unchanged line drawn once more after refreshInterval")
 end)
 
 test("hud: unchanged text and frame present -> no re-show on any tick", function()
 	hudSetup()
 	status(INGAME)
 	eq(#env.frames, 1)
-	advance(20)
+	advance(4)
 	status(INGAME)
 	eq(#env.frames, 1)
 	eq(X4MPHud.tick(true), "present")
