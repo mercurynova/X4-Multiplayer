@@ -240,6 +240,16 @@ M1 carry-overs placed in M2: `EntitySpawn.game_time` and connection-bound upload
 (M2-02), unknown-key refusals on the hub (M2-13). Deferred: HTTPS/CSP and token/audit/user GUIs → M6; economy swarm
 trade settings → M5; `WorldUpdate` > 20 Hz verify errors and sector owner/extents → M4.
 
+## 3c. M3 tasks (plan: [m3-plan.md](m3-plan.md), 2026-10-03)
+
+**Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of
+[m3-plan.md](m3-plan.md) (second X4 copy, ghost-error metric, UDP in M3, avatar spawn, offline avatars, ...). Scope: teams in
+game, own-ship capture, avatars + client takeover, player ghosts, UDP lane, chat + roster, save hygiene v1, the two M2
+carry-overs; NPC streaming stays M4, on-foot presence M3b/M3c. Waves: 0 = spike kit for session-4 sitting 0 (S13, before
+coding), 1 = foundations (M3-01..07), 2 = in game (M3-08..12, after the S13 verdicts), 3 = hygiene + integration + kit
+(M3-13/14). User script outline: [in-game-session-4.md](in-game-session-4.md) (sitting 0 spikes; sittings 1-2 one PC with
+FakeNode wingmen; sitting 3 two PCs).
+
 ## 4. M2-spike: in-game experiments (run in parallel with M1)
 
 A throwaway extension (`mod/spikes/`, not shipped) on the pinned build, single PC unless
