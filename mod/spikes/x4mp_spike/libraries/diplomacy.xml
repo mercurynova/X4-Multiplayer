@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike (M2-004, test S11.4): custom diplomacy content added to the vanilla libraries/diplomacy.xml with a <diff>
+  (same mechanism as the vanilla DLC diffs, e.g. extensions/ego_dlc_terran/libraries/diplomacy.xml: <add sel="/diplomacy/...">).
+  Structure follows the vanilla <action> and <event> entries (libraries/diplomacy.xsd): one agent action
+  "x4mp_test_action" (interference category, <factionpair>, no cost) and one diplomatic event "x4mp_test_treaty"
+  (two options). Inert until the spike block diplo4 starts them; no vanilla entry is modified.
+  Plain-text names (not {page,line} references), so no text file is needed. Names are shown in the UI as written.
+-->
+<diff>
+  <add sel="/diplomacy/actions">
+    <action id="x4mp_test_action" category="interference" name="X4MP test action" description="Test action of the X4MP spike. Picks two factions and does nothing else." shortdescription="X4MP spike test" unique="false" hidden="false">
+      <agent experience="0" type="espionage" risk="none"/>
+      <cost influence="0" money="0"/>
+      <reward text="X4MP spike test: nothing happens."/>
+      <time duration="30" cooldown="0"/>
+      <icon active="diplomacy_interference" image="diplomacy_banner_interference"/>
+      <success chance="100" text="X4MP spike test action completed."/>
+      <params>
+        <factionpair>
+          <first name="faction1" text="First faction"/>
+          <second name="faction2" text="Second faction"/>
+        </factionpair>
+      </params>
+    </action>
+  </add>
+  <add sel="/diplomacy/events">
+    <event id="x4mp_test_treaty" name="X4MP test treaty" description="Test treaty proposal of the X4MP spike between two test teams." shortdescription="X4MP spike test" duration="180">
+      <icon image="diplomacy_banner_neutral"/>
+      <options>
+        <option id="x4mp_test_treaty_accept" name="Accept the treaty" description="Test option: accept." menuposition="-1">
+          <agent risk="none"/>
+          <cost influence="0" money="0"/>
+          <conclusion text="The test treaty was accepted."/>
+          <relation value="0.05"/>
+          <result text="Accepted."/>
+          <success weight="50" selectionweightbonus="50"/>
+        </option>
+        <option id="x4mp_test_treaty_ignore" name="Ignore the treaty" description="Test option: ignore." menuposition="0">
+          <agent risk="none"/>
+          <cost influence="0" money="0"/>
+          <conclusion text="The test treaty was ignored."/>
+          <relation value="0"/>
+          <result text="Ignored."/>
+          <success weight="50" selectionweightbonus="guaranteed"/>
+        </option>
+      </options>
+    </event>
+  </add>
+</diff>
