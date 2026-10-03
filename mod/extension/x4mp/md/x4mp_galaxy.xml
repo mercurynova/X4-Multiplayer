@@ -7,6 +7,8 @@
                G;<sector>;<sector>;...   at most 40 sectors per message, each  macro|cluster_macro|name|owner_faction|x|y|z|gate,gate
                E;<count>                  all sectors were sent: <count> is the total
                P;macro|name|idcode|sector_macro|class|owner       the ship the player is in (absent when the player is on foot)
+  Lua -> MD  AddUITriggeredEvent("X4MP_Authority", "ship", "1")      only the ship (close-out A item 3: player.occupiedship was still null
+             at the first checkpoint, ~2 s after the universe was ready): answers with one P message, or "N;" when there is none
   Recipe: find_sector multiple (every normal sector of the galaxy), find_gate per sector with the gate's destination sector, as
   proven by the session-2 spike (S7). x/y/z are the cluster position (galaxy map); a field MD cannot answer is sent empty / 0.
   Names with '|' or ';' cannot be escaped in MD: native drops a record with the wrong field count.
@@ -110,6 +112,54 @@
             <set_value name="$ShipOwner" exact="'player'"/>
           </do_if>
           <raise_lua_event name="'x4mp.md_galaxy'" param="'P;' + $Ship.macro.id + '|' + $ShipName + '|' + $ShipCode + '|' + $ShipSector + '|' + $Cls + '|' + $ShipOwner"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Galaxy_Ship" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Authority'" control="'ship'"/>
+      </conditions>
+      <actions>
+        <!-- the player's ship: occupied ship first (on foot: none) -->
+        <set_value name="$Ship" exact="player.occupiedship"/>
+        <do_if value="$Ship and $Ship.exists">
+          <set_value name="$Cls" exact="''"/>
+          <do_if value="$Ship.isclass.ship_xs">
+            <set_value name="$Cls" exact="'ship_xs'"/>
+          </do_if>
+          <do_elseif value="$Ship.isclass.ship_s">
+            <set_value name="$Cls" exact="'ship_s'"/>
+          </do_elseif>
+          <do_elseif value="$Ship.isclass.ship_m">
+            <set_value name="$Cls" exact="'ship_m'"/>
+          </do_elseif>
+          <do_elseif value="$Ship.isclass.ship_l">
+            <set_value name="$Cls" exact="'ship_l'"/>
+          </do_elseif>
+          <do_elseif value="$Ship.isclass.ship_xl">
+            <set_value name="$Cls" exact="'ship_xl'"/>
+          </do_elseif>
+          <set_value name="$ShipSector" exact="@$Ship.sector.macro.id"/>
+          <do_if value="$ShipSector == null">
+            <set_value name="$ShipSector" exact="''"/>
+          </do_if>
+          <set_value name="$ShipName" exact="@$Ship.name"/>
+          <do_if value="$ShipName == null">
+            <set_value name="$ShipName" exact="''"/>
+          </do_if>
+          <set_value name="$ShipCode" exact="@$Ship.idcode"/>
+          <do_if value="$ShipCode == null">
+            <set_value name="$ShipCode" exact="''"/>
+          </do_if>
+          <set_value name="$ShipOwner" exact="@$Ship.owner.id"/>
+          <do_if value="$ShipOwner == null">
+            <set_value name="$ShipOwner" exact="'player'"/>
+          </do_if>
+          <raise_lua_event name="'x4mp.md_galaxy'" param="'P;' + $Ship.macro.id + '|' + $ShipName + '|' + $ShipCode + '|' + $ShipSector + '|' + $Cls + '|' + $ShipOwner"/>
+        </do_if>
+        <do_if value="not ($Ship and $Ship.exists)">
+          <raise_lua_event name="'x4mp.md_galaxy'" param="'N;'"/>
         </do_if>
       </actions>
     </cue>
