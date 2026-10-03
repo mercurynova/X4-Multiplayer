@@ -297,6 +297,28 @@ test("hud: the frame keeps the cockpit HUD and crosshair visible (session 3: the
 	eq(env.lastFrame.props.keepCrosshairVisible, true)
 end)
 
+test("hud: the frame has its own view type, never 'Helper' (chat + Esc: vanilla Helper-menu paths must not touch it)", function()
+	hudSetup()
+	status(INGAME)
+	eq(env.lastFrame.props.viewHelperType, "X4MPHud")
+	truthy(env.lastFrame.props.viewHelperType ~= "Helper")
+end)
+
+test("hud: a minimized vanilla menu is never closed by a redraw (frame display runs Helper.closeMinimizedMenus)", function()
+	hudSetup()
+	status(INGAME)
+	local n0 = #env.frames
+	_G.Helper.minimizedMenu = { name = "MapMenu" }
+	advance(12) -- several refresh intervals
+	eq(#env.frames, n0, "no redraw while a menu is minimized")
+	status('{"v":1,"state":"ingame","players":4,"ping_ms":45}')
+	eq(#env.frames, n0, "not even for a text change")
+	_G.Helper.minimizedMenu = nil
+	advance(2)
+	truthy(#env.frames > n0, "drawn again once it is gone")
+	eq(hudCells()[1], "X4MP: Connected, 4 players, 45 ms")
+end)
+
 test("hud: a long rejection detail is cut to one short line and a notification is sent once", function()
 	hudSetup()
 	local long = string.rep("ego_dlc_boron@9.00, ", 40)
