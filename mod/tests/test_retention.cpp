@@ -62,8 +62,12 @@ TEST_CASE("retention: Control frames queued while down are replayed in order aft
   Bounce b(gated_options(replay));
   for (int i = 0; i < 5; ++i) REQUIRE(b.client.send(Lane::Control, kChat, payload_of(i)) == SendResult::Ok);
   REQUIRE(b.client.send(Lane::Realtime, kPlayerState, payload_of(9)) == SendResult::Ok);  // droppable
-  REQUIRE(wait_until([&] { return b.client.status().control_retained_frames == 5; }));
-  CHECK(b.client.status().outbox_dropped >= 1);  // the Realtime frame
+  // The net thread drains the outbox in batches and publishes status after each, so the retained count and
+  // the dropped count can become visible in separate snapshots: wait for both (do not read one right after the other).
+  REQUIRE(wait_until([&] {
+    const auto s = b.client.status();
+    return s.control_retained_frames == 5 && s.outbox_dropped >= 1;  // outbox_dropped: the Realtime frame
+  }));
 
   Conn second = b.server.accept();
   REQUIRE(second.valid());

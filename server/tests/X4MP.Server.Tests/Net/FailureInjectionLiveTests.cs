@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Data.Sqlite;
 using X4MP.FakeNode;
 using X4MP.Proto;
+using X4MP.Protocol;
 using X4MP.Server.Hosting;
 using Xunit.Abstractions;
 
@@ -25,9 +26,9 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
 
         private readonly string[] _settings;
 
-        public Host()
+        public Host(params string[] extraArgs)
         {
-            _settings = [];
+            _settings = extraArgs;
             _app = Build();
         }
 
@@ -39,6 +40,7 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
                 "--data-dir", _dir, "--port", FreePort().ToString(CultureInfo.InvariantCulture),
                 $"--X4MP:Net:NodeTcpEndpoint=127.0.0.1:{TcpPort}", $"--X4MP:Net:UdpPort={FreePort()}",
                 "--X4MP:Net:MaxConnectionsPerIp=64", "--X4MP:Net:MaxPlayers=16",
+                .. _settings,
             ];
             var cli = CliArguments.Parse(args);
             return ServerHost.Build(cli.Remaining, cli, isService: false);
@@ -88,22 +90,26 @@ public sealed partial class FailureInjectionLiveTests(ITestOutputHelper output)
     private static partial Regex ResumeLine();
 
     [Fact]
-    public async Task StoppingTheHostClosesIdleNodeConnectionsPromptly()
+    public async Task StoppingTheHostSaysGoodbyeToIdleNodeConnectionsAtOnce()
     {
-        var host = new Host();
+        // The handshake timeout is far beyond the test's lifetime, so the only thing that can send the idle peer a Disconnect(ServerShutdown) is the
+        // shutdown itself. Before the fix Kestrel's stop waited for the silent peer (handshake / 10 s heartbeat timeout) and the peer then got a
+        // timeout code or a bare close. This asserts the behaviour (who says goodbye, and why) instead of a wall-clock bound that a loaded CI runner can miss.
+        var host = new Host("--X4MP:Net:HandshakeTimeoutSeconds=600");
         await host.StartAsync();
         using var idle = new TcpClient();
         await idle.ConnectAsync(IPAddress.Loopback, host.TcpPort);
         var stream = idle.GetStream();
-        var hello = new byte[64];
-        Assert.True(await stream.ReadAsync(hello) > 0, "no ServerHello"); // the connection is registered with the gateway; the peer now stays silent
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60)); // a hang guard only
+        var hello = await FrameCodec.ReadFrameAsync(stream, cancellationToken: cts.Token); // the connection is registered with the gateway; the peer now stays silent
+        Assert.Equal(MsgType.ServerHello, hello?.Type);
 
-        var stopwatch = Stopwatch.StartNew();
-        await host.DisposeAsync();
-        stopwatch.Stop();
+        var stopping = host.DisposeAsync().AsTask();
+        var goodbye = await FrameCodec.ReadFrameAsync(stream, cancellationToken: cts.Token);
+        Assert.Equal(DisconnectCode.ServerShutdown, TestNode.AsDisconnect(goodbye).Code);
 
-        // Before the fix Kestrel's stop waited for the silent peer (handshake / 10 s heartbeat timeout); now it says goodbye at once (+ the 2 s drain).
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(8), $"host stop took {stopwatch.Elapsed.TotalSeconds:F1} s");
+        idle.Dispose(); // the peer has read the Disconnect and closes: the server's drain of the connection ends at once
+        await stopping.WaitAsync(cts.Token);
     }
 
     [Fact]
