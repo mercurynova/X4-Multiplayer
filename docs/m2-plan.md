@@ -393,3 +393,10 @@ fallback source has never run against real gameoptions.lua.
 - Epoch rule in `features/resume/resume_state.*`: same universe iff the node was in-game, a fingerprint (player id + game clock, sampled ~1/s in-game, never at shutdown) exists, ids are equal and the clock moved -0.5..+15 s; else new universe (Loading -> Matching -> NodeReady with a new epoch). The events cannot decide (session 2: on_game_loaded also arrives after /reloadui).
 - All stages resume (joining/downloading/preparing/loading/ingame); a missing/corrupt `join.state` falls back to a fresh join with the saved address. `unload_for_reload()` logs `join_ms` (budget 200 ms; hostsim measured 12-14 ms max); the intent is now saved after the net join so a Welcome the frame thread never polled keeps its resume token.
 - `tests/hostsim/reload_survival_run.ps1` (ports 47953-47955, ~40 s, seeded, not in CI; M2-14 may add it): 20 reloads, all resumed, same player id, no leave. Session 3 must confirm: what /reloadui really delivers (events replayed or not) and that the real game clock/player id fingerprint behaves as assumed.
+
+**Lead notes on M2-07 (2026-10-03):** known limitation of the epoch rule: a client that saves and reloads that same
+save within ~15 s of game time is classed as "same universe" (no new NodeReady). Clients cannot save while connected
+(M2-10) so this matters only for the authority; M2-09/M4 should make the authority bump the epoch explicitly when it
+loads a checkpoint. The admin `/api/v1/logs` ring buffer did not show `resumed` lines that are in the rolling log file:
+check its category filter (M2-13 or wave 3). `core.retention` still flakes occasionally after the 2026-10-02 fix:
+needs another look.
