@@ -87,6 +87,19 @@ struct FrameMark {
 }  // namespace
 
 // ---- content.xml -------------------------------------------------------------------------------------------------
+TEST_CASE("mods: normalize_version turns content.xml hundredths into the game's dotted text", "[mods][version]") {
+  CHECK(normalize_version("900") == "9.00");
+  CHECK(normalize_version("1000") == "10.00");
+  CHECK(normalize_version("105") == "1.05");
+  CHECK(normalize_version("5") == "5");  // too short to be hundredths
+  CHECK(normalize_version("007") == "0.07");
+  CHECK(normalize_version(" 710 ") == "7.10");
+  CHECK(normalize_version("9.00") == "9.00");
+  CHECK(normalize_version("1.4") == "1.4");
+  CHECK(normalize_version("2.0-beta") == "2.0-beta");
+  CHECK(normalize_version("").empty());
+}
+
 TEST_CASE("mods: content.xml parse reads id, name, version, enabled, save and dependencies", "[mods][parse]") {
   const auto c = parse_content_xml(R"(<?xml version="1.0" encoding="utf-8"?>
 <!-- <content id="comment"/> must be ignored -->
@@ -177,7 +190,7 @@ TEST_CASE("mods: scan resolves ids over install, user and Workshop roots (cat mo
     const auto& r = need(scan, "cat_sim");
     CHECK(r.source == Source::Install);
     CHECK(r.name == "Cat Sim Mod & Friends");
-    CHECK(r.version == "102");
+    CHECK(r.version == "1.02");  // content.xml says 102 (hundredths): the game reports 1.02
     CHECK(r.class_hint == ClassHint::Sim);
     CHECK(r.hash_kind == HashKind::CatIndex);
     CHECK(r.shape.cat_files);

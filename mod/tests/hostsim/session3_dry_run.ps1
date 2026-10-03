@@ -115,7 +115,13 @@ try {
         New-Item -ItemType Directory -Force (Join-Path $fakeX4 "extensions\$e") | Out-Null
         Set-Content (Join-Path $fakeX4 "extensions\$e\content.xml") "<content id=`"$e`" name=`"old`" version=`"1`"/>"
     }
-    Set-Content (Join-Path $userDir 'content.xml') '<extensions><extension id="x4mp_probe" enabled="true"/><extension id="x4mp_spike" enabled="true"/></extensions>'
+    # Two DLCs like a real install (content.xml version in hundredths); the user disabled one. The fake authority must report exactly the
+    # enabled one, as "9.00" (the session-3 bug: no DLCs at all, so every real player with DLCs was refused).
+    foreach ($d in @(@('ego_dlc_split', 'Split Vendetta'), @('ego_dlc_boron', 'Kingdom End'))) {
+        New-Item -ItemType Directory -Force (Join-Path $fakeX4 "extensions\$($d[0])") | Out-Null
+        Set-Content (Join-Path $fakeX4 "extensions\$($d[0])\content.xml") ('<content id="' + $d[0] + '" name="' + $d[1] + '" version="900" enabled="1"/>')
+    }
+    Set-Content (Join-Path $userDir 'content.xml') '<extensions><extension id="x4mp_probe" enabled="true"/><extension id="x4mp_spike" enabled="true"/><extension id="ego_dlc_boron" enabled="false"/></extensions>'
     $x4a = @('-X4Dir', ('"' + $fakeX4 + '"'))
 
     Step 'publish incl. the web GUI (the kit helper)' {
@@ -128,7 +134,7 @@ try {
     Step '-WhatIf of every script' {
         Expect-Kit (Run-Kit 'install.ps1' (@('-WhatIf') + $x4a)) 'install -WhatIf' 0 @('x4mp_probe', 'Would run')
         Expect-Kit (Run-Kit 'uninstall.ps1' (@('-WhatIf') + $x4a)) 'uninstall -WhatIf'
-        Expect-Kit (Run-Kit 'start-fake-authority.ps1' (@('-SaveName', 'save_004', '-JoinPassword', $pw, '-WhatIf') + $portArgs)) 'start-fake-authority -WhatIf' 0 @('FakeNode', 'join password: set')
+        Expect-Kit (Run-Kit 'start-fake-authority.ps1' (@('-SaveName', 'save_004', '-JoinPassword', $pw, '-WhatIf', '-X4Dir', ('"' + $fakeX4 + '"')) + $portArgs)) 'start-fake-authority -WhatIf' 0 @('FakeNode', 'join password: set', 'your DLCs: ego_dlc_split@9.00')
         Expect-Kit (Run-Kit 'start-fake-authority.ps1' (@('-List') + $portArgs)) 'start-fake-authority -List' 0 @('save_004')
         Expect-Kit (Run-Kit 'start-fake-clients.ps1' (@('-SaveName', 'save_004', '-WhatIf') + $portArgs)) 'start-fake-clients -WhatIf' 0 @('3 FakeNode clients')
         Expect-Kit (Run-Kit 'upload-save.ps1' @('-SaveName', 'save_004', '-HttpPort', $HttpPort, '-WhatIf')) 'upload-save -WhatIf' 0 @('Plan')
@@ -159,7 +165,7 @@ try {
 
     # ---------------------------------------------------------------- topology 1
     $fa = $null
-    $faArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $s3 'start-fake-authority.ps1'), '-SaveName', 'save_004', '-JoinPassword', $pw) + ($portArgs | ForEach-Object { "$_" })
+    $faArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $s3 'start-fake-authority.ps1'), '-SaveName', 'save_004', '-JoinPassword', $pw, '-X4Dir', $fakeX4) + ($portArgs | ForEach-Object { "$_" })
     $fakeLog = Join-Path $outDir 'fakenode.log'
     $pidFile = Join-Path $tmp 'fa.pid'
     $restart = Join-Path $tmp 'restart_s3.ps1'
@@ -188,6 +194,9 @@ while (`$true) {
         if ($out -notmatch 'Admin GUI: http://127.0.0.1:' + $HttpPort) { throw "no GUI address in the script output`n$out" }
         if ($out -match [regex]::Escape((Get-Content (Join-Path $outDir 'admin-password.txt') -Raw).Trim())) { throw 'the admin password was printed' }
         if ((Get-Content (Join-Path $tmp 'fa.out.txt.err') -Raw) -match 'WARNING') { throw 'the script printed a warning' }
+        $authExt = Get-Content (Join-Path $outDir 'authority-extensions.json') -Raw | ConvertFrom-Json
+        if (@($authExt).Count -ne 1 -or @($authExt)[0].id -ne 'ego_dlc_split' -or @($authExt)[0].version -ne '9.00') { throw 'authority-extensions.json should hold exactly ego_dlc_split 9.00 (boron is disabled)' }
+        Write-Host '  authority-extensions.json: ego_dlc_split 9.00 only (disabled boron left out)'
         $page = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$HttpPort/").Content
         if ($page -match 'GUI not built') { throw 'the server shows "GUI not built"' }
         Write-Host '  GUI root page: real SPA (not the placeholder)'
@@ -271,7 +280,7 @@ while (`$true) {
     # ---------------------------------------------------------------- B7: strict + modded, then back to normal
     function Start-FA([string[]]$extra, [string]$tag) {
         Remove-Item $fakeLog -ErrorAction SilentlyContinue
-        $p = Start-P $powershell (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $s3 'start-fake-authority.ps1'), '-SaveName', 'save_004') + $extra + ($portArgs | ForEach-Object { "$_" })) (Join-Path $tmp "fa-$tag.out.txt")
+        $p = Start-P $powershell (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $s3 'start-fake-authority.ps1'), '-SaveName', 'save_004', '-X4Dir', $fakeX4) + $extra + ($portArgs | ForEach-Object { "$_" })) (Join-Path $tmp "fa-$tag.out.txt")
         Wait-File "the fake authority ($tag)" $fakeLog 'checkpoint stored' $p 120
         return $p
     }

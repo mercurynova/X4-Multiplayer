@@ -114,6 +114,10 @@ public class ModPolicyEvaluatorTests
         new("x4mp as a Required entry is ignored", Policy(entries: [Entry("x4mp")]), [], ModVerdict.Admit),
 
         // ---- Dlc is always strict
+        new("dlc version 900 equals 9.00 (hundredths vs dotted)", Policy(enforcement: ModEnforcement.Warn, entries: [Entry("ego_dlc_split", version: "900")]), [Ext("ego_dlc_split", "9.00")], ModVerdict.Admit),
+        new("dlc authority 9.00 admits a client reporting 900", Policy(enforcement: ModEnforcement.Warn), [Ext("ego_dlc_split", "900")], ModVerdict.Admit, Authority: [Ext("ego_dlc_split", "9.00")]),
+        new("dlc authority 900 admits a client reporting 9.00", Policy(enforcement: ModEnforcement.Warn), [Ext("ego_dlc_split", "9.00")], ModVerdict.Admit, Authority: [Ext("ego_dlc_split", "900")]),
+        new("dlc 9.00 vs 8.00 still rejects", Policy(enforcement: ModEnforcement.Warn), [Ext("ego_dlc_split", "800")], ModVerdict.Reject, Update: "ego_dlc_split", Dlc: true, Authority: [Ext("ego_dlc_split", "9.00")]),
         new("dlc missing under Strict", Policy(entries: [Entry("ego_dlc_split", version: "900")]), [], ModVerdict.Reject, Install: "ego_dlc_split", Dlc: true),
         new("dlc missing under Warn still rejects", Policy(enforcement: ModEnforcement.Warn, entries: [Entry("ego_dlc_split", version: "900")]), [], ModVerdict.Reject, Install: "ego_dlc_split", Dlc: true),
         new("dlc version differs under Warn still rejects", Policy(enforcement: ModEnforcement.Warn, entries: [Entry("ego_dlc_split", version: "900")]), [Ext("ego_dlc_split", "800")], ModVerdict.Reject, Update: "ego_dlc_split", Dlc: true),

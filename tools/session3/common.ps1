@@ -151,3 +151,35 @@ function Initialize-AdminSession {
     $script:Admin = @{ Url = $url; PasswordFile = $pwFile; Headers = $h; Session = $session; Password = $pw }
     return $session
 }
+
+# The DLC part of the fake authority's extension report (session-3 finding: without it the server refused every real player that owns
+# a DLC, because a DLC difference refuses even in Warn mode). Reads <X4 install>\extensions\ego_dlc_*\content.xml (id, name, version) and
+# the enabled flags of <Documents>\Egosoft\X4\<id>\content.xml (<extension id=".." enabled="true|false"/>; absent = enabled), the same
+# sources the game uses. The version is written the way the game and the mod report it ("900" in content.xml -> "9.00"). The server also
+# compares DLC versions normalised, so either form would match. Returns objects (empty array when no install or no DLC).
+function Get-LocalDlcExtensions([string]$X4Dir, [string]$UserDir) {
+    $result = New-Object System.Collections.Generic.List[object]
+    if (-not $X4Dir -or -not (Test-Path (Join-Path $X4Dir 'extensions'))) { return @() }
+    $enabled = @{}
+    $contentXml = if ($UserDir) { Join-Path $UserDir 'content.xml' } else { $null }
+    if ($contentXml -and (Test-Path $contentXml)) {
+        try {
+            $xml = [xml](Get-Content $contentXml -Raw)
+            foreach ($n in $xml.SelectNodes('//extension')) { $enabled[[string]$n.id] = ([string]$n.enabled -ne 'false' -and [string]$n.enabled -ne '0') }
+        } catch { Write-Warning "Could not read $contentXml : $($_.Exception.Message)" }
+    }
+    foreach ($dir in Get-ChildItem (Join-Path $X4Dir 'extensions') -Directory -Filter 'ego_dlc_*' | Sort-Object Name) {
+        $file = Join-Path $dir.FullName 'content.xml'
+        if (-not (Test-Path $file)) { continue }
+        try { $c = ([xml](Get-Content $file -Raw)).content } catch { Write-Warning "Could not read $file : $($_.Exception.Message)"; continue }
+        $id = [string]$c.id
+        if (-not $id) { continue }
+        $on = if ($enabled.ContainsKey($id)) { $enabled[$id] } else { [string]$c.enabled -ne '0' -and [string]$c.enabled -ne 'false' }
+        if (-not $on) { continue }
+        $version = ([string]$c.version).Trim()
+        if ($version -match '^\d{3,9}$') { $d = $version.TrimStart('0').PadLeft(3, '0'); $version = $d.Insert($d.Length - 2, '.') }   # 900 -> 9.00
+        $name = if ([string]$c.name) { [string]$c.name } else { $id }
+        $result.Add([pscustomobject]@{ id = $id; name = $name; version = $version; source = 'Dlc'; enabled = $true; egosoft = $true; classHint = 'Dlc' })
+    }
+    return $result.ToArray()
+}

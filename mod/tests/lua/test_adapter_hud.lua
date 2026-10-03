@@ -291,6 +291,24 @@ test("hud: shows the connection state, players and ping top right on layer 3", f
 	eq(hudCells()[1], "X4MP: Connected, 3 players, 45 ms")
 end)
 
+test("hud: the frame keeps the cockpit HUD and crosshair visible (session 3: the vanilla HUD vanished)", function()
+	hudSetup()
+	status(INGAME)
+	eq(env.lastFrame.props.keepHUDVisible, true)
+	eq(env.lastFrame.props.keepCrosshairVisible, true)
+end)
+
+test("hud: a long rejection detail is cut to one short line and a notification is sent once", function()
+	hudSetup()
+	local long = string.rep("ego_dlc_boron@9.00, ", 40)
+	status('{"v":1,"state":"rejected","reject":"mod","detail":"' .. long .. '"}')
+	local line = hudCells()[1]
+	truthy(#line < 120, "short line, got " .. #line)
+	eq(#env.notifications, 1)
+	status('{"v":1,"state":"rejected","reject":"mod","detail":"' .. long .. '"}')
+	eq(#env.notifications, 1, "not repeated")
+end)
+
 test("hud: no frame while disconnected, hidden again after a disconnect", function()
 	hudSetup()
 	status('{"v":1,"state":"disconnected"}')

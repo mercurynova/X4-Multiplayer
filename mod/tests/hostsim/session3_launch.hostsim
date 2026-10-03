@@ -1,6 +1,8 @@
 # Session-3 dry run: launch.json written by tools/session3/write-launch.ps1 (already in the work dir's extension folder before init).
 # Vars: tcp, pw (the join password written into launch.json). The file is read once, deleted, and the DLL connects without any UI (criterion 16).
 init
+# the player owns the DLC the fake authority reports (the Lua list; a real install is scanned natively the same way)
+lua-raw x4mp.extensions {"v":1,"source":"load","startmenu":true,"count":1,"list":[{"id":"ego_dlc_split","name":"Split Vendetta","version":"9.00","enabled":true,"egosoftextension":true}]}
 frame 60Hz 120
 expect-no-file extension/launch.json
 expect-file extension/logs/x4mp.log launch.json consumed
