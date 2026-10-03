@@ -25,7 +25,7 @@ changes. All keys optional; wrong types keep the default (log names the key only
 | `load_mode` | `"event"` | `event`: raise vanilla Lua event `loadSave` (falls back to the shim's `LoadGame` after 10 s); `lua`: shim calls `LoadGame` |
 | `pin_module` | `false` | pin the DLL (`GetModuleHandleEx` PIN) at init and when it flips to true live |
 | `hooks` | `true` | install `hook_after<GetCurrentGameTime>` and `hook_before<TriggerAutosave>` (read at init only) |
-| `skip_autosave` | `false` | TriggerAutosave hook sets `skip_original` (live) |
+| `skip_autosave` | `false` | TriggerAutosave hook sets `skip_original` (live; `run-block.ps1 skip_autosave_on` / `skip_autosave_off`, used for C2) |
 | `pause_on_ready` / `pause_seconds` | `true` / `20` | `Pause()` at `on_universe_ready`, poll `IsGamePaused` 1 Hz, `Unpause()` after N s |
 | `allow_native_thread_calls` | `false` | allow game/Lua calls from `on_native_frame_update` when no `on_frame_update` ticks |
 | `spike_block` + `spike_block_seq` | `""` / `0` | when `(seq, block)` differs from the last handled pair, run the block. `money` also runs the native money test; `reloadui` arms a 5 s UI reload; `pin_on` pins; any other name is raised as Lua event `x4mp_spike.run` with the block name as the string parameter. The pair present at startup counts as handled (stash) |
@@ -37,7 +37,7 @@ A key file `x4mp_probe_key.txt` (random player key, hex) is created next to the 
 
 ## Log tags (what the session-2 analysis greps)
 
-`init` (version, wall time, module base, `dll_image_inits`), `stash` (round trip, init count, ms since previous shutdown, intent present),
+`init` (version, wall time, module base, `dll_image_inits`), `build` (raw `GetGameVersion` and `GetBuildVersionSuffix` values, logged at init and at the first UI frame: the build-check evidence), `stash` (round trip, init count, ms since previous shutdown, intent present),
 `cfg`, `cb` (first 5 calls of every callback with tid, plus every new thread id seen; callbacks: x4native_init, x4native_shutdown,
 on_frame_update, on_native_frame_update, on_game_loaded, on_game_started, on_universe_ready, on_game_save, on_ui_reload,
 on_before_reload, md_changed_zone, md_changed_state, md_money_updated, hook_after_GetCurrentGameTime, hook_before_TriggerAutosave,
@@ -57,6 +57,7 @@ X4Native settings row: toggle "X4MP probe: test button" (id `test_button`); a ch
 
 ## Safety notes
 
+* Identity sent to the server: `mod_version` is the `ClientIdentity` default (equal to FakeNode's, which the server compares with the authority), `mod_build` is `x4mp_probe`; `tools/session2/start-server.ps1` sets `Net.ModBuildStrict=false` for that.
 * Game calls (`GetSaveFolderPath`, `ReloadSaveList`, ...) run under an SEH guard: a crash is logged as `seh`, not fatal.
 * With `hooks` on, the DLL pins itself at shutdown (a framework detour could otherwise point into freed code). That makes
   "was the DLL unloaded on reload?" unobservable; set `hooks:false` for a clean B4 reading.

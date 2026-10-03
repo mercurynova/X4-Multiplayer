@@ -1,0 +1,94 @@
+# Session-2 dry run: the real x4mp_probe.dll in hostsim against the real server + a FakeNode authority serving a dummy save.
+# NOT part of CI. Run it with mod/tests/hostsim/probe_session2_dry_run.ps1 (it starts everything, writes the probe config
+# with tools/session2/write-probe-config.ps1 -NoHooks, and passes the --var values below).
+#   --var s2=<tools\session2 folder>   --var cfgdir=<folder holding x4mp_probe.json>
+# The probe reads its config from the folder given to the test-only export x4mp_probe_set_config_dir (--pre-init-wexport).
+# hostsim's GetSaveFolderPath is <work>/saves/, so the downloaded save lands there.
+
+# ---- Phase A: hooks=false (B4 run). Init, build line, connect, download, auto-load request ----
+set build_suffix 611726
+init
+expect-log x4mp_probe init
+expect-log GetGameVersion=9.0 GetBuildVersionSuffix='611726'
+expect-log hooks disabled by config
+expect-no-log hooks installed
+frame 60Hz 600
+expect-log Welcome player_id=
+expect-log download complete+verified
+expect-log autoload start save_name=
+expect-log ReloadSaveList called
+expect-log IsSaveValid name=
+expect-lua loadSave 5000
+expect-log load issued mode=event
+
+# the real game now reloads the DLL (X4Native shutdown + init, stash kept): B4/B5 evidence
+reload
+expect-state reloads == 1
+expect-log dll_image_inits=1
+expect-log survived_previous_shutdown=true
+expect-log session_intent_present=true
+frame 60Hz 600
+expect-log resumed=true
+expect-log same_player_id=true
+load_save x4mp_dry_run
+frame 60Hz 120
+expect-lua x4mp_probe.cmd 5000 contains pause
+expect-log universe ready: IsGamePaused_before=
+# pause_seconds is 3 in the dry-run config
+frame 60Hz 300
+expect-lua x4mp_probe.cmd 5000 contains unpause
+ui_reload
+expect-log event=on_ui_reload
+expect-no-log pin reason=
+
+# ---- Phase B: hooks=true (what the rest of sitting 1 uses). write-probe-config.ps1 without -NoHooks = switch back ----
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${s2}\write-probe-config.ps1" -Server 127.0.0.1:${tcp} -Name Tester
+reload
+expect-log initial=true
+expect-log hooks installed GetCurrentGameTime=
+frame 60Hz 300
+
+# C2: skip_autosave on for the saves2 block, then off again
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${s2}\run-block.ps1" skip_autosave_on
+frame 60Hz 180
+expect-log skip_autosave=1
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${s2}\run-block.ps1" saves2
+frame 60Hz 180
+expect-log spike block=saves2
+expect-lua x4mp_spike.run 5000 contains saves2
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${s2}\run-block.ps1" skip_autosave_off
+frame 60Hz 180
+expect-log skip_autosave=0
+
+# C6: native money test driven by the run-block "money"; this plays the Lua side
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${s2}\run-block.ps1" money
+frame 60Hz 120
+expect-lua x4mp_probe.cmd 5000 contains money_read;before
+fire x4mp_probe.reply money;tag=before;value=1000000
+frame 60Hz 60
+expect-lua x4mp_probe.cmd 5000 contains money_read;plus
+fire x4mp_probe.reply money;tag=plus;value=1000100
+frame 60Hz 60
+expect-lua x4mp_probe.cmd 5000 contains money_read;after
+fire x4mp_probe.reply money;tag=after;value=1000000
+frame 60Hz 60
+expect-log money result before=1000000 plus=1000100 after=1000000
+expect-state money_delta == 0
+expect-lua x4mp_spike.run 5000 contains money
+
+# B6 fallback: run-block reloadui -> the probe asks Lua to reload the UI about 5 s later
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${s2}\run-block.ps1" reloadui
+frame 60Hz 120
+expect-no-log reloadui firing now
+frame 60Hz 420
+expect-lua x4mp_probe.cmd 5000 contains reloadui
+
+# B6b: pin_on
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${s2}\run-block.ps1" pin_on
+frame 60Hz 120
+expect-log pin reason=config pin_module
+
+# the hooks-on DLL pins itself at shutdown (B4 is only readable with hooks=false)
+reload
+frame 60Hz 120
+expect-no-secret never-written-password

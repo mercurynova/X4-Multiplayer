@@ -5,9 +5,13 @@
   run-block.ps1 <block>   sets spike_block=<block> and bumps spike_block_seq (so the same block can be re-run); the probe raises
                           the x4mp_spike.run event. Block names are those of docs\in-game-session-2.md (saves1, saves1_block,
                           saves2, saves4, clock, money, v12, s9gate, ui, ui_standalone, hud, extensions, links, onfoot1,
-                          onfoot2, diplo1..diplo7, hq1..hq8, hq3d); they are not validated here.
+                          onfoot2, diplo1..diplo7, hq1..hq8, hq3d); they are not validated here (a wrong name shows the
+                          notification "X4MP spike: unknown block ...").
   run-block.ps1 reloadui  sets reloadui_after_s=5 (the probe triggers the UI reload about 5 s later and resets it).
   run-block.ps1 pin_on    sets pin_module=true (B6b); pin_off sets it back to false.
+  run-block.ps1 skip_autosave_on / skip_autosave_off
+                          sets skip_autosave=true / false (C2): while true the probe's TriggerAutosave hook swallows the
+                          native call (needs hooks=true, the default; applies live, no restart).
   Other keys are kept. Supports -WhatIf.
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -24,6 +28,8 @@ switch ($Block.ToLowerInvariant()) {
     'reloadui' { $cfg['reloadui_after_s'] = 5; $what = 'reloadui_after_s = 5' }
     'pin_on'   { $cfg['pin_module'] = $true;  $what = 'pin_module = true' }
     'pin_off'  { $cfg['pin_module'] = $false; $what = 'pin_module = false' }
+    'skip_autosave_on'  { $cfg['skip_autosave'] = $true;  $what = 'skip_autosave = true' }
+    'skip_autosave_off' { $cfg['skip_autosave'] = $false; $what = 'skip_autosave = false' }
     default {
         $seq = 0
         if ($cfg.Contains('spike_block_seq')) { $seq = [int]$cfg['spike_block_seq'] }

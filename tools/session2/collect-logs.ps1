@@ -1,15 +1,18 @@
 <#
 .SYNOPSIS
-  Session 2: zips the logs into out\session2\logs-<timestamp>.zip. Uploads nothing.
+  Session 2: zips the logs into out\session2\logs[-<label>]-<timestamp>.zip. Uploads nothing.
 .DESCRIPTION
   Collects (what exists): the X4 -logfile (x4mp_s2.log by default), the x4native\ folder of the X4 user folder, the server log
   files (out\session2\data\logs\), the server console logs and the FakeNode output (out\session2\fakenode.log). Never includes
   initial-admin-password.txt, the database or any save. Supports -WhatIf.
+  X4 may overwrite its -logfile (and the x4native logs) each time it starts, so run this script every time you quit X4,
+  before starting it again. -Label puts a word into the zip name so the zips stay apart (logs-<label>-<date-time>.zip).
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$UserId,
-    [string]$GameLogName = 'x4mp_s2.log'
+    [string]$GameLogName = 'x4mp_s2.log',
+    [string]$Label = ''
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -28,7 +31,8 @@ Add-Item (Join-Path $OutDir 'fakenode.log') 'fakenode.log'
 Add-Item (Join-Path $OutDir 'server.out.log') 'server.out.log'
 Add-Item (Join-Path $OutDir 'server.err.log') 'server.err.log'
 
-$zip = Join-Path $OutDir ('logs-{0}.zip' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$labelPart = if ($Label) { '-' + ($Label -replace '[^A-Za-z0-9_.-]', '_') } else { '' }
+$zip = Join-Path $OutDir ('logs{0}-{1}.zip' -f $labelPart, (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Write-Host "Zip: $zip"
 foreach ($i in $items) { Write-Host "  + $($i.Path)" }
 if ($PSCmdlet.ShouldProcess($zip, 'Create log archive')) {

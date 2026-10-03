@@ -7,6 +7,8 @@
 //     --admin-url URL --admin-user U --admin-password P   server admin REST API for `expect-admin`
 //     --server-exe PATH --server-arg A (repeatable)   what `start-server` launches (stdout/stderr -> --server-log)
 //     --server-log FILE           --server-env NAME=VALUE (repeatable, set before launching the server)
+//     --pre-init-wexport NAME=VALUE  (repeatable) calls the DLL export `void NAME(const wchar_t*)` after every load, before init
+//                                 (test-only hooks of throwaway DLLs, e.g. x4mp_probe_set_config_dir)
 //     --server-pid N              process `kill-server` terminates when the server was not started by hostsim
 //     --stash-dump FILE           write the stash as JSON at exit (for password searches)
 //     --timeout-scale F           multiplies every expect-* timeout (slow CI); default 1
@@ -66,6 +68,7 @@ struct Options {
   std::string server_exe, server_log;
   std::vector<std::string> server_args;
   std::vector<std::string> server_env;
+  std::vector<std::pair<std::string, std::string>> pre_init_wexports;  // NAME=VALUE: void NAME(const wchar_t*) called after every LoadLibrary, before init
   unsigned long server_pid = 0;
   std::string stash_dump;
   double timeout_scale = 1.0;
@@ -313,6 +316,7 @@ class Runner {
     else if (cmd == "fire") { need_loaded(); need(t, 2, "fire <event> [text]"); std::string d = rest_from(2); fire(t[1], t.size() > 2 ? static_cast<void*>(d.data()) : nullptr); }
     else if (cmd == "set") cmd_set(t, rest_from(2));
     else if (cmd == "print") host_.note("[hostsim] " + rest_from(1));
+    else if (cmd == "exec") cmd_exec(rest_from(1));
     else if (cmd == "settle") { need(t, 2, "settle <ms>"); std::this_thread::sleep_for(std::chrono::milliseconds(std::atoll(t[1].c_str()))); }
     else if (cmd == "drop-lua") host_.drop_lua(t.size() > 1 ? t[1] : "");
     else if (cmd == "stash-clear") clear_stash();
@@ -353,6 +357,16 @@ class Runner {
     shutdown_ = reinterpret_cast<void (*)()>(GetProcAddress(dll_, "x4native_shutdown"));
     if (!ver || !init_) throw ScriptFail("the DLL does not export x4native_api_version / x4native_init");
     if (ver() != X4NATIVE_API_VERSION) throw ScriptFail("x4native_api_version() = " + std::to_string(ver()) + ", host speaks " + std::to_string(X4NATIVE_API_VERSION));
+    // Test-only hooks of throwaway DLLs (x4mp_probe_set_config_dir): a void(const wchar_t*) export, called before every init.
+    for (const auto& [name, value] : o_.pre_init_wexports) {
+      const auto fn = reinterpret_cast<void (*)(const wchar_t*)>(GetProcAddress(dll_, name.c_str()));
+      if (!fn) throw ScriptFail("--pre-init-wexport: the DLL has no export " + name);
+      const int n = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
+      std::wstring wide(n > 1 ? static_cast<std::size_t>(n - 1) : 0, L'\0');
+      if (n > 1) MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.data(), n);
+      fn(wide.c_str());
+      host_.note("[hostsim] called export " + name);
+    }
     host_.prepare_init();
     const auto t0 = Clock::now();
     const int rc = init_(&host_.api);
@@ -379,6 +393,14 @@ class Runner {
     char buf[80];
     std::snprintf(buf, sizeof(buf), "[hostsim] x4native_shutdown took %.1f ms, DLL unloaded", ms);
     host_.note(buf);
+  }
+
+  // exec <command line>: runs it through the shell and waits; a non-zero exit fails the script (kit scripts that edit the
+  // probe config while the DLL runs, e.g. tools\session2\run-block.ps1). Not echoed beyond the command line itself.
+  void cmd_exec(const std::string& command) {
+    if (command.empty()) throw UsageError("usage: exec <command line>");
+    const int rc = std::system(("\"" + command + "\"").c_str());  // cmd /c strips the outer quotes
+    if (rc != 0) throw ScriptFail("exec exited with " + std::to_string(rc) + ": " + command);
   }
 
   void cmd_init() {
@@ -771,7 +793,12 @@ Options parse_args(int argc, char** argv) {
     else if (a == "--server-arg") o.server_args.push_back(val());
     else if (a == "--server-log") o.server_log = val();
     else if (a == "--server-env") o.server_env.push_back(val());
-    else if (a == "--server-pid") o.server_pid = std::strtoul(val().c_str(), nullptr, 10);
+    else if (a == "--pre-init-wexport") {
+      const auto kv = val();
+      const auto eq = kv.find('=');
+      if (eq == std::string::npos) throw UsageError("--pre-init-wexport needs NAME=VALUE");
+      o.pre_init_wexports.emplace_back(kv.substr(0, eq), kv.substr(eq + 1));
+    } else if (a == "--server-pid") o.server_pid = std::strtoul(val().c_str(), nullptr, 10);
     else if (a == "--stash-dump") o.stash_dump = val();
     else if (a == "--timeout-scale") o.timeout_scale = std::atof(val().c_str());
     else if (a == "--max-seconds") o.max_seconds = std::atoi(val().c_str());
