@@ -49,6 +49,21 @@ TEST_CASE("MdCollector collects sectors, the end marker and the ship", "[authori
   CHECK(c.ship()->idcode == "ABC-123");
 }
 
+TEST_CASE("MdCollector: the ship-only answer is a P record or an N marker", "[authority]") {
+  MdCollector none;
+  CHECK_FALSE(none.no_ship_seen());
+  CHECK(none.add("N;"));
+  CHECK(none.no_ship_seen());
+  CHECK_FALSE(none.ship().has_value());
+  CHECK_FALSE(none.complete());
+
+  MdCollector late;
+  CHECK(late.add("P;ship_bor_s_fighter_01_a_macro|Hawk|ABC-123|cluster_01_sector001_macro|ship_s|player"));
+  CHECK_FALSE(late.no_ship_seen());
+  REQUIRE(late.ship());
+  CHECK(late.ship()->macro == "ship_bor_s_fighter_01_a_macro");
+}
+
 TEST_CASE("MdCollector drops malformed records and refuses junk", "[authority]") {
   MdCollector c;
   CHECK_FALSE(c.add(""));
@@ -167,12 +182,14 @@ TEST_CASE("AuthorityState round-trips and tolerates garbage", "[authority]") {
   s.next_net_id = 7;
   s.spawned = true;
   s.strings_sent = true;
+  s.string_count = 12;
   s.checkpoints = 3;
   s.loaded_sha.assign(32, 0xAB);
   const auto back = AuthorityState::from_json(s.to_json());
   CHECK(back.next_net_id == 7);
   CHECK(back.spawned);
   CHECK(back.strings_sent);
+  CHECK(back.string_count == 12);
   CHECK(back.checkpoints == 3);
   CHECK(back.loaded_sha == s.loaded_sha);
 
