@@ -329,3 +329,10 @@ V26 (a save copied from another machine); a download of the user's own save is c
 **M2-002 → session-2 script:** run the `ui` block before C1 step 4 so the Save row can be greyed; `saves1_block` must
 be re-run after every save load (the Lua flag resets, the MD flag `global.$x4mp_noSave` is saved in the game);
 `saves2` calls `C.TriggerAutosave(true)`, so the probe should have `skip_autosave:true` for C2 or an autosave lands.
+
+**M2-04 → session 2 / M2-06:** the supported-build check reads `GetBuildVersionSuffix` and takes the longest run of
+5+ digits as the build number; that string's real format is unverified. If the version matches but no build number
+is found, the host starts with a WARN (`Unverified`) rather than refusing. Session 2 must log the raw
+`GetGameVersion`/`GetBuildVersionSuffix` values (kit integration: probe logs them at init); then decide whether
+"unknown build" should refuse. New `x4mp.json` keys: `frame_budget_us` (100..50000, default 1500) and
+`log_categories`. Features register in `mod/native/host/feature_list.cpp` (one include + one `registry.add` line).
