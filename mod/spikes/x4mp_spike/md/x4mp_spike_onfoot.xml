@@ -1,0 +1,884 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike_onfoot : MD side of the spike v2 blocks onfoot1 / onfoot2 (S10, task M2-003).
+  Lua side: ui/x4mp_spike_onfoot.lua (orchestration, timers, 2 Hz state sampler, FFI position reads, test menu).
+  Source of the experiments: docs/research/on-foot-presence.md section 6 (S10.1 .. S10.15).
+
+  Convention (mod/spikes/README.md): Lua -> MD is AddUITriggeredEvent("X4MP_Spike2", control, value); in MD
+  <event_ui_triggered screen="'X4MP_Spike2'" control="'of_xxx'"/> and the value is event.param3. All values here are Lua
+  tables, i.e. MD lists: event.param3.{1} is the first element. Element 1 is always the step label ('S10.3' ...), used as
+  the log step. MD -> Lua: raise_lua_event 'x4mp_spike.of' (param "kind;k=v;k=v") and 'x4mp_spike.of_actor' (param = the
+  actor, preceded by 'x4mp_spike.of_actor_tag' with the tag). Log lines: '[X4MP-SPIKE] S10.n LEVEL k=v ...'.
+
+  SAFETY / MARKERS
+    * Every actor this file creates is a cue actor of cue md.X4MP_SpikeOnFoot.Actors, is named "Spike ...", gets the
+      title override "X4MP spike", entity variables $x4mp_spike / $x4mp_tag, and is listed in md.$X4MP_OF_Actors (a list
+      saved with the game) and md.$X4MP_OF_ByTag (table tag -> actor).
+    * Every dynamic interior ("Multiplayer Lounge") it creates is listed in md.$X4MP_OF_Lounges as [object, interior, room].
+    * The janitor (cues OF_Janitor and OF_JanitorLounge, 5 s and 6 s after every game load) removes ONLY what is in those two
+      lists and logs "S10.JAN ..." lines (this is the proof that it ran). A lounge the player is standing in is NOT removed;
+      it is deferred until the player has left it. Nothing else (no ship, no station, no vanilla interior, no NPC) is touched,
+      and the player's entity is never destroyed.
+
+  Controls handled (value = list unless noted):
+    of_s1 (1/0)                         S10.1 listeners on/off (changed_room, transport_finished, started/stopped control)
+    of_s1_sample (n)                    S10.1 MD state line + position reply to Lua
+    of_s2 (1/0), of_s2_keys [step,label] S10.2 room-key candidates for the current container (and on every room change)
+    of_s6 (1/0) [step, tag]             S10.6 follow + despawn listeners
+    of_spawn [step,tag,variant,name,custom,temp,dist,angleoffset,roomkey]
+    of_place [step,tag,x,y,z,yawdeg,roomkey]    of_walk [step,tag,x,y,z,yawdeg,speed,roomkey]
+    of_seq [step,tag,type,behavior]     of_emote [step,tag,emotion]     of_lookat [step,tag,on]
+    of_status [step,tag]                of_remove [step,tag|'all']
+    of_crowd_walk [step,count,radius,speed]    of_slot_seat [step,tag,slotindex]
+    of_lounge_create [step,variant,seed,keep]  of_lounge_remove [step]  of_lounge_go [step,x,y,z]  of_lounge_leave [step]
+    of_lounge_slots [step]              of_s9 [step,count]
+
+  Syntax sources (x4-unpacked/): create_cue_actor libraries/md.xsd (createnpc group libraries/common.xsd; vanilla md/diplomacy.xml:747);
+  set_entity_traits / set_entity_overrides common.xsd (md/diplomacy.xml:751-752); add_actor_to_room, start_actor_walk,
+  start_actor_sequence, set_actor_emotion, set_actor_lookat common.xsd (md/npc_state_machines.xml:7159, 9015);
+  create_dynamic_interior / remove_dynamic_interior / get_room_definition(doors=) / find_npc_slot common.xsd (md/npc_instantiation.xml:732-745,
+  md/gm_prisonbreak.xml:610-613); conversation events and add_player_choice common.xsd (md/diplomacy.xml:923-980);
+  event_object_changed_room, event_entity_transport_finished, event_object_interiors_despawning, event_npc_walk_finished common.xsd;
+  destroy_object on cue actors md/gm_*.xml; remove_value on list elements md/npc_instantiation.xml (pattern with $i counter).
+-->
+<mdscript name="X4MP_SpikeOnFoot" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <!-- Root cue: owner of every actor created here (create_cue_actor cue="md.X4MP_SpikeOnFoot.Actors"). It has no condition, so
+         it starts when the mod meets a save, creates the bookkeeping containers and then stays active because of the sub cues. -->
+    <cue name="Actors">
+      <actions>
+        <do_if value="not md.$X4MP_OF_Actors?">
+          <set_value name="md.$X4MP_OF_Actors" exact="[]"/>
+        </do_if>
+        <do_if value="not md.$X4MP_OF_ByTag?">
+          <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
+        </do_if>
+        <do_if value="not md.$X4MP_OF_Temp?">
+          <set_value name="md.$X4MP_OF_Temp" exact="table[]"/>
+        </do_if>
+        <do_if value="not md.$X4MP_OF_Spawn?">
+          <set_value name="md.$X4MP_OF_Spawn" exact="table[]"/>
+        </do_if>
+        <do_if value="not md.$X4MP_OF_Lounges?">
+          <set_value name="md.$X4MP_OF_Lounges" exact="[]"/>
+        </do_if>
+        <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=root_cue_started actors_listed=' + md.$X4MP_OF_Actors.count + ' lounges_listed=' + md.$X4MP_OF_Lounges.count + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+      <cues>
+
+        <!-- ===================================================== janitor (runs after every load) ===================================================== -->
+        <cue name="OF_Janitor" instantiate="true">
+          <conditions>
+            <event_game_loaded/>
+          </conditions>
+          <delay exact="5s"/>
+          <actions>
+            <set_value name="$Found" exact="0"/>
+            <set_value name="$Removed" exact="0"/>
+            <set_value name="$Stale" exact="0"/>
+            <set_value name="global.$X4MP_OF_S1" exact="false"/>
+            <set_value name="global.$X4MP_OF_S2" exact="false"/>
+            <set_value name="global.$X4MP_OF_S6" exact="false"/>
+            <do_if value="md.$X4MP_OF_Actors?">
+              <set_value name="$Found" exact="md.$X4MP_OF_Actors.count"/>
+              <do_all exact="md.$X4MP_OF_Actors.count" counter="$i" reverse="true">
+                <set_value name="$A" exact="md.$X4MP_OF_Actors.{$i}"/>
+                <set_value name="$Tag" exact="@$A.$x4mp_tag"/>
+                <do_if value="@$A.exists">
+                  <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=load_sweep_found_actor tag=' + $Tag + ' name=' + $A.name + ' marker_var=' + (@$A.$x4mp_spike) + ' temporary_flag=' + (@md.$X4MP_OF_Temp.{$Tag}) + ' room=' + (@$A.room.type) + ' age=' + player.age" filter="general" context="false"/>
+                  <destroy_object object="$A"/>
+                  <set_value name="$Removed" exact="$Removed + 1"/>
+                </do_if>
+                <do_else>
+                  <set_value name="$Stale" exact="$Stale + 1"/>
+                  <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=load_sweep_stale_reference index=' + $i + ' (actor no longer exists: not saved or already removed)'" filter="general" context="false"/>
+                </do_else>
+              </do_all>
+            </do_if>
+            <set_value name="md.$X4MP_OF_Actors" exact="[]"/>
+            <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
+            <set_value name="md.$X4MP_OF_Temp" exact="table[]"/>
+            <set_value name="md.$X4MP_OF_Spawn" exact="table[]"/>
+            <debug_text text="'[X4MP-SPIKE] S10.JAN ' + (if $Found == 0 then 'PASS' else 'INFO') + ' what=load_sweep_done listed_before=' + $Found + ' removed=' + $Removed + ' stale=' + $Stale + ' listed_now=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_JanitorLounge" instantiate="true">
+          <conditions>
+            <event_game_loaded/>
+          </conditions>
+          <delay exact="6s"/>
+          <actions>
+            <signal_cue_instantly cue="OF_LoungeSweep" param="'load'"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_JanitorRecheck" instantiate="true">
+          <conditions>
+            <event_object_changed_room object="player.entity"/>
+            <check_value value="@global.$X4MP_OF_LoungePending"/>
+          </conditions>
+          <actions>
+            <signal_cue_instantly cue="OF_LoungeSweep" param="'player_changed_room'"/>
+          </actions>
+        </cue>
+
+        <!-- removes the listed lounges; defers a lounge the player stands in -->
+        <cue name="OF_LoungeSweep" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$Reason" exact="event.param"/>
+            <set_value name="$Listed" exact="md.$X4MP_OF_Lounges.count"/>
+            <set_value name="$Removed" exact="0"/>
+            <set_value name="$Deferred" exact="0"/>
+            <set_value name="$Stale" exact="0"/>
+            <do_all exact="md.$X4MP_OF_Lounges.count" counter="$i" reverse="true">
+              <set_value name="$Entry" exact="md.$X4MP_OF_Lounges.{$i}"/>
+              <set_value name="$Obj" exact="@$Entry.{1}"/>
+              <set_value name="$Int" exact="@$Entry.{2}"/>
+              <set_value name="$Rm" exact="@$Entry.{3}"/>
+              <do_if value="$Obj and @$Obj.exists and @$Int.exists">
+                <do_if value="@player.room and (player.room == $Rm or @player.room.dynamicinterior == $Int)">
+                  <set_value name="$Deferred" exact="$Deferred + 1"/>
+                  <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=lounge_player_inside_deferred reason=' + $Reason + ' use_the_Leave_button_or_onfoot1_step_12_leave_1 age=' + player.age" filter="general" context="false"/>
+                </do_if>
+                <do_else>
+                  <remove_dynamic_interior object="$Obj" interior="$Int"/>
+                  <remove_value name="md.$X4MP_OF_Lounges.{$i}"/>
+                  <set_value name="$Removed" exact="$Removed + 1"/>
+                </do_else>
+              </do_if>
+              <do_else>
+                <remove_value name="md.$X4MP_OF_Lounges.{$i}"/>
+                <set_value name="$Stale" exact="$Stale + 1"/>
+              </do_else>
+            </do_all>
+            <set_value name="global.$X4MP_OF_LoungePending" exact="$Deferred gt 0"/>
+            <debug_text text="'[X4MP-SPIKE] S10.JAN ' + (if $Listed == 0 then 'PASS' else 'INFO') + ' what=lounge_sweep reason=' + $Reason + ' listed=' + $Listed + ' removed=' + $Removed + ' deferred_player_inside=' + $Deferred + ' stale=' + $Stale + ' listed_now=' + md.$X4MP_OF_Lounges.count + ' age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <!-- ===================================================== S10.1 / S10.2 / S10.6: state, room keys, events ===================================================== -->
+        <cue name="OF_S1_Switch" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_s1'"/>
+          </conditions>
+          <actions>
+            <set_value name="global.$X4MP_OF_S1" exact="event.param3 == 1"/>
+            <debug_text text="'[X4MP-SPIKE] S10.1 INFO what=md_listeners on=' + global.$X4MP_OF_S1 + ' age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_S2_Switch" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_s2'"/>
+          </conditions>
+          <actions>
+            <set_value name="global.$X4MP_OF_S2" exact="event.param3 == 1"/>
+            <debug_text text="'[X4MP-SPIKE] S10.2 INFO what=md_room_key_logging on=' + global.$X4MP_OF_S2 + ' age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_S6_Switch" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_s6'"/>
+          </conditions>
+          <actions>
+            <set_value name="global.$X4MP_OF_S6" exact="event.param3.{2} == 1"/>
+            <set_value name="global.$X4MP_OF_S6Tag" exact="event.param3.{3}"/>
+            <set_value name="this.$Station" exact="player.station"/>
+            <debug_text text="'[X4MP-SPIKE] S10.6 INFO what=md_follow_and_despawn_listeners on=' + global.$X4MP_OF_S6 + ' tag=' + global.$X4MP_OF_S6Tag + ' station=' + (@this.$Station.knownname) + ' age=' + player.age" filter="general" context="false"/>
+            <do_if value="not global.$X4MP_OF_S6 or not this.$Station">
+              <cancel_cue cue="this"/>
+            </do_if>
+          </actions>
+          <cues>
+            <!-- S10.6: the station's interiors are about to despawn -> clean up our actors first, log what is left -->
+            <cue name="OF_S6_Despawn">
+              <conditions>
+                <event_object_interiors_despawning object="parent.$Station"/>
+              </conditions>
+              <actions>
+                <set_value name="$Before" exact="md.$X4MP_OF_Actors.count"/>
+                <do_all exact="md.$X4MP_OF_Actors.count" counter="$i" reverse="true">
+                  <set_value name="$A" exact="md.$X4MP_OF_Actors.{$i}"/>
+                  <do_if value="@$A.exists">
+                    <destroy_object object="$A"/>
+                  </do_if>
+                  <remove_value name="md.$X4MP_OF_Actors.{$i}"/>
+                </do_all>
+                <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
+                <debug_text text="'[X4MP-SPIKE] S10.6 ' + (if md.$X4MP_OF_Actors.count == 0 then 'PASS' else 'FAIL') + ' what=interiors_despawning_cleanup actors_before=' + $Before + ' leftover=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
+                <raise_lua_event name="'x4mp_spike.of'" param="'evt;kind=interiors_despawning;leftover=' + md.$X4MP_OF_Actors.count"/>
+              </actions>
+            </cue>
+          </cues>
+        </cue>
+
+        <cue name="OF_S1_Sample" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_s1_sample'"/>
+          </conditions>
+          <actions>
+            <set_value name="$N" exact="event.param3"/>
+            <set_value name="$Room" exact="player.room"/>
+            <set_value name="$Pos" exact="@player.entity.position"/>
+            <set_value name="$Rot" exact="@player.entity.rotation"/>
+            <debug_text text="'[X4MP-SPIKE] S10.1 MEASURE side=md n=' + $N + ' age=' + player.age + ' container=' + (@player.container.knownname) + ' station=' + (@player.station.knownname) + ' ship=' + (@player.ship.knownname) + ' occupiedship=' + (@player.occupiedship.knownname) + ' room_type=' + (@$Room.type) + ' room_macro=' + (@$Room.macro.id) + ' room_dynamic=' + (if @$Room.dynamicinterior then 1 else 0) + ' walkablemodule=' + (@$Room.walkablemodule.macro.id) + ' platform=' + (@player.platform.macro.id) + ' spacesuit=' + (if @player.spacesuit then 1 else 0) + ' entity_x=' + (@$Pos.x / 1m) + ' entity_y=' + (@$Pos.y / 1m) + ' entity_z=' + (@$Pos.z / 1m) + ' entity_yaw_deg=' + (@$Rot.yaw / 1deg)" filter="general" context="false"/>
+            <do_if value="$Pos and $Rot">
+              <raise_lua_event name="'x4mp_spike.of'" param="'pos;n=' + $N + ';x=' + ($Pos.x / 1m) + ';y=' + ($Pos.y / 1m) + ';z=' + ($Pos.z / 1m) + ';yaw=' + ($Rot.yaw / 1deg)"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- one listener for the player's room changes: S10.1 log, S10.2 keys, S10.6 re-placement of the follower -->
+        <cue name="OF_RoomChanged" instantiate="true">
+          <conditions>
+            <event_object_changed_room object="player.entity"/>
+          </conditions>
+          <actions>
+            <do_if value="@global.$X4MP_OF_S1">
+              <debug_text text="'[X4MP-SPIKE] S10.1 INFO what=md_event_changed_room age=' + player.age + ' new_room_type=' + (@event.param.type) + ' new_room_macro=' + (@event.param.macro.id) + ' previous_room_type=' + (@event.param2.type) + ' previous_room_macro=' + (@event.param2.macro.id)" filter="general" context="false"/>
+              <raise_lua_event name="'x4mp_spike.of'" param="'evt;kind=changed_room;new=' + (@event.param.type) + ';prev=' + (@event.param2.type)"/>
+            </do_if>
+            <do_if value="@global.$X4MP_OF_S2 and event.param">
+              <signal_cue_instantly cue="OF_LogRoomKey" param="['room_change', event.param, player.container]"/>
+            </do_if>
+            <do_if value="@global.$X4MP_OF_S6 and event.param">
+              <set_value name="$F" exact="@md.$X4MP_OF_ByTag.{global.$X4MP_OF_S6Tag}"/>
+              <do_if value="@$F.exists">
+                <set_value name="$P" exact="player.entity.position"/>
+                <add_actor_to_room actor="$F" object="event.param" result="$Moved">
+                  <position x="$P.x + 1.5m" y="$P.y" z="$P.z"/>
+                </add_actor_to_room>
+                <debug_text text="'[X4MP-SPIKE] S10.6 ' + (if $Moved then 'PASS' else 'FAIL') + ' what=follower_replaced_in_new_room moved=' + $Moved + ' new_room_type=' + (@event.param.type) + ' actor_room_now=' + (@$F.room.type) + ' same_room_as_player=' + (@$F.room == player.room) + ' age=' + player.age" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] S10.6 FAIL what=follower_missing_on_room_change tag=' + global.$X4MP_OF_S6Tag + ' age=' + player.age" filter="general" context="false"/>
+              </do_else>
+            </do_if>
+          </actions>
+        </cue>
+
+        <cue name="OF_S1_Transport" instantiate="true">
+          <conditions>
+            <event_entity_transport_finished entity="player.entity"/>
+            <check_value value="@global.$X4MP_OF_S1"/>
+          </conditions>
+          <actions>
+            <debug_text text="'[X4MP-SPIKE] S10.1 INFO what=md_event_transport_finished age=' + player.age + ' previous_room_type=' + (@event.param.type) + ' now_room_type=' + (@player.room.type)" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp_spike.of'" param="'evt;kind=transport_finished;prev=' + (@event.param.type)"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_S1_Started" instantiate="true">
+          <conditions>
+            <event_player_started_control/>
+            <check_value value="@global.$X4MP_OF_S1"/>
+          </conditions>
+          <actions>
+            <debug_text text="'[X4MP-SPIKE] S10.1 INFO what=md_event_player_started_control age=' + player.age + ' controlled=' + (@event.param.knownname)" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp_spike.of'" param="'evt;kind=started_control'"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_S1_Stopped" instantiate="true">
+          <conditions>
+            <event_player_stopped_control/>
+            <check_value value="@global.$X4MP_OF_S1"/>
+          </conditions>
+          <actions>
+            <debug_text text="'[X4MP-SPIKE] S10.1 INFO what=md_event_player_stopped_control age=' + player.age + ' controlled=' + (@event.param.knownname)" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp_spike.of'" param="'evt;kind=stopped_control'"/>
+          </actions>
+        </cue>
+
+        <!-- S10.2 room-key candidates. param = [label, room, container]. Written for rooms of one container. -->
+        <cue name="OF_LogRoomKey" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$Label" exact="event.param.{1}"/>
+            <set_value name="$R" exact="event.param.{2}"/>
+            <set_value name="$Cont" exact="event.param.{3}"/>
+            <set_value name="$Chain" exact="''"/>
+            <set_value name="$C" exact="$R"/>
+            <do_all exact="8" counter="$d">
+              <do_if value="$C and (not $Done)">
+                <set_value name="$Chain" exact="$Chain + '/' + (@$C.macro.id)"/>
+                <do_if value="$C == $Cont">
+                  <set_value name="$Done" exact="true"/>
+                </do_if>
+                <set_value name="$C" exact="@$C.parent"/>
+              </do_if>
+            </do_all>
+            <set_value name="$Anchor" exact="@$R.relativeposition.{$Cont}"/>
+            <debug_text text="'[X4MP-SPIKE] S10.2 INFO what=room_key label=' + $Label + ' container=' + (@$Cont.knownname) + ' container_macro=' + (@$Cont.macro.id) + ' container_seed=' + (@$Cont.seed) + ' owner=' + (@$Cont.owner.id) + ' room_macro=' + (@$R.macro.id) + ' roomtype=' + (@$R.type) + ' kind=' + (if @$R.dynamicinterior then 'dynamic' else 'static') + ' dynamic_name=' + (@$R.dynamicinterior.name) + ' walkablemodule=' + (@$R.walkablemodule.macro.id) + ' anchor_x=' + (@$Anchor.x / 1m) + ' anchor_y=' + (@$Anchor.y / 1m) + ' anchor_z=' + (@$Anchor.z / 1m) + ' chain=' + $Chain + ' walkable=' + (@$R.iswalkable) + ' age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_S2_Keys" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_s2_keys'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Label" exact="event.param3.{2}"/>
+            <set_value name="$Cont" exact="player.station"/>
+            <do_if value="not $Cont">
+              <set_value name="$Cont" exact="player.container"/>
+            </do_if>
+            <do_if value="$Cont">
+              <find_room name="$Rooms" object="$Cont" multiple="true"/>
+              <debug_text text="'[X4MP-SPIKE] S10.2 INFO what=keyset_begin label=' + $Label + ' container=' + $Cont.knownname + ' container_seed=' + (@$Cont.seed) + ' rooms=' + $Rooms.count + ' player_room_type=' + (@player.room.type) + ' age=' + player.age" filter="general" context="false"/>
+              <do_for_each name="$Rm" in="$Rooms">
+                <signal_cue_instantly cue="OF_LogRoomKey" param="[$Label, $Rm, $Cont]"/>
+              </do_for_each>
+              <debug_text text="'[X4MP-SPIKE] S10.2 INFO what=keyset_end label=' + $Label + ' container=' + $Cont.knownname + ' rooms=' + $Rooms.count" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S10.2 FAIL what=keyset label=' + $Label + ' result=no_station_or_container_for_player'" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <!-- ===================================================== actor services ===================================================== -->
+        <cue name="OF_Spawn" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_spawn'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Tag" exact="event.param3.{2}"/>
+            <set_value name="$Variant" exact="event.param3.{3}"/>
+            <set_value name="$Name" exact="event.param3.{4}"/>
+            <set_value name="$Custom" exact="event.param3.{5} == 1"/>
+            <set_value name="$Temp" exact="event.param3.{6} == 1"/>
+            <set_value name="$Dist" exact="event.param3.{7} * 1m"/>
+            <set_value name="$AngOff" exact="event.param3.{8}"/>
+            <set_value name="$RoomKey" exact="event.param3.{9}"/>
+            <set_value name="$Room" exact="if $RoomKey == 'lounge' then @md.$X4MP_OF_LoungeRoom else player.room"/>
+            <do_if value="not $Room">
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=spawn_no_room tag=' + $Tag + ' roomkey=' + $RoomKey + ' (the player must be walking, or the lounge must exist)'" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <do_if value="$RoomKey == 'lounge'">
+                <set_value name="$Base" exact="@md.$X4MP_OF_LoungeSpawn"/>
+                <do_if value="not $Base">
+                  <create_position name="$Base" x="0m" y="0m" z="0m"/>
+                </do_if>
+                <set_value name="$BaseYaw" exact="0deg"/>
+              </do_if>
+              <do_else>
+                <set_value name="$Base" exact="player.entity.position"/>
+                <set_value name="$BaseYaw" exact="player.entity.rotation.yaw"/>
+              </do_else>
+              <set_value name="$Ang" exact="$BaseYaw + $AngOff * 1deg"/>
+              <set_value name="$A" exact="null"/>
+              <set_value name="$Used" exact="$Variant"/>
+              <do_if value="$Variant == 'player'">
+                <!-- S10.3 first try: the local player's own character macro as an NPC -->
+                <create_cue_actor name="$A" cue="md.X4MP_SpikeOnFoot.Actors" macro="player.entity.macro">
+                  <name name="$Name"/>
+                  <owner exact="faction.x4mp_team_1"/>
+                </create_cue_actor>
+                <do_if value="not @$A.exists">
+                  <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=create_cue_actor_player_macro tag=' + $Tag + ' macro=' + player.entity.macro.id + ' falling_back_to_crew_select'" filter="general" context="false"/>
+                  <set_value name="$Used" exact="'crew'"/>
+                </do_if>
+              </do_if>
+              <do_if value="$Used == 'crew' or $Used == 'crewsame'">
+                <create_cue_actor name="$A" cue="md.X4MP_SpikeOnFoot.Actors">
+                  <select tags="tag.crew" race="player.entity.race"/>
+                  <name name="$Name"/>
+                  <owner exact="faction.x4mp_team_1"/>
+                </create_cue_actor>
+              </do_if>
+              <do_if value="@$A.exists">
+                <set_entity_traits entity="$A" customhandler="$Custom" temporary="$Temp"/>
+                <set_entity_overrides entity="$A" title="'X4MP spike'"/>
+                <set_value name="$A.$x4mp_spike" exact="1"/>
+                <set_value name="$A.$x4mp_tag" exact="$Tag"/>
+                <append_to_list name="md.$X4MP_OF_Actors" exact="$A"/>
+                <set_value name="md.$X4MP_OF_ByTag.{$Tag}" exact="$A"/>
+                <set_value name="md.$X4MP_OF_Temp.{$Tag}" exact="$Temp"/>
+                <add_actor_to_room actor="$A" object="$Room" result="$Moved">
+                  <position x="$Base.x + sin($Ang) * $Dist" y="$Base.y" z="$Base.z + cos($Ang) * $Dist"/>
+                  <rotation yaw="$Ang + 180deg"/>
+                </add_actor_to_room>
+                <set_value name="md.$X4MP_OF_Spawn.{$Tag}" exact="$A.position"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved then 'PASS' else 'FAIL') + ' what=actor_spawned tag=' + $Tag + ' requested=' + $Variant + ' used=' + $Used + ' name=' + $A.name + ' macro=' + (@$A.macro.id) + ' female=' + (@$A.isfemale) + ' race=' + (@$A.race.id) + ' owner=' + (@$A.owner.id) + ' customhandler=' + $Custom + ' temporary=' + $Temp + ' marker_var_readback=' + (@$A.$x4mp_spike) + ' placed=' + $Moved + ' room_type=' + (@$A.room.type) + ' same_room_as_player=' + (@$A.room == player.room) + ' listed=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
+                <raise_lua_event name="'x4mp_spike.of_actor_tag'" param="$Tag"/>
+                <raise_lua_event name="'x4mp_spike.of_actor'" param="$A"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=actor_not_created tag=' + $Tag + ' requested=' + $Variant + ' used=' + $Used" filter="general" context="false"/>
+              </do_else>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_Place" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_place'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
+            <set_value name="$Room" exact="if event.param3.{7} == 'lounge' then @md.$X4MP_OF_LoungeRoom else player.room"/>
+            <do_if value="@$A.exists and $Room">
+              <add_actor_to_room actor="$A" object="$Room" result="$Moved">
+                <position x="event.param3.{3} * 1m" y="event.param3.{4} * 1m" z="event.param3.{5} * 1m"/>
+                <rotation yaw="event.param3.{6} * 1deg"/>
+              </add_actor_to_room>
+              <do_if value="not $Moved">
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=place_failed tag=' + event.param3.{2}" filter="general" context="false"/>
+              </do_if>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=place_no_actor_or_room tag=' + event.param3.{2}" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_Walk" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_walk'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
+            <set_value name="$Room" exact="if event.param3.{8} == 'lounge' then @md.$X4MP_OF_LoungeRoom else player.room"/>
+            <do_if value="@$A.exists and $Room">
+              <start_actor_walk actor="$A" target="$Room" speed="event.param3.{7}">
+                <position x="event.param3.{3} * 1m" y="event.param3.{4} * 1m" z="event.param3.{5} * 1m"/>
+                <rotation yaw="event.param3.{6} * 1deg"/>
+              </start_actor_walk>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=walk_no_actor_or_room tag=' + event.param3.{2}" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_Seq" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_seq'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
+            <do_if value="@$A.exists">
+              <do_if value="event.param3.{4} == ''">
+                <start_actor_sequence actor="$A" type="event.param3.{3}"/>
+              </do_if>
+              <do_else>
+                <start_actor_sequence actor="$A" type="event.param3.{3}" behavior="event.param3.{4}"/>
+              </do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=sequence_issued tag=' + event.param3.{2} + ' type=' + event.param3.{3} + ' behavior=' + event.param3.{4} + ' (what it looks like is the tester observation)'" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=sequence_no_actor tag=' + event.param3.{2}" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_Emote" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_emote'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
+            <do_if value="@$A.exists">
+              <do_if value="event.param3.{3} == 'clear'">
+                <clear_actor_emotion actor="$A"/>
+              </do_if>
+              <do_else>
+                <set_actor_emotion actor="$A" emotion="event.param3.{3}"/>
+              </do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=emotion_issued tag=' + event.param3.{2} + ' emotion=' + event.param3.{3}" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=emotion_no_actor tag=' + event.param3.{2}" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_LookAt" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lookat'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
+            <do_if value="@$A.exists">
+              <do_if value="event.param3.{3} == 1">
+                <set_actor_lookat actor="$A" component="player.entity"/>
+              </do_if>
+              <do_else>
+                <clear_actor_lookat actor="$A"/>
+              </do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lookat_issued tag=' + event.param3.{2} + ' on=' + event.param3.{3}" filter="general" context="false"/>
+            </do_if>
+          </actions>
+        </cue>
+
+        <cue name="OF_Status" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_status'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Tag" exact="event.param3.{2}"/>
+            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{$Tag}"/>
+            <do_if value="@$A.exists">
+              <set_value name="$P" exact="$A.position"/>
+              <set_value name="$S0" exact="@md.$X4MP_OF_Spawn.{$Tag}"/>
+              <set_value name="$Same" exact="$A.room == player.room"/>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' MEASURE what=actor_status tag=' + $Tag + ' exists=true name=' + $A.name + ' room_type=' + (@$A.room.type) + ' room_macro=' + (@$A.room.macro.id) + ' same_room_as_player=' + $Same + ' x=' + ($P.x / 1m) + ' y=' + ($P.y / 1m) + ' z=' + ($P.z / 1m) + ' yaw_deg=' + ($A.rotation.yaw / 1deg) + ' moved_from_spawn_m=' + (if $Same and $S0 then ($P.distanceto.{$S0} / 1m) else -1) + ' walkspeed=' + (@$A.walkspeed) + ' runspeed=' + (@$A.runspeed) + ' iswalking=' + (@$A.iswalking) + ' dist_to_player_m=' + (if $Same then ($P.distanceto.{player.entity.position} / 1m) else -1) + ' age=' + player.age" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' MEASURE what=actor_status tag=' + $Tag + ' exists=false'" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_Remove" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_remove'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Which" exact="event.param3.{2}"/>
+            <set_value name="$Removed" exact="0"/>
+            <do_if value="md.$X4MP_OF_Actors?">
+              <do_all exact="md.$X4MP_OF_Actors.count" counter="$i" reverse="true">
+                <set_value name="$A" exact="md.$X4MP_OF_Actors.{$i}"/>
+                <set_value name="$T" exact="@$A.$x4mp_tag"/>
+                <do_if value="$Which == 'all' or $T == $Which">
+                  <do_if value="@$A.exists">
+                    <destroy_object object="$A"/>
+                    <set_value name="$Removed" exact="$Removed + 1"/>
+                  </do_if>
+                  <remove_value name="md.$X4MP_OF_Actors.{$i}"/>
+                  <do_if value="$T">
+                    <remove_value name="md.$X4MP_OF_ByTag.{$T}"/>
+                  </do_if>
+                </do_if>
+              </do_all>
+            </do_if>
+            <do_if value="$Which == 'all'">
+              <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
+            </do_if>
+            <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=actors_removed which=' + $Which + ' removed=' + $Removed + ' listed_now=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <!-- S10.8: retarget every listed crowd actor to a random point within radius of where it was spawned -->
+        <cue name="OF_CrowdWalk" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_crowd_walk'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Count" exact="event.param3.{2}"/>
+            <set_value name="$Radius" exact="event.param3.{3}"/>
+            <set_value name="$Speed" exact="event.param3.{4}"/>
+            <set_value name="$Room" exact="player.room"/>
+            <set_value name="$Issued" exact="0"/>
+            <do_if value="$Room">
+              <do_all exact="$Count" counter="$k">
+                <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{'crowd' + $k}"/>
+                <do_if value="@$A.exists and @$A.room == $Room">
+                  <set_value name="$S0" exact="md.$X4MP_OF_Spawn.{'crowd' + $k}"/>
+                  <set_value name="$Dx" min="0 - $Radius" max="$Radius"/>
+                  <set_value name="$Dz" min="0 - $Radius" max="$Radius"/>
+                  <start_actor_walk actor="$A" target="$Room" speed="$Speed">
+                    <position x="$S0.x + $Dx * 1m" y="$S0.y" z="$S0.z + $Dz * 1m"/>
+                  </start_actor_walk>
+                  <set_value name="$Issued" exact="$Issued + 1"/>
+                </do_if>
+              </do_all>
+            </do_if>
+            <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=crowd_walk_issued count=' + $Issued + ' of=' + $Count + ' room_type=' + (@$Room.type) + ' age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <!-- S10.15: put a listed actor into an NPC slot of the lounge (sits down when the slot is a chair) -->
+        <cue name="OF_SlotSeat" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_slot_seat'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
+            <set_value name="$Room" exact="@md.$X4MP_OF_LoungeRoom"/>
+            <do_if value="@$A.exists and $Room">
+              <find_npc_slot name="$Slots" object="$Room" multiple="true"/>
+              <do_if value="$Slots.count ge event.param3.{3}">
+                <add_actor_to_room actor="$A" slot="$Slots.{event.param3.{3}}" result="$Moved"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved then 'PASS' else 'FAIL') + ' what=actor_in_slot tag=' + event.param3.{2} + ' slot_index=' + event.param3.{3} + ' of=' + $Slots.count + ' placed=' + $Moved + ' room_type=' + (@$A.room.type)" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=actor_in_slot_not_enough_slots tag=' + event.param3.{2} + ' wanted=' + event.param3.{3} + ' have=' + $Slots.count" filter="general" context="false"/>
+              </do_else>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- ===================================================== S10.7 conversation ===================================================== -->
+        <cue name="OF_ConvStarted" instantiate="true">
+          <conditions>
+            <event_conversation_started conversation="default"/>
+            <check_value value="md.$X4MP_OF_Actors.indexof.{event.object}"/>
+          </conditions>
+          <actions>
+            <debug_text text="'[X4MP-SPIKE] S10.7 INFO what=conversation_started actor=' + event.object.name + ' conversation=' + event.param + ' tag=' + (@event.object.$x4mp_tag) + ' age=' + player.age" filter="general" context="false"/>
+            <!-- plain strings as choice text: whether they render without a {page,line} entry is the question (S10.7) -->
+            <add_player_choice text="'Message'" section="x4mp_spike_message" choiceparam="'message'" position="top_left"/>
+            <add_player_choice text="'Wave'" section="x4mp_spike_wave" choiceparam="'wave'" position="left"/>
+            <add_player_choice text="'Open MP menu'" section="x4mp_spike_menu" choiceparam="'menu'" position="bottom_left"/>
+            <add_player_choice_return text="'Goodbye'" position="bottom_right"/>
+            <raise_lua_event name="'x4mp_spike.of'" param="'conv;what=started'"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_ConvNext" instantiate="true">
+          <conditions>
+            <event_conversation_next_section sectionprefix="x4mp_spike_"/>
+            <check_value value="md.$X4MP_OF_Actors.indexof.{event.object}"/>
+          </conditions>
+          <actions>
+            <debug_text text="'[X4MP-SPIKE] S10.7 PASS what=next_section section=' + event.param + ' choiceparam=' + event.param2 + ' actor=' + event.object.name + ' age=' + player.age" filter="general" context="false"/>
+            <do_if value="event.param == 'x4mp_spike_message'">
+              <show_notification text="'X4MP spike: S10.7 choice Message from ' + event.object.name" timeout="10s" priority="5"/>
+            </do_if>
+            <do_elseif value="event.param == 'x4mp_spike_wave'">
+              <set_actor_emotion actor="event.object" emotion="'smile'"/>
+              <show_notification text="'X4MP spike: S10.7 choice Wave (the character smiles)'" timeout="10s" priority="5"/>
+            </do_elseif>
+            <do_elseif value="event.param == 'x4mp_spike_menu'">
+              <debug_text text="'[X4MP-SPIKE] S10.7 INFO what=open_conversation_menu menu=X4MPSpikeOnFootMenu'" filter="general" context="false"/>
+              <open_conversation_menu menu="X4MPSpikeOnFootMenu" param="'x4mp_spike_conv'" param2="event.object"/>
+            </do_elseif>
+            <raise_lua_event name="'x4mp_spike.of'" param="'conv;what=next_section;section=' + event.param"/>
+          </actions>
+        </cue>
+
+        <cue name="OF_ConvFinished" instantiate="true">
+          <conditions>
+            <event_conversation_finished/>
+            <check_value value="md.$X4MP_OF_Actors.indexof.{event.object}"/>
+          </conditions>
+          <actions>
+            <debug_text text="'[X4MP-SPIKE] S10.7 INFO what=conversation_finished outcome=' + event.param + ' outcomeparam=' + event.param2 + ' age=' + player.age" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp_spike.of'" param="'conv;what=finished;outcome=' + event.param"/>
+          </actions>
+        </cue>
+
+        <!-- ===================================================== S10.9 interior differences ===================================================== -->
+        <cue name="OF_S9" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_s9'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Limit" exact="event.param3.{2}"/>
+            <find_station name="$Stations" space="player.galaxy" multiple="true"/>
+            <set_value name="$Logged" exact="0"/>
+            <debug_text text="'[X4MP-SPIKE] S10.9 INFO what=catalogue_begin stations_in_galaxy=' + $Stations.count + ' limit=' + $Limit + ' (own station first, then known stations that can hold interiors)'" filter="general" context="false"/>
+            <do_for_each name="$St" in="$Stations">
+              <do_if value="$Logged lt $Limit and ($St == player.station or ($St.isknown and $St.canhavedynamicinterior and not [faction.ownerless, faction.xenon, faction.khaak].indexof.{$St.owner}))">
+                <set_value name="$Logged" exact="$Logged + 1"/>
+                <find_room name="$Rooms" object="$St" multiple="true"/>
+                <set_value name="$NDyn" exact="0"/>
+                <set_value name="$DynTypes" exact="''"/>
+                <do_for_each name="$Rm" in="$Rooms">
+                  <do_if value="@$Rm.dynamicinterior">
+                    <set_value name="$NDyn" exact="$NDyn + 1"/>
+                    <set_value name="$DynTypes" exact="$DynTypes + ',' + (@$Rm.type)"/>
+                  </do_if>
+                </do_for_each>
+                <debug_text text="'[X4MP-SPIKE] S10.9 INFO what=station index=' + $Logged + ' name=' + $St.knownname + ' here=' + ($St == player.station) + ' sector=' + (@$St.sector.name) + ' owner=' + $St.owner.id + ' race=' + (@$St.owner.primaryrace.id) + ' canhavedynamicinterior=' + $St.canhavedynamicinterior + ' attention=' + $St.attention + ' shadyguy=' + (if @$St.shadyguy then 1 else 0) + ' shady_tradesvisible=' + (@$St.shadyguy.tradesvisible) + ' shady_room_type=' + (@$St.shadyguy.room.type) + ' rooms=' + $Rooms.count + ' dynamic_rooms=' + $NDyn + ' dynamic_types=' + $DynTypes + ' player_owned=' + ($St.owner == faction.player)" filter="general" context="false"/>
+              </do_if>
+            </do_for_each>
+            <debug_text text="'[X4MP-SPIKE] S10.9 INFO what=catalogue_end logged=' + $Logged + ' (rooms of a station exist only while its interiors are spawned; far stations may show rooms=0)'" filter="general" context="false"/>
+          </actions>
+        </cue>
+
+        <!-- ===================================================== S10.11 .. S10.15 lounge ===================================================== -->
+        <cue name="OF_LoungeCreate" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_create'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Variant" exact="event.param3.{2}"/>
+            <set_value name="$Seed" exact="event.param3.{3}"/>
+            <set_value name="$Keep" exact="event.param3.{4} == 1"/>
+            <set_value name="$Obj" exact="player.station"/>
+            <do_if value="not $Obj">
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_create_no_station variant=' + $Variant + ' (dock at a station first)'" filter="general" context="false"/>
+              <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=0;variant=' + $Variant + ';why=no_station'"/>
+            </do_if>
+            <do_else>
+              <find_room name="$Before" object="$Obj" multiple="true"/>
+              <set_value name="$DynBefore" exact="0"/>
+              <do_for_each name="$Rm" in="$Before">
+                <do_if value="@$Rm.dynamicinterior">
+                  <set_value name="$DynBefore" exact="$DynBefore + 1"/>
+                </do_if>
+              </do_for_each>
+              <!-- corridor: the entertainment corridor group (contains room_arg_corridor_04_macro) with a fixed seed; first door -->
+              <get_room_definition macro="$CorridorMacro" doors="$CorridorDoors" race="race.argon" tags="tag.entertainmentcorridor" seed="$Seed"/>
+              <set_value name="$Door" exact="if @$CorridorDoors.count then $CorridorDoors.{1} else null"/>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_create_begin variant=' + $Variant + ' station=' + $Obj.knownname + ' owner=' + $Obj.owner.id + ' canhavedynamicinterior=' + $Obj.canhavedynamicinterior + ' corridor_macro=' + (@$CorridorMacro.id) + ' doors=' + (@$CorridorDoors.count) + ' first_door=' + (@$Door) + ' rooms_before=' + $Before.count + ' dynamic_rooms_before=' + $DynBefore + ' seed=' + $Seed + ' age=' + player.age" filter="general" context="false"/>
+              <set_value name="$Interior" exact="null"/>
+              <set_value name="$Corridor" exact="null"/>
+              <set_value name="$Room" exact="null"/>
+              <do_if value="$Variant == 'bar'">
+                <create_dynamic_interior object="$Obj" corridor="$CorridorMacro" door="$Door" room="macro.room_gen_bar_01_macro" name="'Multiplayer Lounge'" interiorname="$Interior" corridorname="$Corridor" roomname="$Room" roomtype="roomtype.livingroom" seed="$Seed" private="true" persistent="false"/>
+              </do_if>
+              <do_elseif value="$Variant == 'office'">
+                <create_dynamic_interior object="$Obj" corridor="$CorridorMacro" door="$Door" room="macro.room_gen_playeroffice_01_macro" name="'Multiplayer Lounge'" interiorname="$Interior" corridorname="$Corridor" roomname="$Room" roomtype="roomtype.livingroom" seed="$Seed" private="true" persistent="false"/>
+              </do_elseif>
+              <do_elseif value="$Variant == 'venturer'">
+                <create_dynamic_interior object="$Obj" corridor="$CorridorMacro" door="$Door" room="macro.room_gen_venturerroom_01_macro" name="'Multiplayer Lounge'" interiorname="$Interior" corridorname="$Corridor" roomname="$Room" roomtype="roomtype.livingroom" seed="$Seed" private="true" persistent="false"/>
+              </do_elseif>
+              <do_if value="@$Interior.exists and @$Corridor.exists and @$Room.exists">
+                <find_room name="$After" object="$Obj" multiple="true"/>
+                <set_value name="$RPos" exact="$Room.relativeposition.{$Obj}"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' PASS what=lounge_created variant=' + $Variant + ' interior=' + $Interior.knownname + ' interior_name=' + (@$Interior.name) + ' room_name=' + (@$Room.name) + ' room_macro=' + (@$Room.macro.id) + ' room_type=' + (@$Room.type) + ' room_private=' + (@$Room.isprivate) + ' room_walkable=' + (@$Room.iswalkable) + ' room_x_in_station=' + ($RPos.x / 1m) + ' room_y_in_station=' + ($RPos.y / 1m) + ' room_z_in_station=' + ($RPos.z / 1m) + ' rooms_after=' + $After.count + ' (vanilla rooms before=' + $Before.count + ' so unaffected if after=before+2 or +1)' + ' age=' + player.age" filter="general" context="false"/>
+                <append_to_list name="md.$X4MP_OF_Lounges" exact="[$Obj, $Interior, $Room]"/>
+                <do_if value="$Keep">
+                  <set_value name="md.$X4MP_OF_LoungeRoom" exact="$Room"/>
+                  <set_value name="md.$X4MP_OF_LoungeObject" exact="$Obj"/>
+                  <set_value name="md.$X4MP_OF_LoungeInterior" exact="$Interior"/>
+                  <set_value name="md.$X4MP_OF_LoungeVariant" exact="$Variant"/>
+                  <set_value name="md.$X4MP_OF_LoungeSpawn" exact="null"/>
+                </do_if>
+                <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=1;variant=' + $Variant + ';keep=' + $Keep"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_create_failed variant=' + $Variant + ' interior=' + (@$Interior.exists) + ' corridor=' + (@$Corridor.exists) + ' room=' + (@$Room.exists) + ' (look for an engine error line just before this one; try another door, seed or private=false)'" filter="general" context="false"/>
+                <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=0;variant=' + $Variant + ';why=create_failed'"/>
+              </do_else>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_LoungeRemove" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_remove'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <!-- never while the player is inside: leave first -->
+            <do_if value="@md.$X4MP_OF_LoungeRoom and @player.room == md.$X4MP_OF_LoungeRoom">
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_remove_refused_player_inside (press Leave first)'" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <signal_cue_instantly cue="OF_LoungeSweep" param="'block_request'"/>
+              <set_value name="md.$X4MP_OF_LoungeRoom" exact="null"/>
+              <set_value name="md.$X4MP_OF_LoungeObject" exact="null"/>
+              <set_value name="md.$X4MP_OF_LoungeInterior" exact="null"/>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_remove_done listed_now=' + md.$X4MP_OF_Lounges.count" filter="general" context="false"/>
+              <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=0;variant=none;why=removed'"/>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_LoungeGo" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_go'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Room" exact="@md.$X4MP_OF_LoungeRoom"/>
+            <do_if value="not (@$Room.exists)">
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_go_no_lounge'" filter="general" context="false"/>
+            </do_if>
+            <do_elseif value="not player.room">
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_go_player_not_walking (get up from the seat first)'" filter="general" context="false"/>
+            </do_elseif>
+            <do_else>
+              <do_if value="player.room != $Room">
+                <set_value name="md.$X4MP_OF_ReturnRoom" exact="player.room"/>
+                <set_value name="md.$X4MP_OF_ReturnPos" exact="player.entity.position"/>
+                <set_value name="md.$X4MP_OF_ReturnYaw" exact="player.entity.rotation.yaw"/>
+              </do_if>
+              <add_actor_to_room actor="player.entity" object="$Room" result="$Moved">
+                <position x="event.param3.{2} * 1m" y="event.param3.{3} * 1m" z="event.param3.{4} * 1m"/>
+              </add_actor_to_room>
+              <set_value name="$P" exact="player.entity.position"/>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved and player.room == $Room then 'PASS' else 'FAIL') + ' what=lounge_go moved=' + $Moved + ' player_in_lounge=' + (player.room == $Room) + ' room_type=' + (@player.room.type) + ' x=' + (@$P.x / 1m) + ' y=' + (@$P.y / 1m) + ' z=' + (@$P.z / 1m) + ' return_room_type=' + (@md.$X4MP_OF_ReturnRoom.type) + ' age=' + player.age" filter="general" context="false"/>
+              <do_if value="$Moved">
+                <set_value name="md.$X4MP_OF_LoungeSpawn" exact="player.entity.position"/>
+              </do_if>
+            </do_else>
+          </actions>
+        </cue>
+
+        <cue name="OF_LoungeLeave" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_leave'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Ret" exact="@md.$X4MP_OF_ReturnRoom"/>
+            <set_value name="$RP" exact="@md.$X4MP_OF_ReturnPos"/>
+            <do_if value="@$Ret.exists and $RP">
+              <add_actor_to_room actor="player.entity" object="$Ret" result="$Moved">
+                <position x="$RP.x" y="$RP.y" z="$RP.z"/>
+                <rotation yaw="md.$X4MP_OF_ReturnYaw"/>
+              </add_actor_to_room>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved and player.room == $Ret then 'PASS' else 'FAIL') + ' what=lounge_leave moved=' + $Moved + ' back_in_return_room=' + (player.room == $Ret) + ' room_type=' + (@player.room.type) + ' age=' + player.age" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <!-- fallback: the control room of the station, as vanilla rescues its own NPCs (md/npc_instantiation.xml) -->
+              <set_value name="$St" exact="@md.$X4MP_OF_LoungeObject"/>
+              <do_if value="@$St.controlroom">
+                <add_actor_to_room actor="player.entity" object="$St.controlroom" result="$Moved"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_leave_fallback_control_room moved=' + $Moved" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_leave_no_return_room'" filter="general" context="false"/>
+              </do_else>
+            </do_else>
+          </actions>
+        </cue>
+
+        <!-- S10.13: room-local NPC slot offsets of the lounge. checksum lets two runs be compared at a glance. -->
+        <cue name="OF_LoungeSlots" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_slots'"/>
+          </conditions>
+          <actions>
+            <set_value name="$Step" exact="event.param3.{1}"/>
+            <set_value name="$Room" exact="@md.$X4MP_OF_LoungeRoom"/>
+            <do_if value="@$Room.exists">
+              <find_npc_slot name="$Slots" object="$Room" multiple="true" excludefilled="false" excludeblocked="false"/>
+              <set_value name="$Sum" exact="0"/>
+              <set_value name="$Idx" exact="0"/>
+              <do_for_each name="$Sl" in="$Slots">
+                <set_value name="$Idx" exact="$Idx + 1"/>
+                <set_value name="$SP" exact="$Sl.relativeposition.{$Room}"/>
+                <set_value name="$Sum" exact="$Sum + ($Idx * (($SP.x / 1m) + 2 * ($SP.y / 1m) + 3 * ($SP.z / 1m)))"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_slot index=' + $Idx + ' x=' + ($SP.x / 1m) + ' y=' + ($SP.y / 1m) + ' z=' + ($SP.z / 1m) + ' ischair=' + (@$Room.ischairslot.{$Sl})" filter="general" context="false"/>
+              </do_for_each>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' MEASURE what=lounge_slots_summary variant=' + (@md.$X4MP_OF_LoungeVariant) + ' room_macro=' + $Room.macro.id + ' slots=' + $Slots.count + ' checksum=' + $Sum + ' (identical count and checksum across runs = room-local slots deterministic)'" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_slots_no_lounge'" filter="general" context="false"/>
+            </do_else>
+          </actions>
+        </cue>
+
+      </cues>
+    </cue>
+
+  </cues>
+</mdscript>
