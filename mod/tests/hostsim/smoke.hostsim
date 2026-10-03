@@ -1,0 +1,9 @@
+# Smoke test of the real x4mp.dll against hostsim, no server (ctest hostsim.real_dll).
+# The DLL is initialised implicitly (no `init` line), ticks 600 frames at 60 Hz (10 s of game frames), is reloaded
+# (shutdown + FreeLibrary + LoadLibrary + init) with the stash kept, ticks again and shuts down at the end.
+expect-log hello
+frame 60Hz 600
+reload
+expect-log hello
+expect-state reloads == 1
+frame fast 120

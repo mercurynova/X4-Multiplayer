@@ -211,3 +211,43 @@ if(X4MP_SPIKES)
   endif()
 endif()
 # X4MP_SPIKES end
+
+# =============================================================================================
+# X4MP_HOSTSIM begin (M2-01): x4mp-hostsim, a fake X4Native host that loads x4mp.dll without X4 (sources in
+# tools/hostsim/, scripts in tests/hostsim/*.hostsim), plus a stub extension that tests hostsim itself. Built whenever
+# X4MP_TESTS is ON (the e2e HostSim step builds with build.ps1 -NoTest, which still builds every target).
+# =============================================================================================
+if(X4MP_TESTS)
+  add_executable(x4mp-hostsim
+    tools/hostsim/main.cpp
+    tools/hostsim/host.cpp
+    tools/hostsim/admin_client.cpp)
+  target_include_directories(x4mp-hostsim SYSTEM PRIVATE "${X4N_SDK_DIR}")
+  target_include_directories(x4mp-hostsim PRIVATE tools/hostsim)
+  target_compile_features(x4mp-hostsim PRIVATE cxx_std_23)
+  target_link_libraries(x4mp-hostsim PRIVATE nlohmann_json::nlohmann_json ws2_32)
+  set_target_properties(x4mp-hostsim PROPERTIES CXX_EXTENSIONS OFF)
+  x4mp_set_warnings(x4mp-hostsim)
+
+  add_library(x4mp_hostsim_stub SHARED tests/hostsim/stub_ext.cpp)
+  target_include_directories(x4mp_hostsim_stub SYSTEM PRIVATE "${X4N_SDK_DIR}")
+  target_compile_features(x4mp_hostsim_stub PRIVATE cxx_std_23)
+  set_target_properties(x4mp_hostsim_stub PROPERTIES PREFIX "" OUTPUT_NAME "x4mp_hostsim_stub" CXX_EXTENSIONS OFF)
+  x4mp_set_warnings(x4mp_hostsim_stub)
+
+  # hostsim against its own stub extension (every fake of the host API) and against the real x4mp.dll (no server).
+  add_test(NAME hostsim.stub
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp_hostsim_stub>" --ext-id x4mp_hostsim_stub
+            --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/stub.hostsim")
+  set_tests_properties(hostsim.stub PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+  add_test(NAME hostsim.real_dll
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/smoke.hostsim")
+  set_tests_properties(hostsim.real_dll PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+  # A failing script must exit with code 1 and print "HOSTSIM FAIL line N".
+  add_test(NAME hostsim.failure_exit_code
+    COMMAND ${CMAKE_COMMAND} -DHOSTSIM=$<TARGET_FILE:x4mp-hostsim> -DDLL=$<TARGET_FILE:x4mp_hostsim_stub>
+            -DSCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/fail.hostsim
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/expect_fail.cmake")
+  set_tests_properties(hostsim.failure_exit_code PROPERTIES TIMEOUT 60)
+endif()
+# X4MP_HOSTSIM end
