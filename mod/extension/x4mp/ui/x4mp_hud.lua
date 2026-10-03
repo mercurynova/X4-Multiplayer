@@ -176,8 +176,15 @@ function H.yielding()
 	return nil
 end
 
+--- A minimized vanilla menu (Helper.minimizedMenu): every frame:display() runs Helper.closeMinimizedMenus (helper.lua:4113, defined :1510) and
+--- would close it, so the HUD never draws while one exists (it would otherwise do so on every 5 s refresh).
+function H.minimizedMenuOpen()
+	return type(Helper) == "table" and Helper.minimizedMenu ~= nil and Helper.minimizedMenu ~= false
+end
+
 --- true when another (non-ignored, non-minimized) menu is open: drawing then would be useless or disturb it
 function H.blocked()
+	if H.minimizedMenuOpen() then return true end
 	if type(View) ~= "table" or type(View.menus) ~= "table" then return false end
 	local ignore = H.config.ignoreMenus
 	for _, entry in ipairs(View.menus) do
@@ -207,6 +214,14 @@ function menu.display()
 		-- View.registerMenu :4056-4057); menu_followcamera.lua:97 sets them the same way for a passive in-flight frame.
 		keepHUDVisible = true,
 		keepCrosshairVisible = true,
+		-- Close-out A, item 1 (chat + Esc): the default type is "Helper" (helper.lua:3140), which vanilla treats as "a menu is open":
+		-- View.clearMenus({ Helper = true }) (helper.lua:1404) closes every such entry through its clearCallback, View.hasMenu({ Helper = true })
+		-- (helper.lua:1359, :1371, :1845) stops the docked / top-level menu from opening, and the engine's Esc handling for "close the open
+		-- menu" ran on our frame instead of leaving the chat edit box (chatwindow.lua editboxSendMessage) to deactivate itself: the chat
+		-- stayed in its typing state (typing = true, playerControls = false, never fades) and the cockpit HUD stayed hidden. The chat window
+		-- avoids all of that with its own type (chatwindow.lua:521); a passive status line gets one too, so it never takes part in the
+		-- vanilla "close the Helper menus" paths and Esc / Enter behave exactly as without X4MP.
+		viewHelperType = "X4MPHud",
 	})
 	menu.frame:setBackground("solid", { color = Color["frame_background_semitransparent"] })
 	local ftable = menu.frame:addTable(1, { tabOrder = 0, highlightMode = "off", reserveScrollBar = false })
@@ -364,6 +379,7 @@ function H.tick(force)
 	H.lastOthers = others
 
 	if H.present() then
+		if H.minimizedMenuOpen() then return "present" end -- drawing would close the minimized menu
 		local stale = H.lastDrawAt and (t < H.lastDrawAt or t - H.lastDrawAt >= H.config.refreshInterval)
 		if text ~= H.lastText or H.forceRedraw or stale then
 			local ok, err = draw(text)
@@ -380,6 +396,7 @@ function H.tick(force)
 		if H.lastText ~= nil then H.goneSince = t end -- it was drawn before: wait out the delay; a first draw is immediate
 	end
 	if H.goneSince and t - H.goneSince < H.config.reshowDelay then return "waiting" end
+	if H.minimizedMenuOpen() then return "blocked" end -- never forced: drawing closes the minimized menu
 	if H.blocked() then
 		H.blockedSince = H.blockedSince or t
 		if t < H.blockedSince or t - H.blockedSince < H.config.blockedMax then return "blocked" end
