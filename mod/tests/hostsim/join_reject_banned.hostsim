@@ -1,0 +1,9 @@
+# M2-06: a banned player is refused; the status carries reject=banned (Lua shows text 74). Same work dir (= same player key) as join_flow.
+init
+frame 60Hz 10
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Alice","password":"","team":"auto"}
+frame 60Hz 240
+expect-lua x4mp.status 3000 json $.state == rejected
+expect-lua x4mp.status 3000 json $.reject == banned
+expect-state subs.on_frame_update == 1
+shutdown

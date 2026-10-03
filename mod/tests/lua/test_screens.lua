@@ -279,6 +279,24 @@ test("status screen shows state, server details and errors", function()
 	truthy(found, "x4mp.error text on the status screen")
 end)
 
+test("rejected: each reject token shows its own localized text with the server detail", function()
+	local S, _, r = setup()
+	S.open("status")
+	local expect = { build = "X4 build", mod = "mods do not match", auth = "password is wrong", full = "is full",
+		banned = "banned", name = "already in use" }
+	for token, needle in pairs(expect) do
+		env.fire("x4mp.status", '{"state":"rejected","reject":"' .. token .. '","detail":"DETAIL-' .. token .. '"}')
+		local first = r.last.rows[1]
+		eq(first.tone, "error")
+		t.contains(first.text, needle, token)
+		t.contains(first.text, "DETAIL-" .. token, token)
+	end
+	env.fire("x4mp.status", '{"state":"rejected","reject":"other","detail":"Kicked by admin"}')
+	t.contains(r.last.rows[1].text, "Rejected by the server: Kicked by admin")
+	env.fire("x4mp.status", '{"state":"rejected","reject":"build"}')
+	falsy(r.last.rows[1].text:find("%s$"), "no trailing space without detail")
+end)
+
 test("notify topic becomes a notice on the open screen", function()
 	local S, _, r = setup()
 	S.open("join")

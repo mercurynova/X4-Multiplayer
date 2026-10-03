@@ -249,7 +249,7 @@ TEST_CASE("x4mp.dll: an unsupported build stays inert but returns OK", "[dll]") 
   Loaded dll = load();
 
   REQUIRE(dll.init(&api) == X4NATIVE_OK);
-  CHECK(g.subs.empty());  // subscribed to nothing
+  CHECK(host_event_subs() == 0);  // no game events (only the x4mp.* Lua verbs that tell the UI why: criterion 6)
   dll.shutdown();
 
   const std::string log = ext.log();
