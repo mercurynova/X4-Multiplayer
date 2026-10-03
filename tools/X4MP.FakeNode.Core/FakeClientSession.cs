@@ -496,7 +496,23 @@ public sealed class FakeClientSession
     public void CheckStale()
     {
         double now = _clock();
-        foreach (var (id, ghost) in _ghosts)
+        // The reader thread adds and removes ghosts while the node loop looks (the first check runs right after joining, in the middle of the
+        // catch-up): enumerate a snapshot, taken again if the table moved under it. Without this a bot died with "Collection was modified".
+        KeyValuePair<uint, Ghost>[] snapshot = [];
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                snapshot = [.. _ghosts];
+                break;
+            }
+            catch (InvalidOperationException) when (attempt < 19)
+            {
+                // retry
+            }
+        }
+
+        foreach (var (id, ghost) in snapshot)
         {
             if (now - ghost.LastEntryAt > StaleSeconds)
             {

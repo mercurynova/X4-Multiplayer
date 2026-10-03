@@ -81,6 +81,10 @@ export class BotLauncher {
     args.push(...(o.args ?? []));
     // Clients report the same mods as the authority unless a spec chooses its own extension set.
     if (o.command !== 'authority' && !args.includes('--extensions-preset') && !args.includes('--extensions')) args.push('--extensions-preset', 'modded');
+    // The bots verify their own admission against the authority's list, which they cannot see: tell them it is the shared fake authority's "modded" set,
+    // otherwise every bot prints "mods: MISMATCH ... expected=reject" and counts two errors (noise that hid real failures in CI).
+    if (o.command !== 'authority' && !args.includes('--authority-extensions'))
+      args.push('--authority-extensions', 'modded');
     const child = spawn(e2e.fakeNodeExe, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const bot = new Bot(`${o.command} ${o.name ?? o.namePrefix ?? ''}`.trim(), child);
     this.bots.push(bot);

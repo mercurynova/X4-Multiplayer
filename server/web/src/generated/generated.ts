@@ -37,6 +37,8 @@ export const AdminHubEvents = {
   PlayerAwaitingTeam: 'PlayerAwaitingTeam',
   ModPolicyChanged: 'ModPolicyChanged',
   PlayerModsReported: 'PlayerModsReported',
+  UnboundRejectionReported: 'UnboundRejectionReported',
+  NodeDiagnosticsChanged: 'NodeDiagnosticsChanged',
 } as const;
 
 export const AdminHubMethods = {
@@ -652,6 +654,21 @@ export interface MuteRequest {
   reason: string | null;
 }
 
+export interface NodeDiagnosticsDto {
+  playerId: number;
+  player: string;
+  selfTest: SelfTestDto | null;
+  lines: NodeLogLineDto[];
+  linesReceived: number;
+  linesDropped: number;
+}
+
+export interface NodeLogLineDto {
+  at: string;
+  level: string;
+  text: string;
+}
+
 export interface PatchModPolicyRequest {
   sourceMode: string | null;
   unknownDefault: string | null;
@@ -882,6 +899,22 @@ export interface SectorPlayerDto {
   playerId: number;
   name: string;
   shipNetId: number;
+}
+
+export interface SelfTestDto {
+  at: string;
+  overall: string;
+  passed: number;
+  failed: number;
+  warned: number;
+  skipped: number;
+  rows: SelfTestRowDto[];
+}
+
+export interface SelfTestRowDto {
+  name: string;
+  result: string;
+  detail: string;
 }
 
 export interface SendChatRequest {

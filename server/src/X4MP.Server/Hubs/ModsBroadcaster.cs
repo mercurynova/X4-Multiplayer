@@ -53,9 +53,18 @@ internal sealed partial class ModsBroadcaster(AdminSubscriptions subs, ModViews 
 
     private void OnReport(ExtensionReportRecord report)
     {
-        if (report.PlayerId != 0 && subs.Count(HubTopic.Mods) > 0) // a refusal bound to no player has no row to update
+        if (subs.Count(HubTopic.Mods) == 0)
+        {
+            return;
+        }
+
+        if (report.PlayerId != 0)
         {
             _work.Writer.TryWrite(() => PushReport(report));
+        }
+        else if (report.KeyHash is not null) // a refusal bound to no player (an unknown key) has no player row; it goes out as its own event
+        {
+            _work.Writer.TryWrite(() => PushUnbound(report));
         }
     }
 
@@ -104,6 +113,22 @@ internal sealed partial class ModsBroadcaster(AdminSubscriptions subs, ModViews 
                 var s = status;
                 client.Pump.Post(c => c.PlayerModsReported(s), "mods-player:" + s.PlayerId);
             }
+        }
+    }
+
+    private void PushUnbound(ExtensionReportRecord report)
+    {
+        UnboundRejectionDto? dto = null;
+        foreach (var client in subs.In(HubTopic.Mods).ToList())
+        {
+            if (!views.Access(client.Context.User).CanSeePlayers) // the REST list is hidden from these clients too
+            {
+                continue;
+            }
+
+            dto ??= ModViews.UnboundRejection(report);
+            var d = dto;
+            client.Pump.Post(c => c.UnboundRejectionReported(d), "mods-unbound:" + d.KeyId);
         }
     }
 

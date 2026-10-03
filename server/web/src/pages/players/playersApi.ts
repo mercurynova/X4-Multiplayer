@@ -5,6 +5,7 @@ import type {
   KickRequest,
   MuteRequest,
   PatchPlayerRequest,
+  NodeDiagnosticsDto,
   PlayerDetailDto,
   PlayerDto,
 } from '../../generated/generated';
@@ -15,6 +16,7 @@ const base = '/api/v1/players';
 export const playersApi = {
   list: () => api.get<PlayerDto[]>(`${base}?limit=1000`),
   get: (id: number) => api.get<PlayerDetailDto>(`${base}/${id}`),
+  diagnostics: (id: number) => api.get<NodeDiagnosticsDto>(`${base}/${id}/diagnostics`),
   kick: (id: number, reason: string) => api.post(`${base}/${id}/kick`, { reason } satisfies KickRequest),
   mute: (id: number, minutes: number | null, reason: string) =>
     api.post(`${base}/${id}/mute`, { minutes, reason } satisfies MuteRequest),
