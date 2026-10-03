@@ -18,6 +18,7 @@
 #include "features/diag/diag_hub.h"
 #include "features/join/join_messages.h"
 #include "features/join/join_requests.h"
+#include "features/selfship/selfship_hub.h"
 #include "features/join/join_mods_json.h"
 #include "host/build_check.h"
 #include "host/extension_roots.h"
@@ -517,6 +518,26 @@ void JoinFeature::update_diag(host::HostContext&) {
     diag_sender_ = false;
     hub.set_log_sender({});
   }
+  // M3-09: the own-ship feature sends PlayerState on the Realtime lane (UDP when active) while this node is InGame.
+  const bool want_ship_link = connected && stage_ == Stage::InGame;
+  if (want_ship_link && !diag_ship_link_) {
+    diag_ship_link_ = true;
+    selfship::SelfShipLink link;
+    link.send_realtime = [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
+      return session_ && welcomed() && session_->send(wire::Lane::Realtime, type, payload) == net::SendResult::Ok;
+    };
+    link.server_now = [this](std::int64_t& out) {
+      if (!session_) return false;
+      const auto ns = session_->net_status();
+      if (!ns.clock_valid) return false;
+      out = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + ns.clock_offset_us;
+      return true;
+    };
+    selfship::selfship_hub().set_link(std::move(link));
+  } else if (!want_ship_link && diag_ship_link_) {
+    diag_ship_link_ = false;
+    selfship::selfship_hub().clear_link();
+  }
   // M2-12: the stats feature samples the net counters and sends NodeStats through this link while the node is welcomed.
   if (connected && !diag_stats_link_) {
     diag_stats_link_ = true;
@@ -631,7 +652,11 @@ void JoinFeature::pump_session(host::HostContext& ctx) {
   }
 
   // M2-09: the authority's checkpoint flow and its "nothing to load" ready path.
-  if (authority_) authority_->step(ctx);
+  if (authority_) {
+    const auto& seat = selfship::selfship_hub().status();  // M3-09: the pilot seat (native) decides when the self-spawn may ask MD for the ship
+    authority_->note_seat(seat.seated, seat.seat_edges);
+    authority_->step(ctx);
+  }
   step_authority_ready(ctx);
   step_rejoin(ctx);
   finish_ready(ctx);

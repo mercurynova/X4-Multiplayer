@@ -658,3 +658,44 @@ the session run badly and causes problems later (clock, replication, economy). M
 the SETA activation while connected), and keep the detect-and-switch-off within 1 s as the safety net (S13.9 not tested in sitting 0: the user
 has no SETA item; test later). Sitting-0 S13.4 facts: angles are radians; positions sector-local; the highway context is readable (local and
 super highway), the sector stays valid through superhighways; docked and on-foot detected; a gate jump is a ~3.5 s frame gap; pose read ~1-2 us.
+
+### M3-09 own ship: `features/selfship`, `game/selfship_api.*`, `features/authority` seat wait, MD/Lua (2026-10-03)
+
+What is built (all frame-thread; the per-frame path allocates nothing, Catch2 `selfship.*` in its own exe proves it with 20 000 frames):
+- **`features/selfship/own_ship_tracker.*`** (pure): `Observation` in, `Tick{edge, seated, ship, StateOut, blocked}` out. Seat edges `SatDown / StoodUp / ShipChanged`
+  from `GetPlayerOccupiedShipID` (S13.5); the ship is known while standing (container is a ship). **Rates:** 20 Hz moving, 5 Hz idle (< 1 m/s and < 0.05 rad/s over a 250 ms
+  window), 1 Hz while Hidden; IMMEDIATE on a sector change, teleport, ship change, the first state after sit-down, a change of Hidden/Docked/InHighway. The schedule catches up
+  (exact average rate at 20..144 fps) and never bursts after a gap. **Flags:** `PlayerControlled` always, `Docked`, `InHighway`, `Hidden` = Docked or InHighway, `Teleport` on
+  sector change / ship change / sit-down / link up (`force_resend`) / a position jump > 2 km + 15 km/s x frame time. **Standing up sends ONE Hidden state and then nothing**
+  (no OnFootState before M3b; the plan's "1 Hz while hidden" applies to docked / highway only). Angles go out exactly as the game gives them (radians, S13.4); positions are
+  sector-local metres; quantised with `x4mp::wire::quantize_*`.
+- **Sector index** = the 1-based rank of the sector macro in the **ordinally sorted** macro list (protocol.md 8.2). `features/authority/build_plan` now sorts the same way (it used MD's
+  enumeration order before; the server never depended on it), so authority and clients agree without a table on the wire. `features/selfship/galaxy_map.*`: macro <-> UniverseID <-> index
+  for ANY node (authority included), built from md/x4mp_galaxy.xml control `map` (new cue `X4MP_Galaxy_Map`: per sector a tag event with the macro and an event with the sector
+  component), converted by `ui/x4mp_authority.lua` (`ConvertStringTo64Bit`, chunks of 40, verb `x4mp.sector_map` `S;macro|id;...` / `E;n`). Asked at universe ready and every 10 s until
+  complete. **M3-10 needs the reverse lookup: `GalaxyMap::universe_id_of(index)`.** The map lives inside `SelfShipFeature` today; if you need it, read it through the hub (add a
+  `const GalaxyMap*` to `SelfShipStatus`/hub, or move the map to the hub: one line) rather than building a second one. Lua accepts a table param `{macro, sector}` too, in case MD lists
+  arrive as tables. Not verified in game: that `ConvertStringTo64Bit(tostring(<sector component>))` works for sectors (it does for ships, S13.7); the hostsim feeds the map by script.
+- **PlayerState** goes out through the join feature's link (`selfship_hub().set_link`, installed while the node is InGame): `Session::send(Realtime, ...)` = UDP when the lane is
+  Active (M3-03), TCP otherwise. `sample_time_us` = steady clock + the applied clock offset (not sent while the clock has no sample). `net_id` = `selfship_hub().own_net_id()`
+  (0 until M3-12 sets it; the server stamps it anyway); hull/shield 255; no target. State is sent only when the sector map is ready, the sector is in it and the pose is readable
+  (otherwise a rate-limited `[selfship] no state is sent: ...` warning).
+- **Authority self-spawn on the seat** (REPLACES the 6-ask retry): `AuthorityFlow::note_seat(seated, edges)` is fed every frame from the hub by the join feature. When the checkpoint
+  is stored and MD had no ship, the flow waits; it asks MD once (`x4mp.auth_collect {"ship_only":true}`) when the player sits (immediately if they already sit), never while they stand,
+  never on a timer. "MD says none although the game says seated" re-asks after a frame-counted back-off (20 frames, doubling to 600). The spawn still carries the game time of that moment.
+  `authority_flow.hostsim` now stands for 900 frames, asserts no ask, sits, asserts exactly one ask, answers none, then the ship.
+- **SETA (unavailable, always).** Source: native tells Lua/MD `x4mp.seta_block {on}` while connected (also after every universe/reload; MD flag `md.$X4MP_SetaBlock`, reset on game load);
+  MD cue `X4MP_Seta_Guard` listens to the vanilla start signal (`player.entity`, `startactivity`, `activity.seta`, md/modes.xml Mode_SETA) and answers with `stopactivity` (+ `toggle_timewarp`
+  200 ms later if still on) and reports `x4mp.md_seta` -> verb `x4mp.seta_blocked` -> notification. The input itself cannot be removed from Lua (the toggle is an engine action, the
+  menu action calls the FFI `StartPlayerActivity`), so "at the source" = revert at the same MD event. Safety net: `SetaGuard` polls `IsSetaActive` every frame while connected, requests
+  the switch-off at once (`x4mp.seta_off` -> MD cue `X4MP_Seta_Off`: `stopactivity`, 300 ms `toggle_timewarp`, 300 ms `set_timewarp_factor`, each only while `player.timewarp.active`),
+  repeats every 500 ms, and shows `x4mp.notify` "SETA is disabled in multiplayer" (max one per 5 s). **Not tested in game (S13.9 still open: the user has no SETA item):** whether the
+  `stopactivity` signal ends a started SETA (vanilla uses it for the tea egg) and whether `toggle_timewarp` is needed; the XSD/property check passes.
+- **Topics for the UI/tests:** `x4mp.selfship` (<= 1 Hz, immediate on a seat edge) `{seated, ship, sector, sent, rate_hz, immediate, teleports, seat_edges, flags, hidden, docked, map_ready,
+  seta_detections, seta_requests}`; hostsim `expect-lua x4mp.selfship json $.rate_hz > 17` etc. (see `tests/hostsim/pair_scenario.hostsim`, block "M3-09").
+- **What M3-10/11/12 consume:** `selfship_hub().status()` (`seated`, `ship` = the own ship's local UniverseID, `sector` index, `seat_edges`, `sit_downs`, `map_ready`) and
+  `selfship_hub().set_own_net_id(id)` (M3-12: the avatar's net id for PlayerState). A *sit-down* is the trigger M3-12 can use for its "I am in the avatar" check; the hub status is
+  updated before the join feature runs in the same frame (SelfShipFeature is registered before JoinFeature). Highway: local and super highways both set `InHighway` AND `Hidden`
+  (they cannot be told apart natively); docked inside vs on a pad likewise sets `Hidden`. M3-10 may choose to render `InHighway` ghosts if it finds a way to tell local ones.
+- **hostsim changes:** fake paths now write **radians** (S13.4; the old degrees would have been sent as radians), `highway on|off` command, `world_ship.hostsim` expectations updated.
+  The e2e pair scenario got the M3-09 block (map, 20 Hz, idle 5 Hz, gate teleport, dock Hidden, highway Hidden, SETA switch-off + notification, stand-up silence).

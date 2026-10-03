@@ -176,3 +176,78 @@ test("auth_collect triggers MD; md_galaxy is forwarded to native unchanged", fun
 	env.fire("x4mp.md_galaxy", "")
 	eq(#env.raisedNamed("x4mp.auth_md"), 1, "empty messages are not forwarded")
 end)
+
+------------------------------------------------------------------------------
+-- M3-09: sector map + SETA
+------------------------------------------------------------------------------
+local function mapSetup()
+	local log = authSetup()
+	_G.ConvertStringTo64Bit = function(s) return tonumber(s) end
+	return log
+end
+
+local function sectorMapMessages()
+	local out = {}
+	for _, raw in ipairs(env.raisedNamed("x4mp.sector_map")) do out[#out + 1] = X4MPBridge.json.decode(raw).data end
+	return out
+end
+
+test("sector_map_collect asks MD; tag + component pairs become macro|id records, then an end marker", function()
+	local log = mapSetup()
+	env.fire("x4mp.sector_map_collect", '{"v":1}')
+	eq(log.md[1][1], "X4MP_Authority")
+	eq(log.md[1][2], "map")
+	env.fire("x4mp.md_sector_tag", "cluster_01_sector001_macro")
+	env.fire("x4mp.md_sector", "100001")
+	env.fire("x4mp.md_sector_tag", "cluster_02_sector001_macro")
+	env.fire("x4mp.md_sector", "ID: 200002") -- not convertible by the stub: dropped
+	env.fire("x4mp.md_sector_tag", "cluster_03_sector001_macro")
+	env.fire("x4mp.md_sector", "300003")
+	env.fire("x4mp.md_sector_end", "3")
+	local msgs = sectorMapMessages()
+	eq(#msgs, 2)
+	eq(msgs[1], "S;cluster_01_sector001_macro|100001;cluster_03_sector001_macro|300003")
+	eq(msgs[2], "E;2")
+end)
+
+test("sector map: chunks of 40, table params, records with | or ; are dropped", function()
+	mapSetup()
+	env.fire("x4mp.sector_map_collect", '{"v":1}')
+	for i = 1, 85 do
+		env.fire("x4mp.md_sector_tag", "m" .. i)
+		env.fire("x4mp.md_sector", tostring(1000 + i))
+	end
+	env.fire("x4mp.md_sector_tag", "bad|macro")
+	env.fire("x4mp.md_sector", "5")
+	local fn = nil
+	for _, f in ipairs(env.events["x4mp.md_sector"] or {}) do fn = f end
+	fn(nil, { "from_table", "7777" })
+	env.fire("x4mp.md_sector_end", "87")
+	local msgs = sectorMapMessages()
+	eq(#msgs, 4, "40 + 40 + 6 records, then the end marker")
+	eq(msgs[4], "E;86")
+	local _, count = msgs[3]:gsub("|", "|")
+	eq(count, 6)
+	truthy(msgs[3]:find("from_table|7777", 1, true))
+end)
+
+test("md sector events without a pending collection are ignored", function()
+	mapSetup()
+	env.fire("x4mp.md_sector_tag", "x")
+	env.fire("x4mp.md_sector", "1")
+	env.fire("x4mp.md_sector_end", "1")
+	eq(#env.raisedNamed("x4mp.sector_map"), 0)
+end)
+
+test("seta_block / seta_off go to MD; an MD block report goes to native", function()
+	local log = authSetup()
+	env.fire("x4mp.seta_block", '{"v":1,"on":true}')
+	eq(log.md[1][2], "seta_block")
+	eq(log.md[1][3], "1")
+	env.fire("x4mp.seta_block", '{"v":1,"on":false}')
+	eq(log.md[2][3], "0")
+	env.fire("x4mp.seta_off", '{"v":1}')
+	eq(log.md[3][2], "seta_off")
+	env.fire("x4mp.md_seta", "blocked")
+	eq(lastRaised("x4mp.seta_blocked").source, "blocked")
+end)

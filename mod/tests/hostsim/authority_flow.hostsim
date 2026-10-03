@@ -26,7 +26,8 @@ expect-lua x4mp.status 3000 json $.role == authority
 expect-lua x4mp.auth_collect 8000
 lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
 lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
-# close-out A item 3: MD has NO player ship at this first checkpoint (no P record; the flow waits its 1.5 s grace and goes on without)
+# close-out A item 3: MD has NO player ship at this first checkpoint (no P record; the flow waits its 1.5 s grace and goes on without);
+# the hostsim player STANDS (seat off): the self-spawn waits for the pilot seat (M3-09)
 frame 60Hz 150
 expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
@@ -38,11 +39,17 @@ expect-file extension/logs/x4mp.log authority: upload
 expect-file extension/logs/x4mp.log stored (save
 expect-file extension/logs/x4mp.log no player ship was reported by MD with the checkpoint
 expect-no-log self-spawn sent
-# ... the flow asks MD for the ship again (ship_only), first answer "none", the second one has the ship: the spawn goes out late
-frame 60Hz 240
+# ... the player STANDS in the cockpit: nothing is asked, however long (M3-09: the pilot-seat edge asks, no timer, no retry limit)
+frame 60Hz 900
+expect-no-lua x4mp.auth_collect 300
+expect-no-log self-spawn sent
+# ... the player sits down: ONE ask; MD still says "none": the flow asks again after its frame back-off; the answer with the ship spawns
+seat on
+frame 60Hz 20
 expect-lua x4mp.auth_collect 3000 json $.ship_only == true
+expect-no-lua x4mp.auth_collect 150
 lua-raw x4mp.auth_md {"v":1,"data":"N;"}
-frame 60Hz 420
+frame 60Hz 90
 expect-lua x4mp.auth_collect 3000 json $.ship_only == true
 lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_02_sector001_macro|ship_s|player"}
 frame 60Hz 60

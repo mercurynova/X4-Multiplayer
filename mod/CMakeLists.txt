@@ -550,3 +550,23 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_chat.cpp)
 endif()
 # END M3-06 chat + player list
+
+# =============================================================================================
+# BEGIN M3-09 own-ship tracker (features/selfship/*.cpp is picked up by the M2-04 features glob; the SDK-free game adapter is added to
+# x4mp_game here). Appended by M3-09.
+#   x4mp_game        += game/selfship_api.cpp (per-frame reads of the player's ship: seat, sector, highway, dock, pose)
+#   x4mp_host_tests  += tests/test_selfship.cpp (galaxy map, tracker rates/edges/flags, SETA guard, adapter reads, authority self-spawn on the seat)
+#   x4mp_selfship_alloc_tests = the per-frame path (adapter + tracker + map lookup) allocates nothing (own exe: replaces operator new)
+#   The live scenarios are tests/hostsim/selfship*.hostsim (tools/e2e.ps1 -Steps HostSim / HostSimPair).
+# =============================================================================================
+target_sources(x4mp_game PRIVATE native/game/selfship_api.cpp)
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_selfship.cpp)
+  add_executable(x4mp_selfship_alloc_tests tests/test_selfship_alloc.cpp tests/ghost/alloc_counter.cpp)
+  target_include_directories(x4mp_selfship_alloc_tests PRIVATE tests/ghost)
+  target_link_libraries(x4mp_selfship_alloc_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
+  x4mp_set_warnings(x4mp_selfship_alloc_tests)
+  catch_discover_tests(x4mp_selfship_alloc_tests TEST_PREFIX "selfship." PROPERTIES TIMEOUT 60)
+  cmake_language(DEFER CALL x4mp_assert_no_sdk x4mp_selfship_alloc_tests)
+endif()
+# END M3-09 own-ship tracker

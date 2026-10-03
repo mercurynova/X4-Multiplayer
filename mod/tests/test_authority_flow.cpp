@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -94,6 +95,24 @@ TEST_CASE("build_plan indexes sectors, dedupes links and interns strings", "[aut
   // string indices are unique and 1-based
   for (std::size_t i = 0; i < plan.strings.size(); ++i) CHECK(plan.strings[i].index == i + 1);
   CHECK(build_plan(MdCollector{}).sectors.empty());
+}
+
+TEST_CASE("build_plan indexes sectors by the rank of the SORTED macro, whatever order MD enumerated them in (M3-09)", "[authority]") {
+  MdCollector c;
+  c.add("G;c_macro|cc|C|teladi|2|2|2|a_macro;a_macro|ca|A|argon|0|0|0|c_macro;b_macro|cb|B|argon|1|1|1|");
+  c.add("E;3");
+  c.add("P;ship_macro|Ship|ID-1|c_macro|ship_m|player");
+  const auto plan = build_plan(c);
+  REQUIRE(plan.sectors.size() == 3);
+  CHECK(plan.sectors[0].macro == "a_macro");
+  CHECK(plan.sectors[0].index == 1);
+  CHECK(plan.sectors[1].macro == "b_macro");
+  CHECK(plan.sectors[2].macro == "c_macro");
+  CHECK(plan.sectors[2].index == 3);
+  CHECK(plan.ship_sector == 3);
+  REQUIRE(plan.links.size() == 1);  // a-c, from either side
+  CHECK(std::min(plan.links[0].from, plan.links[0].to) == 1);
+  CHECK(std::max(plan.links[0].from, plan.links[0].to) == 3);
 }
 
 TEST_CASE("SaveFileWatcher waits until the file stops changing and can be opened", "[authority]") {

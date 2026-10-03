@@ -20,7 +20,80 @@ frame 60Hz 180
 expect-lua x4mp.status 5000 json $.state == ingame
 expect-admin /api/v1/players $[name==${name}].online == true
 
-# fake universe: sit down, fly a circle for 2 s of game time (the DLL ignores it today; ghosts/self-ship will not)
+# ---- M3-09 own ship (features/selfship): every process has its own fake universe; the server sees the PlayerState stream ----
+# the mod asks MD for the sector map at universe ready; this script plays MD/Lua (macros sort to cluster_01 = index 1, cluster_02 = 2)
+expect-lua x4mp.sector_map_collect 5000
+lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_02_sector001_macro|100002;cluster_01_sector001_macro|100001"}
+lua-raw x4mp.sector_map {"v":1,"data":"E;2"}
+expect-lua x4mp.seta_block 5000 json $.on == true
+# seat off: the ship is known from the container, but no state goes out
+frame 60Hz 150
+expect-file extension/logs/x4mp.log selfship: sector map ready: 2 sectors
+expect-lua x4mp.selfship 3000 json $.map_ready == true
+expect-lua x4mp.selfship 3000 json $.sent == 0
+# sit down and fly a circle: 20 Hz, the first state is immediate (sit-down), the server learns the sector
+drop-lua x4mp.selfship
+ship place sector=100001 pos=0,0,0
+ship path circle radius=2000 speed=250 center=0,0,0 sector=100001
+seat on
+frame 60Hz 240
+expect-file extension/logs/x4mp.log selfship: the player sat down
+expect-lua x4mp.selfship 3000 json $.seated == true
+expect-lua x4mp.selfship 3000 json $.rate_hz > 17
+expect-lua x4mp.selfship 3000 json $.rate_hz < 23
+expect-admin /api/v1/dashboard $.players[name==${name}].sectorId == 1 timeout=5000
+# idle: 5 Hz
+ship path stop
+frame 60Hz 90
+drop-lua x4mp.selfship
+frame 60Hz 180
+expect-lua x4mp.selfship 3000 json $.rate_hz > 3.5
+expect-lua x4mp.selfship 3000 json $.rate_hz < 6.5
+# a gate jump: immediate state with Teleport, the server follows into sector 2
+drop-lua x4mp.selfship
+ship path gate from=0,0,-500 to=0,0,0 speed=500 sector=100001 to_sector=100002 exit=0,0,50
+frame 60Hz 120
+expect-state gate_jumps == 1
+expect-lua x4mp.selfship 3000 json $.teleports >= 1
+expect-admin /api/v1/dashboard $.players[name==${name}].sectorId == 2 timeout=5000
+# docked: Hidden, 1 Hz
+drop-lua x4mp.selfship
+dock
+frame 60Hz 60
+drop-lua x4mp.selfship
+frame 60Hz 240
+expect-lua x4mp.selfship 3000 json $.hidden == true
+expect-lua x4mp.selfship 3000 json $.rate_hz < 2
+undock
+frame 60Hz 90
+# a highway: Hidden too
+highway on
+frame 60Hz 30
+drop-lua x4mp.selfship
+frame 60Hz 90
+expect-lua x4mp.selfship 3000 json $.hidden == true
+highway off
+frame 60Hz 90
+# SETA: switched off within 1 s of being detected, with the notification
+drop-lua x4mp.seta_off
+seta on
+frame 60Hz 20
+expect-lua x4mp.seta_off 1000
+expect-lua x4mp.notify 1000 contains SETA is disabled in multiplayer
+seta off
+frame 60Hz 20
+expect-file extension/logs/x4mp.log selfship: SETA is off again after
+# stand up: one Hidden state, then nothing
+seat off
+frame 60Hz 90
+drop-lua x4mp.selfship
+frame 60Hz 180
+expect-lua x4mp.selfship 3000 json $.seated == false
+expect-lua x4mp.selfship 3000 json $.rate_hz == 0
+expect-file extension/logs/x4mp.log selfship: the player stood up
+ship path stop
+
+# fake universe: sit down, fly a circle for 2 s of game time
 seat on
 ship path circle radius=2000 speed=250 center=0,0,0 sector=100001
 frame 60Hz 120

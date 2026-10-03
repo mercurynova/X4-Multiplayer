@@ -139,7 +139,14 @@ GalaxyPlan build_plan(const MdCollector& collected) {
 
   plan.player_faction_ref = intern("player", X4MP::Proto::StringKind::Faction);
   std::map<std::string, std::uint16_t> sector_index;
-  for (const auto& s : collected.sectors()) {
+  // The index is the 1-based rank of the sector macro in the ORDINALLY SORTED list (docs/protocol.md 8.2, M3-09): every node derives the
+  // same index from its own sector list (features/selfship/galaxy_map), whatever order MD enumerated the sectors in.
+  std::vector<const SectorRec*> ordered;
+  ordered.reserve(collected.sectors().size());
+  for (const auto& s : collected.sectors()) ordered.push_back(&s);
+  std::stable_sort(ordered.begin(), ordered.end(), [](const SectorRec* a, const SectorRec* b) { return a->macro < b->macro; });
+  for (const SectorRec* sp : ordered) {
+    const auto& s = *sp;
     if (sector_index.size() >= 0xFFFF) break;
     if (sector_index.contains(s.macro)) continue;  // a duplicate macro would break the unique index
     x4mp::authority::SectorDesc d;
