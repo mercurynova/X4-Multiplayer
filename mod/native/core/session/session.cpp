@@ -567,6 +567,7 @@ void Session::poll(std::vector<SessionEvent>& out) {
         transition(State::Joining);
         SessionEvent ev;
         ev.kind = SessionEvent::Kind::Welcome;
+        ev.payload.assign(payload.begin(), payload.end());  // M2-X3: the join feature reads settings.mod_policy from it
         out.push_back(std::move(ev));
         if (w->resumed && im.was_in_session) {
           transition(State::InSession);
@@ -587,6 +588,7 @@ void Session::poll(std::vector<SessionEvent>& out) {
       ev.text = str(d->message());
       ev.expected = str(d->expected());
       ev.retry_after_ms = d->retry_after_ms();
+      ev.payload.assign(payload.begin(), payload.end());  // M2-X3: the join feature reads mod_violation from it
       if (ev.code == net::kDisconnectResumeExpired) welcome_.resume_token = Id128{};
       out.push_back(std::move(ev));
     } else if (e.type == T(MsgType::SessionSaveInfo)) {
