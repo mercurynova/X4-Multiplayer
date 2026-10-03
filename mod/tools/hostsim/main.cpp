@@ -5,7 +5,7 @@
 //     --work-dir DIR              temp tree (saves, extension folder, hostsim.log); default: a fresh dir under %TEMP%
 //     --ext-id ID                 X4Native extension id (stash namespace); default x4mp
 //     --admin-url URL --admin-user U --admin-password P   server admin REST API for `expect-admin`
-//     --server-cmd "CMDLINE"      command line `start-server` launches (stdout/stderr -> --server-log)
+//     --server-exe PATH --server-arg A (repeatable)   what `start-server` launches (stdout/stderr -> --server-log)
 //     --server-log FILE           --server-env NAME=VALUE (repeatable, set before launching the server)
 //     --server-pid N              process `kill-server` terminates when the server was not started by hostsim
 //     --stash-dump FILE           write the stash as JSON at exit (for password searches)
@@ -63,7 +63,8 @@ struct Options {
   std::string dll, script, work_dir, ext_id = "x4mp";
   std::map<std::string, std::string> vars;
   std::string admin_url, admin_user = "admin", admin_password;
-  std::string server_cmd, server_log;
+  std::string server_exe, server_log;
+  std::vector<std::string> server_args;
   std::vector<std::string> server_env;
   unsigned long server_pid = 0;
   std::string stash_dump;
@@ -244,6 +245,10 @@ class Runner {
       write_stash_dump();
     }
     stop_server();
+    if (rc == 0 && o_.work_dir.empty()) {
+      std::error_code ec;
+      fs::remove_all(work_, ec);
+    }
     return rc;
   }
 
@@ -317,6 +322,7 @@ class Runner {
     else if (cmd == "expect-no-lua") cmd_expect_no_lua(t);
     else if (cmd == "expect-log") cmd_expect_log(t, rest_from(1));
     else if (cmd == "expect-no-log") { need(t, 2, "expect-no-log <text>"); if (host_.log_contains(rest_from(1))) throw ScriptFail("the mod log contains '" + rest_from(1) + "'"); }
+    else if (cmd == "expect-file") cmd_expect_file(t, rest_from(2));
     else if (cmd == "expect-admin") cmd_expect_admin(t);
     else if (cmd == "expect-stash") cmd_expect_stash(t, rest_from(3));
     else if (cmd == "expect-state") cmd_expect_state(t);
@@ -469,6 +475,7 @@ class Runner {
     if (k == "game_version") host_.game_version = value;
     else if (k == "x4native_version") host_.x4native_version = value;
     else if (k == "game_build") host_.game_types_build = std::atoi(value.c_str());
+    else if (k == "build_suffix") host_.build_suffix = value;
     else if (k == "save_dir") host_.save_dir = value;
     else if (k == "paused") host_.paused = flag();
     else if (k == "save_list_complete") host_.save_list_complete = flag();
@@ -528,6 +535,21 @@ class Runner {
       needle.erase(p);
     }
     if (!host_.wait_log(needle, scaled(timeout), false)) throw ScriptFail("the mod log never contained '" + needle + "' within " + std::to_string(scaled(timeout).count()) + " ms");
+  }
+
+  // expect-file <path> <text>: the file (relative to the work dir; the mod's file log is extension/logs/x4mp.log) holds the text.
+  void cmd_expect_file(const std::vector<std::string>& t, const std::string& text) {
+    need(t, 3, "expect-file <path> <text>");
+    fs::path p = t[1];
+    if (p.is_relative()) p = work_ / p;
+    const auto deadline = Clock::now() + scaled(3000);
+    for (;;) {
+      std::ifstream f(p, std::ios::binary);
+      const std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+      if (data.find(text) != std::string::npos) return;
+      if (Clock::now() >= deadline) throw ScriptFail(p.string() + (f ? " does not contain '" : " cannot be read; wanted '") + text + "'");
+      std::this_thread::sleep_for(100ms);  // condition wait with timeout (the mod's log writer may lag)
+    }
   }
 
   void cmd_expect_admin(const std::vector<std::string>& t) {
@@ -642,7 +664,7 @@ class Runner {
   }
 
   void cmd_start_server() {
-    if (o_.server_cmd.empty()) throw ScriptFail("start-server needs --server-cmd");
+    if (o_.server_exe.empty()) throw ScriptFail("start-server needs --server-exe");
     for (const auto& [k, v] : server_env_) SetEnvironmentVariableA(k.c_str(), v.c_str());
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
     HANDLE log = INVALID_HANDLE_VALUE;
@@ -656,9 +678,11 @@ class Runner {
       si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
     }
     PROCESS_INFORMATION pi{};
-    std::string cmdline = o_.server_cmd;
+    const auto quote = [](const std::string& s) { return s.find_first_of(" \t") == std::string::npos ? s : "\"" + s + "\""; };
+    std::string cmdline = quote(o_.server_exe);
+    for (const auto& a : o_.server_args) cmdline += " " + quote(a);
     if (!CreateProcessA(nullptr, cmdline.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-      throw ScriptFail("CreateProcess failed (" + std::to_string(GetLastError()) + "): " + o_.server_cmd);
+      throw ScriptFail("CreateProcess failed (" + std::to_string(GetLastError()) + "): " + cmdline);
     }
     if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
     CloseHandle(pi.hThread);
@@ -743,7 +767,8 @@ Options parse_args(int argc, char** argv) {
     } else if (a == "--admin-url") o.admin_url = val();
     else if (a == "--admin-user") o.admin_user = val();
     else if (a == "--admin-password") o.admin_password = val();
-    else if (a == "--server-cmd") o.server_cmd = val();
+    else if (a == "--server-exe") o.server_exe = val();
+    else if (a == "--server-arg") o.server_args.push_back(val());
     else if (a == "--server-log") o.server_log = val();
     else if (a == "--server-env") o.server_env.push_back(val());
     else if (a == "--server-pid") o.server_pid = std::strtoul(val().c_str(), nullptr, 10);

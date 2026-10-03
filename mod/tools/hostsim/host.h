@@ -40,6 +40,7 @@ class Host {
   // ---- configuration (script `set`), read by the fakes -------------------------------------------------------
   std::string game_version = "9.00";
   std::string x4native_version = "9.0.0-hostsim";
+  std::string build_suffix = "611726";  // GetBuildVersionSuffix(): the mod takes the longest 5+ digit run as the build number
   int game_types_build = 900;
   std::filesystem::path save_dir;  // GetSaveFolderPath() (a temp dir by default, with a trailing separator)
   std::atomic<bool> paused{false};

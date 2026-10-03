@@ -266,12 +266,11 @@ if ($Steps -contains 'HostSim') {
     # Ports 47950-47954: tcp 47950, udp 47951, http 47952 (47953/47954 are reserved for the scenarios M2-06+ add).
     $srv = Start-Server 'hostsim' 0 @() @{ X4MP__Net__ModBuildStrict = 'false' } @(47950, 47951, 47952)
     Set-AdminPassword $srv
-    $q = { param($s) if ($s -match '[\s"]') { '"' + $s + '"' } else { $s } }
-    $serverCmd = (@($serverExe) + $srv.Args | ForEach-Object { & $q $_ }) -join ' '
     $hsArgs = @('--dll', $dll, '--script', $script, '--work-dir', (Join-Path $work 'hostsim-work'),
       '--admin-url', $srv.Url, '--admin-user', 'admin', '--admin-password', $adminPassword,
-      '--server-pid', "$($srv.Proc.Id)", '--server-cmd', $serverCmd, '--server-log', (Join-Path $logDir 'hostsim-server-restarted.log'),
+      '--server-pid', "$($srv.Proc.Id)", '--server-exe', $serverExe, '--server-log', (Join-Path $logDir 'hostsim-server-restarted.log'),
       '--stash-dump', (Join-Path $logDir 'hostsim-stash.json'), '--max-seconds', '100')
+    foreach ($a in $srv.Args) { $hsArgs += @('--server-arg', $a) }
     foreach ($k in $srv.Env.Keys) { $hsArgs += @('--server-env', "$k=$($srv.Env[$k])") }
     $p = Start-Proc 'hostsim' $hostSim $hsArgs
     if (-not $p.WaitForExit(110000)) { Stop-Tree $p; throw 'x4mp-hostsim did not finish within 110 s' }

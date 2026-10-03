@@ -307,6 +307,9 @@ if(X4MP_TESTS)
   add_test(NAME hostsim.real_dll
     COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/smoke.hostsim")
   set_tests_properties(hostsim.real_dll PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+  add_test(NAME hostsim.refuse_build
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/refuse_build.hostsim")
+  set_tests_properties(hostsim.refuse_build PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
   # A failing script must exit with code 1 and print "HOSTSIM FAIL line N".
   add_test(NAME hostsim.failure_exit_code
     COMMAND ${CMAKE_COMMAND} -DHOSTSIM=$<TARGET_FILE:x4mp-hostsim> -DDLL=$<TARGET_FILE:x4mp_hostsim_stub>
