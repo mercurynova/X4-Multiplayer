@@ -27,7 +27,7 @@ local server + FakeNode authority (`start-server.ps1`), real X4 as client with t
 - **Build check**: the suffix route gives nothing; use X4Native's detected build / `get_game_version()` or the
   pinned X4Native version instead, and keep "unknown build" as a warning. Decide in M2-06.
 - **Probe log is truncated on every DLL init** (X4Native reopens the per-extension log), so a save load or
-  `/reloadui` loses the earlier lines. The lead snapshotted the log during Run 2. The product logger (M2-04) writes
-  its own file and must open it in **append** mode with a per-init banner.
+  `/reloadui` loses the earlier lines. The lead snapshotted the log during Run 2. The product logger (`core/log`) already
+  writes its own file in append mode with a banner per init, so this only affects the probe.
 - Usability: the probe waits silently when `x4mp_probe.json` is missing; the session kit should check the config
   exists before X4 starts.
