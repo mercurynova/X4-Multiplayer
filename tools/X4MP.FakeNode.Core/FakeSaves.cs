@@ -119,12 +119,12 @@ public static class FakeSaveGenerator
     }
 
     /// <summary>The <c>X4MF</c> manifest of the fake world's stations (what the authority uploads next to the save).</summary>
-    public static byte[] BuildManifest(FakeAuthority authority, Id128T checkpoint, double gameTime, uint nextNetId)
+    public static byte[] BuildManifest(FakeAuthority authority, Id128T checkpoint, double gameTime, uint nextNetId, bool emptyStations = false)
     {
         ArgumentNullException.ThrowIfNull(authority);
         var galaxy = authority.World.Galaxy;
         var entries = new List<ManifestEntryT>();
-        foreach (var e in galaxy.Entities.Where(e => e.IsStation))
+        foreach (var e in galaxy.Entities.Where(e => e.IsStation && !emptyStations))
         {
             entries.Add(new ManifestEntryT
             {
