@@ -224,8 +224,13 @@ M2-14 CI e2e steps + lock-file root fix + HUD notify cue + session-3 kit). CI ru
 20 reloads, authority, mod refusal, launch/stats) and the 50-run upload-kill test on every push. The session-3 kit was
 checked against the final code (found and fixed: the mod never asked for the LogForward capability, so self-test and
 quicksave warnings never reached the server) and dry-run end to end with the real `x4mp.dll` in hostsim
-(`mod/tests/hostsim/session3_dry_run.ps1`, 161 s). **Next: user runs session 3** ([in-game-session-3.md](in-game-session-3.md)),
-then the M2 exit report.
+(`mod/tests/hostsim/session3_dry_run.ps1`, 161 s).
+
+**Status 2026-10-03 (evening):** in-game session 3 done: **all 18 exit criteria and V21 pass**
+([m2-exit-report.md](m2-exit-report.md), [spikes/session-3-results.md](spikes/session-3-results.md)); nine defects were found and
+fixed live. **Next:** an M2 close-out task for the session-3 open items 1-7 (HUD line + chat/Esc, universe-ready after
+`/reloadui`, first-checkpoint self-spawn, refusal screen text, "Last server" line, team-faction log noise, manifest cleanup),
+a 15-minute retest, then M3 planning.
 
 M1 carry-overs placed in M2: `EntitySpawn.game_time` and connection-bound upload jobs (M2-08/09), real `extension_list`
 (M2-X1/X2), authority loading admin-uploaded saves and the post-upload 404 (M2-02/09), `/mods/save-requirements`
