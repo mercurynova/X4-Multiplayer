@@ -18,7 +18,9 @@
 //     install SafeRemove backend -> register + init features -> subscribe to the events below.
 //  events delivered to the DLL (all on one thread by default = the "main" thread, B7), by name through subscribe():
 //     "on_frame_update"   every UI frame, also in the start menu; data == nullptr (the host measures time itself)
-//     "on_game_loaded"    save data ready; clears the universe_ready gate
+//     "on_game_loaded"    save data ready; clears the universe_ready gate (after /reloadui, with no frame run yet and the
+//                         previous incarnation's universe ready, the host then opens the gate itself: X4Native never repeats
+//                         on_universe_ready for an already existing universe)
 //     "on_universe_ready" the universe exists; sets the gate, refreshes the player guard, features' on_universe_ready
 //     "on_ui_reload"      /reloadui: x4mp.json is re-read, features get on_config_changed
 //  reload (save load, hot reload) = x4native_shutdown() then x4native_init() again with the SAME stash. shutdown
@@ -101,6 +103,7 @@ class ModHost {
   void drain_pending_events() noexcept;
   void handle_game_loaded() noexcept;
   void handle_universe_ready() noexcept;
+  void maybe_synthesize_universe_ready() noexcept;
   void maybe_log_perf(std::int64_t now_ns);
   void write_stash_state();
   void teardown_log() noexcept;
@@ -129,6 +132,7 @@ class ModHost {
 
   std::atomic<bool> pending_game_loaded_{false};      // delivered off the frame thread: replayed by the next on_frame
   std::atomic<bool> pending_universe_ready_{false};
+  bool synthesized_ready_ = false;                    // universe-ready gate opened by us after /reloadui (see mod_host.cpp)
   std::uint64_t frame_index_ = 0;
   std::int64_t last_frame_ns_ = 0;
   std::int64_t last_perf_ns_ = 0;

@@ -253,10 +253,38 @@ void ModHost::handle_game_loaded() noexcept {
   try {
     gates_.game_loaded = true;
     gates_.universe_ready = false;
+    synthesized_ready_ = false;
     X4MP_CLOG(*log_, Cat::Host, Level::Info, "game loaded (universe not ready yet)");
     registry_.game_loaded_all(*ctx_);
+    maybe_synthesize_universe_ready();
   } catch (...) {
   }
+}
+
+// Close-out A item 2. After /reloadui X4Native replays on_game_loaded at once (its "IsPlayerValid (immediate)" path, x4native.lua) but NEVER
+// on_universe_ready: that comes only from the MD cue event_universe_generated, which does not fire again for a universe that already
+// exists. The gate would stay closed for good (self-test SKIP player.guard, the resume decision of the join feature never runs, no
+// "reload resume: same universe" line). The universe is demonstrably ready when ALL of these hold:
+//   - the previous incarnation shut down with the universe ready (stash host.state), so this is a reload and not a fresh start;
+//   - no frame has run in this incarnation yet: on_game_loaded came from X4Native's load-time check, not from a poll / MD cue during
+//     a save load (a save load is ~16 s from game loaded to universe ready, session 2);
+//   - the game answers: a player id and a game clock exist.
+// A save load that happens to look the same still goes through the join feature's fingerprint rule (clock + player id), so the node
+// re-matches; the real on_universe_ready that follows a save load is the normal path and is never skipped (handle_game_loaded clears the flag).
+void ModHost::maybe_synthesize_universe_ready() noexcept {
+  if (gates_.universe_ready || !previous_.present || !previous_.universe_ready_at_shutdown) return;
+  if (frame_index_ != 0) {
+    X4MP_CLOG(*log_, Cat::Host, Level::Info, "reload: game loaded after {} frame(s), a load in progress; waiting for on_universe_ready", frame_index_);
+    return;
+  }
+  if (!game_.game_time().has_value() || game_.player_id() == 0) {
+    X4MP_CLOG(*log_, Cat::Host, Level::Info, "reload: game loaded but the game has no player / clock yet; waiting for on_universe_ready");
+    return;
+  }
+  X4MP_CLOG(*log_, Cat::Host, Level::Info,
+            "reload: the universe was ready before the reload and the game is loaded; treating it as ready (X4Native does not repeat on_universe_ready after /reloadui)");
+  synthesized_ready_ = true;
+  handle_universe_ready();
 }
 
 void ModHost::on_universe_ready() noexcept {
@@ -271,6 +299,10 @@ void ModHost::on_universe_ready() noexcept {
 
 void ModHost::handle_universe_ready() noexcept {
   try {
+    if (synthesized_ready_ && gates_.universe_ready) {
+      X4MP_CLOG(*log_, Cat::Host, Level::Debug, "on_universe_ready ignored: the universe was already treated as ready after the reload");
+      return;
+    }
     gates_.game_loaded = true;
     gates_.universe_ready = true;
     ++gates_.universe_epoch;

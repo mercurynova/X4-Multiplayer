@@ -390,6 +390,12 @@ if(X4MP_TESTS)
     COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/selftest.hostsim"
             --var "SCRIPT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim")
   set_tests_properties(hostsim.selftest PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+
+  # Close-out A item 2: /reloadui restores the universe-ready gate (X4Native never repeats on_universe_ready)
+  add_test(NAME hostsim.reload_universe_ready
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/reload_universe_ready.hostsim"
+            --var "SCRIPT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim")
+  set_tests_properties(hostsim.reload_universe_ready PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
 endif()
 # END M2-10
 
