@@ -61,7 +61,14 @@ $bytes = [IO.File]::ReadAllBytes($Path)
 $name = (Split-Path $Path -Leaf)
 $begin = Invoke-RestMethod -Method Post -Uri "$url/api/v1/saves/uploads" -Headers $h -WebSession $s -ContentType 'application/json' -Body (@{ fileName = $name; size = $bytes.Length; sha256 = $sha } | ConvertTo-Json)
 $hdr = @{ 'X-X4MP' = '1'; 'Content-Range' = "bytes 0-$($bytes.Length - 1)/$($bytes.Length)" }
-$null = Invoke-RestMethod -Method Put -Uri "$url/api/v1/saves/uploads/$($begin.uploadId)" -Headers $hdr -WebSession $s -ContentType 'application/octet-stream' -Body $bytes
+# The server answers with the bytes it already has: the whole save when it is already in the library (re-runs), so only send the rest.
+if ($begin.receivedBytes -lt $bytes.Length) {
+    $from = [long]$begin.receivedBytes
+    $hdr['Content-Range'] = "bytes $from-$($bytes.Length - 1)/$($bytes.Length)"
+    $rest = if ($from -eq 0) { $bytes } else { $bytes[$from..($bytes.Length - 1)] }
+    $null = Invoke-RestMethod -Method Put -Uri "$url/api/v1/saves/uploads/$($begin.uploadId)" -Headers $hdr -WebSession $s -ContentType 'application/octet-stream' -Body $rest
+}
+else { Write-Host 'The server already has this save; skipping the upload.' }
 $null = Invoke-RestMethod -Method Post -Uri "$url/api/v1/saves/uploads/$($begin.uploadId)/complete" -Headers $h -WebSession $s -ContentType 'application/json' -Body '{}'
 Write-Host "Uploaded. The save is now in the GUI Sessions page > Saves library (sha256 $sha)."
 if ($NoSession) { return }
