@@ -41,3 +41,14 @@ local server + FakeNode authority (`start-server.ps1`), real X4 as client with t
   and any hook must be removable on shutdown (or not used). B6b (pin) is answered by this: do not pin.
 - Run 2 was restarted with `hooks:false`; C2 used `saves2;native=0` (MD blocker only), C5 without the native
   `GetCurrentGameTime` hook.
+
+## Sitting 1, Run 2 (hooks off), Part C, 2026-10-02
+
+| Item | Result | Evidence (game log `x4mp_s2.log`, probe log) |
+|---|---|---|
+| C1 save wrapper + menu greying | **PASS**: the `ui` block captured the options config (`source=debug:displayOptions`); a menu save to a slot went through our `SaveGame` wrapper; with blocking on, `IsSavingPossible` returns false and the Esc-menu **Save Game** row is greyed | `SAVE INFO what=menu_hook tooltip=hooked save_row=hooked`, `SaveGame_called ... blocked=false`, `IsSavingPossible_called ... returned=false` |
+| C2 autosave blocker (MD diff) | **PASS for the request path**: the vanilla `AutoSave_Request` was suppressed by our `md/notifications.xml` diff. No autosave appeared during the following flight and wait, but the log shows no natural autosave *attempt* in that window, so the natural sector-change path is unproven. Run with `native=0` (no `TriggerAutosave` hook, hooks off) | `autosave_suppressed_by_md_diff`, no new `md_event_game_saved` |
+| C3 quicksave | **Bypasses the Lua wrapper** (as feared): a new Quicksave was written while blocking was on. The MD `game_saved` event still fires, so a client quicksave is **detectable** (agreed M2 behaviour: detect + report; hard block in M4) | `game_saved_event ... plausibly_via_wrapper=false` |
+| C4 custom save name | **Saving by a custom name works** (`SaveGame("x4mp_s2test_1", ...)` wrote `x4mp_s2test_1.xml.gz`), but the file is **not shown in X4's Load Game list**, even sorted by Date. Loading by name works (B2), so the mod never relies on the list. The MD `game_saved` event fires ~30 ms after the call, **before the file is complete** (~33 MB written later): the upload must wait for the file to be complete (size stable / file closed), not for the event | `SAVE MEASURE what=saves4_timing to_game_saved_event_ms=29.9`, file on disk |
+| C5 game clock | **PASS**: Lua `GetCurrentGameTime()` and MD `player.age` agree within 0.1 s over 229 samples; both stop while paused (Esc menu, save menu); after save+load the clock continues from the saved value. No SETA on the ship (not tested). `EntitySpawn.game_time` can come from either | `CLOCK MEASURE side=lua/md` |
+| C6 money units | Native `AddPlayerMoney(100)` changes the balance by **1 credit** (native = **cents**); Lua `GetPlayerMoney()` returns **credits**; MD `player.money` is **cents** (800000000 = 8,000,000 Cr). Balance restored exactly | probe `money result ... delta_plus=1 delta_minus=-1 restored=true`; `MONEY INFO what=md_player_money player_money=800000000 credits=8000000` |
