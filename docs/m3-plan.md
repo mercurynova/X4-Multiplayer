@@ -21,6 +21,13 @@ Each has the recommended answer that the briefs will use unless you say otherwis
 Argon Elite) and the provisioning code takes the ship macro from one place, so that a later milestone can pick it per faction/race without
 touching the avatar logic. Approved: wave 0 (spike kit M3-001/002).
 
+**User note (2026-10-03, sitting 0):** the S13.6 test fighter (Nova Vanguard, `SpawnObjectAtPos2` default equipment) came with Mk2 weapons,
+Mk3 engines/shields and other high-end parts. Fine for testing, but real starter avatars must be **early-game ships with early-game
+equipment**, taken per race/story from the vanilla game starts (`libraries/gamestarts.xml` player ship + its loadout from
+`libraries/loadouts.xml`, per ADR-049 team origins). M3 provisioning therefore takes a **ship macro + loadout id** from one place
+(server setting, default: an Argon Elite with a basic vanilla-start loadout), never the spawn default; the per-race/story table is
+filled when team origins land (M5), and a research note on the vanilla starts goes with M3-11.
+
 | # | Question | Recommended answer |
 |---|---|---|
 | Q1 | **A second X4 copy for the two-PC sitting.** Steam lets one account play one game on one PC at a time, and Steam Families does not let two people play the *same* game at once. The second PC also needs build 611726 and **the same DLCs** (a DLC difference refuses the join). Options: (a) a second Steam account with its own X4 + the same DLCs; (b) a friend's PC with their own copy; (c) a GOG copy (only if its build matches 611726: X4Native is pinned to the Steam build, check first); (d) Steam offline mode on one PC with the same account (works technically on some setups; whether it is allowed by the licence terms is your call). | **(a) or (b).** Do not plan on (c) unless the build string matches; (d) only at your own discretion. Until a second copy exists, M3 finishes everything except criterion 1 on one PC (sittings 1 and 2), and criterion 1 stays "pending the two-PC sitting". |
