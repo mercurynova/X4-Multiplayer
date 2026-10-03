@@ -1,0 +1,34 @@
+# Session 3, B4: the player is in game as a client, the server restarts, the resume token is refused (fresh Welcome) and the mod must
+# report the RUNNING universe again (Matching + NodeReady) without loading anything: the server shows the player InGame again.
+# Run by mod/tests/hostsim/join_flow_run.ps1 (vars: tcp, restart = script that kills and restarts the server + FakeNode authority).
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Rita","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-lua loadSave 3000 contains x4mp_
+reload
+frame 60Hz 240
+load_save x4mp_rejoin_e2e
+frame 60Hz 180
+expect-file extension/logs/x4mp.log NodeReady sent
+expect-lua x4mp.status 3000 json $.state == ingame
+expect-admin /api/v1/dashboard $.players[name==Rita].phase == InGame
+
+# the server (and the authority's session) restart: every resume token is gone
+drop-lua
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${restart}"
+frame 60Hz 1500
+expect-file extension/logs/x4mp.log server Disconnect code=19
+expect-file extension/logs/x4mp.log rejoin: fresh Welcome while the universe is running
+expect-file extension/logs/x4mp.log rejoin: the session save is the running universe
+expect-lua x4mp.status 8000 json $.state == ingame
+expect-admin /api/v1/dashboard $.players[name==Rita].phase == InGame timeout=30000
+# nothing was loaded: no second loadSave / load_save
+expect-no-lua loadSave 500
+expect-no-lua x4mp.load_save 500
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 60
+shutdown

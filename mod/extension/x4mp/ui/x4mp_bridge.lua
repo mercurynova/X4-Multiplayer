@@ -13,12 +13,14 @@
 --   x4mp.disconnect     {"v":1}
 --   x4mp.ui_ready       {"v":1,"startmenu":true|false}   sent once per Lua state as soon as __X4NATIVE_API exists
 --   x4mp.request_status {"v":1}                          native answers with topic x4mp.status
+--   x4mp.load_session   {"v":1}                          the player agrees to load the session save that differs from the running
+--                                                        game (status state save_changed); native never loads it by itself then
 --   x4mp.extensions     {"v":1,"source":"load"|"gfx_ok"|"show","startmenu":bool,"modified_ui_files":"...",
 --                        "count":N,"list":[{"id","name","version","date","enabled","enabledbydefault","egosoftextension",
 --                        "isworkshop","personal","sync","error","warning"}, ...]}   (fields present only when the game gives them)
 --
 -- TOPICS (native -> Lua), handled by the bridge and forwarded to B.on(topic, fn) handlers
---   x4mp.status    {"v":1,"state":"disconnected|connecting|handshaking|checking_save|downloading|loading|matching|
+--   x4mp.status    {"v":1,"state":"disconnected|connecting|handshaking|checking_save|downloading|loading|matching|save_changed|
 --                   ingame|rejected|error","detail":"free text","reject":"build|mod|auth|full|banned|name|...",
 --                   "server":"host:port","role":"client|authority","team":2,"team_name":"Team 2","ping_ms":12,
 --                   "players":3,"progress":0.0-1.0}      all fields optional except state; at most 2 Hz
@@ -49,7 +51,7 @@ if X4MPBridge and X4MPBridge.loaded then return end
 local B = { loaded = true, version = 1, handlers = {}, pending = {} }
 X4MPBridge = B
 
-B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true }
+B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true }
 B.TOPICS = { "status", "notify", "error", "load_save", "open" }
 local queueable = { ui_ready = true, request_status = true, extensions = true }
 
