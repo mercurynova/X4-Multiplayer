@@ -392,3 +392,25 @@ if(X4MP_TESTS)
   set_tests_properties(hostsim.selftest PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
 endif()
 # END M2-10
+
+# =============================================================================================
+# BEGIN M2-06 join feature (client join flow). Appended by M2-06.
+#   x4mp_host       += host/status_json.cpp (bridge topic payload builders); features/join/*.cpp is picked up by the M2-04 glob
+#   x4mp_host_tests += tests/test_join_json.cpp, tests/test_status_json.cpp
+#   hostsim         += scenarios that need no server (refused build text, bad join input); the server scenarios run through
+#                      tests/hostsim/join_flow_run.ps1 (not CI: tools/e2e.ps1 is M2-14's)
+# =============================================================================================
+target_sources(x4mp_host PRIVATE native/host/status_json.cpp)
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_join_json.cpp tests/test_status_json.cpp)
+  target_link_libraries(x4mp_host_tests PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME hostsim.join_refused_build
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/join_refused_build.hostsim")
+  set_tests_properties(hostsim.join_refused_build PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+  add_test(NAME hostsim.join_no_server
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/join_no_server.hostsim")
+  set_tests_properties(hostsim.join_no_server PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+endif()
+# =============================================================================================
+# END M2-06 join feature
+# =============================================================================================

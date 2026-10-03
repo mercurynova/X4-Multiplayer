@@ -103,6 +103,27 @@ function menu.cleanup()
 	menu.frame = nil
 	menu.model = nil
 	S.onClosed()
+	menu.restoreStartMenu()
+end
+
+-- Session-2 finding D2: our window opens OVER the start menu, and closing it (Close button or Esc) leaves a blank screen. The
+-- vanilla way back is what gameoptions.lua does at start-up (init(), "restore handling"): OpenMenu("OptionsMenu", submenu, nil, true)
+-- with no submenu = the main page. Not done when a session save is being loaded (the game replaces the screen itself) or when the
+-- window was not opened over the start menu (in game, the vanilla menu handling resumes by itself).
+function menu.restoreStartMenu()
+	local overStartMenu = menu.overStartMenu
+	menu.overStartMenu = nil
+	if not overStartMenu then return end
+	if X4MPBridge.loadingSave then return end
+	local function reopen()
+		local ok, err = pcall(OpenMenu, "OptionsMenu", nil, nil, true)
+		if not ok then log("standalone ui: restoring the start menu failed: " .. tostring(err)) end
+	end
+	if type(getElapsedTime) == "function" and type(Helper) == "table" and Helper.addDelayedOneTimeCallbackOnUpdate then
+		Helper.addDelayedOneTimeCallbackOnUpdate(reopen, true, getElapsedTime() + 0.1) -- after this menu finished closing
+	else
+		reopen()
+	end
 end
 
 ------------------------------------------------------------------------------
@@ -141,9 +162,11 @@ function renderer.show(model)
 	end
 	if not ensureRegistered() then return end
 	menu.opening = true
+	menu.overStartMenu = X4MPBridge.isStartMenu() == true
 	local ok, err = pcall(OpenMenu, MENU_NAME, { 0, 0 }, nil)
 	if not ok then
 		menu.opening = nil
+		menu.overStartMenu = nil
 		log("standalone ui: OpenMenu failed: " .. tostring(err))
 	end
 end

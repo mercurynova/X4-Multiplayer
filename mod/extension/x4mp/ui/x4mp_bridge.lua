@@ -24,8 +24,11 @@
 --                   "players":3,"progress":0.0-1.0}      all fields optional except state; at most 2 Hz
 --   x4mp.notify    {"v":1,"text":"...","level":"info|warn|error"}      short message for the player
 --   x4mp.error     {"v":1,"code":"...","text":"..."}                   something failed; shown on the status screen
---   x4mp.load_save {"v":1,"name":"x4mp_<sha12>"}                      load this save (name WITHOUT .xml.gz). Default
---                   handler: validates the name, then LoadGame(name) 0.1 s later (same as vanilla loadSave).
+--   x4mp.load_save {"v":1,"name":"x4mp_<sha12>","fallback":true|absent}  the downloaded session save is being loaded (name WITHOUT
+--                   .xml.gz). Native itself raises the vanilla Lua event "loadSave" (what the options menu listens to; session 2
+--                   proved loading by name works that way), then sends this topic WITHOUT "fallback": Lua only records that a
+--                   load started (B.loadingSave), so the start menu is not restored over the loading screen. If no reload
+--                   happens within 15 s native sends it again WITH "fallback":true and Lua calls LoadGame(name) 0.1 s later.
 --   x4mp.open      {"v":1,"screen":"main|join|status"}                 open the X4MP screen (also: chat "/x4mp [screen]")
 --
 -- JSON subset: objects, arrays, strings (full escapes, \uXXXX incl. surrogate pairs), numbers, true/false/null.
@@ -353,6 +356,8 @@ function B.validSaveName(name)
 	return name
 end
 
+B.loadingSave = nil -- name of the save native is loading (set by x4mp.load_save, cleared when a screen opens again)
+
 B.on("load_save", function(p)
 	local name = B.validSaveName(p.name)
 	if not name then
@@ -360,7 +365,12 @@ B.on("load_save", function(p)
 		log("load_save: rejected save name " .. tostring(p.name))
 		return
 	end
-	log("load_save: loading " .. name)
+	B.loadingSave = name
+	if p.fallback ~= true then
+		log("load_save: native raised the vanilla loadSave event for " .. name)
+		return
+	end
+	log("load_save: fallback, calling LoadGame for " .. name)
 	local function go() LoadGame(name) end
 	if type(getElapsedTime) == "function" and type(Helper) == "table" and Helper.addDelayedOneTimeCallbackOnUpdate then
 		Helper.addDelayedOneTimeCallbackOnUpdate(go, true, getElapsedTime() + 0.1)

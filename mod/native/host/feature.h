@@ -23,6 +23,7 @@
 #include "game/game_api.h"
 #include "host/frame_budget.h"
 #include "host/host_log.h"
+#include "host/paths.h"
 #include "host/platform.h"
 
 namespace x4mp::host {
@@ -55,6 +56,7 @@ struct HostContext {
   const Gates& gates;
   const PreviousRun& previous;
   std::string_view extension_path;
+  const ConfigPaths* paths = nullptr;  // where x4mp.json / logs live (M2-06); set by ModHost, null in bare test contexts
 };
 
 struct FrameInfo {

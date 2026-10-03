@@ -1,0 +1,39 @@
+# M2-06 join verbs without a reachable server (ctest hostsim.join_no_server): status answers, bad input, connecting detail,
+# disconnect, the extension list verb, and that the password never reaches a log, a Lua event, the stash or a file.
+init
+expect-sub on_frame_update
+frame 60Hz 20
+
+# ui_ready / request_status are answered with the current status
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+frame 60Hz 10
+expect-lua x4mp.status 3000 json $.state == disconnected
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 10
+expect-lua x4mp.status 3000 json $.state == disconnected
+
+# bad join input is refused with x4mp.error, nothing starts
+lua-raw x4mp.join not-json
+frame 60Hz 10
+expect-lua x4mp.error 3000 json $.code == bad_join
+lua-raw x4mp.join {"v":1,"address":"bad host","name":"Tester","password":"","team":"auto"}
+frame 60Hz 10
+expect-lua x4mp.error 3000 json $.code == bad_join
+
+# the extension list verb is accepted
+lua-raw x4mp.extensions {"v":1,"source":"load","count":1,"list":[{"id":"ego_dlc_boron","name":"Kingdom End","version":"9.00","enabled":true,"egosoftextension":true}]}
+frame 60Hz 10
+expect-file extension/logs/x4mp.log extension list from Lua: 1 entries
+
+# nothing listens on port 1: the status says connecting (and keeps trying), at most 2 Hz
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:1","name":"Tester","password":"no-server-secret-pw","team":"auto"}
+frame 60Hz 90
+expect-lua x4mp.status 3000 json $.state == connecting
+expect-file extension/logs/x4mp.log joining 127.0.0.1:1
+
+# disconnect returns to disconnected
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 90
+expect-lua x4mp.status 3000 json $.state == disconnected
+expect-no-secret no-server-secret-pw
+shutdown
