@@ -217,8 +217,8 @@ struct SessionEvent {
   enum class Kind : std::uint8_t {
     StateChanged,      // state = new state, prev = old
     ServerHello,       // server filled in session view
-    Welcome,           // welcome (resumed tells fresh join vs resume)
-    ServerDisconnect,  // the server sent Disconnect: code/text/expected (handshake rejection or later)
+    Welcome,           // welcome (resumed tells fresh join vs resume); payload = the raw Welcome frame
+    ServerDisconnect,  // the server sent Disconnect: code/text/expected (handshake rejection or later); payload = the raw Disconnect frame
     ControlReplayed,   // count Control frames were replayed after a resume
     ControlDropped,    // count queued Control frames were dropped because the join was fresh
     SaveInfo,          // the session save is announced

@@ -1,7 +1,7 @@
 local t, env = ...
 local test, truthy, falsy = t.test, t.truthy, t.falsy
 
-local LUA_FILES = { "x4mp_bridge.lua", "x4mp_menu.lua", "x4mp_ui_standalone.lua", "x4mp_extensions.lua", "x4mp_authority.lua" }
+local LUA_FILES = { "x4mp_bridge.lua", "x4mp_menu.lua", "x4mp_ui_standalone.lua", "x4mp_extensions.lua", "x4mp_authority.lua", "x4mp_join_mods.lua" }
 
 test("every text id used by the Lua code exists on page 92000", function()
 	env.reset()
@@ -11,7 +11,7 @@ test("every text id used by the Lua code exists on page 92000", function()
 		for id in src:gmatch("[^%w_]T%((%d+)") do
 			truthy(texts[tonumber(id)], file .. " uses T(" .. id .. ") which is missing in t/0001-l044.xml")
 		end
-		for _, block in ipairs({ "STATE_TEXT", "ERROR_TEXT", "titles" }) do
+		for _, block in ipairs({ "STATE_TEXT", "ERROR_TEXT", "titles", "GROUP_TITLE", "GROUP_HINT", "RULE_TEXT" }) do
 			local body = src:match("local " .. block .. " = (%b{})")
 			if body then
 				for id in body:gmatch("=%s*(%d+)") do

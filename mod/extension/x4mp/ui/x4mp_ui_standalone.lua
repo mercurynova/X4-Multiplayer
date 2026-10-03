@@ -40,7 +40,7 @@ function menu.display()
 	local model = menu.model
 	if not model then return end
 	Helper.clearDataForRefresh(menu, LAYER)
-	local width = Helper.scaleX(460)
+	local width = Helper.scaleX(model.wide and 620 or 460)
 	menu.frame = Helper.createFrameHandle(menu, {
 		layer = LAYER,
 		standardButtons = Helper.standardButtons_Close,
@@ -66,13 +66,18 @@ function menu.display()
 			r[1]:setColSpan(2):createText(row.text, toneProps(row.tone))
 		elseif row.type == "edit" then
 			local r = ftable:addRow(true, {})
-			r[1]:createText(row.label or "", {})
+			local cell = r[2]
+			if row.fullWidth then
+				cell = r[1]:setColSpan(2) -- M2-X3: a read-only link box uses the whole row
+			else
+				r[1]:createText(row.label or "", {})
+			end
 			local props = { height = Helper.standardButtonHeight, description = row.description or row.label or "",
-				maxChars = row.maxChars or 64, textHidden = row.hidden == true, selectTextOnActivation = false }
-			r[2]:createEditBox(props):setText(row.value or "", {})
+				maxChars = row.maxChars or 64, textHidden = row.hidden == true, selectTextOnActivation = row.readonly == true }
+			cell:createEditBox(props):setText(row.value or "", {})
 			-- only the model's callback keeps the value; nothing is cached here
-			r[2].handlers.onTextChanged = function(_, value) row.onChange(value) end
-			r[2].handlers.onEditBoxDeactivated = function(_, value) row.onChange(value) end
+			cell.handlers.onTextChanged = function(_, value) row.onChange(value) end
+			cell.handlers.onEditBoxDeactivated = function(_, value) row.onChange(value) end
 		elseif row.type == "button" then
 			local r = ftable:addRow(row.active ~= false, {})
 			r[1]:setColSpan(2):createButton({ active = row.active ~= false }):setText(row.text, { halign = "center" })
