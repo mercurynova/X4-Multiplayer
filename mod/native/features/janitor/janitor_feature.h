@@ -4,7 +4,7 @@
 // At on_universe_ready (both roles) count the objects that carry the ghost name prefix "[MP] " and log the number.
 // Nothing is removed yet: ghosts only exist from M4, which adds the removal through SafeRemove (and the reference mod's
 // leftovers). The scan covers the factions that can own such objects today: the player and the team factions
-// x4mp_team_1..8. It only uses exports resolved by name through the platform, so a game without them logs "skipped".
+// x4mp_team_1..8 (only those the game lists via GetAllFactions: asking for an undefined faction writes an error line to the game log). It only uses exports resolved by name through the platform, so a game without them logs "skipped".
 //
 // The scan runs on the first frame after on_universe_ready (game calls are frame-thread only) and is bounded
 // (kMaxObjects names read per run).
@@ -25,6 +25,7 @@ struct JanitorResult {
   bool exports_missing = false;
   std::uint32_t scanned = 0;
   std::uint32_t marked = 0;  // names starting with kGhostNamePrefix
+  std::uint32_t factions_queried = 0;  // "player" + the team factions the game actually lists
 };
 
 class JanitorFeature final : public host::IFeature {
