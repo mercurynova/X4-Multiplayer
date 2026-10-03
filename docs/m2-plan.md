@@ -360,3 +360,8 @@ sent once, never repeated on resume. Self-spawn uses `EntitySpawnBuilder(game_ti
 `x4mp_bridge.lua` header. Lua cannot raise vanilla `loadSave`, so `x4mp.load_save` calls `LoadGame(name)` after
 0.1 s; M2-06 may replace that handler after session 2 (B2). Renderers register with `X4MPScreens.setRenderer`; the
 embedded options-menu entry (M2-11) is a second renderer.
+
+**CI flake fixes (2026-10-02):** two test races fixed (C++ retention snapshot, hub-stall topic count). One CI run saw
+`host stop took 23.7 s` on Windows that could not be reproduced (locally always ~2.0 s = the designed drain). The test
+now asserts the shutdown goodbye instead of a wall-clock bound, so a slow stop is no longer caught. Follow-up (M2-13 or
+M6): log per-hosted-service stop durations at shutdown and bound `PersistenceWriter.DisposeAsync`.
