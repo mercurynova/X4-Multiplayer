@@ -14,7 +14,7 @@ developer). "Deps" lists task ids that must be done first. Tracks: **P** protoco
 | **M0** | Repo skeleton, build, CI, protocol schema v0.1 compiled with codegen in C# and C++ | no | Fresh clone builds and tests on Windows + Linux (server) and Windows (mod core). `flatc` compiles every `.fbs` with the ADR-036 deltas applied. Golden vectors encoded by C# decode in C++ with identical field values; frame/datagram headers and Replication entries are byte-identical (FlatBuffers tables may differ in vtable layout, ADR-041). Published `x4mp-server.exe` serves the empty GUI shell and `/healthz` on 47790. CI green, Dependabot + CodeQL on. |
 | **M1** | Server: handshake, sessions, relay, interest, replication, saves, teams, economy, admin API + GUI, all driven by FakeNode; mod net core headless | no | SRV §8 M1 exit criteria 1–6 (30-min `swarm --clients 8 --verify` with zero errors; GUI kick/ban/mute/broadcast/settings/save upload/session start-stop all audited; slow-reader + fuzz harmless; CI green on both OSes; teams join modes/presets/relations ≤ 1 s/foreign commands always rejected; 30-min economy swarm with clean auditor). **Plus:** C++ headless client (mod `core/`) completes handshake, heartbeat, resume and an in-band save download against the real server in Windows CI. **Plus:** mod policy (M1-X1..X5): a FakeNode with a mod mismatch is refused with the exact install/enable/disable/update lists and links, visible on the GUI Mods page. |
 | **M2-spike** | In-game experiments S1–S8 (parallel with M1) | yes | Each spike has a recorded verdict (pass / fallback chosen) in `decisions.md` Part 3, and any ADR changed by a failed spike is updated before M3 starts. |
-| **M2** | Mod loads via X4Native, connects, join dialog, heartbeat, save sync + load, resume across extension reload, self-test | yes | From the start menu, a player joins using only the UI: handshake, in-band save download, `LoadGame`, paused at universe ready, `NodeReady`; the server shows **no** leave/join across the extension reload. Build mismatch is refused with a clear message. 30-min connection with < 0.2 ms/frame main-thread net cost. Self-test PASS table logged and visible in the GUI. Password never persisted. |
+| **M2** | Mod loads via X4Native, connects, join dialog, heartbeat, save sync + load, resume across extension reload, self-test; minimal real authority (admin-uploaded save, checkpoints). **Plan: [m2-plan.md](m2-plan.md)** (18 exit criteria) | yes (1 PC) | From the start menu, a player joins using only the UI: handshake, in-band save download, `LoadGame`, paused at universe ready, `NodeReady`; the server shows **no** leave/join across the extension reload. Build mismatch is refused with a clear message. 30-min connection with < 0.2 ms/frame main-thread net cost. Self-test PASS table logged and visible in the GUI. Password never persisted. |
 | **M3** | Teams + avatars; player positions and player ghosts both ways; chat; save hygiene v1 | yes (2 PCs) | MOD §9 M3 acceptance: two players fly together 30 min over ≥ 5 sectors incl. a highway, each in their own avatar, seeing the other with correct model, team colour and name; ghost error < 50 m below 500 m/s; no Game Over; < 10 log lines/s; < 1 FPS mod cost. Authority checkpoint contains zero `[MP] ` objects (`tools/savescan`) and avatars persist under team factions after reload. Relations from the GUI matrix visible in game (targeting colour). |
 | **M3b** | On-foot presence v1 (ADR-046): Tier 0 HUD presence list ("Alice is on this station, in the bar") + Tier 1 MP lounge (fixed-layout room built from vanilla room macros, remote players as temporary actors with model/name/team, vanilla conversation Talk menu: message, wave). Includes chosen avatar appearance (ADR-051: race + variants, default from team origin). | yes (2 PCs) | Two players in the lounge see each other at the correct position (error < 0.5 m) and heading, with walk/idle animation; Talk menu works both ways; HUD list correct for any shared container; zero MP actors in any save (`tools/savescan`); a save from a lounge session loads without the mod. Gated on spikes S10.1–S10.5, S10.7, S10.8, S10.11–S10.15. |
 | **M3c** | On-foot presence v2: Tier 2 in any shared room/ship, nearest-seat/HUD fallback when rooms don't match | yes (2 PCs) | Gated on S10.2 room matching. Players visible in matched rooms (bar, office, dock, bridge); unmatched rooms fall back without errors. |
@@ -195,6 +195,26 @@ growing alongside) → M1-T1/M1-E1 → M1-T4/M1-E5 → M1-S2/S3 → M1-W1 → pa
 
 ---
 
+## 3b. M2 tasks (plan: [m2-plan.md](m2-plan.md), 2026-10-02)
+
+M2 makes the mod work inside real X4 with **one** X4 copy (real X4 as client + FakeNode authority serving a real save,
+or real X4 as authority + FakeNode clients). The full plan (scope, non-goals, 18 numbered exit criteria, fallbacks per
+session-2 finding, briefs-level task table, testing strategy, risks and open questions) is in
+[m2-plan.md](m2-plan.md); the user's test script for session 2 is [in-game-session-2.md](in-game-session-2.md).
+
+| Wave | Tasks | Waits for |
+|---|---|---|
+| 0 (session-2 kit) | M2-001 spike v2 framework + UI block, M2-002 saves/clock/money/V12/S9 blocks, M2-003 on-foot S10, M2-004 diplomacy S11 + HQ S12, M2-005 native probe `x4mp_probe`, M2-006 FakeNode `--save-file` + `tools/session2/` scripts | — |
+| Session 2 | User, sitting 1 (parts A–D, ~2 h) blocks M2; sittings 2–3 (S11/S12, S10) feed later milestones | wave 0 |
+| 1 | M2-01 `x4mp-hostsim` (fake X4Native host, CI), M2-02 server: authority loads a stored/uploaded save + catalog read-through + `<patches>` reader, M2-03 = M2-X2 `core/mods`, M2-04 mod host skeleton, M2-05 Lua bridge + standalone screens (+ M2-X1), M2-08 `core/authority` upload job bound to its connection + `EntitySpawn` encoder with `game_time` | — (runs during session 2) |
+| 2 | M2-06 client join flow, M2-07 reload survival, M2-09 authority in game, M2-10 save control + self-test, M2-11 embedded menu entry + HUD, M2-13 server diagnostics (LogForward, self-test view, unknown-key refusals on the hub) | session-2 sitting 1 verdicts |
+| 3 | M2-X3 grouped mod refusal, M2-12 `launch.json` + `NodeStats`, M2-14 session-3 kit + acceptance script | wave 2 |
+
+M1 carry-overs placed in M2: `EntitySpawn.game_time` and connection-bound upload jobs (M2-08/09), real `extension_list`
+(M2-X1/X2), authority loading admin-uploaded saves and the post-upload 404 (M2-02/09), `/mods/save-requirements`
+(M2-02), unknown-key refusals on the hub (M2-13). Deferred: HTTPS/CSP and token/audit/user GUIs → M6; economy swarm
+trade settings → M5; `WorldUpdate` > 20 Hz verify errors and sector owner/extents → M4.
+
 ## 4. M2-spike: in-game experiments (run in parallel with M1)
 
 A throwaway extension (`mod/spikes/`, not shipped) on the pinned build, single PC unless
@@ -218,7 +238,7 @@ finish so that ADR-014/015/019 can be confirmed or revised.
 
 ### 4.1 Session 2 retest list
 
-Session 2 needs the native DLL from M2 work (S5, S6, V07; see
+User script: [in-game-session-2.md](in-game-session-2.md) (kit = M2 wave 0, [m2-plan.md](m2-plan.md) §5.1). Session 2 needs the native DLL from M2 work (S5, S6, V07; see
 `spikes/session-1-results.md`). It also retests the following. R3–R6 come from
 `research/library-mods.md` (ADR-043); R7–R8 from `mod-management.md` (ADR-044).
 
