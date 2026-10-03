@@ -365,3 +365,8 @@ embedded options-menu entry (M2-11) is a second renderer.
 `host stop took 23.7 s` on Windows that could not be reproduced (locally always ~2.0 s = the designed drain). The test
 now asserts the shutdown goodbye instead of a wall-clock bound, so a slow stop is no longer caught. Follow-up (M2-13 or
 M6): log per-hosted-service stop durations at shutdown and bound `PersistenceWriter.DisposeAsync`.
+
+**M2-10 -> M2-06 / M2-09 / M2-11 / M2-13 (save control + self-test, merged by the lead):**
+- Session code (M2-06) must call `features::diag_hub().set_connection(NodeRole::Client|Authority, connected)` on every state change (a pure client blocks saves; the saves feature pushes `x4mp.saves` on change) and `diag_hub().set_log_sender(fn)` with a function that queues a `LogForward` line (returns false when not allowed / rate limited); without them the self-test and the quicksave warning are only logged locally. `IPlatform` gained `subscribe_event` / `raise_lua` (default no-ops; `X4Platform` implements them, `FakePlatform` records them): use them for any new bridge verb instead of touching main.cpp.
+- M2-09: wrap the authority's own `SaveGame` in `X4MPSaves.allowSaves(fn)` if it ever runs while the block is on (authority nodes are not blocked by native today). M2-11: hand the captured options-menu config to `X4MPSaves.setMenuConfig(cfg)` so the Save row can be greyed without UIX. M2-13: `DiagHub::last_selftest()` holds the last table; the `SELFTEST ...` lines already arrive as `LogForward` once the sender exists.
+- Verified locally: md diff + `md/x4mp_saves.xml` against the unpacked `md.xsd` / `diff.xsd` (the diff applied to vanilla `notifications.xml` still validates). Lua tests run with LuaJIT through `lupa` when no interpreter is on PATH.

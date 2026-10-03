@@ -79,6 +79,10 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
     cfg.outbox_byte_cap = static_cast<std::size_t>(v);
   }
   if (long long v = 0; read_int(doc, "frame_budget_us", 100, 50000, v, source, diags)) cfg.frame_budget_us = static_cast<int>(v);
+  if (auto it = doc.find("selftest"); it != doc.end()) {
+    if (it->is_boolean()) cfg.selftest = it->get<bool>();
+    else bad(diags, source, "selftest", "must be true or false");
+  }
   if (auto it = doc.find("log_categories"); it != doc.end()) {
     if (!it->is_object()) {
       bad(diags, source, "log_categories", "must be an object of category name to level");
@@ -99,7 +103,7 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   }
   warn_unknown(doc,
                {"server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
-                "outbox_byte_cap", "frame_budget_us", "log_categories"},
+                "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest"},
                source, diags);
 }
 

@@ -37,5 +37,6 @@
     <t id="43">Ping: %s ms</t>
     <t id="44">Players: %s</t>
     <t id="51">Type /x4mp in the chat window to open this screen at any time.</t>
+    <t id="60">Saving is disabled while connected as a client</t>
   </page>
 </language>
