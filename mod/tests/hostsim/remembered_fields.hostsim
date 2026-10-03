@@ -1,0 +1,65 @@
+# M3-07 (ctest hostsim.remembered_fields): the Join form's remembered fields live in x4mp.json, not in X4's uidata.xml.
+#  - x4mp.remember writes last_address / last_name atomically, keeps the user's own keys, and answers with x4mp.remembered
+#  - they survive an X4 restart (new DLL incarnation, stash cleared) and are pushed to Lua on ui_ready
+#  - the migration from the legacy saved variable (migrate:true) fills only what the file does not have, so it happens once
+#  - a password in the payload (a careless caller) never reaches the file, a log, a Lua event or the stash
+write-file extension/x4mp.json {"log_level":"info","my_user_key":"keep-me"}
+init
+frame 60Hz 20
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+frame 60Hz 10
+expect-lua x4mp.remembered 3000 json $.v == 1
+expect-lua x4mp.status 3000 json $.state == disconnected
+
+# one-time migration from __X4MP_USER: Lua sends the legacy values with migrate:true
+drop-lua x4mp.remembered
+lua-raw x4mp.remember {"v":1,"address":"legacy.example.com:47780","name":"LegacyAlice","migrate":true}
+frame 60Hz 10
+expect-lua x4mp.remembered 3000 json $.address == legacy.example.com:47780
+expect-file extension/x4mp.json last_address
+expect-file extension/x4mp.json my_user_key
+expect-file extension/x4mp.json keep-me
+expect-no-file extension/x4mp.json.tmp
+
+# a second migration (another legacy copy, e.g. a second Lua state) changes nothing
+drop-lua x4mp.remembered
+lua-raw x4mp.remember {"v":1,"address":"other-legacy.example.com:1","name":"OtherLegacy","migrate":true}
+frame 60Hz 10
+expect-lua x4mp.remembered 3000 contains {"v":1,"address":"legacy.example.com:47780","name":"LegacyAlice"}
+
+# a real Connect overrides; the careless password in the payload is ignored
+drop-lua x4mp.remembered
+lua-raw x4mp.remember {"v":1,"address":"play.example.com:5000","name":"Alice","password":"remember-secret-pw","admin_password":"remember-admin-pw"}
+frame 60Hz 10
+expect-lua x4mp.remembered 3000 contains {"v":1,"address":"play.example.com:5000","name":"Alice"}
+expect-file extension/x4mp.json play.example.com:5000
+expect-file extension/x4mp.json keep-me
+
+# bad input is refused and changes nothing
+drop-lua x4mp.remembered
+lua-raw x4mp.remember not-json
+lua-raw x4mp.remember {"v":1}
+frame 60Hz 10
+expect-file extension/logs/x4mp.log x4mp.remember refused
+expect-no-lua x4mp.remembered 300
+
+# an X4 restart (new incarnation, stash cleared): the fields are still there and are pushed on ui_ready
+restart
+frame 60Hz 20
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+frame 60Hz 10
+expect-lua x4mp.remembered 3000 contains {"v":1,"address":"play.example.com:5000","name":"Alice"}
+expect-file extension/x4mp.json my_user_key
+
+# a run of X4 without the mod rewrote nothing of ours; one that lost x4mp.json shows an empty answer and Lua may migrate again
+write-file extension/x4mp.json {"log_level":"info"}
+drop-lua x4mp.remembered
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 10
+expect-lua x4mp.remembered 3000 json $.v == 1
+expect-no-lua x4mp.remembered 200
+
+expect-no-secret remember-secret-pw
+expect-no-secret remember-admin-pw
+expect-no-secret other-legacy.example.com
+shutdown

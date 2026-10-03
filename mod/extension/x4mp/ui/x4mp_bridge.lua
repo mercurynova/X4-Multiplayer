@@ -55,6 +55,16 @@ B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = tr
 B.TOPICS = { "status", "notify", "error", "load_save", "open" }
 local queueable = { ui_ready = true, request_status = true, extensions = true }
 
+-- M3-07 begin (own block). Remembered Join fields live in x4mp.json, not in __X4MP_USER (uidata.xml).
+--   x4mp.remember     (Lua -> native) {"v":1,"address":"host:port","name":"Player","migrate":true|absent}
+--                     sent by the Join form on Connect, before x4mp.join. NEVER a password. migrate=true: the values come from the
+--                     legacy __X4MP_USER and only fill fields x4mp.json does not have yet (once).
+--   x4mp.remembered   (native -> Lua)  {"v":1,"address":"...","name":"..."}   "" = none. Raised with every answer to ui_ready /
+--                     request_status and after each x4mp.remember. Handled by x4mp_menu.lua through B.on("remembered", fn).
+B.VERBS.remember = true
+B.TOPICS[#B.TOPICS + 1] = "remembered"
+-- M3-07 end
+
 ------------------------------------------------------------------------------
 -- logging (never takes a join payload)
 ------------------------------------------------------------------------------
@@ -356,6 +366,8 @@ B.on("error", function(p)
 	log("native error " .. tostring(p.code) .. ": " .. tostring(p.text))
 end)
 B.on("open", function() end) -- the screens (x4mp_menu.lua) add their own handler
+B.remembered = nil -- M3-07: last x4mp.remembered payload { address, name } (x4mp_menu.lua adds its own handler)
+B.on("remembered", function(p) B.remembered = p end)
 
 --- Save name sanity: no path parts, no extension, printable.
 function B.validSaveName(name)

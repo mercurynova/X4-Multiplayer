@@ -103,7 +103,7 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   }
   warn_unknown(doc,
                {"server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
-                "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest"},
+                "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest", "last_address", "last_name"},  // last_*: remembered Join fields (M3-07)
                source, diags);
 }
 

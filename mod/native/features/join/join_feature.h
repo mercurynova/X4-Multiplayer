@@ -73,6 +73,8 @@ class JoinFeature final : public host::IFeature {
   void drain_inbox(host::HostContext& ctx);
   void on_join(host::HostContext& ctx, const std::string& payload);
   void on_extensions(host::HostContext& ctx, const std::string& payload);
+  void on_remember(host::HostContext& ctx, const std::string& payload);  // M3-07: x4mp.remember -> x4mp.json
+  void publish_remembered(host::HostContext& ctx);                       // M3-07: topic x4mp.remembered
 
   // ---- session ----
   void start_session(host::HostContext& ctx, const join::JoinRequest& request, const session::SessionIntent* resume);

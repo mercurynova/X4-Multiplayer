@@ -158,7 +158,7 @@ Same schema as `x4-unpacked/ui/core/addon.xsd`. Two patterns come from
 </addon>
 ```
 
-`__X4MP_USER` holds `{ version, lastAddress, lastName, hudPos, chatPos }`.
+`__X4MP_USER` holds `{ version, lastAddress, lastName, hudPos, chatPos }`. **M3-07:** `lastAddress`/`lastName` moved to `x4mp.json` (section 2.6); the saved variable is only their migration source.
 The **password is never persisted** in Lua.
 
 ### 1.4 `x4native.json`
@@ -406,6 +406,8 @@ Values are merged in this order, last wins:
    stays for its unit tests but the host no longer passes it.
 5. X4Native settings (`get_setting_*`), for the few user-facing toggles.
 6. Join dialog values passed at connect time through the bridge.
+
+**Remembered Join fields (M3-07, `core/config/remembered.*`)**: the last server address and player name are stored in the user file as `last_address` / `last_name` (never a password; the writer refuses secret-looking keys), not in `__X4MP_USER`/`uidata.xml`, which X4 rewrites without our entries after a run without the mod. The Join form sends `x4mp.remember` on Connect; the join feature writes the file atomically (temp file + rename, unknown and user-set keys and their order kept, no BOM, a file that is not a JSON object is left untouched) and answers with the topic `x4mp.remembered`, which is also raised with every `ui_ready`/`request_status`. Lua pre-fills the form and the "Last server" line from it. `__X4MP_USER` is read only as the one-time migration source: if x4mp.json lacks a field Lua sends the legacy value with `migrate:true` (fills only missing fields, so it happens once) and drops its legacy copy once native has the value.
 
 Config is read once at `x4native_init` and again on `on_ui_reload`.
 Unknown keys produce warnings. Validation errors fall back to the default for

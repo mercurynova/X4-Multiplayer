@@ -42,6 +42,7 @@ endfunction()
 add_library(x4mp_core STATIC
   native/core/log/log.cpp
   native/core/config/config.cpp
+  native/core/config/remembered.cpp
   native/core/crypto/crypto.cpp
   native/core/net/net.cpp
   native/core/session/session.cpp
@@ -176,6 +177,7 @@ if(X4MP_TESTS)
   add_executable(x4mp_core_tests
     tests/test_log.cpp
     tests/test_config.cpp
+    tests/test_remembered.cpp
     tests/test_queue.cpp
     tests/test_net.cpp
     tests/test_net_socket.cpp
@@ -480,6 +482,15 @@ if(X4MP_TESTS)
   set_tests_properties(hostsim.launch_expired PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
 endif()
 # END M2-12 launch.json + NodeStats
+
+# M3-07: remembered Join fields in x4mp.json (core/config/remembered.cpp is in x4mp_core, tests/test_remembered.cpp in x4mp_core_tests).
+#   hostsim.remembered_fields = the real DLL: x4mp.remember / x4mp.remembered, restart survival, one-time migration, no password in any file
+if(X4MP_TESTS)
+  add_test(NAME hostsim.remembered_fields
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/remembered_fields.hostsim")
+  set_tests_properties(hostsim.remembered_fields PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+endif()
+# END M3-07
 
 # =============================================================================================
 # BEGIN M3-02 core/ghost (sample ring, Hermite + slerp, adaptive delay, extrapolation, path-error stats, NetMap + registries with stash
