@@ -5,7 +5,7 @@
   Sitting 0 runs on ONE PC without a server: the probe must not connect anywhere, so this script writes
     scratch_slot = <the save slot you name>     the probe refuses the destructive blocks (takeover, takeover_docked, persist_spawn,
                                                 persist_check: they spawn, move you and remove ships) on any other save
-    auto_load = false, hooks = false, pin_module = false, skip_autosave = false, spike_block = "", reloadui_after_s = 0
+    auto_load = false, connect = false, pause_on_ready = false, hooks = false, pin_module = false, skip_autosave = false, spike_block = "", reloadui_after_s = 0
   and REMOVES the keys server and password of an earlier session (no stale address, no password left in the file). The probe reads
   hooks / pin_module only when X4 starts: quit X4 and start it again after changing them. Other keys (spike_block_seq) are kept.
   Run it again with -ClearScratch to remove the scratch slot. Supports -WhatIf.
@@ -43,6 +43,8 @@ $cfg['pin_module'] = $false
 $cfg['skip_autosave'] = $false
 $cfg['spike_block'] = ''
 $cfg['reloadui_after_s'] = 0
+$cfg['connect'] = $false        # sitting-0 live lesson: the probe default is connect=1 (no server here)
+$cfg['pause_on_ready'] = $false # sitting-0 live lesson: the probe default pauses 20 s at every load (Esc-twice problem)
 if ($ClearScratch) { $null = $cfg.Remove('scratch_slot') } else { $cfg['scratch_slot'] = $ScratchSlot }
 
 $path = Get-ProbeConfigPath
