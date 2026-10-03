@@ -77,5 +77,5 @@ if ($PSCmdlet.ShouldProcess($dest, 'Install x4mp_spike')) {
     Write-Host 'Next steps:'
     Write-Host '  1. Steam > X4 > Properties > Launch options:  -debug all -logfile x4mp_spike.log'
     Write-Host '  2. In X4: Settings > Extensions: Protected UI mode OFF; make sure "X4MP Spike (test)" is enabled.'
-    Write-Host '  3. Load the TEST SAVE (made without this extension) and follow docs\spikes\session-1.md.'
+    Write-Host '  3. Load the TEST SAVE (made without this extension) and follow docs\in-game-session-2.md (session 1: docs\spikes\session-1.md).'
 }
