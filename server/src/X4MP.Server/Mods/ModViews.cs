@@ -174,7 +174,7 @@ internal sealed class ModViews(
         var snapshot = actor.Snapshot;
         var reports = store.LatestReports();
         var players = access.CanSeePlayers ? [.. reports.Select(r => PlayerStatus(r, r.PlayerId, current, snapshot))] : new List<PlayerModStatusDto>();
-        return new ModsStateDto(PolicyDto(current, reports, access), players, access.CanEdit, !access.CanSeePlayers, false);
+        return new ModsStateDto(PolicyDto(current, reports, access), players, access.CanEdit, !access.CanSeePlayers, true);
     }
 
     // ------------------------------------------------------------------ reports of one player

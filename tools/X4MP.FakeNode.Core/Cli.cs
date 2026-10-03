@@ -139,6 +139,13 @@ public sealed record CliOptions
     /// <summary>authority: tag its ships with team owners (implied by <see cref="Commander"/>), so clients have team assets to command.</summary>
     public bool TeamAssets { get; init; }
 
+    /// <summary>
+    /// authority (<c>--expect-session-save</c>): the session was created from a stored save, so the server must send this authority a <c>SessionSaveInfo</c>; it downloads and
+    /// verifies the save, "loads" it (Verifying, Loading, Matching, <c>NodeReady</c>) and only then answers the server's <c>RequestSave{SessionStart}</c>. Without it
+    /// the authority treats its game as loaded already (the M1 behaviour). It fails when no <c>SessionSaveInfo</c> arrives.
+    /// </summary>
+    public bool ExpectSessionSave { get; init; }
+
     /// <summary>client/swarm: the team to join, a team id or a team name (lobby: <c>TeamChoice</c>, creates it when the lobby allows; later: <c>TeamChangeRequest</c>).</summary>
     public string? Team { get; init; }
 
@@ -314,6 +321,7 @@ public static class CliParser
           --teams N            swarm: spread the clients over N teams ("Team 1".."Team N"; the authority tags its ships for them); needs JoinMode=Lobby (+ AllowCreateInLobby) to place clients
           --relations coop|allied|ffa|twoteams   swarm: team layout; implies --teams (coop 1, twoteams 2, allied/ffa one per client) and prints the server settings it needs
           --team-assets        authority: give its ships team owners (implied by --commander; start the authority with it when clients run elsewhere)
+          --expect-session-save   authority: the session starts from a stored save: download and verify the SessionSaveInfo save, "load" it, then upload the SessionStart checkpoint (fails when no SessionSaveInfo arrives)
           --save-mb N          authority: size of the fake save it uploads (default 4)
           --trade              clients propose ship-for-credits trades to each other and accept incoming ones (implies --team-assets)
           --trade-fail PCT     authority: fail PCT percent of the AssetTransferOrders (the server must refund and unlock)
@@ -372,7 +380,7 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "trade" or "no-join" or "rotate-ip" or "dupe-attack" or "loan-default";
+            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "expect-session-save" or "trade" or "no-join" or "rotate-ip" or "dupe-attack" or "loan-default";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -383,6 +391,7 @@ public static class CliParser
                     "verify" => o with { Verify = on },
                     "with-authority" => o with { WithAuthority = on },
                     "team-assets" => o with { TeamAssets = on },
+                    "expect-session-save" => o with { ExpectSessionSave = on },
                     "trade" => o with { Trade = on },
                     "no-join" => o with { NoJoin = on },
                     "rotate-ip" => o with { RotateIp = on },
