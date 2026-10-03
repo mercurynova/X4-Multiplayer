@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<content id="cat_sim" name="Cat Sim Mod &amp; Friends" version="102" save="0" enabled="1">
+  <!-- a dependency on a library and an optional one -->
+  <dependency id="x4native" version="900"/>
+  <dependency id="some_optional_lib" optional="true"/>
+</content>
