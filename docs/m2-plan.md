@@ -365,3 +365,8 @@ embedded options-menu entry (M2-11) is a second renderer.
 `host stop took 23.7 s` on Windows that could not be reproduced (locally always ~2.0 s = the designed drain). The test
 now asserts the shutdown goodbye instead of a wall-clock bound, so a slow stop is no longer caught. Follow-up (M2-13 or
 M6): log per-hosted-service stop durations at shutdown and bound `PersistenceWriter.DisposeAsync`.
+
+**M2-11 → M2-14 / session 3:** HUD `notify` mode raises `AddUITriggeredEvent("X4MP","notify",text)` but no product MD
+cue listens to it yet: add a tiny MD cue (`show_notification`) in wave 3, or route notify through the bridge. Session 3
+must check: HUD disappears on map/Esc and comes back by itself; row also in the in-game Esc menu; the `append`
+fallback source has never run against real gameoptions.lua.
