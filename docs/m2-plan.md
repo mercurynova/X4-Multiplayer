@@ -434,7 +434,6 @@ recurs, find the race (FakeNode owner-update vs the 30 s wait on a slow runner).
 - Item 8 (Steam Cloud): `tools/session3/start-fake-authority.ps1` warns when `steam_autocloud.vdf` exists and/or the download name `x4mp_<sha12>.xml.gz`
   is already in the save folder; `-FreshDownload` serves a copy with a changed gzip header MTIME (same decompressed save, new hash/name, valid for server
   and mod because both hash the file bytes and gzip readers ignore MTIME). Covered by `session3_dry_run.ps1`.
-/^>>>>>>> worktree-agent-a0ec11f04790c38f0$/d
 **Close-out A (2026-10-03), session-3 open items 1, 2, 3, 5, 6, 7:**
 - Item 1 (chat + Esc): the HUD frame now has its own `viewHelperType = "X4MPHud"` (default `"Helper"` made vanilla's Esc / `clearMenus` /
   `hasMenu` paths act on it); no redraw while `Helper.minimizedMenu` exists. Root cause is derived from viewhelper/helper/chatwindow.lua, not seen live.
@@ -446,4 +445,3 @@ recurs, find the race (FakeNode owner-update vs the 30 s wait on a slow runner).
 - Item 6: janitor only queries `x4mp_team_N` when `GetAllFactions` lists it (the log noise came from `JanitorFeature::scan`, native, not Lua).
 - Item 7: `core/session/manifest_cleanup`: only the current session's manifest stays in the save folder (names derive from the manifest hash, so
   "belongs to a save still present" cannot be decided by name); called from `Session::download_save`.
->>>>>>> worktree-agent-a0ec11f04790c38f0
