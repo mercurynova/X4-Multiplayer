@@ -652,3 +652,9 @@ Things the next tasks / the in-game test should know:
 - Chat text is user content: Info log lines carry channel and byte count only (`chat: sent channel=all bytes=N`), Debug a 40 character cut. FakeNode `--chat-echo` (M3-05) was not on main
   when this was built: the round trip is covered by the sender receiving its own line from the real server.
 - `x4mp.players.sector` is the raw `PlayerInfo.sector` index (ushort); `ship` is `ship_net_id`.
+
+**User design decision (2026-10-03, sitting 0): SETA is unavailable in multiplayer, always.** No per-server option. One player in SETA makes
+the session run badly and causes problems later (clock, replication, economy). M3-09: block it at the source where the game allows (disable/hide
+the SETA activation while connected), and keep the detect-and-switch-off within 1 s as the safety net (S13.9 not tested in sitting 0: the user
+has no SETA item; test later). Sitting-0 S13.4 facts: angles are radians; positions sector-local; the highway context is readable (local and
+super highway), the sector stays valid through superhighways; docked and on-foot detected; a gate jump is a ~3.5 s frame gap; pose read ~1-2 us.
