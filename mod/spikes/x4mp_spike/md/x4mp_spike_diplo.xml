@@ -1,0 +1,468 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike_diplo : MD side of the spike v2 blocks diplo1..diplo7 (task M2-004, spike S11, team diplomacy, ADR-047).
+  Lua side (timing, notifications, Lua views of the same data, the Diplomacy-menu tab injection of diplo6):
+  ui/x4mp_spike_diplo.lua. Library diff with the test action / test event: libraries/diplomacy.xml.
+  Procedures: docs/research/diplomacy.md section 7; user script: docs/in-game-session-2.md part E (E1..E7).
+
+  Convention (mod/spikes/README.md): Lua -> MD is AddUITriggeredEvent("X4MP_Spike2", control, value)
+    -> <event_ui_triggered screen="'X4MP_Spike2'" control="'<control>'"/>, value = event.param3.
+  Controls handled here (Lua sends them in this order; nothing runs by itself):
+    diplo1_setup / diplo1_part2 / diplo1_end   S11.1  activate teams 1-3, names, relations, lock team 1, known flags
+    diplo2                                     S11.2  lock semantics, all in one action block (+ restore)
+    diplo3_on / diplo3_off / diplo3_log        S11.3  diplomacy flags on team 2 (value of diplo3_log = tag)
+    diplo4 / diplo4_end                        S11.4  test diplomatic event between team 1 and team 2 (+ listeners below)
+    diplo5_on / diplo5_log / diplo5_restore    S11.5  switch vanilla event capability off for all NPC factions, restore
+    diplo7                                     S11.7  NPC-NPC and player relation change events
+  Always-on listeners (inert unless their trigger happens): relation-change loggers (only while md.$X4MP_DiploLog is set),
+  the test action cue (id x4mp_test_action only), test event loggers (id x4mp_test_treaty only), load-time recovery
+  of diplo5 and of a leftover player relation lock.
+
+  Log lines: '[X4MP-SPIKE] S11 <INFO|PASS|FAIL> what=... k=v'. Observations only, no verdicts, except where a PASS/FAIL
+  is a plain readback.
+
+  Syntax sources (all under x4-unpacked/): set_faction_active, set_faction_known, set_faction_identity, set_faction_relation,
+  add_faction_relation (reason required), set_faction_relation_locked (reason / shortreason plain strings allowed),
+  set_faction_diplomacy_active / _events_allowed / _exclusion libraries/common.xsd:20324,20343,20215,35318,20134,35358,35391,35410,35429;
+  event_faction_relation_changed (param faction, param2 other faction, param3 [new, old, reason]) common.xsd:17302;
+  event_player_relation_changed common.xsd:15969; diplomacy operations common.xsd:32494-32712, events 12193-12311;
+  vanilla usage md/diplomacy.xml:2676 (create_diplomacy_event_operation), :3008 (action started cue, event.param.action.id),
+  :7468 (DiplomaticEvent_Started: vanilla runs its event pipeline for EVERY event id, including ours), :638 (30 s
+  Diplomacy_ActiveFactionCheck), :37 ($DiplomacyFactionTable, md.Diplomacy.Start.$DiplomacyFactionTable);
+  faction properties libraries/scriptproperties.xml:1825-1875 (isdiplomacyactive, arediplomacyeventsallowed, tags).
+-->
+<mdscript name="X4MP_SpikeDiplo" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <!-- ===================================================== S11.1: teams in the Diplomacy menu ===================================================== -->
+    <cue name="Diplo1_Setup" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo1_setup'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Teams" exact="[faction.x4mp_team_1, faction.x4mp_team_2, faction.x4mp_team_3, faction.x4mp_team_4]"/>
+        <do_for_each name="$T" in="$Teams" counter="$K">
+          <do_if value="$K le 3">
+            <set_faction_relation_locked faction="$T" locked="false"/>
+            <set_faction_active faction="$T" active="true"/>
+            <set_faction_identity faction="$T" name="'X4MP Team ' + $K" shortname="'XT' + $K"/>
+            <set_faction_known faction="$T" known="true"/>
+          </do_if>
+        </do_for_each>
+        <!-- relations as session 1 (V08): team 1 ally 0.8, team 2 hostile -0.5, team 3 neutral; both directions -->
+        <set_faction_relation faction="faction.x4mp_team_1" otherfaction="faction.player" value="0.8"/>
+        <set_faction_relation faction="faction.player" otherfaction="faction.x4mp_team_1" value="0.8"/>
+        <set_faction_relation faction="faction.x4mp_team_2" otherfaction="faction.player" value="-0.5"/>
+        <set_faction_relation faction="faction.player" otherfaction="faction.x4mp_team_2" value="-0.5"/>
+        <set_faction_relation faction="faction.x4mp_team_3" otherfaction="faction.player" value="0"/>
+        <set_faction_relation faction="faction.player" otherfaction="faction.x4mp_team_3" value="0"/>
+        <!-- lock team 1 with a reason that the Factions tab should show (plain string, not a {page,line} reference) -->
+        <set_faction_relation_locked faction="faction.x4mp_team_1" locked="true" reason="'Managed by the X4MP session (spike test)'" shortreason="'X4MP managed'"/>
+        <!-- variation 1: team 3 is NOT known to the player -->
+        <set_faction_known faction="faction.x4mp_team_3" known="false"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo1_setup_done variation=teams_1_2_known_team_3_unknown team4=left_inactive_as_control age=' + player.age" filter="general" context="false"/>
+        <set_value name="$Teams" exact="[faction.x4mp_team_1, faction.x4mp_team_2, faction.x4mp_team_3, faction.x4mp_team_4]"/>
+        <do_for_each name="$T" in="$Teams">
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=team_state tag=' + 'md_part1' + ' team=' + $T.id + ' name=' + $T.name + ' isactive=' + $T.isactive + ' known=' + $T.knowntoplayer + ' locked=' + $T.isrelationlocked + ' diplomacy_active=' + $T.isdiplomacyactive + ' events_allowed=' + $T.arediplomacyeventsallowed + ' team_to_player=' + $T.relationto.{faction.player} + ' player_to_team=' + faction.player.relationto.{$T} + ' tags=' + (@$T.tags)" filter="general" context="false"/>
+        </do_for_each>
+      </actions>
+    </cue>
+
+    <cue name="Diplo1_Part2" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo1_part2'"/>
+      </conditions>
+      <actions>
+        <set_faction_known faction="faction.x4mp_team_1" known="false"/>
+        <set_faction_known faction="faction.x4mp_team_2" known="false"/>
+        <set_faction_known faction="faction.x4mp_team_3" known="true"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo1_part2 variation=teams_1_2_unknown_team_3_known age=' + player.age" filter="general" context="false"/>
+        <set_value name="$Teams" exact="[faction.x4mp_team_1, faction.x4mp_team_2, faction.x4mp_team_3, faction.x4mp_team_4]"/>
+        <do_for_each name="$T" in="$Teams">
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=team_state tag=' + 'md_part2' + ' team=' + $T.id + ' name=' + $T.name + ' isactive=' + $T.isactive + ' known=' + $T.knowntoplayer + ' locked=' + $T.isrelationlocked + ' diplomacy_active=' + $T.isdiplomacyactive + ' events_allowed=' + $T.arediplomacyeventsallowed + ' team_to_player=' + $T.relationto.{faction.player} + ' player_to_team=' + faction.player.relationto.{$T} + ' tags=' + (@$T.tags)" filter="general" context="false"/>
+        </do_for_each>
+      </actions>
+    </cue>
+
+    <cue name="Diplo1_End" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo1_end'"/>
+      </conditions>
+      <actions>
+        <set_faction_known faction="faction.x4mp_team_1" known="true"/>
+        <set_faction_known faction="faction.x4mp_team_2" known="true"/>
+        <set_faction_known faction="faction.x4mp_team_3" known="true"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo1_end variation=all_known_team_1_still_locked age=' + player.age" filter="general" context="false"/>
+        <set_value name="$Teams" exact="[faction.x4mp_team_1, faction.x4mp_team_2, faction.x4mp_team_3, faction.x4mp_team_4]"/>
+        <do_for_each name="$T" in="$Teams">
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=team_state tag=' + 'md_end' + ' team=' + $T.id + ' name=' + $T.name + ' isactive=' + $T.isactive + ' known=' + $T.knowntoplayer + ' locked=' + $T.isrelationlocked + ' diplomacy_active=' + $T.isdiplomacyactive + ' events_allowed=' + $T.arediplomacyeventsallowed + ' team_to_player=' + $T.relationto.{faction.player} + ' player_to_team=' + faction.player.relationto.{$T} + ' tags=' + (@$T.tags)" filter="general" context="false"/>
+        </do_for_each>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S11.2: lock semantics ===================================================== -->
+    <!-- One action block, so (d) reads back in the same frame. Originals are restored at the end. The player faction is locked
+         only inside this block (step f) and unlocked again in the same block and once more by the child cue. -->
+    <cue name="Diplo2_Run" instantiate="true" namespace="this">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo2'"/>
+      </conditions>
+      <actions>
+        <set_value name="$T1" exact="faction.x4mp_team_1"/>
+        <set_value name="$P" exact="faction.player"/>
+        <set_value name="$A" exact="faction.argon"/>
+        <set_value name="md.$X4MP_DiploLogN" exact="0"/>
+        <set_value name="md.$X4MP_DiploLog" exact="true"/>
+        <set_faction_active faction="$T1" active="true"/>
+        <set_value name="$WasLocked" exact="$T1.isrelationlocked"/>
+        <set_value name="$O_T1P" exact="$T1.relationto.{$P}"/>
+        <set_value name="$O_PT1" exact="$P.relationto.{$T1}"/>
+        <set_value name="$O_T1A" exact="$T1.relationto.{$A}"/>
+        <set_value name="$O_AT1" exact="$A.relationto.{$T1}"/>
+        <set_value name="$O_PA" exact="$P.relationto.{$A}"/>
+        <set_value name="$O_AP" exact="$A.relationto.{$P}"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_originals team1_was_locked=' + $WasLocked + ' t1_to_player=' + $O_T1P + ' player_to_t1=' + $O_PT1 + ' t1_to_argon=' + $O_T1A + ' argon_to_t1=' + $O_AT1 + ' player_to_argon=' + $O_PA + ' argon_to_player=' + $O_AP" filter="general" context="false"/>
+
+        <!-- baseline: unlock, set known values, lock with a reason -->
+        <set_faction_relation_locked faction="$T1" locked="false"/>
+        <set_faction_relation faction="$T1" otherfaction="$P" value="0.5"/>
+        <set_faction_relation faction="$P" otherfaction="$T1" value="0.5"/>
+        <set_faction_relation faction="$T1" otherfaction="$A" value="0.1"/>
+        <set_faction_relation faction="$A" otherfaction="$T1" value="0.1"/>
+        <set_faction_relation_locked faction="$T1" locked="true" reason="'Managed by the X4MP session (spike test)'" shortreason="'X4MP managed'"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=baseline_team1_player (wanted 0.5/0.5) ' + $T1.id + '_to_' + $P.id + '=' + $T1.relationto.{$P} + ' ' + $P.id + '_to_' + $T1.id + '=' + $P.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=baseline_team1_argon (wanted 0.1/0.1) ' + $T1.id + '_to_' + $A.id + '=' + $T1.relationto.{$A} + ' ' + $A.id + '_to_' + $T1.id + '=' + $A.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+
+        <!-- (a) player to team 1 while team 1 is locked -->
+        <set_faction_relation faction="$P" otherfaction="$T1" value="0.1"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=a_set_player_to_team1_0.1_while_team1_locked ' + $T1.id + '_to_' + $P.id + '=' + $T1.relationto.{$P} + ' ' + $P.id + '_to_' + $T1.id + '=' + $P.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+        <!-- (b) team 1 to argon while team 1 is locked -->
+        <set_faction_relation faction="$T1" otherfaction="$A" value="0.5"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=b_set_team1_to_argon_0.5_while_team1_locked ' + $T1.id + '_to_' + $A.id + '=' + $T1.relationto.{$A} + ' ' + $A.id + '_to_' + $T1.id + '=' + $A.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+        <!-- (c) add_faction_relation team 1 to argon while team 1 is locked -->
+        <add_faction_relation faction="$T1" otherfaction="$A" value="0.05" reason="relationchangereason.missioncompleted"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=c_add_team1_to_argon_0.05_while_team1_locked ' + $T1.id + '_to_' + $A.id + '=' + $T1.relationto.{$A} + ' ' + $A.id + '_to_' + $T1.id + '=' + $A.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+        <!-- (d) unlock + set + relock in one action block, read back the same frame -->
+        <set_faction_relation_locked faction="$T1" locked="false"/>
+        <set_faction_relation faction="$T1" otherfaction="$A" value="0.2"/>
+        <set_faction_relation faction="$A" otherfaction="$T1" value="0.2"/>
+        <set_faction_relation_locked faction="$T1" locked="true" reason="'Managed by the X4MP session (spike test)'" shortreason="'X4MP managed'"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=d_unlock_set_0.2_relock_same_frame ' + $T1.id + '_to_' + $A.id + '=' + $T1.relationto.{$A} + ' ' + $A.id + '_to_' + $T1.id + '=' + $A.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+
+        <!-- (f) with the PLAYER faction locked: add_faction_relation player to argon. Locked and unlocked inside this block. -->
+        <set_faction_relation_locked faction="$P" locked="true"/>
+        <add_faction_relation faction="$P" otherfaction="$A" value="0.01" reason="relationchangereason.missioncompleted"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=f_add_player_to_argon_0.01_while_PLAYER_locked ' + $P.id + '_to_' + $A.id + '=' + $P.relationto.{$A} + ' ' + $A.id + '_to_' + $P.id + '=' + $A.relationto.{$P} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+        <set_faction_relation_locked faction="$P" locked="false"/>
+        <set_faction_relation faction="$P" otherfaction="$A" value="$O_PA"/>
+        <set_faction_relation faction="$A" otherfaction="$P" value="$O_AP"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=f_player_unlocked_and_restored ' + $P.id + '_to_' + $A.id + '=' + $P.relationto.{$A} + ' ' + $A.id + '_to_' + $P.id + '=' + $A.relationto.{$P} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+
+        <!-- restore everything -->
+        <set_faction_relation_locked faction="$T1" locked="false"/>
+        <set_faction_relation faction="$T1" otherfaction="$P" value="$O_T1P"/>
+        <set_faction_relation faction="$P" otherfaction="$T1" value="$O_PT1"/>
+        <set_faction_relation faction="$T1" otherfaction="$A" value="$O_T1A"/>
+        <set_faction_relation faction="$A" otherfaction="$T1" value="$O_AT1"/>
+        <do_if value="$WasLocked">
+          <set_faction_relation_locked faction="$T1" locked="true" reason="'Managed by the X4MP session (spike test)'" shortreason="'X4MP managed'"/>
+        </do_if>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=restored_team1_player ' + $T1.id + '_to_' + $P.id + '=' + $T1.relationto.{$P} + ' ' + $P.id + '_to_' + $T1.id + '=' + $P.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_step step=restored_team1_argon ' + $T1.id + '_to_' + $A.id + '=' + $T1.relationto.{$A} + ' ' + $A.id + '_to_' + $T1.id + '=' + $A.relationto.{$T1} + ' team1_locked=' + $T1.isrelationlocked + ' player_locked=' + $P.isrelationlocked" filter="general" context="false"/>
+      </actions>
+      <cues>
+        <!-- keep the relation-changed loggers on a few seconds longer (events may arrive a frame later), then switch off -->
+        <cue name="Diplo2_End">
+          <delay exact="5s"/>
+          <actions>
+            <set_faction_relation_locked faction="faction.player" locked="false" comment="safety: never leave the player faction locked"/>
+            <set_value name="md.$X4MP_DiploLog" exact="false"/>
+            <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo2_done relation_events_logged=' + md.$X4MP_DiploLogN + ' player_locked_now=' + faction.player.isrelationlocked + ' team1_locked_now=' + faction.x4mp_team_1.isrelationlocked" filter="general" context="false"/>
+          </actions>
+        </cue>
+      </cues>
+    </cue>
+
+    <!-- ===================================================== S11.3: diplomacy activation of a mod faction ===================================================== -->
+    <cue name="Diplo3_On" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo3_on'"/>
+      </conditions>
+      <actions>
+        <set_faction_active faction="faction.x4mp_team_2" active="true"/>
+        <set_faction_diplomacy_active faction="faction.x4mp_team_2" active="true"/>
+        <set_faction_diplomacy_events_allowed faction="faction.x4mp_team_2" allow="true"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo3_flags_set active=true events_allowed=true age=' + player.age" filter="general" context="false"/>
+                <debug_text text="'[X4MP-SPIKE] S11 INFO what=team_state tag=' + 'on_immediately' + ' team=' + faction.x4mp_team_2.id + ' name=' + faction.x4mp_team_2.name + ' isactive=' + faction.x4mp_team_2.isactive + ' known=' + faction.x4mp_team_2.knowntoplayer + ' locked=' + faction.x4mp_team_2.isrelationlocked + ' diplomacy_active=' + faction.x4mp_team_2.isdiplomacyactive + ' events_allowed=' + faction.x4mp_team_2.arediplomacyeventsallowed + ' team_to_player=' + faction.x4mp_team_2.relationto.{faction.player} + ' player_to_team=' + faction.player.relationto.{faction.x4mp_team_2} + ' tags=' + (@faction.x4mp_team_2.tags)" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Diplo3_Off" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo3_off'"/>
+      </conditions>
+      <actions>
+        <set_faction_diplomacy_active faction="faction.x4mp_team_2" active="false"/>
+        <set_faction_diplomacy_events_allowed faction="faction.x4mp_team_2" allow="false"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo3_flags_set active=false events_allowed=false age=' + player.age" filter="general" context="false"/>
+                <debug_text text="'[X4MP-SPIKE] S11 INFO what=team_state tag=' + 'off_immediately' + ' team=' + faction.x4mp_team_2.id + ' name=' + faction.x4mp_team_2.name + ' isactive=' + faction.x4mp_team_2.isactive + ' known=' + faction.x4mp_team_2.knowntoplayer + ' locked=' + faction.x4mp_team_2.isrelationlocked + ' diplomacy_active=' + faction.x4mp_team_2.isdiplomacyactive + ' events_allowed=' + faction.x4mp_team_2.arediplomacyeventsallowed + ' team_to_player=' + faction.x4mp_team_2.relationto.{faction.player} + ' player_to_team=' + faction.player.relationto.{faction.x4mp_team_2} + ' tags=' + (@faction.x4mp_team_2.tags)" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Diplo3_Log" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo3_log'"/>
+      </conditions>
+      <actions>
+                <debug_text text="'[X4MP-SPIKE] S11 INFO what=team_state tag=' + event.param3 + ' team=' + faction.x4mp_team_2.id + ' name=' + faction.x4mp_team_2.name + ' isactive=' + faction.x4mp_team_2.isactive + ' known=' + faction.x4mp_team_2.knowntoplayer + ' locked=' + faction.x4mp_team_2.isrelationlocked + ' diplomacy_active=' + faction.x4mp_team_2.isdiplomacyactive + ' events_allowed=' + faction.x4mp_team_2.arediplomacyeventsallowed + ' team_to_player=' + faction.x4mp_team_2.relationto.{faction.player} + ' player_to_team=' + faction.player.relationto.{faction.x4mp_team_2} + ' tags=' + (@faction.x4mp_team_2.tags)" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo3_vanilla_check_cue tag=' + event.param3 + ' (vanilla Diplomacy_ActiveFactionCheck runs every 30 s and only touches factions in its table; teams are not in it) age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S11.4: custom diplomacy content (library diff) ===================================================== -->
+    <cue name="Diplo4_Run" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo4'"/>
+      </conditions>
+      <actions>
+        <set_faction_active faction="faction.x4mp_team_1" active="true"/>
+        <set_faction_active faction="faction.x4mp_team_2" active="true"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo4_agents agent_feature=' + (@player.entity.$x4ep1_diplomacy_agent) + ' interference_feature=' + (@player.entity.$x4ep1_diplomacy_interference) + ' agents_max=' + (@player.agents.max) + ' agents_capacity=' + (@player.agents.capacity) + ' agents_free=' + (@player.agents.free) + ' agents_listed=' + (@player.agents.list.count) + ' headquarters=' + (@player.headquarters.knownname) + ' (no agents or no HQ: the action part (a) is skipped by the user, the event part (b) still runs)'" filter="general" context="false"/>
+        <!-- (b) the custom event, no agent (Protocol Null passes a null agent the same way, md/diplomacy.xml:7834). Vanilla's own
+             DiplomaticEvent_Started cue (md/diplomacy.xml:7472) reacts to every event id and concludes it after its duration (180 s),
+             applying the chosen option's relation to team 1 and team 2. That is part of what is being observed. -->
+        <create_diplomacy_event_operation result="$EventOp" event="'x4mp_test_treaty'" agent="null" faction="faction.x4mp_team_1" otherfaction="faction.x4mp_team_2" owner="faction.player"/>
+        <do_if value="$EventOp">
+          <set_value name="md.$X4MP_DiploEventOp" exact="$EventOp"/>
+          <start_diplomacy_event_operation operation="$EventOp"/>
+          <debug_text text="'[X4MP-SPIKE] S11 PASS what=diplo4_event_created event=' + (@$EventOp.event.id) + ' faction=' + (@$EventOp.faction.id) + ' otherfaction=' + (@$EventOp.otherfaction.id) + ' team1_to_team2=' + faction.x4mp_team_1.relationto.{faction.x4mp_team_2} + ' interference_feature_now=' + (@player.entity.$x4ep1_diplomacy_interference) + ' age=' + player.age" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S11 FAIL what=diplo4_event_created result=null (create_diplomacy_event_operation returned nothing)'" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="Diplo4_End" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo4_end'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Op" exact="@md.$X4MP_DiploEventOp"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo4_end event_operation_still_there=' + (@$Op.exists) + ' team1_to_team2=' + faction.x4mp_team_1.relationto.{faction.x4mp_team_2} + ' team2_to_team1=' + faction.x4mp_team_2.relationto.{faction.x4mp_team_1} + ' team1_locked=' + faction.x4mp_team_1.isrelationlocked + ' diplomacy_excluded_t1_t2=' + faction.x4mp_team_1.isdiplomacyexcluded.{faction.x4mp_team_2} + ' age=' + player.age" filter="general" context="false"/>
+        <remove_value name="md.$X4MP_DiploEventOp"/>
+      </actions>
+    </cue>
+
+    <!-- (a) the test action: started from the Agent Actions tab by the user. Round trip: our cue sees the started event,
+         waits 3 s, completes the operation. No cost, no agent effect. -->
+    <cue name="Diplo4_ActionStarted" instantiate="true" namespace="this">
+      <conditions>
+        <event_diplomacy_action_operation_started/>
+        <check_value value="event.param.action.id == 'x4mp_test_action'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Operation" exact="event.param"/>
+        <debug_text text="'[X4MP-SPIKE] S11 PASS what=diplo4_action_started action=' + $Operation.action.id + ' agent=' + (@$Operation.agent.knownname) + ' faction1=' + (@$Operation.action.$faction1.id) + ' faction2=' + (@$Operation.action.$faction2.id) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+      <cues>
+        <cue name="Diplo4_ActionComplete">
+          <delay exact="3s"/>
+          <actions>
+            <complete_diplomacy_action_operation operation="$Operation" success="true" agentresult="agentresult.survived"/>
+            <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo4_action_completed_by_cue age=' + player.age" filter="general" context="false"/>
+          </actions>
+        </cue>
+      </cues>
+    </cue>
+
+    <cue name="Diplo4_EventStartedLog" instantiate="true">
+      <conditions>
+        <event_diplomacy_event_operation_started/>
+        <check_value value="@event.param.event.id == 'x4mp_test_treaty'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo4_event_started_seen event=' + event.param.event.id + ' faction=' + event.param.faction.id + ' otherfaction=' + event.param.otherfaction.id + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Diplo4_OptionChosenLog" instantiate="true">
+      <conditions>
+        <event_diplomacy_event_operation_option_chosen/>
+        <check_value value="@event.param.event.id == 'x4mp_test_treaty'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] S11 PASS what=diplo4_option_chosen option=' + event.param2 + ' agent=' + (@event.param.agent.knownname) + ' (an option was picked, with or without an agent: see agent=) age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Diplo4_EventCompletedLog" instantiate="true">
+      <conditions>
+        <event_diplomacy_event_operation_completed/>
+        <check_value value="@event.param.event.id == 'x4mp_test_treaty'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo4_event_completed outcome=' + event.param2 + ' team1_to_team2=' + faction.x4mp_team_1.relationto.{faction.x4mp_team_2} + ' team1_locked=' + faction.x4mp_team_1.isrelationlocked + ' (vanilla applies the outcome relation with set_faction_relation; if team 1 is locked the value may stay unchanged) age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S11.5: client suppression of NPC diplomacy events ===================================================== -->
+    <!-- The vanilla table md.Diplomacy.Start.$DiplomacyFactionTable (md/diplomacy.xml:37) decides which factions the 30 s check
+         turns events on for. Setting $EventCapable to 'no' is what Diplomacy_ActivateFactionLibrary does (md/diplomacy.xml:600-614),
+         done here directly so DiplomatCapable is not touched. Originals are stored in md.$X4MP_Diplo5Orig* (saved with the game)
+         and restored by diplo5_restore, and after a load if a save was made in between. -->
+    <cue name="Diplo5_On" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo5_on'"/>
+      </conditions>
+      <actions>
+        <do_if value="md.Diplomacy.Start.$DiplomacyFactionTable?">
+          <do_if value="not @md.$X4MP_Diplo5Orig">
+            <set_value name="md.$X4MP_Diplo5Orig" exact="table[]"/>
+            <set_value name="md.$X4MP_Diplo5OrigAllowed" exact="table[]"/>
+            <do_for_each name="$F" valuename="$V" in="md.Diplomacy.Start.$DiplomacyFactionTable">
+              <set_value name="md.$X4MP_Diplo5Orig.{$F}" exact="$V.$EventCapable"/>
+              <set_value name="md.$X4MP_Diplo5OrigAllowed.{$F}" exact="$F.arediplomacyeventsallowed"/>
+            </do_for_each>
+          </do_if>
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo5_flags tag=' + 'before' + ' argon_active=' + faction.argon.isdiplomacyactive + ' argon_events=' + faction.argon.arediplomacyeventsallowed + ' argon_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.argon}.$EventCapable) + ' teladi_active=' + faction.teladi.isdiplomacyactive + ' teladi_events=' + faction.teladi.arediplomacyeventsallowed + ' teladi_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.teladi}.$EventCapable) + ' paranid_active=' + faction.paranid.isdiplomacyactive + ' paranid_events=' + faction.paranid.arediplomacyeventsallowed + ' paranid_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.paranid}.$EventCapable) + ' age=' + player.age" filter="general" context="false"/>
+          <do_for_each name="$F" valuename="$V" in="md.Diplomacy.Start.$DiplomacyFactionTable">
+            <set_value name="md.Diplomacy.Start.$DiplomacyFactionTable.{$F}.$EventCapable" exact="'no'"/>
+            <set_faction_diplomacy_events_allowed faction="$F" allow="false"/>
+          </do_for_each>
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo5_flags tag=' + 'after_set' + ' argon_active=' + faction.argon.isdiplomacyactive + ' argon_events=' + faction.argon.arediplomacyeventsallowed + ' argon_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.argon}.$EventCapable) + ' teladi_active=' + faction.teladi.isdiplomacyactive + ' teladi_events=' + faction.teladi.arediplomacyeventsallowed + ' teladi_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.teladi}.$EventCapable) + ' paranid_active=' + faction.paranid.isdiplomacyactive + ' paranid_events=' + faction.paranid.arediplomacyeventsallowed + ' paranid_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.paranid}.$EventCapable) + ' age=' + player.age" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S11 FAIL what=diplo5_on result=vanilla_DiplomacyFactionTable_not_found (md.Diplomacy.Start missing: story/diplomacy feature not set up in this save)'" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="Diplo5_Log" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo5_log'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo5_flags tag=' + event.param3 + ' argon_active=' + faction.argon.isdiplomacyactive + ' argon_events=' + faction.argon.arediplomacyeventsallowed + ' argon_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.argon}.$EventCapable) + ' teladi_active=' + faction.teladi.isdiplomacyactive + ' teladi_events=' + faction.teladi.arediplomacyeventsallowed + ' teladi_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.teladi}.$EventCapable) + ' paranid_active=' + faction.paranid.isdiplomacyactive + ' paranid_events=' + faction.paranid.arediplomacyeventsallowed + ' paranid_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.paranid}.$EventCapable) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Diplo5_Restore" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo5_restore'"/>
+      </conditions>
+      <actions>
+        <do_if value="@md.$X4MP_Diplo5Orig">
+          <do_for_each name="$F" valuename="$V" in="md.$X4MP_Diplo5Orig">
+            <do_if value="md.Diplomacy.Start.$DiplomacyFactionTable?">
+              <set_value name="md.Diplomacy.Start.$DiplomacyFactionTable.{$F}.$EventCapable" exact="$V"/>
+            </do_if>
+          </do_for_each>
+          <do_for_each name="$F" valuename="$V" in="md.$X4MP_Diplo5OrigAllowed">
+            <set_faction_diplomacy_events_allowed faction="$F" allow="$V"/>
+          </do_for_each>
+          <remove_value name="md.$X4MP_Diplo5Orig"/>
+          <remove_value name="md.$X4MP_Diplo5OrigAllowed"/>
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo5_restored age=' + player.age" filter="general" context="false"/>
+        </do_if>
+
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo5_flags tag=' + 'after_restore' + ' argon_active=' + faction.argon.isdiplomacyactive + ' argon_events=' + faction.argon.arediplomacyeventsallowed + ' argon_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.argon}.$EventCapable) + ' teladi_active=' + faction.teladi.isdiplomacyactive + ' teladi_events=' + faction.teladi.arediplomacyeventsallowed + ' teladi_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.teladi}.$EventCapable) + ' paranid_active=' + faction.paranid.isdiplomacyactive + ' paranid_events=' + faction.paranid.arediplomacyeventsallowed + ' paranid_capable=' + (@md.Diplomacy.Start.$DiplomacyFactionTable.{faction.paranid}.$EventCapable) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- a save made during the 70 s window would carry the changed table: restore after every load -->
+    <cue name="Diplo5_LoadRecover" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <delay exact="6s"/>
+      <actions>
+        <do_if value="@md.$X4MP_Diplo5Orig">
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo5_recover_after_load note=a_save_was_made_while_diplo5_was_active'" filter="general" context="false"/>
+        </do_if>
+        <do_if value="@md.$X4MP_Diplo5Orig">
+          <do_for_each name="$F" valuename="$V" in="md.$X4MP_Diplo5Orig">
+            <do_if value="md.Diplomacy.Start.$DiplomacyFactionTable?">
+              <set_value name="md.Diplomacy.Start.$DiplomacyFactionTable.{$F}.$EventCapable" exact="$V"/>
+            </do_if>
+          </do_for_each>
+          <do_for_each name="$F" valuename="$V" in="md.$X4MP_Diplo5OrigAllowed">
+            <set_faction_diplomacy_events_allowed faction="$F" allow="$V"/>
+          </do_for_each>
+          <remove_value name="md.$X4MP_Diplo5Orig"/>
+          <remove_value name="md.$X4MP_Diplo5OrigAllowed"/>
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo5_restored age=' + player.age" filter="general" context="false"/>
+        </do_if>
+
+        <!-- safety for diplo2: never leave the player faction relation-locked after a load -->
+        <do_if value="faction.player.isrelationlocked">
+          <set_faction_relation_locked faction="faction.player" locked="false"/>
+          <debug_text text="'[X4MP-SPIKE] S11 INFO what=player_faction_unlocked_after_load'" filter="general" context="false"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S11.7: NPC-NPC relation change detection ===================================================== -->
+    <cue name="Diplo7_Run" instantiate="true" namespace="this">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'diplo7'"/>
+      </conditions>
+      <actions>
+        <set_value name="$A" exact="faction.argon"/>
+        <set_value name="$B" exact="faction.teladi"/>
+        <set_value name="$P" exact="faction.player"/>
+        <set_value name="$O_AB" exact="$A.relationto.{$B}"/>
+        <set_value name="$O_BA" exact="$B.relationto.{$A}"/>
+        <set_value name="$O_PA" exact="$P.relationto.{$A}"/>
+        <set_value name="md.$X4MP_DiploLogN" exact="0"/>
+        <set_value name="md.$X4MP_DiploLog" exact="true"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo7_originals argon_to_teladi=' + $O_AB + ' teladi_to_argon=' + $O_BA + ' player_to_argon=' + $O_PA + ' argon_locked=' + $A.isrelationlocked + ' teladi_locked=' + $B.isrelationlocked" filter="general" context="false"/>
+        <!-- NPC to NPC: argon to teladi, one step away from the original, then restore -->
+        <set_value name="$NewAB" exact="if $O_AB lt 0.9 then $O_AB + 0.01 else $O_AB - 0.01"/>
+        <set_faction_relation faction="$A" otherfaction="$B" value="$NewAB"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo7_npc_changed wanted=' + $NewAB + ' argon_to_teladi_now=' + $A.relationto.{$B} + ' teladi_to_argon_now=' + $B.relationto.{$A}" filter="general" context="false"/>
+        <set_faction_relation faction="$A" otherfaction="$B" value="$O_AB"/>
+        <set_faction_relation faction="$B" otherfaction="$A" value="$O_BA"/>
+        <!-- player side: player to argon, one step, then restore (does event_player_relation_changed fire as well?) -->
+        <set_value name="$NewPA" exact="if $O_PA lt 0.9 then $O_PA + 0.01 else $O_PA - 0.01"/>
+        <set_faction_relation faction="$P" otherfaction="$A" value="$NewPA"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo7_player_changed wanted=' + $NewPA + ' player_to_argon_now=' + $P.relationto.{$A}" filter="general" context="false"/>
+        <set_faction_relation faction="$P" otherfaction="$A" value="$O_PA"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo7_restored argon_to_teladi=' + $A.relationto.{$B} + ' teladi_to_argon=' + $B.relationto.{$A} + ' player_to_argon=' + $P.relationto.{$A}" filter="general" context="false"/>
+      </actions>
+      <cues>
+        <cue name="Diplo7_End">
+          <delay exact="5s"/>
+          <actions>
+            <set_value name="md.$X4MP_DiploLog" exact="false"/>
+            <debug_text text="'[X4MP-SPIKE] S11 INFO what=diplo7_done relation_events_logged=' + md.$X4MP_DiploLogN" filter="general" context="false"/>
+          </actions>
+        </cue>
+      </cues>
+    </cue>
+
+    <!-- relation-change loggers, active only while md.$X4MP_DiploLog is set by diplo2 / diplo7, at most 80 lines per run -->
+    <cue name="Diplo_FactionRelationChangedLog" instantiate="true">
+      <conditions>
+        <event_faction_relation_changed/>
+        <check_value value="@md.$X4MP_DiploLog and md.$X4MP_DiploLogN lt 80"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_DiploLogN" operation="add"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=event_faction_relation_changed n=' + md.$X4MP_DiploLogN + ' faction=' + (@event.param.id) + ' otherfaction=' + (@event.param2.id) + ' new=' + (@event.param3.{1}) + ' old=' + (@event.param3.{2}) + ' reason=' + (@event.param3.{3}) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Diplo_PlayerRelationChangedLog" instantiate="true">
+      <conditions>
+        <event_player_relation_changed/>
+        <check_value value="@md.$X4MP_DiploLog and md.$X4MP_DiploLogN lt 80"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_DiploLogN" operation="add"/>
+        <debug_text text="'[X4MP-SPIKE] S11 INFO what=event_player_relation_changed n=' + md.$X4MP_DiploLogN + ' faction=' + (@event.param.id) + ' new=' + (@event.param2.{1}) + ' old=' + (@event.param2.{2}) + ' reason=' + (@event.param3) + ' object_is_null=' + (not event.object) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

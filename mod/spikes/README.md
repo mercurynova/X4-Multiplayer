@@ -346,3 +346,77 @@ Log keys (step in front, `k=v` pairs):
 | `MONEY INFO what=lua_GetPlayerMoney stage= value= delta=` and `what=md_player_money stage= player_money= credits=` | C6 Lua and MD views |
 | `V12 INFO what=set_on_ship / set_on_station ... *_readback=`; `V12 PASS/FAIL what=verify_ship_via_md_global_ref / verify_ship_found_by_search / verify_station` | V12 |
 | `S9 MEASURE what=gate_retest inactive_gates=`; `S9 INFO what=gate_before ...`; `S9 PASS/INFO what=gate_after_set_object_active`; `S9 PASS/FAIL what=gate_active_survived_reload` | S9 gate |
+
+---
+
+# Blocks `diplo1`..`diplo7` (S11) and `hq1`..`hq8`, `hq3d` (S12) (task M2-004)
+
+Files: `ui/x4mp_spike_diplo.lua` + `md/x4mp_spike_diplo.xml` + `libraries/diplomacy.xml` (a `<diff>` that adds one agent action
+`x4mp_test_action` "X4MP test action" and one diplomatic event `x4mp_test_treaty` "X4MP test treaty"; validated against
+`libraries/diplomacy.xsd` after applying it to the vanilla file); `ui/x4mp_spike_hq.lua` + `md/x4mp_spike_hq.xml`.
+Procedures: [docs/research/diplomacy.md](../../docs/research/diplomacy.md) section 7 and
+[docs/research/team-hq-research.md](../../docs/research/team-hq-research.md) section 6; user script
+[docs/in-game-session-2.md](../../docs/in-game-session-2.md) part E. Lua drives timing and notifications and starts the MD
+controls with `S.toMD`; MD does the state changes, the same-frame readbacks and the listeners. Log step `S11` / `S12`.
+Use throwaway saves (the blocks marked **changes the game** are reverted by the block where possible, but not all).
+
+| Block | Step | Save | Does | Changes the game |
+|---|---|---|---|---|
+| `diplo1` | S11.1 | A | activates `x4mp_team_1..3`, names "X4MP Team k", relations to the player (+0.8, -0.5, 0), locks team 1 with a reason, known flags: part 1 team 3 unknown, part 2 (notification "diplo1: part 2") teams 1+2 unknown and team 3 known, then all known. Team 4 stays inactive as a control. The `hidden` faction tag variation is not done (it needs `libraries/factions.xml`, owned by M2-001); known/unknown is used instead | yes: stays (teams active, relations, team 1 locked) |
+| `diplo2` | S11.2 | any | (a) player to team 1, (b) team 1 to argon, (c) `add_faction_relation`, all while team 1 is locked; (d) unlock + set + relock in one block; (f) `add_faction_relation` while the **player** faction is locked (locked and unlocked inside one action block, unlocked again by a child cue and after any load); (e) relation-changed events logged | relations restored; briefly changes them |
+| `diplo3` | S11.3 | any | team 2 `set_faction_diplomacy_active` + `_events_allowed` true, 70 s, log, both false, 70 s, log ("diplo3: part 2" in between). Do not pause (vanilla's 30 s check runs in game time) | on then off |
+| `diplo4` | S11.4 | any | lists `x4mp_test_action` / `x4mp_test_treaty` as the menu sees them (Lua FFI), `create_diplomacy_event_operation` team 1 vs team 2 with `agent=null`; always-on cues log the started / option chosen / completed events of the test event and complete the test action 3 s after the user starts it. Vanilla's own `DiplomaticEvent_Started` cue (md/diplomacy.xml:7472) reacts to every event id: the event concludes after 180 s and may set the team 1/team 2 relation (a result in itself) | yes: starts an event, sets the `x4ep1_diplomacy_interference` flag (shows the Diplomatic Events tab) |
+| `diplo5` | S11.5 | any | stores the vanilla `$EventCapable` values and events-allowed flags, sets all `no` / false for 70 s, logs argon/teladi/paranid, restores (also after a load if a save was made meanwhile) | restored |
+| `diplo6` | S11.6 | any | injects a button (tooltip "Teams (test)", orange icon) into `DiplomacyMenu`: method A adds an entry to `config.leftBar` found through `require("debug").getupvalue` on `menu.createLeftBar`; method B wraps `createLeftBar` and adds its own button table. `menu.createInfoFrame` is wrapped to draw a one-table page for mode `x4mp_teams`. Lua only; gone after `/reloadui` | no |
+| `diplo7` | S11.7 | any | argon-teladi and player-argon changed by 0.01 and restored; `event_faction_relation_changed` and `event_player_relation_changed` logged | restored |
+| `diplo_look` | helper | any | Lua view of the four test teams | no |
+| `hq1` | S12.1 | A | MD: `player.headquarters`, flags, `UnlockResearch.state`, active research; Lua: all research wares with `HasResearched` and `IsKnownItem("researchables")`, completed list, `CanResearch`, `GetHQs`, research modules | no |
+| `hq2` | S12.2 | A | `research_teleportation` granted and revoked (both ways, 2 s apart, with `event_player_research_unlocked` logging), `research_mod_weapon_mk1` granted 120 s (workbench check), `research_module_dock` granted 120 s (data-leak scans), 120 s for the user's start/cancel test, then `research_teleportation` is **left flipped** as a save/reload marker; 15 s after the next load MD logs PASS/FAIL and restores. `hq2 restore=1` restores without reloading | yes, reverted (the marker until the reload) |
+| `hq3` | S12.3 a-c | A | owner of the player HQ to team 1 (+90 s: `set_faction_headquarters`, then unset, then owner back to the player, +40 s research check). Refuses when you are at the HQ. `hq3 restore=1` and a load-time cue hand the HQ back | yes, reverted (**ownership of your HQ**) |
+| `hq3d` | S12.3 d | B | spawns a team-2 HQ and (unless `noplayer=1`) a player-owned HQ 12 km to your sides, `GetHQs` / `find_station_by_true_owner` counts; stores references in `md.$X4MP_S12_Hq3dTeam2/Player`. Needs a ship in space | yes: stays (two stations; the player copy can interact with the HQ plot) |
+| `hq4` | S12.4 | B (after `hq3d`) | Lua `SetComponentOwner(hq, "player")` on the team-2 HQ, user opens the research menu (do not press Start), 90 s later back to team 2; marker + load-time recovery | yes, reverted |
+| `hq5` | S12.5 | B (after `hq3d`) | `C.StartResearch` on a research module of the team-2 HQ (first startable ware), logs the module after 60 s, then `ClearProductionItems` | yes, cleared |
+| `hq6` | S12.6 | any | `player.blueprints...any.exists` before/after `add_blueprints` for a module ware the player lacks; documents that no remove path exists. **The team construction half (build on a team station without the player blueprint) is not automated** (needs a team station with a build storage and builder ships) | yes: blueprint stays |
+| `hq7` | S12.7 | any | `add_licence` / `remove_licence` on `x4mp_team_1` (argon `station_gen_basic`, `generaluseship`) with `haslicence` / `heldlicences` readbacks | restored |
+| `hq8` | S12.8 | B (with an HQ) | `add_research research_teleportation` + `add_encyclopedia_entry` (researchables) for it and `research_teleportation_range_01`, 90 s, reverted | yes, reverted |
+| `hq_read` | helper | any | Lua view of the research state (`hq_read tag=x ware=research_teleportation`) | no |
+| `hq4_go`, `hq5_go` | internal | | started by the MD cues after they hand over the HQ (`x4mp_spike.hq_obj`) | |
+
+Persisted in the save (md.$ globals): `X4MP_DiploEventOp`, `X4MP_Diplo5Orig`, `X4MP_Diplo5OrigAllowed`, `X4MP_S12_Mark`,
+`X4MP_S12_MarkExpected`, `X4MP_S12_MarkOrig`, `X4MP_S12_Hq3Pending`, `X4MP_S12_Hq4Pending`, `X4MP_S12_Hq3dTeam2`, `X4MP_S12_Hq3dPlayer`.
+Transient flags: `md.$X4MP_DiploLog`, `md.$X4MP_DiploLogN` (relation event loggers on/count), `md.$X4MP_HqLog` (research event logger).
+
+Log keys (step `S11` or `S12`, `what=` first; MD lines are written by `debug_text`, `lua_*` ones by Lua):
+
+| Line (`S11`) | Meaning |
+|---|---|
+| `what=team_state tag= team= name= isactive= known= locked= diplomacy_active= events_allowed= team_to_player= player_to_team= tags=` | MD view of a team, one line per team and tag (`md_part1`, `md_part2`, `md_end`, `on_immediately`, `after_70s_on`, ...) |
+| `what=lua_library tag= GetLibrary_factions_ok= count=` and `what=lua_view tag= team= listed_at_index= name= diplomacy_active= relation_locked= lock_short_reason= relation_range=` | what the Factions tab reads (`listed_at_index=0`: not in `GetLibrary("factions")`, i.e. not listed) |
+| `what=diplo1_setup_done` / `diplo1_part2` / `diplo1_end` | S11.1 variations |
+| `what=diplo2_originals`, `what=diplo2_step step=<a..f/restored> <from>_to_<to>= ...` (both directions, plus `team1_locked`, `player_locked`) | S11.2: compare each step with the baseline (unchanged = the lock blocked it) |
+| `what=diplo2_done relation_events_logged= player_locked_now=` | end of S11.2 |
+| `what=event_faction_relation_changed n= faction= otherfaction= new= old= reason=`, `what=event_player_relation_changed n= faction= new= old= reason= object_is_null=` | relation events, only while diplo2 / diplo7 run (80 lines max) |
+| `what=diplo3_flags_set`, `what=diplo3_vanilla_check_cue tag=` | S11.3 |
+| `what=diplo4_agents ...`, `PASS what=diplo4_event_created`, `what=diplo4_event_started_seen`, `PASS what=diplo4_option_chosen option= agent=`, `what=diplo4_event_completed outcome= team1_to_team2= team1_locked=`, `what=diplo4_end event_operation_still_there= ...`, `PASS what=diplo4_action_started`, `what=diplo4_action_completed_by_cue` | S11.4; an empty `agent=` on `option_chosen` means an option could be chosen without an agent |
+| `what=lua_actions_listed x4mp_test_action_present= hidden=`, `what=lua_events_listed x4mp_test_treaty_present= active_event_operations=` | the engine's diplomacy lists (Lua FFI) |
+| `what=diplo5_flags tag=<before/after_set/after_70s/after_restore> argon_active= argon_events= argon_capable= ...`, `what=diplo5_restored`, `what=diplo5_recover_after_load` | S11.5 |
+| `what=diplo6_menu_found ...`, `what=diplo6_require_debug`, `what=diplo6_config_upvalue`, `PASS/FAIL what=diplo6_installed method=`, `PASS what=diplo6_teams_tab_drawn rows=`, `FAIL what=diplo6_draw_error err=` | S11.6 |
+| `what=diplo7_originals`, `what=diplo7_npc_changed`, `what=diplo7_player_changed`, `what=diplo7_restored`, `what=diplo7_done relation_events_logged=` | S11.7 |
+| `what=player_faction_unlocked_after_load` | safety cue found the player faction locked after a load (should never appear) |
+
+| Line (`S12`) | Meaning |
+|---|---|
+| `what=md_player_headquarters`, `md_faction_headquarters`, `md_hq_research_flags`, `md_active_research`, `md_ware_unlocked` | hq1 MD view |
+| `what=lua_research_wares total= completed= known_in_encyclopedia= known_not_completed=`, `lua_research_completed list=`, `lua_research_known_not_completed list=` | hq1: compare the list with the research menu |
+| `what=lua_can_research`, `lua_get_hqs player_count= player_hqs=<id(owner)> team1_count= team2_count=`, `lua_research_modules`, `lua_research_module state= blueprintware= cycleprogress=`, `lua_ware_state ware= HasResearched= IsKnownItem_researchables= CanTeleportPlayerTo_own_ship=` | Lua views, repeated with a `tag=` at each step |
+| `what=md_add_research` / `md_remove_research ware= unlocked_before= unlocked_after=`, `what=event_player_research_unlocked ware=`, `what=md_add_encyclopedia_entry` / `md_remove_encyclopedia_entry` | S12.2 / S12.8 primitives |
+| `what=hq2_marker_set`, `PASS/FAIL what=hq2_state_survived_save_load`, `what=hq2_marker_restored(_after_load)` | S12.2 persistence |
+| `what=hq3_refused reason=`, `hq3_before`, `hq3_a_set_owner_team1`, `hq3_b_set_faction_headquarters`, `hq3_b_unset`, `hq3_c_owner_back_to_player`, `hq3_c_research_after_40s`, `hq3_restored`, `hq3_recovered_after_load`, `hq4_recovered_after_load` | S12.3 a-c |
+| `what=hq3d_before`, `PASS what=hq3d_team2_hq_created`, `hq3d_team2_set_faction_headquarters`, `PASS what=hq3d_player_hq_created`, `what=hq3d_after hq_macro_stations_in_galaxy= found_by_true_owner_player= found_by_true_owner_team2=` | S12.3 d |
+| `what=hq4_handing_hq_to_lua`, `PASS/FAIL what=hq4_SetComponentOwner_player owner_before= owner_after=`, `hq4_SetComponentOwner_team2`, `hq4_md_after_reown` | S12.4 |
+| `what=hq5_research_modules_of_team2_hq count=`, `hq5_nothing_to_start note=`, `PASS/FAIL what=hq5_StartResearch_called`, `lua_research_module tag=hq5_after_60s`, `hq5_md_research`, `hq5_cleared` | S12.5 |
+| `PASS/FAIL what=hq6_add_blueprints ware= player_had_before= player_has_after=`, `hq6_remove_path`, `hq6_team_construction result=not_automated` | S12.6 |
+| `what=hq7_before`, `PASS/FAIL what=hq7_added`, `PASS/FAIL what=hq7_removed_restored` | S12.7 |
+| `what=hq8_before`, `PASS/FAIL what=hq8_after_reveal`, `what=hq8_reverted` | S12.8 |
+
+Greps: `[X4MP-SPIKE] S11`, `[X4MP-SPIKE] S12`, `[X4MP-SPIKE] S1[12] FAIL`.
