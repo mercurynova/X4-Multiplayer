@@ -110,7 +110,7 @@ public sealed class ModsAdminApiTests(AdminServerFixture f) : IClassFixture<Admi
         Assert.True((await StateAsync(Editor)).GetProperty("canEdit").GetBoolean());
         Assert.False((await StateAsync(f.Viewer)).GetProperty("canEdit").GetBoolean());
         var state = await StateAsync();
-        Assert.False(state.GetProperty("saveRequirementsAvailable").GetBoolean());
+        Assert.True(state.GetProperty("saveRequirementsAvailable").GetBoolean());
         Assert.Equal("AuthorityDefines", state.GetProperty("policy").GetProperty("sourceMode").GetString());
         Assert.True(state.GetProperty("policy").GetProperty("version").GetInt64() >= 1);
     }
@@ -232,10 +232,46 @@ public sealed class ModsAdminApiTests(AdminServerFixture f) : IClassFixture<Admi
     }
 
     [Fact]
-    public async Task SaveRequirementsAreNotImplementedYet()
+    public async Task SaveRequirementsListTheSavesPatchesAgainstThePolicy()
     {
-        using var response = await Admin.CallAsync(HttpMethod.Get, Base + "/save-requirements");
-        await response.AssertProblemAsync(HttpStatusCode.NotImplemented, "NotImplemented");
+        // without ?saveId= it describes the session's save (none or unreadable here: an answer, not an error)
+        await SendAsync(Admin, HttpMethod.Get, Base + "/save-requirements");
+
+        var fixture = X4MP.FakeNode.FakeSaveGenerator.CreatePatchedSave(
+            Path.Combine(f.Server.Dir, "scratch"), "patched-api.xml.gz",
+            [("fix_dlc_one", "Fixture DLC One", "900"), ("fix_mod_blocked", "Fixture Blocked", "101"), ("fix_mod_free", "Fixture Free", "2")], fillerBytes: 200_000);
+        using (var complete = await SaveAcceptanceTests.CompleteUploadAsync(Admin, File.ReadAllBytes(fixture.Path), fixture.ShaHex))
+        {
+            Assert.Equal(HttpStatusCode.Created, complete.StatusCode);
+        }
+
+        await SendAsync(Admin, HttpMethod.Put, $"{Base}/entries/fix_dlc_one", new { rule = "Allowed" }, HttpStatusCode.Created);
+        await SendAsync(Admin, HttpMethod.Put, $"{Base}/entries/fix_mod_blocked", new { rule = "Blocked" }, HttpStatusCode.Created);
+        try
+        {
+            var answer = await SendAsync(Admin, HttpMethod.Get, $"{Base}/save-requirements?saveId={fixture.ShaHex.ToUpperInvariant()}");
+            Assert.Equal(fixture.ShaHex, answer.GetProperty("saveSha256").GetString());
+            var rows = answer.GetProperty("patches").EnumerateArray().ToDictionary(p => p.GetProperty("extension").GetString()!);
+            Assert.Equal(["fix_dlc_one", "fix_mod_blocked", "fix_mod_free"], rows.Keys.Order(StringComparer.Ordinal));
+            Assert.Equal("Fixture DLC One", rows["fix_dlc_one"].GetProperty("name").GetString());
+            Assert.Equal("900", rows["fix_dlc_one"].GetProperty("version").GetString());
+            Assert.True(rows["fix_dlc_one"].GetProperty("inPolicy").GetBoolean());
+            Assert.False(rows["fix_dlc_one"].GetProperty("blocked").GetBoolean());
+            Assert.True(rows["fix_mod_blocked"].GetProperty("inPolicy").GetBoolean());
+            Assert.True(rows["fix_mod_blocked"].GetProperty("blocked").GetBoolean());
+            Assert.False(rows["fix_mod_free"].GetProperty("inPolicy").GetBoolean());
+            Assert.False(rows["fix_mod_free"].GetProperty("blocked").GetBoolean());
+        }
+        finally
+        {
+            await SendAsync(Admin, HttpMethod.Delete, $"{Base}/entries/fix_dlc_one", null, HttpStatusCode.NoContent);
+            await SendAsync(Admin, HttpMethod.Delete, $"{Base}/entries/fix_mod_blocked", null, HttpStatusCode.NoContent);
+        }
+
+        using var bad = await Admin.CallAsync(HttpMethod.Get, Base + "/save-requirements?saveId=xyz");
+        await bad.AssertProblemAsync(HttpStatusCode.BadRequest, "ValidationFailed", "saveId");
+        using var missing = await Admin.CallAsync(HttpMethod.Get, $"{Base}/save-requirements?saveId={new string('d', 64)}");
+        await missing.AssertProblemAsync(HttpStatusCode.NotFound, "NotFound");
     }
 
     // ------------------------------------------------------------------ visibility, reports, catalog

@@ -75,6 +75,42 @@ public static class FakeSaveGenerator
         return Describe(path);
     }
 
+    /// <summary>
+    /// A small synthetic save whose header lists <paramref name="patches"/> in a <c>&lt;patches&gt;</c> block (extension id, name, version), as a real save does
+    /// (mod-management 1.4), followed by <paramref name="fillerBytes"/> of repeated text. Never real game data. Deterministic: the same arguments give the same file.
+    /// </summary>
+    public static FakeSaveFile CreatePatchedSave(string directory, string fileName, IReadOnlyList<(string Extension, string Name, string Version)> patches, int fillerBytes = 0)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(directory);
+        ArgumentException.ThrowIfNullOrEmpty(fileName);
+        ArgumentNullException.ThrowIfNull(patches);
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, fileName);
+        var xml = new StringBuilder("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<savegame><info><save name=\"X4MP patched fixture\" date=\"1760000000\"/>");
+        xml.Append("<game id=\"x4mp-fake\" version=\"900\" build=\"611726\"/><player name=\"FakeNode\" location=\"{galaxy}\" money=\"1000\"/></info>");
+        xml.Append("<patches>");
+        foreach (var (extension, name, version) in patches)
+        {
+            xml.Append(CultureInfo.InvariantCulture, $"<patch extension=\"{extension}\" version=\"{version}\" name=\"{name}\"/>");
+        }
+
+        xml.Append("<history><entry time=\"1\" version=\"900\"/></history></patches><universe seed=\"1\">");
+        const string filler = "<filler a=\"0123456789abcdef\"/>";
+        for (int written = 0; written < fillerBytes; written += filler.Length)
+        {
+            xml.Append(filler);
+        }
+
+        xml.Append("</universe></savegame>");
+        using (var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+        using (var gzip = new GZipStream(file, CompressionLevel.Optimal))
+        {
+            gzip.Write(Encoding.UTF8.GetBytes(xml.ToString()));
+        }
+
+        return Describe(path);
+    }
+
     /// <summary>Hashes an existing file.</summary>
     public static FakeSaveFile Describe(string path)
     {

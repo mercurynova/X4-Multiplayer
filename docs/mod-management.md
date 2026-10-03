@@ -527,7 +527,7 @@ always see them; `AllPlayers` lets a Viewer read but never edit.
 | `PUT /api/v1/mods/entries/{extId}` | ModEditor | upsert (201 new, 200 update), omitted fields keep their value; Nexus URL validated, Workshop id derived from `ws_<n>`; also writes `mod_catalog` |
 | `DELETE /api/v1/mods/entries/{extId}` | ModEditor | 204 / 404 |
 | `POST /api/v1/mods/import-from-authority` | ModEditor | `{merge?: true}`; 409 `NoAuthorityReport` |
-| `GET /api/v1/mods/save-requirements` | Viewer | **501** until a `<patches>` reader exists (not built yet) |
+| `GET /api/v1/mods/save-requirements` | Viewer | `?saveId=` (a stored save's SHA-256; default: the session's current checkpoint, else the save chosen at `POST /sessions`) → `SaveRequirementsDto{saveSha256, patches[{extension,name,version,inPolicy,blocked}]}` read by `SavePatchesReader` from the first 64 KB of the gzip'd XML (M2-02); 404 for an unknown `saveId`; `ModsStateDto.saveRequirementsAvailable` is true |
 | `GET /api/v1/mods/catalog`, `PUT /api/v1/mods/catalog/{extId}` | Viewer, ModEditor | |
 | `GET /api/v1/players/{id}/extensions?limit=` | Viewer | newest report in full + history summaries (max 20) |
 
