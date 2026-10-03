@@ -58,12 +58,13 @@ test.describe('mods page', () => {
 
     // A bot that lacks the required Workshop mod is refused; the page shows it live with the install list and the links.
     const refused = bots.start({ command: 'client', name: 'ModBotA', duration: 40, args: ['--extensions-preset', 'mismatch'] });
-    expect(await refused.waitForExit(20_000)).not.toBeNull();
-    
-    expect(refused.output).not.toMatch(IN_GAME);
+    // The refusal's key is bound to no player (an unknown key): the hub pushes it, so it shows within 2 s of the bot learning of it (M2-13; it used to wait for a poll).
+    await refused.waitForLine(/actual=rejected/, 20_000);
     const rejections = panel(page, 'Recent rejections');
     const row = rejections.getByRole('listitem').filter({ hasText: 'ModBotA' });
-    await expect(row).toBeVisible();
+    await expect(row).toBeVisible({ timeout: 2_000 });
+    expect(await refused.waitForExit(20_000)).not.toBeNull();
+    expect(refused.output).not.toMatch(IN_GAME);
     const install = row.getByRole('region', { name: 'Install list' });
     await expect(install).toContainText('Warehouse Fleets');
     await expect(install.getByRole('link', { name: 'Nexus' })).toHaveAttribute('href', NEXUS);

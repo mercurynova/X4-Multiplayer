@@ -233,6 +233,47 @@ describe('player detail', () => {
     expect(JSON.parse(calls.find((c) => c.method === 'PATCH')?.body ?? '{}')).toEqual({ notes: 'hello!', releaseName: null });
   });
 
+  it('shows the self-test table and the forwarded lines, and follows NodeDiagnosticsChanged', async () => {
+    const diag = (rows: { name: string; result: string; detail: string }[], text: string) => ({
+      playerId: 1,
+      player: 'Bob',
+      selfTest: {
+        at: '2026-01-02T00:00:00Z',
+        overall: rows.some((r) => r.result === 'FAIL') ? 'FAIL' : 'PASS',
+        passed: rows.filter((r) => r.result === 'PASS').length,
+        failed: rows.filter((r) => r.result === 'FAIL').length,
+        warned: 0,
+        skipped: 0,
+        rows,
+      },
+      lines: [{ at: '2026-01-02T00:00:00Z', level: 'Warn', text }],
+      linesReceived: 1,
+      linesDropped: 0,
+    });
+    const first = diag([{ name: 'hooks.installed', result: 'PASS', detail: '' }, { name: 'team.faction', result: 'FAIL', detail: 'not found' }], 'first line');
+    const hub = setup('/players/1', (c) => (c.url === '/api/v1/players/1/diagnostics' ? json(200, first) : json(200, detail())));
+    const panel = (await screen.findByRole('heading', { name: 'Diagnostics' })).parentElement as HTMLElement;
+    const table = await within(panel).findByRole('table', { name: 'Self-test' });
+    expect(within(table).getByRole('row', { name: /team.faction FAIL not found/ })).toBeInTheDocument();
+    expect(within(panel).getByText('FAIL', { selector: '.flag' })).toBeInTheDocument();
+    expect(within(panel).getByLabelText('Forwarded log lines')).toHaveTextContent('first line');
+
+    act(() => hub.push('NodeDiagnosticsChanged', diag([{ name: 'hooks.installed', result: 'PASS', detail: '' }], 'second line')));
+    expect(within(panel).queryByRole('row', { name: /team.faction/ })).not.toBeInTheDocument();
+    expect(within(panel).getByLabelText('Forwarded log lines')).toHaveTextContent('second line');
+    // another player's push is ignored
+    act(() => hub.push('NodeDiagnosticsChanged', { ...diag([], 'other'), playerId: 2 }));
+    expect(within(panel).getByLabelText('Forwarded log lines')).toHaveTextContent('second line');
+  });
+
+  it('says so when a player has sent no self-test', async () => {
+    setup('/players/1', (c) =>
+      c.url === '/api/v1/players/1/diagnostics' ? json(200, { playerId: 1, player: 'Bob', selfTest: null, lines: [], linesReceived: 0, linesDropped: 0 }) : json(200, detail()),
+    );
+    expect(await screen.findByText('No self-test table received from this player yet.')).toBeInTheDocument();
+    expect(screen.getByText(/No log lines forwarded/)).toBeInTheDocument();
+  });
+
   it('shows a notes ApiProblem as a field error', async () => {
     setup('/players/1', (c) =>
       c.method === 'PATCH'

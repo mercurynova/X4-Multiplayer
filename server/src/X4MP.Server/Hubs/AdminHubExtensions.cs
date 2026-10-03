@@ -74,6 +74,11 @@ public static class AdminHubExtensions
             sp.GetRequiredService<X4MP.Server.Mods.ModViews>(),
             sp.GetRequiredService<IOptionsMonitor<AdminHubOptions>>(),
             sp.GetRequiredService<ILogger<AdminHubCore>>()));
+        services.AddHostedService(sp => new NodeDiagnosticsBroadcaster(
+            sp.GetRequiredService<AdminSubscriptions>(),
+            sp.GetRequiredService<X4MP.Core.Diagnostics.NodeDiagnosticsStore>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<NodeDiagnosticsBroadcaster>>()));
         services.AddHostedService(sp => new ModsBroadcaster(
             sp.GetRequiredService<AdminSubscriptions>(),
             sp.GetRequiredService<X4MP.Server.Mods.ModViews>(),

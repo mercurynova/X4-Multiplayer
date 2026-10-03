@@ -1561,6 +1561,28 @@ universe ready). Output: log lines `SELFTEST PASS|FAIL|WARN|SKIP <check> <detail
 The checks that need ghosts, factions or the options-menu adapter (sector map, `x4mp_team_1` activation, adapter probes, test ghost)
 are added by the tasks that own those parts.
 
+#### 8.5.1 Self-test line convention (M2-13, read by the server)
+
+The mod forwards the self-test to the server as ordinary `LogForward` lines (one `LogLine` per row). The server parses them into the
+node's last self-test table (kept in memory; shown on the Players page detail and served at `GET /api/v1/players/{id}/diagnostics`).
+This is the format M2-10 writes (`selftest_feature.cpp`); the server accepts exactly it:
+
+```
+SELFTEST begin (trigger=config, x4mp 0.1.0)                 optional; the next row starts a new table
+SELFTEST <PASS|FAIL|WARN|SKIP> <check> <detail...>          one row per check (result padded to 5, check to 16)
+SELFTEST summary: 6 PASS, 1 FAIL, 1 WARN, 0 SKIP            optional; ends the run
+```
+
+- Row: the literal `SELFTEST `, a result token, a check name without spaces (`[A-Za-z0-9_.:/-]`, up to 64 characters), then the
+  detail to the end of the line (up to 300 characters kept). Runs of spaces between fields are fine.
+- No end marker is needed. Rows build the table as they arrive; a row starts a **new** table when its check is already in the
+  current one, when the previous row is more than 2 s older, or after a `begin`/`summary` line (`SELFTEST END` also counts as a
+  summary). So a burst of rows is one table, and the next run replaces it.
+- Other `SELFTEST ` lines (for example `SELFTEST forwarded 8 lines to the server`) are kept as log lines but are not rows.
+- The overall result is FAIL when any row is FAIL; WARN does not fail it. At most 200 rows per table.
+- Lines starting with `SELFTEST ` are exempt from the per-node log rate limit (50 lines/s, 16 KiB/s; their bytes are still
+  charged), so a table is never cut short. Everything else the self-test logs goes out as normal forwarded lines.
+
 ---
 
 ## 9. Milestones M2–M5: ordered tasks and acceptance criteria

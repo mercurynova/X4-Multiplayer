@@ -536,6 +536,11 @@ public static partial class LiveRunner
         }
 
         await lines.WriteAsync($"[{name}] authority in game: {galaxy.Sectors.Count} sectors, {galaxy.Entities.Count} entities, streaming at {o.TickRate} Hz").ConfigureAwait(false);
+        if (o.SelfTest)
+        {
+            await FakeSelfTest.SendAsync(link, ct).ConfigureAwait(false);
+            await lines.WriteAsync($"[{name}] self-test sent: {FakeSelfTest.Rows.Count} rows ({FakeSelfTest.Failed} FAIL)").ConfigureAwait(false);
+        }
 
         var clock = Stopwatch.StartNew();
         long lastTick = -1;
@@ -752,6 +757,11 @@ public static partial class LiveRunner
         }
 
         run.OnClientReady?.Invoke(handle);
+        if (o.SelfTest)
+        {
+            await FakeSelfTest.SendAsync(link, ct).ConfigureAwait(false);
+            await lines.WriteAsync($"[{name}] self-test sent: {FakeSelfTest.Rows.Count} rows ({FakeSelfTest.Failed} FAIL)").ConfigureAwait(false);
+        }
 
         if (stats.Impairment is { Slow: not null } slowReader)
         {

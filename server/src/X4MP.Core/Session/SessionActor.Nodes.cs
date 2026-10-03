@@ -31,6 +31,9 @@ public sealed partial class SessionActor
                 case MsgType.NodeStats:
                     OnNodeStats(slot, frame);
                     break;
+                case MsgType.LogForward:
+                    OnLogForward(slot, frame);
+                    break;
                 case MsgType.LoadStatus:
                     OnLoadStatus(slot, frame);
                     break;

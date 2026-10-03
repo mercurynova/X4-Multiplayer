@@ -292,6 +292,17 @@ describe('Mods page', () => {
     expect(within(rejections).getByText('Bob')).toBeInTheDocument();
   });
 
+  it('shows an unknown-key refusal as soon as the hub pushes it', async () => {
+    let list: UnboundRejectionDto[] = [];
+    const hub = setup({ handler: (c) => (c.url === '/api/v1/mods/rejections' ? json(200, list) : undefined) });
+    const heading = await screen.findByRole('heading', { name: 'Recent rejections' });
+    expect(within(heading.parentElement as HTMLElement).queryByText('Mallory')).not.toBeInTheDocument();
+    list = [unbound];
+    act(() => hub.push('UnboundRejectionReported', unbound));
+    expect(await within(heading.parentElement as HTMLElement).findByText('Mallory')).toBeInTheDocument();
+    expect(within(heading.parentElement as HTMLElement).getByText('unknown key abcdef012345')).toBeInTheDocument();
+  });
+
   it('updates live: PlayerModsReported and ModPolicyChanged', async () => {
     const hub = setup();
     await screen.findByRole('table', { name: 'Session mod list' });
