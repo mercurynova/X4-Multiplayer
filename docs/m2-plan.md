@@ -294,3 +294,14 @@ V26 (a save copied from another machine); a download of the user's own save is c
    compatibility pass.
 6. Do you have the session-2 saves: a normal mid-game save, one **with a PHQ and research unlocked**, and an
    **early save without a PHQ**? (S12 needs the last two; S10 prefers a save docked at a big station with a bar.)
+
+**User answers (2026-10-02):**
+1. Yes: three sittings; only sitting 1 blocks M2.
+2. Yes: the local server may hold copies of the test saves (this PC only, under git-ignored `out\`).
+3. Admin password in the Join dialog (HMAC proof only) is fine for now; a GUI "host key" can come later.
+4. Yes: "detected and shown in the GUI" is enough for M2; hard quicksave block in M4.
+5. Not installed yet; the user can install SirNukes and/or kuertee UIX before the session. The script must say
+   which tests need them, and run without them otherwise (SirNukes stays reference-only per ADR-043).
+6. Not yet; the user can make the PHQ/research, early no-PHQ and docked-at-bar saves, and may find a mid-game save
+   online. The session-2 kit must tolerate a third-party save: list its extensions/DLC on load and flag unknown
+   mods instead of failing, and the user only installs mods they choose themselves.
