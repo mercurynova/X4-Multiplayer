@@ -19,6 +19,12 @@ public sealed partial class SaveService
         }
 
         string shaHex = SaveFileStore.Hex(ready.GetSha256Array());
+        if (IsStartSave(node, shaHex))
+        {
+            OnStartSaveReady(node); // the authority loaded the session's start save: no checkpoint, no manifest yet
+            return;
+        }
+
         // Several checkpoints can share a save hash (the same save stored again by a new authority): the node loaded the one it was told about,
         // which is the current one when it matches, otherwise the newest.
         var cp = _current is { Marker: not null } now && now.SaveSha == shaHex

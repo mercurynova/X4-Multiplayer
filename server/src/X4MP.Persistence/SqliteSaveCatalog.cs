@@ -9,9 +9,19 @@ namespace X4MP.Persistence;
 /// SQLite implementation of <see cref="ISaveCatalog"/> over <c>saves</c>, <c>checkpoints</c> and <c>sessions.save_id/current_save_id</c>
 /// (migrations 0001 and 0004). Writes go through the write-behind <see cref="PersistenceWriter"/> and resolve ids with sub-selects, so
 /// they stay ordered without waiting for the database; reads open a connection.
+/// <para>
+/// Read-through: a save added moments ago is not in the database yet (the writer is write-behind), but the HTTP side already knows it
+/// (<c>POST /sessions {saveId}</c> right after an upload <c>complete</c> must find it). <see cref="AddSave"/> therefore keeps the record in
+/// memory until a read finds it in the database; <see cref="Find"/> and <see cref="List"/> consult that overlay. Renames and deletes go
+/// through the same ordered writer queue, so they apply after the pending insert.
+/// </para>
 /// </summary>
 public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, PersistenceWriter writer) : ISaveCatalog
 {
+    // Saves enqueued for insertion that no read has seen in the database yet (sha256 -> record, renames applied).
+    private readonly object _pendingGate = new();
+    private readonly Dictionary<string, SaveRecord> _pending = new(StringComparer.Ordinal);
+
     private sealed record Row(
         string Sha256, long SizeBytes, string DisplayName, string? OriginalFileName, string Source, string? UploadedBy, string UploadedAt,
         string? GameVersion, string? SaveTime, string? PlayerName, string? MetaJson, long Pinned, long GhostsCleaned);
@@ -23,7 +33,17 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
 
     private static string Stamp(DateTimeOffset value) => SaveStamp.Format(value);
 
-    public void AddSave(SaveRecord save) =>
+    public void AddSave(SaveRecord save)
+    {
+        lock (_pendingGate)
+        {
+            _pending.TryAdd(save.Sha256, save);
+        }
+
+        EnqueueInsert(save);
+    }
+
+    private void EnqueueInsert(SaveRecord save) =>
         writer.TryEnqueue(
             """
             INSERT OR IGNORE INTO saves
@@ -49,15 +69,47 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
 
     public SaveRecord? Find(string sha256)
     {
-        using var connection = factory.Open();
-        var row = connection.QuerySingleOrDefault<Row>($"SELECT {Columns} FROM saves WHERE sha256 = @sha", new { sha = sha256 });
-        return row is null ? null : ToRecord(row);
+        using (var connection = factory.Open())
+        {
+            var row = connection.QuerySingleOrDefault<Row>($"SELECT {Columns} FROM saves WHERE sha256 = @sha", new { sha = sha256 });
+            if (row is not null)
+            {
+                lock (_pendingGate)
+                {
+                    _pending.Remove(sha256); // the database has it now
+                }
+
+                return ToRecord(row);
+            }
+        }
+
+        // Not in the database: it never existed, or its insert is still queued (write-behind).
+        lock (_pendingGate)
+        {
+            return _pending.GetValueOrDefault(sha256);
+        }
     }
 
     public IReadOnlyList<SaveRecord> List()
     {
-        using var connection = factory.Open();
-        return [.. connection.Query<Row>($"SELECT {Columns} FROM saves ORDER BY uploaded_at DESC, id DESC").Select(ToRecord)];
+        List<SaveRecord> stored;
+        using (var connection = factory.Open())
+        {
+            stored = [.. connection.Query<Row>($"SELECT {Columns} FROM saves ORDER BY uploaded_at DESC, id DESC").Select(ToRecord)];
+        }
+
+        SaveRecord[] pending;
+        lock (_pendingGate)
+        {
+            foreach (var save in stored)
+            {
+                _pending.Remove(save.Sha256);
+            }
+
+            pending = [.. _pending.Values];
+        }
+
+        return pending.Length == 0 ? stored : [.. pending.Concat(stored).OrderByDescending(r => r.UploadedAt)];
     }
 
     public bool Update(string sha256, string? displayName, bool? pinned)
@@ -65,6 +117,14 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
         if (Find(sha256) is null)
         {
             return false;
+        }
+
+        lock (_pendingGate)
+        {
+            if (_pending.TryGetValue(sha256, out var pending))
+            {
+                _pending[sha256] = pending with { DisplayName = displayName ?? pending.DisplayName, Pinned = pinned ?? pending.Pinned };
+            }
         }
 
         writer.TryEnqueue(
@@ -76,9 +136,15 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
     public IReadOnlyList<string> Delete(string sha256)
     {
         List<string> manifests;
+        bool wasPending;
+        lock (_pendingGate)
+        {
+            wasPending = _pending.Remove(sha256);
+        }
+
         using (var connection = factory.Open())
         {
-            if (connection.ExecuteScalar<long>("SELECT COUNT(*) FROM saves WHERE sha256 = @sha", new { sha = sha256 }) == 0)
+            if (connection.ExecuteScalar<long>("SELECT COUNT(*) FROM saves WHERE sha256 = @sha", new { sha = sha256 }) == 0 && !wasPending)
             {
                 return [];
             }

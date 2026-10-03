@@ -82,6 +82,70 @@ if(MSVC)
   target_link_options(x4mp PRIVATE /GUARD:CF)
 endif()
 
+# =============================================================================================
+# BEGIN M2-04 host (mod host skeleton). Appended by M2-04; later tasks only add files under native/features/.
+#   x4mp_game   += main thread check, game adapter, player guard (SDK-free)
+#   x4mp_host   = native/host/** + native/features/**.cpp (SDK-free static lib; features are picked up by glob)
+#   x4mp (DLL)  += game/x4_platform.cpp (the X4Native IPlatform) and links x4mp_host
+#   x4mp_host_tests = Catch2 for the host and the game adapter (no SDK on its include path)
+# =============================================================================================
+target_sources(x4mp_game PRIVATE
+  native/game/main_thread.cpp
+  native/game/game_api.cpp
+  native/game/player_guard.cpp)
+
+file(GLOB_RECURSE X4MP_FEATURE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/native/features/*.cpp")
+add_library(x4mp_host STATIC
+  native/host/redact.cpp
+  native/host/host_log.cpp
+  native/host/frame_budget.cpp
+  native/host/build_check.cpp
+  native/host/feature.cpp
+  native/host/feature_list.cpp
+  native/host/paths.cpp
+  native/host/mod_host.cpp
+  ${X4MP_FEATURE_SOURCES})
+target_include_directories(x4mp_host PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native")
+target_compile_features(x4mp_host PUBLIC cxx_std_23)
+target_link_libraries(x4mp_host PUBLIC x4mp_core x4mp_game shell32 ole32)
+set_target_properties(x4mp_host PROPERTIES CXX_EXTENSIONS OFF)
+x4mp_set_warnings(x4mp_host)
+
+target_sources(x4mp PRIVATE native/game/x4_platform.cpp)
+target_link_libraries(x4mp PRIVATE x4mp_host)
+
+if(X4MP_TESTS)
+  find_package(Catch2 3 CONFIG REQUIRED)
+  include(Catch)
+  add_executable(x4mp_host_tests
+    tests/test_host_budget.cpp
+    tests/test_host_registry.cpp
+    tests/test_host_build_check.cpp
+    tests/test_host_redact.cpp
+    tests/test_host_modhost.cpp
+    tests/test_game_api.cpp)
+  target_link_libraries(x4mp_host_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
+  x4mp_set_warnings(x4mp_host_tests)
+  catch_discover_tests(x4mp_host_tests TEST_PREFIX "host." PROPERTIES TIMEOUT 60)
+  # x4mp_assert_no_sdk is defined further down: run the isolation check for the new targets at the end of the directory.
+  cmake_language(DEFER CALL x4mp_assert_no_sdk x4mp_host)
+  cmake_language(DEFER CALL x4mp_assert_no_sdk x4mp_host_tests)
+
+  # DLL smoke: loads the real x4mp.dll through a minimal fake X4NativeAPI (the contract M2-01 hostsim builds on).
+  # Only this target and the DLL see the SDK; it includes nothing from core/ or host/.
+  add_executable(x4mp_dll_smoke tests/dll_smoke/test_dll_smoke.cpp)
+  target_include_directories(x4mp_dll_smoke SYSTEM PRIVATE "${X4N_SDK_DIR}")
+  target_compile_definitions(x4mp_dll_smoke PRIVATE X4MP_DLL_PATH="$<TARGET_FILE:x4mp>")
+  target_link_libraries(x4mp_dll_smoke PRIVATE Catch2::Catch2WithMain)
+  target_compile_features(x4mp_dll_smoke PRIVATE cxx_std_23)
+  add_dependencies(x4mp_dll_smoke x4mp)
+  x4mp_set_warnings(x4mp_dll_smoke)
+  catch_discover_tests(x4mp_dll_smoke TEST_PREFIX "dll." PROPERTIES TIMEOUT 60)
+endif()
+# =============================================================================================
+# END M2-04 host
+# =============================================================================================
+
 # ---------------------------------------------------------------------------------------------
 # Isolation check: nothing under core/ (or its tests) may see the X4 SDK.
 # ---------------------------------------------------------------------------------------------

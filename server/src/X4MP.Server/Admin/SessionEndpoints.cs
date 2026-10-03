@@ -215,6 +215,9 @@ internal static class SessionEndpoints
 
         sessions.SelectSave(sha);
 
+        // The authority loads this save before the session has its first checkpoint (it is sent as SessionSaveInfo when it joins).
+        await saves.SetStartSaveAsync(sha);
+
         AdminApi.Audit(context, audit, "session.create", created.SessionId.ToString(System.Globalization.CultureInfo.InvariantCulture), null, new()
         {
             ["name"] = name,
