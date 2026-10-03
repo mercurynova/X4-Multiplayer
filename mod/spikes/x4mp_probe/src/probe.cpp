@@ -395,6 +395,39 @@ std::array<std::uint8_t, 32> load_or_create_key(State& s) {
   return key;
 }
 
+// Raw GetGameVersion / GetBuildVersionSuffix values (build-check evidence: the suffix format is unverified in game).
+// Logged at init and again on the first UI frame (X4 game functions may not be resolvable at init).
+void log_build(const char* where) {
+  auto* g = x4n::game();
+  if (!g) {
+    plog("build", "where={} game_functions=<unavailable>", where);
+    return;
+  }
+  int major = -1, minor = -1;
+  bool have_version = false, have_suffix = false;
+  std::string suffix;
+  if (g->GetGameVersion) {
+    guarded("GetGameVersion", [&] {
+      const auto v = g->GetGameVersion();
+      major = v.major;
+      minor = v.minor;
+      have_version = true;
+    });
+  }
+  if (g->GetBuildVersionSuffix) {
+    guarded("GetBuildVersionSuffix", [&] {
+      const char* p = g->GetBuildVersionSuffix();
+      if (p) {
+        suffix = p;
+        have_suffix = true;
+      }
+    });
+  }
+  plog("build", "where={} GetGameVersion={} GetBuildVersionSuffix={} suffix_len={} framework_game_version={}", where,
+       have_version ? std::format("{}.{}", major, minor) : std::string("<unavailable>"),
+       have_suffix ? ("'" + suffix + "'") : std::string("<unavailable>"), suffix.size(), x4n::game_version() ? x4n::game_version() : "?");
+}
+
 // ------------------------------------------------------------------------------------------------------------------
 // Session
 // ------------------------------------------------------------------------------------------------------------------
@@ -425,7 +458,9 @@ void maybe_start_session(State& s) {
   o.player_name = c.name;
   if (!c.password.empty()) o.password = c.password;  // goes to Session only; never logged
   o.identity.mod_build = "x4mp_probe";
-  o.identity.mod_version = "0.0.0-probe";
+  // mod_version keeps the ClientIdentity default (the same as FakeNode's): the server only admits a node whose mod version
+  // equals the authority's, and the session-2 authority is FakeNode. tools/session2/start-server.ps1 relaxes
+  // Net.ModBuildStrict because the build string differs ("x4mp_probe" vs "fakenode").
   o.identity.game_version = x4n::game_version() ? x4n::game_version() : "";
   o.identity.x4native_version = x4n::version() ? x4n::version() : "";
   o.player_key = load_or_create_key(s);
@@ -820,6 +855,7 @@ void cb_frame() {
   if (!s->ui_seen) {
     s->ui_seen = true;
     plog("frame", "first on_frame_update ms_since_init={:.1f} (B1: ticking this early, in the start menu, means the DLL runs there)", ms_between(s->init_qpc, qpc()));
+    log_build("first_ui_frame");
   }
   s->last_ui_frame = qpc();
   tick(true);
@@ -926,6 +962,8 @@ void init() {
   plog("init", "x4mp_probe init wall_utc={} game_version={} x4native_version={} ext_id={} module_base=0x{:x} dll_image_inits={} (>1 means this DLL image survived the reload)",
        wall_utc(), x4n::game_version() ? x4n::game_version() : "?", x4n::version() ? x4n::version() : "?",
        x4n::detail::g_api->_ext_id ? x4n::detail::g_api->_ext_id : "?", reinterpret_cast<std::uintptr_t>(self), image_inits);
+
+  log_build("init");
 
   // Stash round trip + lifecycle timing across reloads.
   {

@@ -323,8 +323,17 @@ V26 (a save copied from another machine); a download of the user's own save is c
 - Known gap: `POST /sessions {saveId}` with a catalog row whose file is missing logs a warning and continues as if
   no save was chosen (kept for an existing test).
 
+**Kit integration (2026-10-02, done):** the script now has Run 1 (`write-probe-config.ps1 -NoHooks`, B4/B5/B6) and Run 2
+(hooks on, Parts C/D); C2 uses `run-block.ps1 skip_autosave_on/off`; `ui` runs before C1; the probe logs the raw
+`GetGameVersion`/`GetBuildVersionSuffix` (`build` lines); D8 is the only place SirNukes/UIX are enabled; save files are
+`save_00N.xml.gz`; X4 lists non-`save_NNN` file names only when the Load Game list is sorted by Name/Date (so the downloaded
+`x4mp_*` copy and `x4mp_s2test_1` are found there); the server's "Events" page does not exist (it is **Logs**: `detached:
+"ClientReload"` + `resumed` is the good outcome). Gaps found by the dry run: the probe's mod version must equal FakeNode's
+(the server compares it with the authority), and `start-server.ps1` sets `Net.ModBuildStrict=false`. Dry run:
+`mod/tests/hostsim/probe_session2_dry_run.ps1` (docs/hostsim.md).
+
 **M2-005 probe → session-2 script:** with `hooks:true` (default) the probe pins its DLL at shutdown, so B4's
-"was the DLL unloaded?" needs a separate run with `hooks:false` (kit integration adds this).
+"was the DLL unloaded?" needs a separate run with `hooks:false` (done, see above).
 
 **M2-002 → session-2 script:** run the `ui` block before C1 step 4 so the Save row can be greyed; `saves1_block` must
 be re-run after every save load (the Lua flag resets, the MD flag `global.$x4mp_noSave` is saved in the game);
