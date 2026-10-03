@@ -16,6 +16,11 @@ user script outline [in-game-session-4.md](in-game-session-4.md).
 
 Each has the recommended answer that the briefs will use unless you say otherwise.
 
+**User answers (2026-10-03):** all as recommended, except **Q5**: the avatar ship should eventually follow the player's faction/race
+(team origin, ADR-049/051); for M3 testing the Argon Elite is fine. So M3 keeps the server setting `Avatars.StarterShipMacro` (default the
+Argon Elite) and the provisioning code takes the ship macro from one place, so that a later milestone can pick it per faction/race without
+touching the avatar logic. Approved: wave 0 (spike kit M3-001/002).
+
 | # | Question | Recommended answer |
 |---|---|---|
 | Q1 | **A second X4 copy for the two-PC sitting.** Steam lets one account play one game on one PC at a time, and Steam Families does not let two people play the *same* game at once. The second PC also needs build 611726 and **the same DLCs** (a DLC difference refuses the join). Options: (a) a second Steam account with its own X4 + the same DLCs; (b) a friend's PC with their own copy; (c) a GOG copy (only if its build matches 611726: X4Native is pinned to the Steam build, check first); (d) Steam offline mode on one PC with the same account (works technically on some setups; whether it is allowed by the licence terms is your call). | **(a) or (b).** Do not plan on (c) unless the build string matches; (d) only at your own discretion. Until a second copy exists, M3 finishes everything except criterion 1 on one PC (sittings 1 and 2), and criterion 1 stays "pending the two-PC sitting". |
