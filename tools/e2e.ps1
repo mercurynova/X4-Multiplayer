@@ -104,7 +104,11 @@ function Start-Proc([string]$name, [string]$exe, [string[]]$argList, [hashtable]
     if ($quoted.Count -eq 0) { $p = Start-Process -FilePath $exe -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err }
     else { $p = Start-Process -FilePath $exe -ArgumentList $quoted -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err }
   }
-  finally { foreach ($k in $old.Keys) { [System.Environment]::SetEnvironmentVariable($k, $old[$k]) } }
+  finally {
+    # Remove, not SetEnvironmentVariable($k, $null): in pwsh 7 a $null string argument arrives as '' and leaves an EMPTY variable behind,
+    # which the next child inherits (the UploadKill step's servers died with "Failed to convert configuration value '' at X4MP:Net:UdpPort").
+    foreach ($k in $old.Keys) { if ($null -eq $old[$k]) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } else { [System.Environment]::SetEnvironmentVariable($k, $old[$k]) } }
+  }
   $null = $p.Handle   # PS 5.1: without touching the handle, ExitCode reads as empty after exit
   $started.Add($p)
   return $p
