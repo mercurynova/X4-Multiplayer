@@ -279,12 +279,14 @@ local function closeOtherMenus()
 	_G.View.menus = {}
 end
 
-test("hud: shows the connection state, players and ping top right on layer 3", function()
+test("hud: shows the connection state, players and ping top right on its own layer", function()
 	hudSetup()
 	eq(#env.frames, 0, "nothing before a session")
 	status(INGAME)
 	eq(#env.frames, 1)
-	eq(env.lastFrame.props.layer, 3)
+	eq(env.lastFrame.props.layer, 6)
+	-- layer 3 is the chat window's: View.registerMenu keys frames by "Helper"..layer, a second frame there replaces the chat
+	truthy(env.lastFrame.props.layer ~= 3, "must not share the chat layer")
 	truthy(env.lastFrame.props.x > 1920 / 2, "right half")
 	eq(env.lastFrame.props.y, 20)
 	eq(env.lastFrame.props.playerControls, true)
@@ -372,8 +374,49 @@ test("hud: the chat window does not count as another menu", function()
 	status(INGAME)
 	openOtherMenu("ChatWindow")
 	falsy(X4MPHud.blocked())
-	advance(2)
-	eq(#env.frames, 2)
+end)
+
+test("hud: chat open -> the tick never draws, closes or re-opens anything and never touches the chat", function()
+	hudSetup()
+	status(INGAME)
+	eq(#env.frames, 1)
+	-- the chat window opens next to our frame (a different layer, so ours stays up)
+	table.insert(_G.View.menus, { name = "ChatWindow", type = "Helper" })
+	local chatClosed, opened0, cleared0, closeCalls = 0, #env.opened, env.cleared, 0
+	_G.Menus[#_G.Menus + 1] = { name = "ChatWindow", onCloseElement = function() chatClosed = chatClosed + 1 end }
+	_G.Helper.closeMenu = function() closeCalls = closeCalls + 1 end
+	local displayed = 0
+	local baseCreate = _G.Helper.createFrameHandle
+	_G.Helper.createFrameHandle = function(...) displayed = displayed + 1 return baseCreate(...) end
+	-- the status changes every second (ping) while the chat is open
+	for i = 1, 10 do
+		status('{"v":1,"state":"ingame","players":3,"ping_ms":' .. (50 + i) .. '}')
+		advance(1)
+	end
+	eq(displayed, 0, "no frame (re)built")
+	eq(#env.frames, 1, "no display call")
+	eq(#env.opened, opened0, "no OpenMenu")
+	eq(env.cleared, cleared0, "no clearFrame")
+	eq(closeCalls, 0, "no Helper.closeMenu")
+	eq(chatClosed, 0, "the chat window was never closed")
+	eq(X4MPHud.tick(true), "yielding")
+	local n = 0
+	for line in env.debugText():gmatch("[^\n]+") do if line:find("yielding to open menu ChatWindow", 1, true) then n = n + 1 end end
+	eq(n, 1, "one rate-limited log line")
+	-- the chat closes: the frame is still there and updates again
+	_G.View.menus = { { name = "X4MPHud", type = "Helper" } }
+	advance(1)
+	eq(hudCells()[1], "X4MP: Connected, 3 players, 60 ms")
+end)
+
+test("hud: unchanged text and frame present -> no re-show on any tick", function()
+	hudSetup()
+	status(INGAME)
+	eq(#env.frames, 1)
+	advance(20)
+	status(INGAME)
+	eq(#env.frames, 1)
+	eq(X4MPHud.tick(true), "present")
 end)
 
 test("hud: notify mode sends one notification per change, never a frame", function()
