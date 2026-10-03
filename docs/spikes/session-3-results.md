@@ -53,11 +53,11 @@ Verdict: **all game criteria pass** after the fixes below; see [m2-exit-report.m
 2. **After `/reloadui` the mod does not know the universe is ready** (self-test SKIP `player.guard` "universe not ready", no `reload resume: same universe` line).
 3. **The session-start checkpoint has no self-spawn**: MD reported no player ship (`ship (none)`) ~2 s after universe ready although the player was flying;
    later checkpoints report it. Send the self-spawn once the ship is known (or retry MD after a short delay).
-4. **Refusal screen shows the raw server diff** in red above the groups: it is not version-normalised (`ego_dlc_split@900` "missing" and `@9.00` "extra"), lists
+4. **(fixed in close-out B, awaiting an in-game look)** **Refusal screen shows the raw server diff** in red above the groups: it is not version-normalised (`ego_dlc_split@900` "missing" and `@9.00` "extra"), lists
    optional library mods as missing, and repeats the headline. Players should only see the groups.
 5. **"Last server: ..."** line missing in the Multiplayer window (the fields are remembered).
 6. Game log noise: `GetNumAllFactionShips(): Failed to retrieve faction with ID 'x4mp_team_N'` for N = 1..8 at every load (our Lua asks for factions that do not exist yet).
 7. `x4mp_*.x4mf` manifests pile up in the save folder (one per join).
-8. Test kit: **Steam Cloud restores deleted save files** at X4 start (`steam_autocloud.vdf`), so deleting `x4mp_*` leftovers does not stick; the download test needs a save the cloud never saw (slot 7 worked).
+8. **(fixed in close-out B)** Test kit: **Steam Cloud restores deleted save files** at X4 start (`steam_autocloud.vdf`), so deleting `x4mp_*` leftovers does not stick; the download test needs a save the cloud never saw (slot 7 worked).
 9. (M3+) Every authority checkpoint shows X4's normal saving screen for ~5 s on the host; with real players that interrupts the host each time. Design question for later milestones.
 10. (M3) Download progress is invisible on loopback (0.18 s for 35 MB); check it on two PCs.

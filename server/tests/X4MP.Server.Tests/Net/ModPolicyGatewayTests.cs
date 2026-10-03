@@ -254,6 +254,6 @@ public class ModPolicyGatewayTests
         var d = TestNode.AsDisconnect(reply);
         Assert.Equal(DisconnectCode.ExtensionsMismatch, d.Code);
         Assert.Equal("ws_9", d.ModViolation!.Value.Install(0)!.Value.Id);
-        Assert.Contains("missing: [ws_9@2]", d.Expected);
+        Assert.Equal("install: ws_9@2", d.Expected);
     }
 }
