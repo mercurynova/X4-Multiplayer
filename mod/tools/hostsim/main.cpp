@@ -320,6 +320,8 @@ class Runner {
     else if (cmd == "settle") { need(t, 2, "settle <ms>"); std::this_thread::sleep_for(std::chrono::milliseconds(std::atoll(t[1].c_str()))); }
     else if (cmd == "drop-lua") host_.drop_lua(t.size() > 1 ? t[1] : "");
     else if (cmd == "stash-clear") clear_stash();
+    else if (cmd == "stash-set") { need(t, 3, "stash-set <key> <text>"); stash_put(t[1], rest_from(2)); }  // M2-07: corrupt/replace one key (default namespace = ext id)
+    else if (cmd == "stash-remove") { need(t, 2, "stash-remove <key>"); stash_drop(t[1]); }
     else if (cmd == "kill-server") cmd_kill_server();
     else if (cmd == "start-server") cmd_start_server();
     else if (cmd == "expect-lua") cmd_expect_lua(t, rest_from(0));
@@ -417,6 +419,19 @@ class Runner {
     if (clear_stash_too) clear_stash();
     host_.reloads++;
     load_and_init();
+  }
+  std::pair<std::string, std::string> stash_ns_key(const std::string& key) const {
+    const auto slash = key.find('/');
+    if (slash == std::string::npos) return {o_.ext_id, key};
+    return {key.substr(0, slash), key.substr(slash + 1)};
+  }
+  void stash_put(const std::string& key, const std::string& text) {
+    const auto [ns, k] = stash_ns_key(key);
+    host_.api.stash_set(ns.c_str(), k.c_str(), text.data(), static_cast<std::uint32_t>(text.size()));
+  }
+  void stash_drop(const std::string& key) {
+    const auto [ns, k] = stash_ns_key(key);
+    host_.api.stash_remove(ns.c_str(), k.c_str());
   }
   void clear_stash() {
     // Host owns the stash map; the public surface is the API function itself.

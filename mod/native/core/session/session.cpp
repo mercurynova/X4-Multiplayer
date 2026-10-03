@@ -452,7 +452,8 @@ SessionIntent Session::make_intent() const {
   in.port = impl_->opt.endpoint.port;
   in.name = impl_->opt.player_name;
   in.roles = impl_->opt.requested_roles;
-  in.resume_token = welcome_.resume_token;
+  // M2-07: the net thread learns the token at Welcome, the frame thread only at its next poll(); a reload in between must not lose it.
+  in.resume_token = (welcome_.resume_token.lo | welcome_.resume_token.hi) != 0 ? welcome_.resume_token : impl_->net_resume;
   in.session_id = server_.session_id;
   in.last_journal_seq = impl_->net_last_journal_seq;
   if (impl_->auth_hash) in.auth_hash_hex = crypto::to_hex(std::span<const std::uint8_t>(*impl_->auth_hash));
@@ -472,9 +473,9 @@ void Session::stop() {
 
 void Session::unload_for_reload() {
   if (!impl_->started) return;
-  if (impl_->opt.stash != nullptr) (void)save_intent(*impl_->opt.stash, make_intent());
   impl_->net.set_goodbye_code(net::kDisconnectClientReload);
   impl_->net.stop();  // joins the net thread (best-effort Disconnect(ClientReload) on a live connection)
+  if (impl_->opt.stash != nullptr) (void)save_intent(*impl_->opt.stash, make_intent());  // after the join: net_resume is race-free
   impl_->downloader.cancel();
   impl_->started = false;
   state_ = State::Disconnected;

@@ -47,6 +47,7 @@ If no `init` line exists the DLL is initialised before the first command. `set` 
 | `expect-no-secret <text> [dir...]` | the text appears nowhere in log, Lua events, stash, or any file under the work dir (and extra dirs) |
 | `expect-admin <path> [<jsonpath> [op value]] [timeout=<ms>]` | GET against the admin REST API (logs in, retries until the timeout). ops: `exists absent == != < <= > >= contains` |
 | `kill-server` / `start-server` | terminate `--server-pid` / the started one; relaunch from `--server-exe/--server-arg/--server-env`, waits for `/healthz` |
+| `stash-set <key> <text>` / `stash-remove <key>` | write / drop one stash key (default namespace = ext id); for corrupt-stash scenarios (M2-07) |
 | `print <text>`, `settle <ms>` | note / fixed pause (avoid; use expects) |
 | `exec <command line>` | runs the command through the shell and waits; a non-zero exit fails the script. For kit scripts that edit a config file while the DLL runs (the session-2 dry run). `${NAME}` is substituted like everywhere else |
 

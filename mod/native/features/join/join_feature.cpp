@@ -114,33 +114,59 @@ void JoinFeature::on_init(host::HostContext& ctx) {
     }
   }
 
-  // M2-07: resume a session that survived an extension reload (save load or /reloadui).
-  if (const auto intent = session::load_intent(*stash_)) {
-    std::string stage;
-    if (const auto text = stash_->get(kStateKey)) {
-      const auto doc = nlohmann::json::parse(*text, nullptr, false);
-      if (doc.is_object()) {
-        stage = doc.value("stage", "");
-        save_name_ = doc.value("name", "");
-        has_manifest_ = doc.value("manifest", false);
-        checkpoint_ = session::Id128{doc.value("cp_lo", std::uint64_t{0}), doc.value("cp_hi", std::uint64_t{0})};
-        std::vector<std::uint8_t> sha;
-        if (crypto::from_hex(doc.value("sha", ""), sha)) save_sha_ = std::move(sha);
-      }
+  // ---- M2-07 begin: resume a session that survived an extension reload (save load or /reloadui) ----
+  // Missing or corrupt stash falls back to a clean fresh join: no crash, one clear log line, the UI starts from the start menu.
+  const auto intent = session::load_intent(*stash_);
+  const auto state_text = stash_->get(kStateKey);
+  if (intent) {
+    std::optional<resume::State> state;
+    if (state_text) state = resume::parse(*state_text);
+    session::SessionIntent resume_intent = *intent;
+    std::string why;
+    if (!state_text) {
+      why = "join.state is missing";
+    } else if (!state) {
+      why = "join.state is corrupt";
+    } else if (!resume::is_resumable_stage(state->stage)) {
+      why = "nothing to resume in stage '" + state->stage + "'";
     }
-    if (stage == "loading" || stage == "ingame") {
-      X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "resuming the session after an extension reload (stage {})", stage);
-      start_session(ctx, join::JoinRequest{}, &*intent);
-      if (session_) {
-        stage_ = stage == "ingame" ? Stage::InGame : Stage::Loading;
-        resumed_incarnation_ = true;
-      }
-    } else {
-      X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "stale session intent (stage '{}'): dropped", stage);
-      session::clear_intent(*stash_);
+    if (!why.empty()) {
+      // Clean fresh join: drop the saved stage and the resume token (a token the server cannot match would only be refused).
+      X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "reload resume: {}; clean fresh join with the saved address", why);
       stash_->erase(kStateKey);
+      resume_intent.resume_token = session::Id128{};
+      state = resume::State{};
+      state->stage = "joining";
     }
+    {
+      save_name_ = state->save_name;
+      has_manifest_ = state->has_manifest;
+      checkpoint_ = state->checkpoint;
+      if (!state->save_sha.empty()) save_sha_ = state->save_sha;
+      epoch_ = state->epoch;
+      fingerprint_ = state->fingerprint;
+      const std::string st = state->stage;
+      X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "resuming the session after an extension reload (stage {}, epoch {:016x}, reload #{})", st,
+                state->epoch, ctx.previous.present ? ctx.previous.reload_count : 0);
+      start_session(ctx, join::JoinRequest{}, &resume_intent);
+      if (session_) {
+        resumed_incarnation_ = true;
+        if (st == "ingame") {
+          stage_ = Stage::InGame;
+          undecided_ = *state;  // /reloadui or a save load? decided when the universe is ready (decide_after_reload)
+        } else if (st == "loading") {
+          stage_ = Stage::Loading;
+        } else if (st == "preparing") {
+          stage_ = Stage::Preparing;  // the verified file is already on disk: redo the pre-load steps
+          prep_step_ = PrepStep::ReloadList;
+        }  // joining / downloading: stay Joining; the server re-sends SessionSaveInfo while the node is syncing
+      }
+    }
+  } else if (state_text) {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "reload resume: join.state without a session intent; dropped (clean start)");
+    stash_->erase(kStateKey);
   }
+  // ---- M2-07 end ----
   force_status_ = true;
 }
 
@@ -154,10 +180,18 @@ void JoinFeature::on_shutdown(host::HostContext& ctx) {
   diag_hub().set_log_sender({});
   diag_hub().set_connection(NodeRole::None, false);
   if (session_) {
-    // M2-07 refines this (shutdown budget, epoch rule): a planned unload keeps the server slot for the resume grace.
-    persist_state(stage_ == Stage::InGame ? "ingame" : (stage_ == Stage::Loading ? "loading" : "other"));
-    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "extension shutdown: unloading the session for a resume");
+    // M2-07: a planned unload keeps the server slot for the resume grace. The stage is persisted first, then the net thread is joined
+    // within a measured budget (session 2: ~5 ms). No game call here: the fingerprint is the last in-game sample.
+    const char* stage = resume_stage_name();
+    if (*stage != 0) persist_state(stage);
+    const auto t0 = Clock::now();
     session_->unload_for_reload();
+    const auto join_ms = std::chrono::duration_cast<milliseconds>(Clock::now() - t0).count();
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "extension shutdown: session unloaded for a resume (stage '{}', epoch {:016x}) join_ms={}", stage,
+              epoch_, join_ms);
+    if (join_ms > resume::kUnloadBudgetMs) {
+      X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "unload_for_reload took {} ms, over the {} ms shutdown budget", join_ms, resume::kUnloadBudgetMs);
+    }
     session_.reset();
   }
   extensions_.reset();
@@ -166,16 +200,19 @@ void JoinFeature::on_shutdown(host::HostContext& ctx) {
 // ---------------------------------------------------------------------------------------------------------------------
 // frame
 // ---------------------------------------------------------------------------------------------------------------------
-void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo&) {
+void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
   mods::mark_frame_thread(true);  // core/mods refuses file I/O on this thread
   drain_inbox(ctx);
 
   if (game_loaded_flag_.exchange(false)) {
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "game loaded (stage {})", static_cast<int>(stage_));
   }
+  sample_fingerprint(ctx, info);  // M2-07
   if (universe_ready_flag_.exchange(false)) {
     if (stage_ == Stage::Loading) {
       universe_pending_ = true;
+    } else if (stage_ == Stage::InGame && undecided_) {
+      decide_after_reload(ctx);  // M2-07
     } else {
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready outside the load flow (stage {}): nothing to report", static_cast<int>(stage_));
     }
@@ -395,16 +432,61 @@ void JoinFeature::send_control(std::uint16_t type, const std::vector<std::uint8_
   if (session_) (void)session_->send(wire::Lane::Control, type, std::span<const std::uint8_t>(payload));
 }
 
+// M2-07: the persisted stage of the current stage_ ("" when there is nothing a resume could continue).
+const char* JoinFeature::resume_stage_name() const {
+  switch (stage_) {
+    case Stage::Joining: return "joining";
+    case Stage::Downloading: return "downloading";
+    case Stage::Preparing: return "preparing";
+    case Stage::Loading: return "loading";
+    case Stage::InGame: return "ingame";
+    default: return "";
+  }
+}
+
 void JoinFeature::persist_state(const char* stage) const {
   if (!stash_) return;
-  nlohmann::json j;
-  j["stage"] = stage;
-  j["name"] = save_name_;
-  j["sha"] = crypto::to_hex(std::span<const std::uint8_t>(save_sha_));
-  j["manifest"] = has_manifest_;
-  j["cp_lo"] = checkpoint_.lo;
-  j["cp_hi"] = checkpoint_.hi;
-  stash_->put(kStateKey, j.dump());
+  resume::State st;
+  st.stage = stage;
+  st.save_name = save_name_;
+  st.save_sha = save_sha_;
+  st.has_manifest = has_manifest_;
+  st.checkpoint = checkpoint_;
+  st.epoch = epoch_;
+  st.fingerprint = fingerprint_;
+  stash_->put(kStateKey, resume::to_json(st));
+}
+
+// M2-07: while in-game, remember the universe fingerprint about once a second (the shutdown must not call into the game).
+void JoinFeature::sample_fingerprint(host::HostContext& ctx, const host::FrameInfo& info) {
+  if (stage_ != Stage::InGame || undecided_ || !info.universe_ready || !info.game_time) return;
+  if (fingerprint_.valid && ++fingerprint_frame_ < 60) return;
+  fingerprint_frame_ = 0;
+  fingerprint_.valid = true;
+  fingerprint_.player_id = static_cast<std::uint64_t>(ctx.game.player_id());
+  fingerprint_.game_time = *info.game_time;
+}
+
+// M2-07: a resumed in-game incarnation sees the universe become ready: same universe (/reloadui) or a new one (save load)?
+void JoinFeature::decide_after_reload(host::HostContext& ctx) {
+  resume::Fingerprint now;
+  if (const auto t = ctx.game.game_time()) {
+    now.valid = true;
+    now.player_id = static_cast<std::uint64_t>(ctx.game.player_id());
+    now.game_time = *t;
+  }
+  const resume::Decision d = resume::decide_universe(*undecided_, now);
+  undecided_.reset();
+  if (d.verdict == resume::Verdict::SameUniverse) {
+    fingerprint_ = now;
+    fingerprint_frame_ = 0;
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "reload resume: same universe (ui reload; {}): staying in-game, epoch {:016x} kept", d.reason, epoch_);
+    return;
+  }
+  X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "reload resume: new universe (save load; {}): matching again", d.reason);
+  fingerprint_ = resume::Fingerprint{};
+  stage_ = Stage::Loading;
+  universe_pending_ = true;
 }
 
 void JoinFeature::pump_session(host::HostContext& ctx) {
@@ -446,6 +528,9 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "Welcome: player_id={} roles={} resumed={}", session_->welcome().player_id,
                 static_cast<int>(session_->welcome().granted_roles), session_->welcome().resumed);
       last_net_error_.clear();
+      if (resumed_incarnation_ && !session_->welcome().resumed) {  // M2-07
+        X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "reload resume: the server did not resume the slot (fresh Welcome); joining from scratch");
+      }
       break;
     case K::ServerDisconnect: {
       X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "server Disconnect code={} message='{}' expected='{}'", e.code, e.text, e.expected);
@@ -475,6 +560,7 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       detail_ = e.text;
       break;
     case K::SaveReady:
+      if (stage_ == Stage::Loading || stage_ == Stage::InGame) break;  // M2-07: a resumed Welcome may re-announce the save; never load twice
       save_ = e.save;
       handle_save_ready(ctx);
       break;
@@ -574,6 +660,8 @@ void JoinFeature::complete_universe(host::HostContext& ctx) {
   send_control(join::msg_node_ready(), join::encode_node_ready(epoch, save_sha_));
   session_->mark_in_session();
   stage_ = Stage::InGame;
+  epoch_ = epoch;                         // M2-07
+  fingerprint_ = resume::Fingerprint{};  // sampled again on the next frames
   persist_state("ingame");
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready: NodeReady sent (epoch {:016x}, manifest report {})", epoch,
             has_manifest_ ? "counts only" : "skipped");
