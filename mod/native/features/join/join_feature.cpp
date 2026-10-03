@@ -10,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/config/remembered.h"
 #include "core/crypto/crypto.h"
 #include "core/version/version.h"
 #include "features/authority/authority_flow.h"
@@ -40,7 +41,7 @@ constexpr auto kLoadFallbackAfter = seconds(15);         // loadSave raised but 
 constexpr const char* kStateKey = "state";               // stash "join.state"
 constexpr const char* kExtReportedKey = "ext_reported";  // stash "join.ext_reported": the last x4mp.extensions payload from Lua
 
-constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions", "load_session"};
+constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions", "load_session", "remember"};
 
 std::string endpoint_text(const std::string& host, std::uint16_t port) {
   return (host.find(':') != std::string::npos ? "[" + host + "]" : host) + ":" + std::to_string(port);
@@ -282,6 +283,8 @@ void JoinFeature::drain_inbox(host::HostContext& ctx) {
       on_extensions(ctx, payload);
     } else if (verb == "load_session") {
       on_load_session(ctx);
+    } else if (verb == "remember") {
+      on_remember(ctx, payload);  // M3-07
     }
     wipe(payload);
   }
@@ -297,6 +300,30 @@ void JoinFeature::on_extensions(host::HostContext& ctx, const std::string& paylo
   extensions_->set_reported(*list);
   if (stash_) stash_->put(kExtReportedKey, payload);
 }
+
+// ---- M3-07 begin: the Join form's remembered fields live in x4mp.json (core/config/remembered.h), never in uidata.xml ----
+void JoinFeature::on_remember(host::HostContext& ctx, const std::string& payload) {
+  const fs::path file = (ctx.paths != nullptr) ? ctx.paths->user_file : fs::path{};
+  std::string error;
+  const auto request = config::parse_remember(payload, &error);  // only the reason is logged: the payload is a join form
+  if (!request) {
+    X4MP_CLOG(ctx.log, Cat::Ui, Level::Warn, "x4mp.remember refused: {}", error);
+    return;
+  }
+  const auto result = config::apply_remember(file, *request);
+  if (!result.ok) {
+    X4MP_CLOG(ctx.log, Cat::Ui, Level::Warn, "x4mp.remember: could not store the fields in x4mp.json ({})", result.error);
+  } else {
+    X4MP_CLOG(ctx.log, Cat::Ui, Level::Info, "x4mp.remember: stored in x4mp.json{}", request->migrate ? " (migrated from the saved variable)" : "");
+  }
+  publish_remembered(ctx);
+}
+
+void JoinFeature::publish_remembered(host::HostContext& ctx) {
+  const fs::path file = (ctx.paths != nullptr) ? ctx.paths->user_file : fs::path{};
+  raise_lua(ctx, "x4mp.remembered", config::make_remembered_json(config::read_remembered(file)));
+}
+// ---- M3-07 end ----
 
 void JoinFeature::on_join(host::HostContext& ctx, const std::string& payload) {
   std::string error;
@@ -988,6 +1015,7 @@ void JoinFeature::publish_status(host::HostContext& ctx, bool force) {
     if (!(changed && since >= kStatusMinInterval) && !(since >= kStatusHeartbeat && stage_ != Stage::Idle)) return;
   }
   if (answer) {  // M2-X3: a Lua state that just (re)loaded asks for the status; give it the mod topics too
+    publish_remembered(ctx);  // M3-07: the Join form's remembered fields
     if (stage_ == Stage::Rejected && !mod_refusal_json_.empty()) raise_lua(ctx, "x4mp.mod_refusal", mod_refusal_json_);
     if (stage_ != Stage::Idle && stage_ != Stage::Rejected && !mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
   }

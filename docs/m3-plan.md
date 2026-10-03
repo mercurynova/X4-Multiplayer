@@ -484,3 +484,24 @@ What M3-10 / M3-11 need to know:
 **`CanTeleportPlayerTo` returns `"granted"` when allowed** (not `""`: fix the hostsim fake and any wrapper). **A spawn 300 m ahead of a docked ship
 landed inside the station** (clipping until the player flew out): avatar/ghost spawn positions need a clearance check (MD `get_safe_pos` or
 the station's undock point) - M3-11 brief. `SpawnObjectAtPos2` default equipment is high-end (see user note at the top).
+
+### M3-07 remembered Join fields in `x4mp.json` (`core/config/remembered.{h,cpp}`, `join_feature.cpp` verb block, `x4mp_menu.lua`, tests `test_remembered.cpp`, `hostsim.remembered_fields`, Lua `test_screens.lua`)
+
+- **Storage**: `last_address`, `last_name` in the user file (`ctx.paths->user_file`). `config::update_string_keys` is the atomic writer (temp `<file>.tmp` +
+  rename, ordered_json so unknown/user keys and their order survive, no BOM, refuses `pass|pwd|secret|token` keys, does not touch a file that is not a
+  JSON object). `apply_remember` (migrate mode fills only missing fields), `read_remembered`, `parse_remember` (ignores any password field, strips control
+  chars, caps address 255 / name 64), `make_remembered_json`. `last_*` are known keys in `config.cpp` (no unknown-key warning).
+- **Bridge** (own marked blocks in `x4mp_bridge.lua`): verb `x4mp.remember` `{"v":1,"address","name","migrate"?}` (Lua -> native, sent by `S.submitJoin` before
+  `x4mp.join`, only for a valid form); topic `x4mp.remembered` `{"v":1,"address","name"}` ("" = none), raised after each remember and with every
+  `ui_ready`/`request_status` answer. `B.remembered` holds the last payload. I used a separate topic instead of adding fields to `x4mp.status` (status is
+  throttled and rebuilt from session state; the remembered fields are independent of it).
+- **Lua** (`x4mp_menu.lua`): form pre-fill and the "Last server" line read `B.remembered` first (log source `config`), then the legacy `__X4MP_USER`
+  (source `saved`). A topic arriving after the form was built fills only empty fields and redraws. Migration: once per Lua state, if native has no value for a
+  field the legacy value exists for, send `remember` with `migrate:true`; a field native has makes Lua drop its legacy copy (other saved-variable keys such as
+  `hudMode` stay). Nothing new is ever written to `__X4MP_USER`.
+- **Not done**: `last_host_role` (the plan row mentions it). The host-as-authority toggle is not remembered today (`S.onClosed` resets it, and it needs an
+  admin password each time), so remembering it would change behaviour; add the key in `remembered.*` if wanted.
+- Tests: Catch2 `core.remembered:*` (9 cases), hostsim `remembered_fields` (migration once, override, bad input, restart survival, `expect-no-secret` for the
+  password / admin password / the second legacy address), Lua `test_screens.lua` (6 new/changed). Lua tests were run with Python lupa (Lua 5.5): one
+  pre-existing failure there (`unpack` in the options-menu adapter test) is a Lua 5.5 vs 5.1 difference, not this task.
+

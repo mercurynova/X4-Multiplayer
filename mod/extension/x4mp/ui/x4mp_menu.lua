@@ -53,7 +53,9 @@ end
 local T = S.T
 
 ------------------------------------------------------------------------------
--- __X4MP_USER (saved variable, userdata storage): { version, lastAddress, lastName }. Never the password.
+-- __X4MP_USER (saved variable, userdata storage): legacy { version, lastAddress, lastName }. Never the password.
+-- M3-07: the remembered Join fields now live in x4mp.json (native: core/config/remembered.h). __X4MP_USER is only the one-time
+-- migration source (S.legacy / the "remembered" topic handler below); nothing new is written to it.
 ------------------------------------------------------------------------------
 local function isSecretKey(k)
 	if type(k) ~= "string" then return false end
@@ -71,6 +73,28 @@ function S.user()
 	end
 	return u
 end
+
+-- M3-07 begin: remembered Join fields (x4mp.json through the native side) -------------------------------------------------
+--- legacy values of the saved variable (migration source only): address, name ("" = none)
+function S.legacy()
+	local u = S.user()
+	return type(u.lastAddress) == "string" and u.lastAddress or "", type(u.lastName) == "string" and u.lastName or ""
+end
+
+--- values the native side pushed from x4mp.json (topic x4mp.remembered): address, name ("" = none)
+function S.remembered()
+	local r = B.remembered
+	if type(r) ~= "table" then return "", "" end
+	return type(r.address) == "string" and r.address or "", type(r.name) == "string" and r.name or ""
+end
+
+--- what the form is pre-filled with: x4mp.json first, the legacy saved variable until the migration has run
+function S.rememberedOrLegacy()
+	local a, n = S.remembered()
+	local la, ln = S.legacy()
+	return a ~= "" and a or la, n ~= "" and n or ln
+end
+-- M3-07 end
 
 ------------------------------------------------------------------------------
 -- validation
@@ -150,11 +174,11 @@ S.state = nil
 
 function S.initState()
 	if S.state then return S.state end
-	local u = S.user()
+	local lastAddress, lastName = S.rememberedOrLegacy() -- M3-07
 	S.state = {
 		screen = "main",
-		address = type(u.lastAddress) == "string" and u.lastAddress or "",
-		name = type(u.lastName) == "string" and u.lastName or "",
+		address = lastAddress,
+		name = lastName,
 		password = "",
 		host = false, -- M2-09: "Host this session as the authority"
 		adminPassword = "",
@@ -180,8 +204,10 @@ local function text(t, tone) return { type = "text", text = t, tone = tone or "n
 --- the server the status reports). Close-out A item 5: the saved variable alone left the line out in game although the Join form was
 --- pre-filled, so the line no longer depends on one source, and the log says which one it used.
 function S.lastServer()
-	local u = S.user()
-	if type(u.lastAddress) == "string" and u.lastAddress ~= "" then return u.lastAddress, "saved" end
+	local remembered = S.remembered() -- M3-07: x4mp.json first, then the legacy saved variable
+	if remembered ~= "" then return remembered, "config" end
+	local legacy = S.legacy()
+	if legacy ~= "" then return legacy, "saved" end
 	local st = S.state
 	if st and type(st.address) == "string" and trim(st.address) ~= "" then return trim(st.address), "form" end
 	local status = B.status
@@ -387,13 +413,12 @@ function S.submitJoin()
 	end
 	st.password = ""
 	st.adminPassword = ""
+	B.send("remember", { address = address, name = name }) -- M3-07: x4mp.json; its own payload, never the password
 	local sent, err = B.send("join", payload)
 	payload.password = nil
 	payload.admin_password = nil
 	if sent then
-		local u = S.user()
-		u.lastAddress = address
-		u.lastName = name
+		B.remembered = { v = 1, address = address, name = name } -- until native answers with x4mp.remembered
 		B.lastError = nil
 		B.status = { v = 1, state = "connecting" } -- optimistic until native reports
 		st.address = address
@@ -421,6 +446,31 @@ B.on("status", function(p, raw)
 	if same and not changed then return end
 	if changed or not S.state or S.state.screen ~= "join" then S.render() end
 end)
+-- M3-07 begin: x4mp.remembered (B.remembered is already set by the bridge's own handler). Pre-fills the form fields the player has not
+-- typed into, refreshes the "Last server" line, and runs the one-time migration of the legacy saved variable.
+B.on("remembered", function(_, raw)
+	local address, name = S.remembered()
+	local u = S.user()
+	if address ~= "" then u.lastAddress = nil end -- x4mp.json has it now: the legacy copy is done
+	if name ~= "" then u.lastName = nil end
+	local la, ln = S.legacy()
+	if not S.migrationSent and ((la ~= "" and address == "") or (ln ~= "" and name == "")) then
+		S.migrationSent = true -- once per Lua state: a failing native write must not loop
+		B.send("remember", { address = la, name = ln, migrate = true })
+		log("menu: migrating the remembered Join fields from the saved variable to x4mp.json")
+	end
+	local same = type(raw) == "string" and raw == S.lastRememberedText
+	S.lastRememberedText = raw
+	if same then return end
+	local filled = false
+	local st = S.state
+	if st then
+		if address ~= "" and trim(st.address) == "" then st.address = address filled = true end
+		if name ~= "" and trim(st.name) == "" then st.name = name filled = true end
+	end
+	if filled or not st or st.screen ~= "join" then S.render() end
+end)
+-- M3-07 end
 B.on("error", function() S.render() end)
 B.on("notify", function(p)
 	if type(p.text) == "string" and S.state then
