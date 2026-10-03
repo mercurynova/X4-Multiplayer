@@ -46,6 +46,8 @@ the originals stay untouched. Save F is still open: no vanilla station with a ba
 sitting 3 and does not block M2. Prefer a vanilla bar; a room-generating mod is acceptable as a last resort, but then
 S10 results must be marked "modded rooms" because the mod may change the room layout we are probing.
 
+Diplomacy and HQ blocks (Part E) change the test save; most revert themselves, but `diplo1`, `diplo4`, `hq3d` and `hq6` leave permanent changes. Only ever run them on a copy. Do not pause the game during `diplo3`/`diplo5` (they wait 70 s of real time for a vanilla check that pausing stops).
+
 All of these saves must have been made **without** the test extensions installed. Throw them away after the
 session (they will contain test objects).
 
@@ -277,7 +279,7 @@ run:
 
 | Step | Run | What you do | What to note |
 |---|---|---|---|
-| E13 (S12.3d) | `hq3d` | Wait for "hq3d: done" | (log) |
+| E13 (S12.3d) | `hq3d` | Use **save B** (no Player HQ). This **spawns two HQs**: one for team 2 and one owned by you (`hq3d noplayer=1` skips yours). `hq4`, `hq5` and `hq8` need them, so run E13 before those. Wait for "hq3d: done" | (log) |
 | E14 (S12.4) | `hq4` | Open the research menu when asked. **Do not press Start.** Screenshot. Close it when asked | Did the menu open with a research module? Any errors? |
 | E15 (S12.5) | `hq5` | Wait 60 s | (log) |
 | E16 (S12.8) | `hq8` | Open the research menu / encyclopedia when asked. Screenshot | Do the two test entries appear, with the right "done" state? |
