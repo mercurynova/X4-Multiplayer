@@ -44,6 +44,9 @@ internal sealed class AdminSessions(SessionActor actor, SqliteAdminQueries queri
 
     public SessionActor Actor => actor;
 
+    /// <summary>The save the admin chose when creating the current session (null = none).</summary>
+    public string? SelectedSha => _selectedSha;
+
     public TimeProvider Time => time;
 
     /// <summary>Remembers the save the admin chose for the current session (null = none).</summary>

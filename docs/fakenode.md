@@ -66,6 +66,7 @@ Ping/Pong. Options accept `--name value` and `--name=value`. `--verify` and the 
 | `--sectors N --ships N --tick HZ --fps N` | Fake universe and authority shape (defaults 152 sectors, 10225 ships, 20 Hz, 60 fps) |
 | `--save-mb N` | authority: size of the fake save it uploads on request (default 4, max 4096), so the transfer moves real bytes |
 | `--save-file PATH` | authority (or swarm with `--with-authority`): upload this existing `.xml.gz` save verbatim (real SHA-256) as the checkpoint, with an empty-station manifest, instead of a generated one; a missing file is a parse error (non-zero exit). Prints `FakeNode authority: checkpoint stored (sha <hex>)` (used by `tools/session2/start-server.ps1`) |
+| `--expect-session-save` | authority: the session was created from a stored save (`POST /api/v1/sessions {saveId}`, then start): the server sends the authority a `SessionSaveInfo` (no manifest). The fake authority downloads and verifies that save, "loads" it (Verifying, Loading, Matching, `NodeReady`) and only then answers `RequestSave{SessionStart}` with its own checkpoint. Fails (exit 1) when no `SessionSaveInfo` arrives within 15 s. Without the flag the authority treats its game as loaded already and ignores the info (the M1 behaviour) |
 | `--udp` | Use the UDP realtime lane (binds with `UdpHello`; falls back to TCP after 3 s; needs the server's UDP port open) |
 
 ### Teams

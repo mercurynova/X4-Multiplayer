@@ -332,7 +332,7 @@ public static partial class LiveRunner
     }
 
     /// <summary>Waits for the whole join: the checkpoint, the download, the match and the catch-up, then the server's InGame.</summary>
-    private static async Task JoinWithSavesAsync(NodeLink link, FakeSaveClient saves, LiveRunOptions run, CancellationToken ct)
+    private static async Task JoinWithSavesAsync(NodeLink link, FakeSaveClient saves, LiveRunOptions run, CancellationToken ct, string? noSaveInfoHint = null)
     {
         await link.WaitPhaseAsync(NodePhase.SyncingSave, TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
         if (link.Phase == NodePhase.AwaitingTeam && !await link.WaitPhaseAsync(NodePhase.SyncingSave, run.PhaseTimeout, ct).ConfigureAwait(false))
@@ -345,6 +345,8 @@ public static partial class LiveRunner
                 throw new InvalidOperationException("the save pipeline failed: " + error);
             if (link.Closed)
                 throw new IOException(link.DisconnectedBy is { } code ? $"server closed the connection ({code})" : "connection closed");
+            if (noSaveInfoHint is not null && saves.Stage == FakeJoinStage.WaitingForSaveInfo && watch.Elapsed > run.SessionSaveInfoTimeout)
+                throw new TimeoutException(noSaveInfoHint);
             if (watch.Elapsed > run.SaveTimeout)
                 throw new TimeoutException($"the join did not finish within {run.SaveTimeout.TotalSeconds:F0} s (stage {saves.Stage}; does the session have an authority that uploads a checkpoint?)");
             await Task.Delay(20, ct).ConfigureAwait(false);
@@ -439,8 +441,24 @@ public static partial class LiveRunner
             };
         }
 
+        // --expect-session-save: the session starts from a stored save, so the authority first takes the join pipeline of a client (download, verify, load)
+        // and only then answers the server's RequestSave{SessionStart}.
+        FakeSaveClient? sessionSave = null;
+        Channel<Frame>? sessionSaveFrames = null;
+        if (o.ExpectSessionSave)
+        {
+            if (saves is null)
+                throw new InvalidOperationException("--expect-session-save needs a server with the save service");
+            sessionSave = new FakeSaveClient(
+                link.Client, new FakeSaveClientOptions { Directory = Path.Combine(saveDir, "authority-session-save"), LoadDelay = run.LoadDelay },
+                text => _ = lines.WriteAsync($"[{name}] {text}"));
+            sessionSaveFrames = Channel.CreateUnbounded<Frame>(new UnboundedChannelOptions { SingleReader = true });
+        }
+
         link.Handler = frame =>
         {
+            if (sessionSaveFrames is not null && IsSaveFrame(frame.Type))
+                sessionSaveFrames.Writer.TryWrite(frame);
             if (frame.Type == MsgType.CaptureSet)
             {
                 captures.Enqueue(MessageRegistry.Default.Decode<CaptureSet>(frame).UnPack());
@@ -484,7 +502,39 @@ public static partial class LiveRunner
         foreach (var message in saves is null ? authority.StartupMessages() : authority.StringTableMessages())
             await link.Client.SendPayloadAsync(message.Type, message.Payload, ct).ConfigureAwait(false);
         saves?.MarkStringTableSent();
-        await AdvanceToInGameAsync(link, run, ct).ConfigureAwait(false);
+        if (sessionSave is null)
+        {
+            await AdvanceToInGameAsync(link, run, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            var worker = Task.Run(() => PumpSaveFramesAsync(sessionSave, sessionSaveFrames!.Reader, ct), CancellationToken.None);
+            try
+            {
+                var loading = Stopwatch.StartNew();
+                await JoinWithSavesAsync(
+                    link, sessionSave, run, ct,
+                    "the server sent no SessionSaveInfo: start the session from a stored save (POST /api/v1/sessions with saveId) before the authority joins").ConfigureAwait(false);
+                await lines.WriteAsync(
+                    $"[{name}] authority loaded the session save after {loading.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s: " +
+                    $"{sessionSave.BytesReceived} bytes downloaded and verified ({sessionSave.VerifiedSaveSha?[..12]}), waiting for RequestSave").ConfigureAwait(false);
+            }
+            finally
+            {
+                sessionSaveFrames!.Writer.TryComplete();
+                try
+                {
+                    await worker.ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // reported through the join
+                }
+
+                sessionSave.Dispose();
+            }
+        }
+
         await lines.WriteAsync($"[{name}] authority in game: {galaxy.Sectors.Count} sectors, {galaxy.Entities.Count} entities, streaming at {o.TickRate} Hz").ConfigureAwait(false);
 
         var clock = Stopwatch.StartNew();

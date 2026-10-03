@@ -51,6 +51,9 @@ public sealed record LiveRunOptions
     /// <summary>How long a client waits for the whole save pipeline (the authority's first checkpoint, the download, the match) against a server with a save service.</summary>
     public TimeSpan SaveTimeout { get; init; } = TimeSpan.FromMinutes(3);
 
+    /// <summary>An authority run with <c>--expect-session-save</c> fails when the server sent no <c>SessionSaveInfo</c> within this long.</summary>
+    public TimeSpan SessionSaveInfoTimeout { get; init; } = TimeSpan.FromSeconds(15);
+
     /// <summary>Test hook: called with the fake authority when it is created (M1-F3: read its owners, hostility and reassign log).</summary>
     public Action<FakeAuthority>? OnAuthority { get; init; }
 
