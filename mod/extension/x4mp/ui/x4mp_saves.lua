@@ -36,7 +36,7 @@ S.MD_SCREEN = "X4MP_Saves"
 S.TEXT_PAGE, S.TEXT_ID_TOOLTIP = 92000, 60
 S.FALLBACK_TOOLTIP = "Saving is disabled while connected as a client"
 
-local unpack = rawget(_G, "unpack") or table.unpack
+local unpack = rawget(_G, "unpack") or rawget(table, "unpack")
 
 local function log(msg)
 	pcall(DebugError, "[X4MP] saves: " .. tostring(msg))
