@@ -274,7 +274,7 @@ jobs:
   #   playwright: the Playwright suite (Chromium) against the published server exe.
   # plus a windows job (e2e-headless) with the C++ x4mp-headless client (handshake, heartbeat, resume, save download) and
   # x4mp-hostsim (M2-01: the real x4mp.dll in a fake X4Native host against the real server; scenarios in mod/tests/hostsim:
-  # smoke, join flow, reload survival, authority flow) and the M2-08 live authority upload kill test (ports 47980-47983).
+  # smoke, join flow, reload survival, authority flow, mod refusal) and the M2-08 live authority upload kill test (ports 47980-47983).
   # ---------------------------------------------------------------------------------------------
   e2e:
     needs: changes
@@ -358,9 +358,9 @@ jobs:
       - name: Create vcpkg cache dir
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
-      - name: E2E (Publish, Headless, HostSim, JoinFlow, ReloadSurvival, AuthorityFlow, UploadKill)
+      - name: E2E (Publish, Headless, HostSim, JoinFlow, ReloadSurvival, AuthorityFlow, ModRefusal, UploadKill)
         shell: pwsh
-        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,JoinFlow,ReloadSurvival,AuthorityFlow,UploadKill
+        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,UploadKill
       - name: Upload E2E logs
         if: failure()
         uses: actions/upload-artifact@v4
