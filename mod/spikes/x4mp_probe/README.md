@@ -63,3 +63,59 @@ X4Native settings row: toggle "X4MP probe: test button" (id `test_button`); a ch
   "was the DLL unloaded on reload?" unobservable; set `hooks:false` for a clean B4 reading.
 * `ReloadSaveList`, `IsSaveListLoadingComplete`, `IsSaveValid`, `GetSaveFolderPath`, `IsGamePaused`, `AddPlayerMoney` are real X4.exe exports
   and are called natively. `Pause`, `Unpause`, `LoadGame`, `SaveGame`, `GetPlayerMoney`, `ExecuteDebugCommand` are Lua globals (shim).
+
+## S13 blocks (M3-001, session-4 sitting 0)
+
+Native half of spikes S13.1-S13.10 ([m3-plan.md](../../../docs/m3-plan.md) section 5). Sources: `src/s13.cpp`, `src/s13.h`; tests: `tests/s13_tests.cpp`
+(`build.ps1 -Spikes -Filter probe`; a fake world behind the stub API loads every block). The Lua/MD half is `mod/spikes/x4mp_spike` (M3-002).
+
+Start a block like any other: `spike_block` = the name (optionally with an argument after a space) and a bumped `spike_block_seq` in
+`x4mp_probe.json`. `ghost_motion` takes its mode as `ghost_motion a` or `ghost_motion_a`. Names are case-insensitive. Only one block runs at
+a time: starting another aborts the first (logged). Game calls run only from `on_frame_update`; nothing pauses or sleeps. Every removal goes
+through a copy of the product guard (player ship, controlled ship, player, player object, container and the ship/station context of each are
+never removed; the guard is re-collected right before every removal). Spawned objects are listed in
+`Documents\Egosoft\X4\x4mp\x4mp_probe_s13_registry.json` (id + idcode; stale entries after a load are dropped, never removed by id alone).
+
+| Block | Spike | What it does |
+|---|---|---|
+| `s13_check` | - | logs which native functions exist in the game table (also runs before the first block): `PASS native functions present=[..] MISSING=[none]` |
+| `ghost_spawn` | S13.1 | removes previous ghosts (idempotent), spawns an S (`ghost_macro_s`) and an M (`ghost_macro_m`) ship with `SpawnObjectAtPos2` under `ghost_faction` (falls back to `ghost_fallback_faction` and logs it), `spawn_distance_m` ahead of the player's ship (S 100 m left, M 100 m right), `ActivateObject(false)`, logs id / idcode / name / class / owner / `GetNumOrders` / `pilot` (GetComponentData, `n/a` if unreadable), raises `x4mp.spike_dress`, then samples position drift for `drift_seconds` (60): `PASS drift ... max_drift_m` (< 1) |
+| `ghost_motion a\|b\|c` | S13.2 | on the S ghost (spawned if missing): circle r=1000 m around the player's start position at 100 / 300 / 600 m/s and a 3 km/s line passing 1 km beside it, `motion_seconds` (20) each. a = per-frame `SetObjectSectorPos` interpolating 20 Hz keys one key behind; b = raw sets at 20 Hz; c = a + Lua event `x4mp.spike_velocity` at 5 Hz. Per segment: `PASS segment <name> ... SetObjectSectorPos cost n= p50= p95= max=` in us and frame dt in ms. The ghost is parked again at the end |
+| `ghost_xsector` | S13.3 | moves the S ghost into another sector (`xsector_name` substring, else same cluster, else the first other sector from `GetSectorsByOwner`) at (2000,0,2000); logs sector/cluster/zone before, after 1/5/30 frames (`PASS context after`), holds `xsector_hold_seconds` (20) for the map check, moves back (`PASS return check`) |
+| `sample` | S13.4 | `sample_hz` (20) for `sample_seconds` (120): one `sample k= t= sec= ref= pos= ang_raw=(yaw,pitch,roll) v= occ= ctl= cont= obj= dock= foot= hw= seta= pose_us=` line per sample, `sector change` lines, a summary with achieved Hz, call-cost p50/p95/max and an angle-unit guess. `ref` = which id gave the pose (occ, ctl, cont, obj); `foot` is a guess (no ship, player object set); `hw` is the id of the player's `highway` context |
+| `seat` | S13.5 | `seat_seconds` (60): one `seat_edge` line whenever occupied / controlled / player object / container / player id changes |
+| `takeover`, `takeover_docked` | S13.6 | **refuses** (`REFUSED`, nothing spawned) unless `GetLastSaveInfo` filename or name equals `scratch_slot`. Spawns a `player`-owned `takeover_macro` ship `takeover_distance_m` (300) from the player's reference ship, `CanTeleportPlayerTo` (raw text logged), `TeleportPlayerTo(ship, 1, 1, force=1)`, waits for 10 consecutive frames with occupied/controlled = the new ship, then guard-checked removal of the vacated original and a 30-frame settle check. No confirmation in 10 s = nothing removed. `takeover_docked` additionally needs the player docked |
+| `persist_spawn` | S13.8 | refuses unless on the scratch slot; spawns a team-owned inert ship, writes `x4mp_probe_s13_persist.json` (idcode, pos, sector name, name, game time). Then save in game, reload |
+| `persist_check` | S13.8 | after the reload: finds the ship by idcode (`GetAllFactionShips`), logs position delta (`PASS found by idcode ... delta_m` < 1), name, orders and, after 5 s, whether it moved (active) or not |
+| `seta` | S13.9 | `seta_seconds` (120): logs `IsSetaActive` edges; on a rising edge raises `x4mp.spike_seta_off` and logs `PASS SETA went off N ms` or `FAIL ... still active 1 s` |
+| `pause_move` | S13.10 | `pause_wait_seconds` (60): waits for game time to stop advancing (the Esc menu), then moves the S ghost +100 m/s each frame and reads it back: `pause detected`, `PASS pause ended ... ui_frames_during_pause= native_frames_during_pause=`, `PASS SetObjectSectorPos while paused ... err_m`. If UI frames do not tick while paused the first frame after logs a `WARN on_frame_update did not tick for N ms (native frames in that gap: M)` |
+| `cleanup` | - | removes every object in the registry (guard-checked); the takeover ship the player now sits in is refused by the guard, by design |
+| `s13_stop`, `s13_status` | - | abort the active block / show the active block and registry size |
+
+Log lines: `[X4MP-PROBE] t=.. tid=.. s13 <S13.n> block=<name> <PASS|FAIL|INFO|WARN|REFUSED> key=value ...`. Missing native functions log
+`FAIL MISSING native function=<name>` once and the block carries on or ends. All functions below exist in the vendored 9.00-611726 table.
+
+Config keys (all optional, ints in metres/seconds): `scratch_slot` (""), `ghost_macro_s` (`ship_arg_s_fighter_01_a_macro`), `ghost_macro_m`
+(`ship_arg_m_bomber_01_a_macro`), `ghost_faction` (`x4mp_team_2`), `ghost_fallback_faction` (`ownerless`), `takeover_macro`, `xsector_name`,
+`spawn_distance_m` (1000), `takeover_distance_m` (300), `drift_seconds` (60), `motion_seconds` (20), `sample_seconds` (120), `sample_hz` (20),
+`seat_seconds` (60), `seta_seconds` (120), `pause_wait_seconds` (60), `xsector_hold_seconds` (20), `pitch_sign` (1; flip to -1 if ghosts appear
+above/below instead of ahead), `angles_in_radians` (true: `GetObjectPositionInSector` angles are radians, `SetObjectSectorPos` wants degrees, per x4n_math.h; the
+`sample` summary guesses the unit from the raw ranges).
+
+Native functions used: `SpawnObjectAtPos2`, `FindMacro`, `ActivateObject`, `SetObjectSectorPos`, `GetObjectPositionInSector`,
+`GetPlayerOccupiedShipID`, `GetPlayerControlledShipID`, `GetPlayerObjectID`, `GetPlayerContainerID`, `GetPlayerID`, `GetContextByClass`,
+`TeleportPlayerTo`, `CanTeleportPlayerTo`, `IsSetaActive`, `GetCurrentGameTime`, `IsGamePaused`, `IsPlayerOccupiedShipDocked`, `IsValidComponent`,
+`RemoveComponent` (guard-checked only), `GetObjectIDCode`, `GetComponentName`, `GetComponentClass`, `GetOwnerDetails`, `GetNumOrders`,
+`GetAllFactions`, `GetAllFactionShips`, `GetNumAllFactionShips`, `GetSectorsByOwner`, `GetLastSaveInfo`, plus `IsComponentOperational` and the framework's
+`get_lua_property("GetComponentData", id, "pilot")`.
+
+### Events for the spike MD/Lua (M3-002 implements the handlers; native -> Lua via `raise_lua_event`)
+
+| Event | Payload | When |
+|---|---|---|
+| `x4mp.spike_dress` | `id\|name` (id = decimal UniverseID of the spawned ghost / persist ship) | right after each ghost / persist spawn: set name, minimum hull, radar |
+| `x4mp.spike_velocity` | `id\|vx\|vy\|vz` (m/s, sector frame, 3 decimals) | `ghost_motion c`, every 200 ms |
+| `x4mp.spike_seta_off` | `1` | `seta` block, on each rising edge of `IsSetaActive` |
+
+Known limits: the probe still pins itself when `hooks` is on (session-2 behaviour; set `hooks:false` for sitting 0). `GetLastSaveInfo` is assumed
+to describe the save that was last loaded or saved (the refusal logs the raw `filename|name`, so a wrong assumption refuses safely).

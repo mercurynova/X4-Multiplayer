@@ -56,6 +56,37 @@ ParseResult parse_config(std::string_view text) {
   read(j, "reloadui_after_s", c.reloadui_after_s, n);
   read(j, "save_test", c.save_test, n);
   read(j, "money_test", c.money_test, n);
+  S13Config& q = c.s13;
+  read(j, "scratch_slot", q.scratch_slot, n);
+  read(j, "ghost_macro_s", q.ghost_macro_s, n);
+  read(j, "ghost_macro_m", q.ghost_macro_m, n);
+  read(j, "ghost_faction", q.ghost_faction, n);
+  read(j, "ghost_fallback_faction", q.ghost_fallback_faction, n);
+  read(j, "takeover_macro", q.takeover_macro, n);
+  read(j, "xsector_name", q.xsector_name, n);
+  read(j, "spawn_distance_m", q.spawn_distance_m, n);
+  read(j, "takeover_distance_m", q.takeover_distance_m, n);
+  read(j, "drift_seconds", q.drift_seconds, n);
+  read(j, "motion_seconds", q.motion_seconds, n);
+  read(j, "sample_seconds", q.sample_seconds, n);
+  read(j, "sample_hz", q.sample_hz, n);
+  read(j, "seat_seconds", q.seat_seconds, n);
+  read(j, "seta_seconds", q.seta_seconds, n);
+  read(j, "pause_wait_seconds", q.pause_wait_seconds, n);
+  read(j, "xsector_hold_seconds", q.xsector_hold_seconds, n);
+  read(j, "pitch_sign", q.pitch_sign, n);
+  read(j, "angles_in_radians", q.angles_in_radians, n);
+  q.spawn_distance_m = std::clamp(q.spawn_distance_m, 50, 20000);
+  q.takeover_distance_m = std::clamp(q.takeover_distance_m, 50, 5000);
+  q.drift_seconds = std::clamp(q.drift_seconds, 1, 3600);
+  q.motion_seconds = std::clamp(q.motion_seconds, 1, 600);
+  q.sample_seconds = std::clamp(q.sample_seconds, 1, 3600);
+  q.sample_hz = std::clamp(q.sample_hz, 1, 120);
+  q.seat_seconds = std::clamp(q.seat_seconds, 1, 3600);
+  q.seta_seconds = std::clamp(q.seta_seconds, 1, 3600);
+  q.pause_wait_seconds = std::clamp(q.pause_wait_seconds, 1, 3600);
+  q.xsector_hold_seconds = std::clamp(q.xsector_hold_seconds, 0, 600);
+  q.pitch_sign = q.pitch_sign < 0 ? -1 : 1;
   c.pause_seconds = std::clamp(c.pause_seconds, 0, 600);
   if (c.load_mode != "event" && c.load_mode != "lua") {
     n.push_back("bad value for key load_mode");
@@ -94,6 +125,7 @@ std::string describe(const Config& c) {
   s += " spike_block=" + c.spike_block + " spike_block_seq=" + std::to_string(c.spike_block_seq) +
        " reloadui_after_s=" + std::to_string(c.reloadui_after_s) + " save_test=" + c.save_test +
        " money_test=" + std::to_string(c.money_test);
+  s += " scratch_slot=" + (c.s13.scratch_slot.empty() ? std::string("<unset>") : c.s13.scratch_slot) + " ghost_faction=" + c.s13.ghost_faction;
   return s;
 }
 
