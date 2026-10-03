@@ -232,6 +232,9 @@ fixed live. **Next:** an M2 close-out task for the session-3 open items 1-7 (HUD
 `/reloadui`, first-checkpoint self-spawn, refusal screen text, "Last server" line, team-faction log noise, manifest cleanup),
 a 15-minute retest, then M3 planning.
 
+**Status 2026-10-03 (night): M2 complete.** Close-out A/B merged, retest in game passed (session-3 results, "Retest").
+Carried into M3: self-spawn when the player sits down; Join fields in `x4mp.json`. **Next: M3 planning.**
+
 M1 carry-overs placed in M2: `EntitySpawn.game_time` and connection-bound upload jobs (M2-08/09), real `extension_list`
 (M2-X1/X2), authority loading admin-uploaded saves and the post-upload 404 (M2-02/09), `/mods/save-requirements`
 (M2-02), unknown-key refusals on the hub (M2-13). Deferred: HTTPS/CSP and token/audit/user GUIs → M6; economy swarm

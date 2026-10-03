@@ -25,5 +25,6 @@ real X4 9.00 build 611726, all DLCs, UIX and SirNukes enabled). CI: main at 44fe
 | 18 | Session-2 verdicts recorded | PASS | [spikes/session-2-results.md](spikes/session-2-results.md) |
 | V21 | Checkpoint loads without the mod | PASS | Run 4: loads with no warning, no X4MP trace |
 
-**Result:** all 18 criteria pass. Nine defects were found and fixed live during session 3 (session-3 results, fixes 1-9). M2 closes once the
-open items 1-7 of the session-3 results are fixed and a short retest (HUD line, chat + Esc, `/reloadui` self-test, first-checkpoint self-spawn) passes.
+**Result:** all 18 criteria pass. Nine defects were found and fixed live during session 3, the open items were fixed in the M2 close-out
+(close-out A and B, 2026-10-03) and passed a retest in game the same evening (session-3 results, "Retest"). **M2 is complete.** Two small
+follow-ups move to M3: self-spawn when the player sits in the pilot seat, and remembered Join fields in `x4mp.json`.
