@@ -1,0 +1,39 @@
+# M2-06 criterion 6: a build mismatch is refused with the right text, a correct install is Supported (ctest hostsim.join_refused_build).
+# No server. The refused host still answers the Lua verbs with status {state:rejected, reject:build, detail:<reason>}.
+# Lua raises native events through __X4NATIVE_API.raise_event, so the scenarios use lua-raw (no register_lua_bridge needed).
+
+# --- 1. the build suffix names a different build: refused, but the UI is told why --------------------------------------------
+set game_version 9.00
+set build_suffix 700000
+init
+expect-file extension/logs/x4mp.log REFUSING TO START
+expect-state subs.on_frame_update == 0
+expect-state subs.on_game_loaded == 0
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+expect-lua x4mp.status 3000 json $.state == rejected
+frame fast 5
+lua-raw x4mp.request_status {"v":1}
+expect-lua x4mp.status 3000 json $.reject == build
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:1","name":"Tester","password":"refused-secret-pw","team":"auto"}
+expect-lua x4mp.status 3000 contains Unsupported X4 build
+expect-no-secret refused-secret-pw
+shutdown
+
+# --- 2. session 2: the real game reports an EMPTY build suffix; X4Native's release version names the build -------------------------
+set build_suffix none
+set x4native_version v9.0.0-611726
+init
+expect-file extension/logs/x4mp.log build check: supported
+expect-sub on_frame_update
+expect-state subs.on_frame_update == 1
+frame 60Hz 30
+shutdown
+
+# --- 3. empty suffix and an X4Native release of another build: a known mismatch still refuses ----------------------------------
+set x4native_version v9.0.0-700000
+init
+expect-file extension/logs/x4mp.log REFUSING TO START
+expect-state subs.on_frame_update == 0
+lua-raw x4mp.request_status {"v":1}
+expect-lua x4mp.status 3000 json $.reject == build
+shutdown

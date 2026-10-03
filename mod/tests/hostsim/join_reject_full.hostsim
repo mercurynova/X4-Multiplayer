@@ -1,0 +1,7 @@
+# M2-06: the session is full (MaxPlayers 2: authority + holder); reject=full (Lua text 73).
+init
+frame 60Hz 10
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Late","password":"","team":"auto"}
+frame 60Hz 240
+expect-lua x4mp.status 3000 json $.reject == full
+shutdown

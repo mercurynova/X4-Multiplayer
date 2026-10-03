@@ -66,7 +66,16 @@ BuildCheck check_build(const BuildInfo& info, std::string_view pin) {
   if (!ver && info.game_types_build > 0) ver = info.game_types_build;
 
   std::optional<std::string> build;
+  std::string build_source = "the game build suffix";
   if (info.build_suffix) build = extract_build_number(*info.build_suffix);
+  if (!build) {
+    build = extract_build_number(info.game_version);
+    build_source = "the X4Native game version";
+  }
+  if (!build) {
+    build = extract_build_number(info.x4native_version);
+    build_source = "the X4Native release version";
+  }
 
   out.detected = (ver ? std::to_string(*ver) : std::string("?")) + "-" + (build ? *build : std::string("?"));
   const std::string supported = "supported: " + std::string(pin);
@@ -89,7 +98,7 @@ BuildCheck check_build(const BuildInfo& info, std::string_view pin) {
   if (build) {
     if (*build == pin_build) {
       out.status = BuildStatus::Supported;
-      out.reason = "X4 build " + out.detected + " matches the pinned build";
+      out.reason = "X4 build " + out.detected + " matches the pinned build (read from " + build_source + ")";
     } else {
       out.status = BuildStatus::Unsupported;
       out.reason = "Unsupported X4 build " + out.detected + " (" + supported + ")";
