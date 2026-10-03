@@ -305,6 +305,12 @@ public sealed partial class WorldMirror : ISessionModule
     public void ApplySpawn(EntitySpawn message)
     {
         double gameTime = message.GameTime;
+        if (message.EntitiesLength is > 0 and <= 4 && _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Information))
+        {
+            // Small spawns only (the authority's self-spawn, single ships): M2 criterion 11 reads the game_time the authority stamped on them from the log.
+            LogSmallSpawn(message.EntitiesLength, message.Entities(0)?.NetId ?? 0, gameTime);
+        }
+
         for (int i = 0; i < message.EntitiesLength; i++)
         {
             if (message.Entities(i) is { } record)
@@ -990,6 +996,9 @@ public sealed partial class WorldMirror : ISessionModule
 
         entity.SectorSlot = -1;
     }
+
+    [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "world: EntitySpawn of {Count} entities, first net_id {NetId}, game_time {GameTime:F3}")]
+    private partial void LogSmallSpawn(int count, uint netId, double gameTime);
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "world mirror: GalaxyMetadata rejected: {Reason}")]
     private partial void LogGalaxyRejected(string reason);

@@ -1,0 +1,30 @@
+# M2-09 acceptance 2 ("the authority already runs the session's save"): the game is loaded first (universe ready), the join carries
+# loaded_save_sha256 = the stored start save, so ClientHello tells the server and it sends NO SessionSaveInfo (M2-02). The authority
+# reports ready itself and answers RequestSave{SessionStart}. Run by authority_flow_run.ps1 (vars: tcp, apw, sim, ckpt_src, save_sha).
+init
+set game_time 5000
+load_save x4mp_already_loaded
+frame 60Hz 30
+lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostBob","password":"","admin_password":"${apw}","role":"authority","team":"auto","loaded_save_sha256":"${save_sha}"}
+frame 60Hz 300
+expect-file extension/logs/x4mp.log authority: no session save to load, reporting ready
+expect-no-log SessionSaveInfo:
+expect-lua x4mp.status 3000 json $.state == ingame
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;2"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSB-002|cluster_01_sector001_macro|ship_s|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+# no Lua game time in the reply: native falls back to GetCurrentGameTime (hostsim: 5000 + elapsed)
+lua-raw x4mp.auth_saved {"v":1,"ok":true}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log self-spawn sent net_id=1
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+expect-no-log SessionSaveInfo:
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown

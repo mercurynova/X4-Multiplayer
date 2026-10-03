@@ -32,6 +32,7 @@
 
 #include "core/mods/mods.h"
 #include "core/session/session.h"
+#include "features/authority/authority_flow.h"
 #include "features/join/join_json.h"
 #include "features/join/platform_stash.h"
 #include "host/feature.h"
@@ -76,10 +77,14 @@ class JoinFeature final : public host::IFeature {
   void pump_session(host::HostContext& ctx);
   void handle_session_event(host::HostContext& ctx, const session::SessionEvent& event);  // M2-09 hook point
   void handle_save_ready(host::HostContext& ctx);
+  // ---- M2-09 hook points (authority) ----
+  void sync_authority(host::HostContext& ctx);
+  void step_authority_ready(host::HostContext& ctx);
   void step_preparing(host::HostContext& ctx);
   void issue_load(host::HostContext& ctx);
   void step_loading(host::HostContext& ctx);
   void complete_universe(host::HostContext& ctx);
+  void finish_ready(host::HostContext& ctx);  // M2-09: NodeReady once the server confirmed Matching (NodeReady is phase-gated server-side)
   [[nodiscard]] bool welcomed() const;
   void update_diag(host::HostContext& ctx);
   void send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload);
@@ -96,6 +101,17 @@ class JoinFeature final : public host::IFeature {
   std::unique_ptr<join::PlatformStash> stash_;
   std::unique_ptr<mods::ExtensionProvider> extensions_;
   std::unique_ptr<session::Session> session_;
+  // M2-09: the authority's checkpoint flow, alive while the server granted this node the authority role.
+  std::shared_ptr<auth::AuthInbox> auth_inbox_;
+  std::unique_ptr<auth::AuthorityFlow> authority_;
+  bool want_authority_ = false;                       // the join asked for the authority role
+  Clock::time_point welcomed_at_{};                    // the newest Welcome (authority: grace before "no save to load")
+  int my_phase_ = -1;                                  // our NodePhase as the server last published it in RosterUpdate (-1 unknown)
+  bool ready_pending_ = false;                         // Matching sent, NodeReady waits for the roster to confirm it
+  Clock::time_point matching_sent_at_{};
+  std::uint64_t pending_epoch_ = 0;
+  int authority_ready_step_ = 0;                       // 0 waiting, 1 Loading sent (Matching + NodeReady follow)
+  Clock::time_point authority_ready_at_{};
 
   Stage stage_ = Stage::Idle;
   bool resumed_incarnation_ = false;  // this DLL incarnation resumed a session after a reload
