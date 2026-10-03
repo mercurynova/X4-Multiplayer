@@ -36,6 +36,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -238,7 +239,11 @@ class ServerProcess {
     // environment block = ours + the server's configuration (the published server reads X4MP__ variables; e2e.ps1 does the same)
     std::wstring env;
     if (LPWCH cur = ::GetEnvironmentStringsW()) {
-      for (const wchar_t* p = cur; *p != L'\0'; p += wcslen(p) + 1) env.append(p, wcslen(p) + 1);
+      for (const wchar_t* p = cur; *p != L'\0'; p += wcslen(p) + 1) {
+        // drop inherited X4MP__ settings (a parent may have left empty ones behind): ours below are the only server configuration
+        if (_wcsnicmp(p, L"X4MP__", 6) == 0) continue;
+        env.append(p, wcslen(p) + 1);
+      }
       ::FreeEnvironmentStringsW(cur);
     }
     const auto add = [&env](const std::wstring& kv) { env.append(kv); env.push_back(L'\0'); };
@@ -268,6 +273,14 @@ class ServerProcess {
     ::CloseHandle(pi.hThread);
     process_ = pi.hProcess;
     return true;
+  }
+
+  // "still running" or "exited with code N": goes into the failure text so CI logs show why a server never came up.
+  [[nodiscard]] std::string describe_exit() const {
+    if (process_ == nullptr) return "not started";
+    DWORD code = 0;
+    if (!::GetExitCodeProcess(process_, &code)) return "exit code unknown";
+    return code == STILL_ACTIVE ? "server still running" : "server exited with code " + std::to_string(static_cast<long>(static_cast<int>(code)));
   }
 
   [[nodiscard]] bool alive() const { return process_ != nullptr && ::WaitForSingleObject(process_, 0) == WAIT_TIMEOUT; }
@@ -308,6 +321,19 @@ class ServerProcess {
 };
 
 // ---- one run --------------------------------------------------------------------------------------------------------------
+
+// The first and last `max_chars / 2` of a text file on one line (newlines become " | "), for failure messages.
+std::string tail_of(const fs::path& file, std::size_t max_chars) {
+  std::ifstream in(file, std::ios::binary);
+  if (!in) return "(no log file)";
+  std::string all((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  if (all.size() > max_chars) all = all.substr(0, max_chars / 2) + " ... " + all.substr(all.size() - (max_chars / 2));  // head (the message) + tail (the stack)
+  for (auto& c : all) {
+    if (c == '\r') c = ' ';
+    else if (c == '\n') c = '|';
+  }
+  return all.empty() ? "(empty log)" : all;
+}
 
 struct RunResult {
   bool ok = false;
@@ -359,7 +385,7 @@ RunResult run_once(int run, const std::string& server_exe, std::uint16_t base, s
     return res;
   }
   if (!server.wait_ready(tcp, 60s)) {
-    res.why = "the server did not open its node port (see " + (dir / "server.log").string() + ")";
+    res.why = "the server did not open its node port (" + server.describe_exit() + "; see " + (dir / "server.log").string() + ") log tail: " + tail_of(dir / "server.log", 3000);
     return res;
   }
 

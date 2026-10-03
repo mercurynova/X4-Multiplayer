@@ -47,12 +47,13 @@ function Wait-Until($what, [scriptblock]$probe, $sec = 40) {
     $end = (Get-Date).AddSeconds($sec)
     while ($true) { try { if (& $probe) { return } } catch { }; if ((Get-Date) -gt $end) { throw "Timed out waiting for $what" }; Start-Sleep -Milliseconds 250 }
 }
+function Get-Sha256Hex([string]$Path) { $s = [IO.File]::OpenRead($Path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($h.ComputeHash($s)) -replace '-', '').ToLowerInvariant() } finally { $h.Dispose() } } finally { $s.Dispose() } }  # not Get-FileHash: a 5.1 child of pwsh 7 cannot autoload Microsoft.PowerShell.Utility
 function New-GzSave($path, $seed) {
     $rnd = New-Object byte[] (3MB); (New-Object Random $seed).NextBytes($rnd)
     $fs = [IO.File]::Create($path); $gz = New-Object IO.Compression.GZipStream($fs, [IO.Compression.CompressionMode]::Compress)
     $head = [Text.Encoding]::UTF8.GetBytes("<?xml version=`"1.0`" encoding=`"utf-8`"?><savegame><info><game id=`"x4mp-authority-e2e-$seed`"/></info></savegame>")
     $gz.Write($head, 0, $head.Length); $gz.Write($rnd, 0, $rnd.Length); $gz.Dispose(); $fs.Dispose()
-    return (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    return Get-Sha256Hex $path
 }
 function Start-FreshServer($tag) {
     $data = Join-Path $tmp "data-$tag"; New-Item -ItemType Directory -Force $data | Out-Null

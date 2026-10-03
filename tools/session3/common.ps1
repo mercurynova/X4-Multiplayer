@@ -40,7 +40,7 @@ function Ensure-Published([switch]$Force) {
     $fakeNodeExe = Join-Path $Repo 'out\fakenode\X4MP.FakeNode.exe'
     if ($Force -or -not (Test-Path $serverExe) -or -not (Test-Path $fakeNodeExe)) {
         if (-not (Test-Path (Join-Path $Repo 'tools\flatc\bin\flatc.exe'))) {
-            Invoke-Native 'fetch-flatc' { & powershell -NoProfile -File (Join-Path $Repo 'tools\flatc\fetch-flatc.ps1') }
+            Invoke-Native 'fetch-flatc' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $Repo 'tools\flatc\fetch-flatc.ps1') }
         }
         Invoke-Native 'dotnet publish (server)' { dotnet publish (Join-Path $Repo 'server\src\X4MP.Server') -c Release '-p:PublishProfile=win-x64' -p:SkipWebBuild=true -nologo -v:m }
         Invoke-Native 'dotnet build (FakeNode)' { dotnet build (Join-Path $Repo 'tools\X4MP.FakeNode') -c Release -o (Join-Path $Repo 'out\fakenode') -nologo -v:m }

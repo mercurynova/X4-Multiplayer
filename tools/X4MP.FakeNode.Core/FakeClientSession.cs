@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -52,7 +53,9 @@ public sealed class FakeClientSession
     private const ReplicationMask Complete =
         ReplicationMask.Sector | ReplicationMask.Pos | ReplicationMask.Rot | ReplicationMask.Vel | ReplicationMask.Flags | ReplicationMask.Status;
 
-    private readonly Dictionary<uint, Ghost> _ghosts = [];
+    // Concurrent: the reader thread adds/removes ghosts while the node loop (CheckStale, PickAsset...) and tests read the table. A plain
+    // Dictionary threw ArgumentException from CopyTo (not just InvalidOperationException) when a snapshot raced a spawn.
+    private readonly ConcurrentDictionary<uint, Ghost> _ghosts = [];
     private readonly Dictionary<uint, double> _tombstones = [];
     private readonly Dictionary<uint, List<HeldEntry>> _held = [];
     private int _heldCount;
@@ -82,7 +85,7 @@ public sealed class FakeClientSession
     /// <summary>Ghosts held now (persistent entities are not ghosts).</summary>
     public int Ghosts => _ghosts.Count;
 
-    public IReadOnlyCollection<uint> GhostIds => _ghosts.Keys;
+    public IReadOnlyCollection<uint> GhostIds => (IReadOnlyCollection<uint>)_ghosts.Keys.ToArray();
 
     public bool IsGhost(uint netId) => _ghosts.ContainsKey(netId);
 
@@ -377,7 +380,7 @@ public sealed class FakeClientSession
         for (int i = 0; i < despawn.EntriesLength; i++)
         {
             uint id = despawn.Entries(i)!.Value.NetId;
-            if (_ghosts.Remove(id))
+            if (_ghosts.TryRemove(id, out _))
             {
                 DespawnsApplied++;
                 _tombstones[id] = now + TombstoneSeconds;
@@ -503,7 +506,7 @@ public sealed class FakeClientSession
         {
             try
             {
-                snapshot = [.. _ghosts];
+                snapshot = _ghosts.ToArray(); // atomic on a ConcurrentDictionary
                 break;
             }
             catch (InvalidOperationException) when (attempt < 19)

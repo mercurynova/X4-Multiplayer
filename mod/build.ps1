@@ -71,7 +71,7 @@ foreach ($tool in 'cl.exe', 'cmake.exe', 'ninja.exe') {
 $flatc = Join-Path $repoRoot 'tools/flatc/bin/flatc.exe'
 if (-not (Test-Path $flatc)) {
   Write-Host 'Fetching pinned flatc'
-  Invoke-Checked 'fetch-flatc' { powershell -NoProfile -File (Join-Path $repoRoot 'tools/flatc/fetch-flatc.ps1') }
+  Invoke-Checked 'fetch-flatc' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $repoRoot 'tools/flatc/fetch-flatc.ps1') }
 }
 
 # ---- 3. vcpkg -------------------------------------------------------------------------------
