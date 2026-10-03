@@ -19,6 +19,17 @@
                 mod/tests/hostsim/server_smoke.hostsim against a fresh server on ports 47950-47954: 600 frames, a
                 reload with the stash kept, admin API checks, server kill + restart. Builds the mod first unless
                 -SkipModBuild. Scenario language: docs/hostsim.md.
+    ModRefusal  (Windows, M2-14) mod_refusal_run.ps1 (M2-X3): the real x4mp.dll is refused for install/enable/disable/update mod differences;
+                the grouped lists arrive in Lua. Ports 47968-47970.
+    JoinFlow    (Windows, M2-14) mod/tests/hostsim/join_flow_run.ps1: the real x4mp.dll joins a server whose authority is a FakeNode
+                serving a dummy save (download, load, reload + resume, NodeReady, InGame) plus the name / full / banned refusals.
+                Own server on ports 47953-47955.
+    ReloadSurvival  (Windows, M2-14) reload_survival_run.ps1: 20 seeded reloads at random phases, always resumed, same player id,
+                no leave. Ports 47953-47955.
+    AuthorityFlow   (Windows, M2-14) authority_flow_run.ps1: the real x4mp.dll as the AUTHORITY for a session made from an admin
+                upload, 3 FakeNode clients verify the checkpoint, self-spawn game_time. Ports 47956-47958.
+    UploadKill  (Windows, M2-14) the M2-08 live test x4mp_authority_live (X4MP_LIVE_SERVER_EXE): the authority upload job with the
+                connection killed at random points, 50 runs. Ports 47980-47983.
 
   Every step runs even if an earlier one failed; the exit code is non-zero if any step failed. Logs, the summary and
   Playwright traces end up in -ArtifactDir (default out/e2e) for upload. Ports are non-default (base 47960) so a
@@ -30,7 +41,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless', 'HostSim')][string[]]$Steps,
+  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless', 'HostSim', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'UploadKill')][string[]]$Steps,
   [int]$Clients = 6,
   [int]$SwarmSeconds = 45,
   [int]$PortBase = 47960,
@@ -43,7 +54,8 @@ param(
   [string]$HeadlessExe,      # override the x4mp-headless path
   [string]$HostSimExe,       # override the x4mp-hostsim path
   [string]$HostSimDll,       # override the x4mp.dll hostsim loads
-  [string]$HostSimScript     # override the hostsim script (default mod/tests/hostsim/server_smoke.hostsim)
+  [string]$HostSimScript,    # override the hostsim script (default mod/tests/hostsim/server_smoke.hostsim)
+  [int]$UploadKillRuns = 50  # runs of the live authority upload kill test (UploadKill step)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,7 +64,7 @@ $isWin = [System.Environment]::OSVersion.Platform -eq 'Win32NT'
 $exeExt = if ($isWin) { '.exe' } else { '' }
 $rid = if ($isWin) { 'win-x64' } else { 'linux-x64' }
 if (-not $ArtifactDir) { $ArtifactDir = Join-Path $repo 'out/e2e' }
-if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless', 'HostSim' } }
+if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless', 'HostSim', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'UploadKill' } }
 if ($SkipPublish) { $Steps = $Steps | Where-Object { $_ -ne 'Publish' } }
 
 $serverExe = Join-Path $repo "out/$rid/x4mp-server$exeExt"
@@ -84,7 +96,8 @@ function Start-Proc([string]$name, [string]$exe, [string[]]$argList, [hashtable]
     $err = Join-Path $logDir "$name.err.log"
     # Windows PowerShell 5.1 does not quote array elements that contain spaces.
     $quoted = @($argList | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } })
-    $p = Start-Process -FilePath $exe -ArgumentList $quoted -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+    if ($quoted.Count -eq 0) { $p = Start-Process -FilePath $exe -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err }
+    else { $p = Start-Process -FilePath $exe -ArgumentList $quoted -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err }
   }
   finally { foreach ($k in $old.Keys) { [System.Environment]::SetEnvironmentVariable($k, $old[$k]) } }
   $null = $p.Handle   # PS 5.1: without touching the handle, ExitCode reads as empty after exit
@@ -152,6 +165,45 @@ function Invoke-Step([string]$name, [scriptblock]$body) {
   $results.Add([pscustomobject]@{ Step = $name; Result = $(if ($ok) { 'PASS' } else { 'FAIL' }); Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); Detail = $msg })
 }
 
+# Builds the mod once per run (unless -SkipModBuild); returns the build tree.
+$script:modBuilt = $false
+function Ensure-ModBuild {
+  $tree = Join-Path $repo 'mod/build/msvc-x64-relwithdebinfo'
+  if (-not $SkipModBuild -and -not $script:modBuilt) {
+    Invoke-Native 'mod build' { & powershell -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest }
+    $script:modBuilt = $true
+  }
+  return $tree
+}
+
+function Find-Built([string]$tree, [string]$file) {
+  return (Get-ChildItem -Path $tree -Recurse -Filter $file -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+}
+
+# Runs one of the standalone mod/tests/hostsim/*_run.ps1 scenarios (each starts its own server on its own ports and kills
+# everything it started). Its output goes to the log dir; the temp tree it prints is copied there when it fails.
+function Invoke-HostSimScript([string]$name, [string]$scriptFile, [int]$timeoutSec) {
+  if (-not $isWin) { throw "$name is Windows-only" }
+  $null = Ensure-ModBuild
+  $p = Start-Proc $name 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repo $scriptFile))
+  if (-not $p.WaitForExit($timeoutSec * 1000)) { Stop-Tree $p; throw "$name did not finish within $timeoutSec s" }
+  $p.WaitForExit()
+  $text = Get-Content (Join-Path $logDir "$name.log") -Raw
+  $text -split "`r?`n" | Select-Object -Last 14 | ForEach-Object { Write-Host "  $_" }
+  if ($p.ExitCode -ne 0) {
+    if ($text -match 'Temp tree: (.+)') {
+      $tree = $Matches[1].Trim()
+      if (Test-Path $tree) {
+        $dest = Join-Path $logDir "$name-tree"
+        New-Item -ItemType Directory -Force $dest | Out-Null
+        Get-ChildItem $tree -Recurse -File -Include '*.txt', '*.log', '*.err', '*.json', '*.hostsim' -ErrorAction SilentlyContinue |
+          Where-Object { $_.Length -lt 5MB } | ForEach-Object { Copy-Item $_.FullName (Join-Path $dest ($_.FullName.Substring($tree.Length).TrimStart('\') -replace '[\/]', '__')) -Force }
+      }
+    }
+    throw "$name failed (exit $($p.ExitCode); see $name.log)"
+  }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 if ($Steps -contains 'Publish') {
   Invoke-Step 'Publish server + FakeNode' {
@@ -161,11 +213,18 @@ if ($Steps -contains 'Publish') {
     }
     Invoke-Native 'dotnet publish' { dotnet publish (Join-Path $repo 'server/src/X4MP.Server') -c Release "-p:PublishProfile=$rid" -p:SkipWebBuild=true -nologo -v:m }
     Invoke-Native 'dotnet build FakeNode' { dotnet build (Join-Path $repo 'tools/X4MP.FakeNode') -c Release -o (Join-Path $repo 'out/fakenode') -nologo -v:m }
+    # M2-14 guard: publishing must not rewrite any packages.lock.json (a publish-modified copy broke `dotnet restore --locked-mode`
+    # twice). The server csproj declares its RuntimeIdentifiers and the ILLink package so the lock already contains them.
+    if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $repo '.git'))) {
+      $changed = & git -C $repo diff --name-only -- '*packages.lock.json'
+      if ($changed) { throw "publishing changed the lock file(s): $($changed -join ', '). Regenerate them (dotnet restore --force-evaluate) and commit." }
+    }
   }
 }
 
 foreach ($f in @($serverExe, $fakeNodeExe)) {
-  if (($Steps -contains 'Swarm' -or $Steps -contains 'Headless' -or $Steps -contains 'Playwright') -and -not (Test-Path $f)) {
+  if (($Steps -contains 'Swarm' -or $Steps -contains 'Headless' -or $Steps -contains 'Playwright' -or $Steps -contains 'HostSim' -or $Steps -contains 'JoinFlow' -or
+      $Steps -contains 'ReloadSurvival' -or $Steps -contains 'AuthorityFlow' -or $Steps -contains 'ModRefusal' -or $Steps -contains 'UploadKill') -and -not (Test-Path $f)) {
     throw "$f not found: run without -SkipPublish first."
   }
 }
@@ -220,8 +279,7 @@ if ($Steps -contains 'Headless') {
     if (-not $isWin) { throw 'the headless client is Windows-only' }
     $headless = $HeadlessExe
     if (-not $headless) {
-      $buildTree = Join-Path $repo 'mod/build/msvc-x64-relwithdebinfo'
-      if (-not $SkipModBuild) { Invoke-Native 'mod build' { & powershell -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest } }
+      $buildTree = Ensure-ModBuild
       $headless = (Get-ChildItem -Path $buildTree -Recurse -Filter 'x4mp-headless.exe' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
     }
     if (-not $headless -or -not (Test-Path $headless)) { throw 'x4mp-headless.exe not found (build the mod first)' }
@@ -252,9 +310,7 @@ if ($Steps -contains 'HostSim') {
   Invoke-Step 'HostSim (real x4mp.dll in a fake X4Native host, real server)' {
     if (-not $isWin) { throw 'x4mp-hostsim is Windows-only' }
     $buildTree = Join-Path $repo 'mod/build/msvc-x64-relwithdebinfo'
-    if (-not $HostSimExe -or -not $HostSimDll) {
-      if (-not $SkipModBuild) { Invoke-Native 'mod build' { & powershell -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest } }
-    }
+    if (-not $HostSimExe -or -not $HostSimDll) { $buildTree = Ensure-ModBuild }
     $hostSim = $HostSimExe
     if (-not $hostSim) { $hostSim = (Get-ChildItem -Path $buildTree -Recurse -Filter 'x4mp-hostsim.exe' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
     $dll = $HostSimDll
@@ -277,6 +333,49 @@ if ($Steps -contains 'HostSim') {
     $p.WaitForExit()
     Get-Content (Join-Path $logDir 'hostsim.log') -Tail 40 | ForEach-Object { Write-Host "  $_" }
     if ($p.ExitCode -ne 0) { throw "x4mp-hostsim exited with $($p.ExitCode) (see hostsim.log)" }
+  }
+}
+
+# M2-14: the three hostsim scenarios that were not in CI before. Each *_run.ps1 starts its own server/FakeNode on its own ports
+# (47953-47955 join + reload, run one after the other; 47956-47958 authority), so nothing overlaps with 47950-47952 (HostSim),
+# 47960+ (the other steps) or the user's default ports 47780/47781/47790.
+if ($Steps -contains 'JoinFlow') {
+  Invoke-Step 'JoinFlow (real x4mp.dll joins, downloads, loads, reloads; name/full/banned refusals)' {
+    Invoke-HostSimScript 'joinflow' 'mod/tests/hostsim/join_flow_run.ps1' 300
+  }
+}
+
+if ($Steps -contains 'ReloadSurvival') {
+  Invoke-Step 'ReloadSurvival (20 seeded reloads, always resumed, no leave)' {
+    Invoke-HostSimScript 'reloadsurvival' 'mod/tests/hostsim/reload_survival_run.ps1' 480
+  }
+}
+
+if ($Steps -contains 'AuthorityFlow') {
+  Invoke-Step 'AuthorityFlow (real x4mp.dll as authority from an uploaded save, 3 FakeNode clients)' {
+    Invoke-HostSimScript 'authorityflow' 'mod/tests/hostsim/authority_flow_run.ps1' 480
+  }
+}
+
+if ($Steps -contains 'ModRefusal') {
+  Invoke-Step 'ModRefusal (grouped mod refusal reaches Lua: install / enable / disable / update)' {
+    Invoke-HostSimScript 'modrefusal' 'mod/tests/hostsim/mod_refusal_run.ps1' 240
+  }
+}
+
+if ($Steps -contains 'UploadKill') {
+  Invoke-Step "UploadKill (authority upload job vs the real server, connection killed at random points, $UploadKillRuns runs)" {
+    if (-not $isWin) { throw 'x4mp_authority_live is Windows-only' }
+    $buildTree = Ensure-ModBuild
+    $live = Find-Built $buildTree 'x4mp_authority_live.exe'
+    if (-not $live) { throw 'x4mp_authority_live.exe not found (build the mod first)' }
+    # Ports 47980-47983 (X4MP_LIVE_PORT_BASE default). The test starts its own published servers; it skips (exit 77) without the exe.
+    $p = Start-Proc 'uploadkill' $live @() @{ X4MP_LIVE_SERVER_EXE = $serverExe; X4MP_LIVE_PORT_BASE = '47980'; X4MP_LIVE_RUNS = "$UploadKillRuns" }
+    if (-not $p.WaitForExit(420000)) { Stop-Tree $p; throw 'x4mp_authority_live did not finish within 420 s' }
+    $p.WaitForExit()
+    Get-Content (Join-Path $logDir 'uploadkill.log') -Tail 12 | ForEach-Object { Write-Host "  $_" }
+    if ($p.ExitCode -eq 77) { throw 'x4mp_authority_live skipped itself (X4MP_LIVE_SERVER_EXE not accepted)' }
+    if ($p.ExitCode -ne 0) { throw "x4mp_authority_live exited with $($p.ExitCode) (see uploadkill.log)" }
   }
 }
 
