@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike_core : MD side of the spike v2 framework (task M2-001).
+
+  Lua -> MD: X4MPSpike.toMD(control, value) = AddUITriggeredEvent("X4MP_Spike2", control, value)
+             -> <event_ui_triggered screen="'X4MP_Spike2'" control="'<control>'"/>  (param3 = value)
+             (libraries/common.xsd:12023: attributes screen and control)
+  MD -> Lua: <raise_lua_event name="'x4mp_spike.run'" param="'<block>;k=v;k=v'"/> runs a Lua block.
+
+  This file handles: control 'notify' (on-screen notification, text = value) and logs every Spike2 event so a
+  missing MD cue of a later task is visible in the log. MD blocks of M2-002..004 add their own cues in their own files.
+  show_notification as used by session 1 (md/x4mp_spike.xml); the vanilla md/notifications.xml uses it the same way.
+-->
+<mdscript name="X4MP_SpikeCore" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="Spike2_Notify" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'notify'"/>
+      </conditions>
+      <actions>
+        <show_notification text="'X4MP spike: ' + event.param3" timeout="20s" priority="5"/>
+      </actions>
+    </cue>
+
+    <cue name="Spike2_Ping" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'ping2'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] MD INFO what=lua_to_md_ping frame=' + event.param3 + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Spike2_LogAll" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] MD INFO what=spike2_event control=' + event.param2" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>
