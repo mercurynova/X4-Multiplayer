@@ -86,8 +86,9 @@ public sealed class HubStallTests
         var texts = recorder.All<ChatMessageDto>("Chat").Select(m => m.Text[..3]).ToList();
         Assert.Equal(Enumerable.Range(0, 100).Select(i => i.ToString("D3", CultureInfo.InvariantCulture)), texts);
 
+        // AdminSubscriptions.Remove takes the client out of the table first and then decrements its topic counts, so wait for both.
         // the frozen one is dropped by the server after the stall timeout; its subscription goes with it, the healthy one stays
-        await SaveServer.WaitUntilAsync(() => rig.Subscriptions.ConnectionCount == 1, 30_000, "frozen connection removed");
+        await SaveServer.WaitUntilAsync(() => rig.Subscriptions.ConnectionCount == 1 && rig.Subscriptions.Count(HubTopic.Chat) == 1, 30_000, "frozen connection and its subscription removed");
         Assert.Equal(1, rig.Subscriptions.Count(HubTopic.Chat));
         Assert.Equal(HubConnectionState.Connected, healthy.State);
         var warnings = rig.Server.Service<X4MP.Server.Logging.RingBufferSink>().Snapshot().Where(e => e.Level >= Serilog.Events.LogEventLevel.Warning);
