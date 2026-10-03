@@ -1,0 +1,482 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike_hq : MD side of the spike v2 blocks hq1..hq8 and hq3d (task M2-004, spike S12, per-team HQ and research, ADR-048).
+  Lua side (orchestration, timing, notifications, Lua views): ui/x4mp_spike_hq.lua. Procedures: docs/research/team-hq-research.md
+  section 6; user script: docs/in-game-session-2.md part E (E8..E16).
+
+  Convention (mod/spikes/README.md): Lua -> MD is AddUITriggeredEvent("X4MP_Spike2", control, value)
+    -> <event_ui_triggered screen="'X4MP_Spike2'" control="'<control>'"/>, value = event.param3.
+  MD -> Lua: raise_lua_event 'x4mp_spike.run' param '<block>;k=v' starts a Lua block; 'x4mp_spike.hq_obj' hands one object over.
+
+  Controls handled here:
+    hq1                       S12.1  read the MD side of the research / HQ state
+    hq_log                    value on|off: md.$X4MP_HqLog, enables the research-unlocked event logger below
+    hq_research_add / _remove S12.2, S12.8  add_research / remove_research for ware id = value, with MD readback
+    hq_enc_add / _remove      S12.8  add_encyclopedia_entry / remove_encyclopedia_entry type researchables, item = value
+    hq2_mark_orig / hq2_mark / hq2_restore   persistence marker for S12.2 (survives save and load, verified after the load)
+    hq3 / hq3_restore         S12.3 (a)-(c) HQ ownership on save A, auto-reverted; hq3_restore = manual recovery
+    hq3d                      S12.3 (d) spawn a team-2 HQ and (value 'player') a player-owned HQ on save B
+    hq4 / hq4_done            S12.4 hands the team-2 HQ to Lua (hq4_go does the local re-own), clears the marker
+    hq5 / hq5_log             S12.5 hands the team-2 HQ to Lua (hq5_go), MD readback of its research list
+    hq6                       S12.6 blueprint read + add_blueprints (cannot be undone)
+    hq7                       S12.7 licences on a team faction (added and removed again)
+  Persisted in the save (md.$ globals): X4MP_S12_Mark / MarkExpected / MarkOrig (hq2), X4MP_S12_Hq3Pending (station whose owner must be
+  player again), X4MP_S12_Hq4Pending (station that must belong to team 2 again), X4MP_S12_Hq3dTeam2 / Hq3dPlayer (spawned HQs).
+  The load-time cues below restore ownership and verify the hq2 marker.
+
+  Never touched: the player's own ship, anything the player is in. hq3 / hq4 refuse when the player is at the HQ.
+
+  Log lines: '[X4MP-SPIKE] S12 <INFO|PASS|FAIL> what=... k=v'. Observations; PASS/FAIL only for plain readbacks.
+
+  Syntax sources (x4-unpacked/): add_research / remove_research (ware attr) libraries/common.xsd:19956,19967 and md/crisis_xenon_khaak_combo.xml:219;
+  add_encyclopedia_entry type="researchables" md/crisis_xenon_khaak_combo.xml:218; add_blueprints common.xsd:38872 (wares=);
+  add_licence / remove_licence common.xsd:20467,20500 (md/playerreputation.xml:100); set_owner common.xsd:35552;
+  set_faction_headquarters common.xsd:20381; create_station with constructionplan 'x4ep1_playerheadquarters' md/x4ep1_mentor_subscription.xml:369
+  (macro station_pla_headquarters_base_01_macro, state componentstate.operational); player.headquarters, ware.research.unlocked,
+  container/module .research, station isheadquarters / isfactionheadquarters, faction.headquarters libraries/scriptproperties.xml:697,867,868,1125,1877,1971,2427;
+  ware.{string} lookup md/x4ep1_mentor_subscription.xml:5781; event_player_research_unlocked common.xsd:15253;
+  player.entity.$x4ep1_hq_research_unlocked md/x4ep1_mentor_subscription.xml:618.
+-->
+<mdscript name="X4MP_SpikeHq" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <!-- ===================================================== S12.1: read research state (MD side) ===================================================== -->
+    <cue name="Hq1_Read" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq1'"/>
+      </conditions>
+      <actions>
+        <set_value name="$HQ" exact="player.headquarters"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_player_headquarters exists=' + (@$HQ.exists) + ' name=' + (@$HQ.knownname) + ' macro=' + (@$HQ.macro.id) + ' owner=' + (@$HQ.owner.id) + ' sector=' + (@$HQ.sector.name) + ' isheadquarters=' + (@$HQ.isheadquarters) + ' isfactionheadquarters=' + (@$HQ.isfactionheadquarters)" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_faction_headquarters player=' + (@faction.player.headquarters.knownname) + ' team1=' + (@faction.x4mp_team_1.headquarters.knownname) + ' team2=' + (@faction.x4mp_team_2.headquarters.knownname)" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_hq_research_flags x4ep1_hq_research_unlocked=' + (@player.entity.$x4ep1_hq_research_unlocked) + ' UnlockResearch_state=' + (@md.X4Ep1_Mentor_Subscriptions.UnlockResearch.state) + ' x4ep1_diplomacy_agent=' + (@player.entity.$x4ep1_diplomacy_agent)" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_active_research hq_research_count=' + (@$HQ.research.count) + ' hq_research=' + (@$HQ.research)" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_ware_unlocked research_teleportation=' + ware.research_teleportation.research.unlocked + ' research_mod_weapon_mk1=' + ware.research_mod_weapon_mk1.research.unlocked + ' research_module_dock=' + ware.research_module_dock.research.unlocked + ' research_module_storage=' + ware.research_module_storage.research.unlocked + ' research_seta=' + ware.research_seta.research.unlocked" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== research / encyclopedia primitives (S12.2, S12.8) ===================================================== -->
+    <cue name="Hq_LogSwitch" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq_log'"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_HqLog" exact="event.param3 == 'on'"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_research_event_logging value=' + md.$X4MP_HqLog" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Hq_ResearchUnlockedLog" instantiate="true">
+      <conditions>
+        <event_player_research_unlocked/>
+        <check_value value="@md.$X4MP_HqLog"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=event_player_research_unlocked ware=' + (@event.param.id) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Hq_ResearchAdd" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq_research_add'"/>
+      </conditions>
+      <actions>
+        <set_value name="$W" exact="ware.{event.param3}"/>
+        <do_if value="$W">
+          <set_value name="$Before" exact="$W.research.unlocked"/>
+          <add_research ware="$W"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_add_research ware=' + event.param3 + ' unlocked_before=' + $Before + ' unlocked_after=' + $W.research.unlocked + ' age=' + player.age" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S12 FAIL what=md_add_research ware=' + event.param3 + ' result=ware_not_found'" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="Hq_ResearchRemove" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq_research_remove'"/>
+      </conditions>
+      <actions>
+        <set_value name="$W" exact="ware.{event.param3}"/>
+        <do_if value="$W">
+          <set_value name="$Before" exact="$W.research.unlocked"/>
+          <remove_research ware="$W"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_remove_research ware=' + event.param3 + ' unlocked_before=' + $Before + ' unlocked_after=' + $W.research.unlocked + ' age=' + player.age" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S12 FAIL what=md_remove_research ware=' + event.param3 + ' result=ware_not_found'" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="Hq_EncAdd" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq_enc_add'"/>
+      </conditions>
+      <actions>
+        <add_encyclopedia_entry type="researchables" item="event.param3"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_add_encyclopedia_entry type=researchables item=' + event.param3 + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Hq_EncRemove" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq_enc_remove'"/>
+      </conditions>
+      <actions>
+        <remove_encyclopedia_entry type="researchables" item="event.param3"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=md_remove_encyclopedia_entry type=researchables item=' + event.param3 + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S12.2: persistence marker ===================================================== -->
+    <cue name="Hq2_MarkOrig" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq2_mark_orig'"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_S12_MarkOrig" exact="event.param3 == '1'"/>
+      </actions>
+    </cue>
+
+    <!-- value = ware id: the state the ware has RIGHT NOW is what must come back after save and load -->
+    <cue name="Hq2_Mark" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq2_mark'"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_S12_Mark" exact="ware.{event.param3}"/>
+        <set_value name="md.$X4MP_S12_MarkExpected" exact="md.$X4MP_S12_Mark.research.unlocked"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq2_marker_set ware=' + md.$X4MP_S12_Mark.id + ' expected_unlocked_after_load=' + md.$X4MP_S12_MarkExpected + ' original_unlocked=' + (@md.$X4MP_S12_MarkOrig) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="Hq2_Restore" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq2_restore'"/>
+      </conditions>
+      <actions>
+        <do_if value="@md.$X4MP_S12_Mark">
+          <set_value name="$W" exact="md.$X4MP_S12_Mark"/>
+          <do_if value="md.$X4MP_S12_MarkOrig and not $W.research.unlocked">
+            <add_research ware="$W"/>
+          </do_if>
+          <do_elseif value="(not md.$X4MP_S12_MarkOrig) and $W.research.unlocked">
+            <remove_research ware="$W"/>
+          </do_elseif>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq2_marker_restored ware=' + $W.id + ' unlocked_now=' + $W.research.unlocked + ' original=' + md.$X4MP_S12_MarkOrig" filter="general" context="false"/>
+          <remove_value name="md.$X4MP_S12_Mark"/>
+          <remove_value name="md.$X4MP_S12_MarkExpected"/>
+          <remove_value name="md.$X4MP_S12_MarkOrig"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq2_marker_restore result=no_marker'" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- after every load: if the save carries the hq2 marker, check what survived, then restore the original state -->
+    <cue name="Hq2_VerifyAfterLoad" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <delay exact="15s"/>
+      <actions>
+        <do_if value="@md.$X4MP_S12_Mark">
+          <set_value name="$W" exact="md.$X4MP_S12_Mark"/>
+          <debug_text text="'[X4MP-SPIKE] S12 ' + (if $W.research.unlocked == md.$X4MP_S12_MarkExpected then 'PASS' else 'FAIL') + ' what=hq2_state_survived_save_load ware=' + $W.id + ' unlocked_now=' + $W.research.unlocked + ' expected=' + md.$X4MP_S12_MarkExpected + ' original=' + (@md.$X4MP_S12_MarkOrig)" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp_spike.run'" param="'hq_read;tag=hq2_after_load;ware=' + $W.id"/>
+          <do_if value="md.$X4MP_S12_MarkOrig and not $W.research.unlocked">
+            <add_research ware="$W"/>
+          </do_if>
+          <do_elseif value="(not md.$X4MP_S12_MarkOrig) and $W.research.unlocked">
+            <remove_research ware="$W"/>
+          </do_elseif>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq2_marker_restored_after_load ware=' + $W.id + ' unlocked_now=' + $W.research.unlocked" filter="general" context="false"/>
+          <remove_value name="md.$X4MP_S12_Mark"/>
+          <remove_value name="md.$X4MP_S12_MarkExpected"/>
+          <remove_value name="md.$X4MP_S12_MarkOrig"/>
+          <show_notification text="'X4MP spike: hq2: verify done after the load, original research state restored. See the log.'" timeout="20s" priority="5"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S12.3 (a)-(c): HQ ownership on save A ===================================================== -->
+    <!-- Refuses when the player is at the HQ (container context, or docked in the HQ sector). The owner is set back to player in
+         the last step and, if a save was made in between, after the next load (Hq3_RecoverAfterLoad) or with control hq3_restore. -->
+    <cue name="Hq3_Run" instantiate="true" namespace="this">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq3'"/>
+      </conditions>
+      <actions>
+        <set_value name="$HQ" exact="player.headquarters"/>
+        <set_value name="$Refuse" exact="''"/>
+        <do_if value="not @$HQ.exists">
+          <set_value name="$Refuse" exact="'this save has no player headquarters (use save A)'"/>
+        </do_if>
+        <do_elseif value="@md.$X4MP_S12_Hq3Pending">
+          <set_value name="$Refuse" exact="'a previous hq3 run is still pending, run hq3 restore=1 first'"/>
+        </do_elseif>
+        <do_elseif value="@player.container == $HQ or @player.entity.container == $HQ or @player.occupiedship.container == $HQ or (@player.occupiedship.dock.exists and player.sector == $HQ.sector)">
+          <set_value name="$Refuse" exact="'you are at the headquarters. Fly to another sector (or at least away from the HQ, undocked) and run hq3 again'"/>
+        </do_elseif>
+        <do_if value="$Refuse != ''">
+          <debug_text text="'[X4MP-SPIKE] S12 FAIL what=hq3_refused reason=' + $Refuse" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: hq3: refused, ' + $Refuse" timeout="30s" priority="5"/>
+        </do_if>
+        <do_else>
+          <set_value name="md.$X4MP_S12_Hq3Pending" exact="$HQ"/>
+          <set_value name="md.$X4MP_HqLog" exact="true"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_before hq=' + $HQ.knownname + ' owner=' + $HQ.owner.id + ' trueowner=' + $HQ.trueowner.id + ' player_headquarters=' + (@player.headquarters.knownname) + ' isfactionheadquarters=' + $HQ.isfactionheadquarters + ' research=' + (@$HQ.research) + ' age=' + player.age" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp_spike.run'" param="'hq_read;tag=hq3_before'"/>
+          <!-- (a) -->
+          <set_owner object="$HQ" faction="faction.x4mp_team_1"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_a_set_owner_team1 owner_now=' + $HQ.owner.id + ' trueowner_now=' + $HQ.trueowner.id + ' player_headquarters_now=' + (@player.headquarters.knownname) + ' team1_headquarters=' + (@faction.x4mp_team_1.headquarters.knownname) + ' isfactionheadquarters=' + $HQ.isfactionheadquarters + ' research=' + (@$HQ.research) + ' age=' + player.age" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp_spike.run'" param="'hq_read;tag=hq3_a_after_owner_team1'"/>
+          <show_notification text="'X4MP spike: hq3: the HQ is now owned by MP Team 1 (CHANGES the game, reverted automatically in about 2 minutes). Open the research menu, then the map and look at the HQ: who is shown as owner? Next step in 90 s.'" timeout="40s" priority="5"/>
+          <signal_cue cue="Hq3_Seq"/>
+        </do_else>
+      </actions>
+      <cues>
+        <cue name="Hq3_Seq">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <delay exact="90s"/>
+          <actions>
+            <!-- (b) -->
+            <set_faction_headquarters faction="faction.x4mp_team_1" station="$HQ" headquarters="true"/>
+            <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_b_set_faction_headquarters team1_headquarters=' + (@faction.x4mp_team_1.headquarters.knownname) + ' isfactionheadquarters=' + $HQ.isfactionheadquarters + ' owner_now=' + $HQ.owner.id + ' age=' + player.age" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp_spike.run'" param="'hq_read;tag=hq3_b_after_set_faction_headquarters'"/>
+          </actions>
+          <delay exact="3s"/>
+          <actions>
+            <!-- clean up (b) first: set_faction_headquarters fails once the owner is not the faction any more -->
+            <set_faction_headquarters faction="faction.x4mp_team_1" station="$HQ" headquarters="false"/>
+            <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_b_unset team1_headquarters=' + (@faction.x4mp_team_1.headquarters.knownname) + ' isfactionheadquarters=' + $HQ.isfactionheadquarters" filter="general" context="false"/>
+            <!-- (c) -->
+            <set_owner object="$HQ" faction="faction.player"/>
+            <remove_value name="md.$X4MP_S12_Hq3Pending"/>
+            <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_c_owner_back_to_player owner_now=' + $HQ.owner.id + ' player_headquarters_now=' + (@player.headquarters.knownname) + ' isfactionheadquarters=' + $HQ.isfactionheadquarters + ' research=' + (@$HQ.research) + ' age=' + player.age" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp_spike.run'" param="'hq_read;tag=hq3_c_after_owner_back'"/>
+            <show_notification text="'X4MP spike: hq3: the HQ is yours again. Wait 40 s for the final research check.'" timeout="30s" priority="5"/>
+          </actions>
+          <delay exact="40s"/>
+          <actions>
+            <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_c_research_after_40s research=' + (@$HQ.research) + ' owner=' + $HQ.owner.id + ' age=' + player.age" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp_spike.run'" param="'hq_read;tag=hq3_c_after_40s'"/>
+            <set_value name="md.$X4MP_HqLog" exact="false"/>
+            <show_notification text="'X4MP spike: hq3: done.'" timeout="20s" priority="5"/>
+          </actions>
+        </cue>
+      </cues>
+    </cue>
+
+    <cue name="Hq3_Restore" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq3_restore'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Pending" exact="@md.$X4MP_S12_Hq3Pending"/>
+        <do_if value="@$Pending.exists">
+          <set_faction_headquarters faction="faction.x4mp_team_1" station="$Pending" headquarters="false"/>
+          <set_owner object="$Pending" faction="faction.player"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_restored owner_now=' + $Pending.owner.id" filter="general" context="false"/>
+        </do_if>
+        <remove_value name="md.$X4MP_S12_Hq3Pending"/>
+        <show_notification text="'X4MP spike: hq3: restore done (the HQ belongs to you again).'" timeout="20s" priority="5"/>
+      </actions>
+    </cue>
+
+    <cue name="Hq3_RecoverAfterLoad" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <delay exact="10s"/>
+      <actions>
+        <set_value name="$Pending" exact="@md.$X4MP_S12_Hq3Pending"/>
+        <do_if value="@$Pending.exists">
+          <set_faction_headquarters faction="faction.x4mp_team_1" station="$Pending" headquarters="false"/>
+          <set_owner object="$Pending" faction="faction.player"/>
+          <remove_value name="md.$X4MP_S12_Hq3Pending"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3_recovered_after_load owner_now=' + $Pending.owner.id + ' note=a_save_was_made_while_hq3_was_active'" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: hq3: a save was made during hq3, the HQ was handed back to you after the load.'" timeout="30s" priority="5"/>
+        </do_if>
+        <set_value name="$Pending4" exact="@md.$X4MP_S12_Hq4Pending"/>
+        <do_if value="@$Pending4.exists">
+          <set_owner object="$Pending4" faction="faction.x4mp_team_2"/>
+          <remove_value name="md.$X4MP_S12_Hq4Pending"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq4_recovered_after_load owner_now=' + $Pending4.owner.id + ' note=a_save_was_made_while_hq4_was_active'" filter="general" context="false"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S12.3 (d): spawn HQs on save B ===================================================== -->
+    <!-- value 'player' also spawns a player-owned HQ (default), 'noplayer' only the team-2 HQ. Both are 12 km from the player's ship.
+         WARNING (also in the notification): a player-owned HQ on a save without one can interact with the HQ plot; use a throwaway save. -->
+    <cue name="Hq3d_Run" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq3d'"/>
+      </conditions>
+      <actions>
+        <do_if value="not player.ship">
+          <debug_text text="'[X4MP-SPIKE] S12 FAIL what=hq3d_refused reason=player_not_in_a_ship_in_space'" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: hq3d: refused, be in a ship in space (not docked, not on foot) and run it again.'" timeout="30s" priority="5"/>
+        </do_if>
+        <do_else>
+          <find_station name="$HQsBefore" space="player.galaxy" macro="macro.station_pla_headquarters_base_01_macro" multiple="true"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3d_before hq_macro_stations_in_galaxy=' + $HQsBefore.count + ' player_headquarters=' + (@player.headquarters.knownname) + ' sector=' + player.sector.name" filter="general" context="false"/>
+
+          <create_station name="$HqTeam2" macro="macro.station_pla_headquarters_base_01_macro" sector="player.sector" constructionplan="'x4ep1_playerheadquarters'" owner="faction.x4mp_team_2" state="componentstate.operational">
+            <safepos object="player.ship" x="12km" y="0m" z="0m" radius="6km"/>
+          </create_station>
+          <do_if value="$HqTeam2">
+            <set_value name="md.$X4MP_S12_Hq3dTeam2" exact="$HqTeam2"/>
+            <debug_text text="'[X4MP-SPIKE] S12 PASS what=hq3d_team2_hq_created name=' + $HqTeam2.knownname + ' owner=' + $HqTeam2.owner.id + ' isheadquarters=' + $HqTeam2.isheadquarters + ' isfactionheadquarters=' + $HqTeam2.isfactionheadquarters + ' dist_km=' + (player.ship.distanceto.{$HqTeam2} / 1km)" filter="general" context="false"/>
+            <set_faction_headquarters faction="faction.x4mp_team_2" station="$HqTeam2" headquarters="true"/>
+            <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3d_team2_set_faction_headquarters team2_headquarters=' + (@faction.x4mp_team_2.headquarters.knownname) + ' isfactionheadquarters=' + $HqTeam2.isfactionheadquarters" filter="general" context="false"/>
+          </do_if>
+          <do_else>
+            <debug_text text="'[X4MP-SPIKE] S12 FAIL what=hq3d_team2_hq_created result=null'" filter="general" context="false"/>
+          </do_else>
+
+          <do_if value="event.param3 != 'noplayer'">
+            <create_station name="$HqPlayer" macro="macro.station_pla_headquarters_base_01_macro" sector="player.sector" constructionplan="'x4ep1_playerheadquarters'" owner="faction.player" state="componentstate.operational">
+              <safepos object="player.ship" x="-12km" y="0m" z="0m" radius="6km"/>
+            </create_station>
+            <do_if value="$HqPlayer">
+              <set_value name="md.$X4MP_S12_Hq3dPlayer" exact="$HqPlayer"/>
+              <debug_text text="'[X4MP-SPIKE] S12 PASS what=hq3d_player_hq_created name=' + $HqPlayer.knownname + ' owner=' + $HqPlayer.owner.id + ' isheadquarters=' + $HqPlayer.isheadquarters + ' isfactionheadquarters=' + $HqPlayer.isfactionheadquarters + ' dist_km=' + (player.ship.distanceto.{$HqPlayer} / 1km)" filter="general" context="false"/>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP-SPIKE] S12 FAIL what=hq3d_player_hq_created result=null'" filter="general" context="false"/>
+            </do_else>
+          </do_if>
+
+          <!-- what the HQ plot cues would find (md/x4ep1_mentor_subscription.xml:663 searches by true owner player) -->
+          <find_station name="$HQsAfter" space="player.galaxy" macro="macro.station_pla_headquarters_base_01_macro" multiple="true"/>
+          <find_station_by_true_owner name="$PlayerOwned" space="player.galaxy" faction="faction.player" macro="macro.station_pla_headquarters_base_01_macro" multiple="true"/>
+          <find_station_by_true_owner name="$Team2Owned" space="player.galaxy" faction="faction.x4mp_team_2" macro="macro.station_pla_headquarters_base_01_macro" multiple="true"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq3d_after hq_macro_stations_in_galaxy=' + $HQsAfter.count + ' found_by_true_owner_player=' + $PlayerOwned.count + ' found_by_true_owner_team2=' + $Team2Owned.count + ' player_headquarters=' + (@player.headquarters.knownname) + ' team2_headquarters=' + (@faction.x4mp_team_2.headquarters.knownname) + ' team2_hq_research=' + (@$HqTeam2.research) + ' age=' + player.age" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp_spike.run'" param="'hq_read;tag=hq3d_after'"/>
+          <show_notification text="'X4MP spike: hq3d: done. Two test headquarters now exist 12 km to your sides (CHANGES the game: Team 2 and, unless disabled, one owned by you; throwaway save only).'" timeout="30s" priority="5"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S12.4 / S12.5: hand the team-2 HQ to Lua ===================================================== -->
+    <cue name="Hq4_Run" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq4'"/>
+      </conditions>
+      <actions>
+        <set_value name="$HQ" exact="@md.$X4MP_S12_Hq3dTeam2"/>
+        <do_if value="not @$HQ.exists">
+          <debug_text text="'[X4MP-SPIKE] S12 FAIL what=hq4_refused reason=no_team2_hq (run hq3d on save B first)'" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: hq4: no team-2 HQ found. Load save B and run hq3d first.'" timeout="30s" priority="5"/>
+        </do_if>
+        <do_elseif value="@player.container == $HQ or @player.entity.container == $HQ or @player.occupiedship.container == $HQ or (@player.occupiedship.dock.exists and player.sector == $HQ.sector)">
+          <debug_text text="'[X4MP-SPIKE] S12 FAIL what=hq4_refused reason=player_at_the_team2_hq'" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: hq4: refused, you are at that HQ. Undock and move away, then run hq4 again.'" timeout="30s" priority="5"/>
+        </do_elseif>
+        <do_else>
+          <set_value name="md.$X4MP_S12_Hq4Pending" exact="$HQ"/>
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq4_handing_hq_to_lua hq=' + $HQ.knownname + ' owner=' + $HQ.owner.id + ' age=' + player.age" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp_spike.hq_obj'" param="$HQ"/>
+          <raise_lua_event name="'x4mp_spike.run'" param="'hq4_go'"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="Hq4_Done" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq4_done'"/>
+      </conditions>
+      <actions>
+        <set_value name="$HQ" exact="@md.$X4MP_S12_Hq4Pending"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq4_md_after_reown owner_now=' + (@$HQ.owner.id) + ' trueowner_now=' + (@$HQ.trueowner.id) + ' team2_headquarters=' + (@faction.x4mp_team_2.headquarters.knownname) + ' age=' + player.age" filter="general" context="false"/>
+        <remove_value name="md.$X4MP_S12_Hq4Pending"/>
+      </actions>
+    </cue>
+
+    <cue name="Hq5_Run" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq5'"/>
+      </conditions>
+      <actions>
+        <set_value name="$HQ" exact="@md.$X4MP_S12_Hq3dTeam2"/>
+        <do_if value="@$HQ.exists">
+          <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq5_handing_hq_to_lua hq=' + $HQ.knownname + ' owner=' + $HQ.owner.id + ' md_research_before=' + (@$HQ.research) + ' age=' + player.age" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp_spike.hq_obj'" param="$HQ"/>
+          <raise_lua_event name="'x4mp_spike.run'" param="'hq5_go'"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S12 FAIL what=hq5_refused reason=no_team2_hq (run hq3d on save B first)'" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: hq5: no team-2 HQ found. Load save B and run hq3d first.'" timeout="30s" priority="5"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="Hq5_Log" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq5_log'"/>
+      </conditions>
+      <actions>
+        <set_value name="$HQ" exact="@md.$X4MP_S12_Hq3dTeam2"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq5_md_research tag=' + event.param3 + ' hq_research=' + (@$HQ.research) + ' hq_research_count=' + (@$HQ.research.count) + ' owner=' + (@$HQ.owner.id) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S12.6: blueprint ownership ===================================================== -->
+    <cue name="Hq6_Run" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq6'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Candidates" exact="[ware.module_arg_dock_m_01, ware.module_gen_prod_energycells_01, ware.module_gen_prod_hullparts_01, ware.module_arg_stor_container_m_01]"/>
+        <set_value name="$W" exact="$Candidates.{1}"/>
+        <set_value name="$Picked" exact="false"/>
+        <do_for_each name="$C" in="$Candidates">
+          <do_if value="not $Picked and not player.blueprints.{$C}.any.exists">
+            <set_value name="$W" exact="$C"/>
+            <set_value name="$Picked" exact="true"/>
+          </do_if>
+        </do_for_each>
+        <set_value name="$Before" exact="player.blueprints.{$W}.any.exists"/>
+        <add_blueprints wares="$W"/>
+        <debug_text text="'[X4MP-SPIKE] S12 ' + (if player.blueprints.{$W}.any.exists then 'PASS' else 'FAIL') + ' what=hq6_add_blueprints ware=' + $W.id + ' player_had_before=' + $Before + ' player_has_after=' + player.blueprints.{$W}.any.exists + ' picked_one_the_player_lacked=' + $Picked + ' method=' + (@player.blueprints.{$W}.any.method)" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq6_remove_path result=no_remove_blueprint_action_exists_in_md_common_xsd (a blueprint added here stays in the library) team1_blueprint_query=not_available_blueprints_are_player_only'" filter="general" context="false"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq6_team_construction result=not_automated reason=needs_a_team_station_with_a_build_storage_and_builder_ships note=see_spike_readme_M2-004'" filter="general" context="false"/>
+        <show_notification text="'X4MP spike: hq6: done. The blueprint for ' + $W.name + ' was ADDED to your library (CHANGES the game, cannot be undone; throwaway save only).'" timeout="30s" priority="5"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S12.7: licences on a team faction ===================================================== -->
+    <cue name="Hq7_Run" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'hq7'"/>
+      </conditions>
+      <actions>
+        <set_value name="$T" exact="faction.x4mp_team_1"/>
+        <set_value name="$A" exact="faction.argon"/>
+        <set_faction_active faction="$T" active="true"/>
+        <set_value name="$HadBasic" exact="$T.haslicence.station_gen_basic.{$A}"/>
+        <set_value name="$HadShip" exact="$T.haslicence.generaluseship.{$A}"/>
+        <debug_text text="'[X4MP-SPIKE] S12 INFO what=hq7_before team=' + $T.id + ' station_gen_basic=' + $HadBasic + ' generaluseship=' + $HadShip + ' held_licences=' + (@$T.heldlicences.count) + ' own_licences=' + (@$T.licences.count)" filter="general" context="false"/>
+        <add_licence faction="$T" licencefaction="$A" type="station_gen_basic"/>
+        <add_licence faction="$T" licencefaction="$A" type="generaluseship"/>
+        <debug_text text="'[X4MP-SPIKE] S12 ' + (if $T.haslicence.station_gen_basic.{$A} then 'PASS' else 'FAIL') + ' what=hq7_added team=' + $T.id + ' station_gen_basic=' + $T.haslicence.station_gen_basic.{$A} + ' generaluseship=' + $T.haslicence.generaluseship.{$A} + ' held_licences=' + (@$T.heldlicences.count) + ' held=' + (@$T.heldlicences)" filter="general" context="false"/>
+        <do_if value="not $HadBasic">
+          <remove_licence faction="$T" licencefaction="$A" type="station_gen_basic"/>
+        </do_if>
+        <do_if value="not $HadShip">
+          <remove_licence faction="$T" licencefaction="$A" type="generaluseship"/>
+        </do_if>
+        <debug_text text="'[X4MP-SPIKE] S12 ' + (if ($T.haslicence.station_gen_basic.{$A} == $HadBasic and $T.haslicence.generaluseship.{$A} == $HadShip) then 'PASS' else 'FAIL') + ' what=hq7_removed_restored team=' + $T.id + ' station_gen_basic=' + $T.haslicence.station_gen_basic.{$A} + ' generaluseship=' + $T.haslicence.generaluseship.{$A} + ' held_licences=' + (@$T.heldlicences.count)" filter="general" context="false"/>
+        <show_notification text="'X4MP spike: hq7: done (licences were added to MP Team 1 and removed again). See the log.'" timeout="20s" priority="5"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>
