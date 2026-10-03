@@ -1139,6 +1139,37 @@ All UI code follows the vanilla patterns in
   `raise_lua_event` (vanilla pattern, for example `md/*.xml`
   `raise_lua_event name="'info_updatePeople'"`).
 
+#### M2 bridge contract (implemented by M2-05, `mod/extension/x4mp/ui/x4mp_bridge.lua`)
+
+Contract version `v: 1`. Every payload is one UTF-8 JSON object with `"v":1`; receivers ignore unknown fields. The same text is the
+header of `x4mp_bridge.lua`. Native side: `x4n::on("x4mp.<verb>", cb)` for verbs, `x4n::raise_lua("x4mp.<topic>", json)` for topics.
+
+| Direction | Event | Payload |
+|---|---|---|
+| Lua → native | `x4mp.join` | `{"v":1,"address":"host:port","name":"Player","password":"…","team":"auto"}`. `address` is normalised and always has a port (default 47780, IPv6 as `[::1]:47780`); `name` is trimmed, 1–24 characters; `password` may be `""` and exists only in this event (never logged, saved or kept in Lua); `team` is `"auto"` until the server pre-query exists. Not queued: if `__X4NATIVE_API` is missing Lua shows an error instead |
+| Lua → native | `x4mp.disconnect` | `{"v":1}` |
+| Lua → native | `x4mp.ui_ready` | `{"v":1,"startmenu":true\|false}`, once per Lua state as soon as `__X4NATIVE_API` exists (also after `/reloadui`) |
+| Lua → native | `x4mp.request_status` | `{"v":1}`; native answers with `x4mp.status` |
+| Lua → native | `x4mp.extensions` | `{"v":1,"source":"load"\|"gfx_ok"\|"show","startmenu":bool,"modified_ui_files":"…","count":N,"list":[{"id","name","version","date","enabled","enabledbydefault","egosoftextension","isworkshop","personal","sync","error","warning"}]}`; fields appear only when the game provides them; strings ≤ 256 chars; ≤ 512 entries. Sent at Lua load (start menu and every `/reloadui`), again once on `gfx_ok`/`show` if the first gather found no list (M2-X1) |
+| native → Lua | `x4mp.status` | `{"v":1,"state":"disconnected\|connecting\|handshaking\|checking_save\|downloading\|loading\|matching\|ingame\|rejected\|error","detail":"…","reject":"build\|mod\|auth\|full\|banned\|name\|…","server":"host:port","role":"client\|authority","team":2,"team_name":"…","ping_ms":12,"players":3,"progress":0.0-1.0}`; only `state` is required; at most 2 Hz |
+| native → Lua | `x4mp.notify` | `{"v":1,"text":"…","level":"info\|warn\|error"}` shown as a notice on the open screen |
+| native → Lua | `x4mp.error` | `{"v":1,"code":"…","text":"…"}` shown on the status screen |
+| native → Lua | `x4mp.load_save` | `{"v":1,"name":"x4mp_<sha12>"}`, name without `.xml.gz`. Default handler validates the name (no path parts) and calls `LoadGame(name)` 0.1 s later through `Helper.addDelayedOneTimeCallbackOnUpdate` (the vanilla `loadSave` event cannot be raised from Lua; M2-06 may replace the handler) |
+| native → Lua | `x4mp.open` | `{"v":1,"screen":"main\|join\|status"}` opens the X4MP window (same as chat `/x4mp [screen]`) |
+
+JSON subset: objects, arrays, strings with all escapes and `\uXXXX` (surrogate pairs become UTF-8), numbers, booleans, `null`
+(dropped inside objects, `json.null` inside arrays). Depth ≤ 32.
+
+Lua files (load order = `ui.xml`): `x4mp_bridge.lua` (codec, verbs, topics, `B.on`/`B.send`), `x4mp_menu.lua` (renderer-independent
+Multiplayer / Join / Status screens, validation, `__X4MP_USER`), `x4mp_ui_standalone.lua` (renderer `X4MPMenu`, a registered Helper
+menu opened with `OpenMenu`), `x4mp_extensions.lua` (M2-X1), and stubs for `x4mp_saves.lua` (M2-10), `x4mp_optionsmenu_adapter.lua` and
+`x4mp_hud.lua` (M2-11), `x4mp_join_mods.lua` (M2-X3). A renderer implements `show(model)`, `close()`, `isOpen()` and registers with
+`X4MPScreens.setRenderer(r)`; the model format is documented at the top of `x4mp_menu.lua`. Strings are on text page 92000.
+Opening: chat `/x4mp`, the `x4mp.open` event, or `X4MPScreens.open(screen)`; the embedded entry (M2-11) is a second renderer plus a row.
+
+Tests: `sh mod/tests/lua/run.sh` or `pwsh mod/tests/lua/run.ps1` (LuaJIT or Lua 5.1; skips with a message when none is installed,
+`--require`/`-Require` makes that an error as in CI). Lint: `luacheck mod/extension --config mod/extension/x4mp/.luacheckrc`.
+
 ### 7.2 Main-menu entry
 
 Menu injection through an upvalue is fragile (PIT-057, x4-api-notes 3.2), so it

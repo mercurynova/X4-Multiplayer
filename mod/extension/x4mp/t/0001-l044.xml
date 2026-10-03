@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text page 92000 for the X4MP extension (English). X4 text rules: no round brackets (they start a comment) and no curly braces. -->
+<language id="44">
+  <page id="92000" title="X4MP" descr="Texts of the X4MP multiplayer extension" voice="no">
+    <t id="1">Multiplayer</t>
+    <t id="2">Join a server</t>
+    <t id="3">Server address</t>
+    <t id="4">Player name</t>
+    <t id="5">Password</t>
+    <t id="6">Team</t>
+    <t id="7">Automatic</t>
+    <t id="8">Connect</t>
+    <t id="9">Disconnect</t>
+    <t id="10">Back</t>
+    <t id="11">Connection status</t>
+    <t id="12">Enter host or host:port, for example 192.168.1.20:47780</t>
+    <t id="13">The password is sent once to the server and is never saved.</t>
+    <t id="14">Choosing a team becomes available once the server offers it.</t>
+    <t id="15">Last server: %s</t>
+    <t id="20">The server address is not valid. Use host or host:port.</t>
+    <t id="21">Enter a player name.</t>
+    <t id="22">The player name is too long. The limit is %d characters.</t>
+    <t id="24">The multiplayer module is not ready. Check that X4Native and the X4MP library are installed.</t>
+    <t id="30">Not connected</t>
+    <t id="31">Connecting</t>
+    <t id="32">Signing in</t>
+    <t id="33">Checking the session save</t>
+    <t id="34">Downloading the session save: %s</t>
+    <t id="35">Loading the session save</t>
+    <t id="36">Matching the universe</t>
+    <t id="37">Connected</t>
+    <t id="38">Rejected by the server: %s</t>
+    <t id="39">Error: %s</t>
+    <t id="40">Server: %s</t>
+    <t id="41">Role: %s</t>
+    <t id="42">Team: %s</t>
+    <t id="43">Ping: %s ms</t>
+    <t id="44">Players: %s</t>
+    <t id="51">Type /x4mp in the chat window to open this screen at any time.</t>
+  </page>
+</language>

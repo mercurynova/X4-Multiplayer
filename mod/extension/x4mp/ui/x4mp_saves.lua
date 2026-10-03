@@ -1,0 +1,3 @@
+-- x4mp_saves.lua
+-- STUB created by M2-05 so ui.xml lists every planned M2 Lua file.
+-- Owner: M2-10 (client save control: IsSavingPossible/SaveGame wrappers). Fill this file only.
