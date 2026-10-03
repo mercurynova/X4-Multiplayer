@@ -1,5 +1,5 @@
 # e2e HostSim step (tools/e2e.ps1): the real x4mp.dll against the real server.
-# Needs: --admin-url/--admin-user/--admin-password, --server-pid (or --server-cmd for start-server).
+# Needs: --admin-url/--admin-user/--admin-password, --server-pid (or --server-exe/--server-arg for start-server).
 expect-admin /healthz
 expect-admin /api/v1/server $.version exists
 frame 60Hz 600

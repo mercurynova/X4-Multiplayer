@@ -1,0 +1,10 @@
+# Unsupported build (criterion 6, host side): the DLL logs the reason and subscribes to nothing.
+set game_version 9.10
+set build_suffix 700000
+init
+expect-file extension/logs/x4mp.log REFUSING TO START
+expect-state subs.on_frame_update == 0
+expect-state subs.on_game_loaded == 0
+expect-state subs.on_universe_ready == 0
+expect-state subs.on_ui_reload == 0
+frame fast 30

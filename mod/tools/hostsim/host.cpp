@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <thread>
 
 #include <x4_game_offsets.h>
@@ -191,6 +192,16 @@ struct Thunks {
     check_thread("ReloadSaveList");
     g_host->reload_save_list_calls++;
   }
+  static GameVersion GetGameVersion() {
+    check_thread("GetGameVersion");
+    // "9.00" -> {9, 0}
+    const std::string& v = g_host->game_version;
+    return GameVersion{std::atoi(v.c_str()), v.find('.') == std::string::npos ? 0 : std::atoi(v.c_str() + v.find('.') + 1)};
+  }
+  static const char* GetBuildVersionSuffix() {
+    check_thread("GetBuildVersionSuffix");
+    return g_host->build_suffix.c_str();
+  }
   static UniverseID GetPlayerID() {
     check_thread("GetPlayerID");
     return 1000042;
@@ -211,6 +222,8 @@ Host::Host(std::filesystem::path work_dir, std::string ext_id) : work_dir_(std::
   ext_name_ = ext_id_;
   ext_path_ = (work_dir_ / "extension").string();
   std::filesystem::create_directories(ext_path_);
+  // Portable mode: config and logs/x4mp.log stay in the extension folder, never in the user's Documents.
+  { std::ofstream(work_dir_ / "extension" / "x4mp.portable").put(' '); }
   build_game();
   build_api();
 }
@@ -229,6 +242,8 @@ void Host::build_game() {
   game_->IsSaveValid = &Thunks::IsSaveValid;
   game_->IsGamePaused = &Thunks::IsGamePaused;
   game_->ReloadSaveList = &Thunks::ReloadSaveList;
+  game_->GetGameVersion = &Thunks::GetGameVersion;
+  game_->GetBuildVersionSuffix = &Thunks::GetBuildVersionSuffix;
   game_->GetPlayerID = &Thunks::GetPlayerID;
   game_->AddPlayerMoney = &Thunks::AddPlayerMoney;
 #define X4HS_REG(name) game_fns_[#name] = reinterpret_cast<void*>(game_->name)
@@ -238,6 +253,8 @@ void Host::build_game() {
   X4HS_REG(IsSaveValid);
   X4HS_REG(IsGamePaused);
   X4HS_REG(ReloadSaveList);
+  X4HS_REG(GetGameVersion);
+  X4HS_REG(GetBuildVersionSuffix);
   X4HS_REG(GetPlayerID);
   X4HS_REG(AddPlayerMoney);
 #undef X4HS_REG
