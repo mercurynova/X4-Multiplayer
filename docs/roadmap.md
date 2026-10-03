@@ -210,6 +210,15 @@ session-2 finding, briefs-level task table, testing strategy, risks and open que
 | 2 | M2-06 client join flow, M2-07 reload survival, M2-09 authority in game, M2-10 save control + self-test, M2-11 embedded menu entry + HUD, M2-13 server diagnostics (LogForward, self-test view, unknown-key refusals on the hub) | session-2 sitting 1 verdicts |
 | 3 | M2-X3 grouped mod refusal, M2-12 `launch.json` + `NodeStats`, M2-14 session-3 kit + acceptance script | wave 2 |
 
+**Status 2026-10-03:** waves 0, 1 and 2 are **done and merged**; session 2 sitting 1 + D8 done
+([spikes/session-2-results.md](spikes/session-2-results.md)). Wave 2 delivered the client join flow (M2-06), reload
+survival with an epoch rule (M2-07), the in-game authority (M2-09), save control + self-test (M2-10), the options-menu
+adapter + self-reshowing HUD (M2-11) and node diagnostics in the GUI (M2-13). Verified only through hostsim e2e scripts
+(`mod/tests/hostsim/{join_flow,reload_survival,authority_flow}_run.ps1`, not yet in CI: M2-14) and unit tests; the real
+game confirms in session 3. Fixed along the way: FakeNode ghost-enumeration race (Playwright economy flake), two
+`core.retention` test races, a publish-modified `packages.lock.json` that slipped into merges twice (follow-up task
+offered to stop publish from dirtying it). Known intermittent: `core.latest-wins` (seen once). Wave 3 next.
+
 M1 carry-overs placed in M2: `EntitySpawn.game_time` and connection-bound upload jobs (M2-08/09), real `extension_list`
 (M2-X1/X2), authority loading admin-uploaded saves and the post-upload 404 (M2-02/09), `/mods/save-requirements`
 (M2-02), unknown-key refusals on the hub (M2-13). Deferred: HTTPS/CSP and token/audit/user GUIs → M6; economy swarm
