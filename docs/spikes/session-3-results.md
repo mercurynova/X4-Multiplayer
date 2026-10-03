@@ -61,3 +61,24 @@ Verdict: **all game criteria pass** after the fixes below; see [m2-exit-report.m
 8. **(fixed in close-out B)** Test kit: **Steam Cloud restores deleted save files** at X4 start (`steam_autocloud.vdf`), so deleting `x4mp_*` leftovers does not stick; the download test needs a save the cloud never saw (slot 7 worked).
 9. (M3+) Every authority checkpoint shows X4's normal saving screen for ~5 s on the host; with real players that interrupts the host each time. Design question for later milestones.
 10. (M3) Download progress is invisible on loopback (0.18 s for 35 MB); check it on two PCs.
+
+## Retest after the M2 close-out (2026-10-03 evening, main 79df1db + a528234)
+
+Build with close-out A and B, the TopLevelMenu/DockedMenu HUD fix (79df1db) and the upload re-run fix (a528234). Log zips `logs-retest1-*`, `logs-retest2-*`, `logs-retest3-*`.
+
+| Open item | Result | Evidence |
+|---|---|---|
+| 1 chat + Esc | PASS | Esc: vanilla HUD stays, chat fades after ~10 s (same as plain X4) |
+| 1 HUD line after menus / save screen | PASS (after 79df1db) | first try: back only after 10 s, log `hud: blocked for 10 s by TopLevelMenu/Helper2` (the top bar stays up in normal play); fixed, then the line stayed through the authority save screen |
+| 2 `/reloadui` | PASS | `reload: the universe was ready before the reload ...`, `reload resume: same universe ... epoch kept`; self-test 8 PASS, 0 FAIL, 1 WARN, 0 SKIP |
+| 3 first-checkpoint self-spawn | PARTLY | retries work (6 asks, MD answers each), but after a load the player **stands** in the ship (on foot for MD) for longer than 20 s; the spawn came with the next checkpoint once flying (`game_time=298.766`, server equal). Follow-up below |
+| 4 refusal screen | PASS | one headline "Your mods do not match this session." + groups, no raw text |
+| 5 "Last server" | PASS | shown after a join; empty right after Run 4 because the remembered values live in `uidata.xml`, which X4 rewrote without our entries while the mod was not installed. Follow-up below |
+| 6 team-faction log noise | PASS | no `Failed to retrieve faction` lines |
+| 7 manifests | PASS | `removed 3 old session manifest(s)`; one `.x4mf` left |
+| 8 Steam Cloud | PASS | `-FreshDownload`: fresh name, real download (29.5 MB, 0.2 s) |
+| kit: upload re-run | fixed (a528234) | `upload-save.ps1` re-run with a save already in the library got 409 OffsetMismatch; now skips the bytes the server has |
+
+### Carried into M3 (small)
+- **Self-spawn when the player sits down**: instead of 6 asks over 20 s, send the self-spawn as soon as `player.occupiedship` becomes non-null (MD event when the player takes the pilot seat, or keep asking on the status tick while the session runs).
+- **Remembered Join fields in `x4mp.json`** (our own file) instead of `uidata.xml`, so a run of X4 without the mod does not drop them.
