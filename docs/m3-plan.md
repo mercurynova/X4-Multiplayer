@@ -404,3 +404,61 @@ dock behaviour, colours, the chat window, true frame cost, two real players over
 ## 8. Handoff notes from merged tasks
 
 (Filled in as tasks merge, as in m2-plan §8.)
+
+### M3-02 `core/ghost` (pure C++, `mod/native/core/ghost/**`, tests `mod/tests/ghost/*`, exe `x4mp_ghost_tests`, ctest prefix `ghost.`)
+
+API (namespace `x4mp::ghost`; no game calls, no SDK):
+- `Sample{t_us (server time), sector, flags, pos (m), vel (m/s), rot Euler (rad), hull, shield}`; flag constants `kTeleport`, `kDocked`,
+  ... `kHidden` (= bit 10, schema delta D1; change it in `sample.h` only if the generated schema differs).
+- `Interpolator` (one per remote ship, ring of 8, fixed storage, **no allocation**): `push(sample, arrival_server_us)`,
+  `apply_state(t_us, flags, hull, shield)` (flags-only Replication entries, e.g. Hidden), `RenderPose render(now_server_us)`,
+  `delay_us()`, `stats()`. `RenderPose{state (Empty/Early/Interpolating/Extrapolating/Held/Stale), sector, pos, rot, flags, snapped,
+  hidden, speed_mps}`. Driver rule: `snapped` or sector change -> place the object (`SetObjectSectorPos` into the new sector);
+  `hidden` -> hide; otherwise just set the pose. `hidden` is also true for Stale (> 5 s without data).
+- Rules: Hermite position + slerp rotation; render time = now - delay; delay 100 ms default, adaptive 80..250 ms (1.5 x interval +
+  2 x p95 arrival jitter; up 100 ms/s, down 10 ms/s); extrapolation <= 500 ms then Held; Teleport / sector change / Hidden neighbour =
+  discontinuity (hold the earlier sample, snap on reaching the new one); corrections > 0.5 m blend over 200 ms, > max(200 m,
+  speed x 0.5 s) snap. Rotation is not blended.
+- `ReplicationDecoder::decode(server_time_us, entries, count, sink(EntityUpdate))` keeps the per-net_id baseline (omitted fields = baseline)
+  and turns entries into `EntityUpdate{has_pose, sample}`. `StreamSet` = decoder + one `Interpolator` per net_id:
+  `ensure(net_id)` (spawn: allocates), `find`, `erase` (EntityDespawn), `ingest(server_time_us, entries, count, arrival_us)`.
+  Call `decoder().forget/reset` when the server resets baselines (resume).
+- `SyncStats` (inside each Interpolator): path error vs the sender's samples at the same server time (buckets all / steady < 300 m/s /
+  fast), display latency, speed max; `stats().report(true)` every 5 s -> `format_sync_line(net_id, report)` is the `[sync]` line.
+- `NetMap` (net_id <-> local id, kinds Self/Ghost/Avatar/Other), `GhostRegistry`, `AvatarRegistry`, bundled in `Registries`:
+  `save(IStash&, epoch)` (one text blob, key `ghost.registries`) and `adopt(IStash&, epoch, is_valid)` -> `AdoptReport`. Adoption: valid
+  ids kept, invalid dropped (listed in `dropped_local_ids`, nothing to remove), wrong epoch or unparsable blob -> nothing adopted and the
+  blob is erased (the janitor cleans by name), registries reconciled so the three always agree. Call `save` after every change that
+  matters (spawn, despawn, bind) or at least before unload; `is_valid` = `IsValidComponent`.
+
+Numbers (relwithdebinfo, 60 s tracks at 20 Hz through the real Replication codec, 15 ms + 0..25 ms jitter, 5 % and 10 % loss; "true" =
+rendered pose vs the analytic track at the represented server time, p95 / max in metres):
+
+| track | true p95 | true max | `[sync]` p95 (worst 5 s window) | latency p95 |
+|---|---|---|---|---|
+| line 250 m/s | 0.00 | 0.00 | 0.00 | 140-152 ms |
+| circle r1500 v250 | 0.01 | 0.07-0.19 | 0.05-0.09 | 144-153 ms |
+| circle r500 v100 | 0.01 | 0.03-0.08 | 0.02-0.05 | 144-153 ms |
+| circle r3000 v450 | 0.01 | 0.14-0.31 | 0.08-0.15 | 144-153 ms |
+| accel 0 -> 450 m/s (20 m/s^2) | 0.01 | 0.01-0.02 | 0.02-0.03 | 147-151 ms |
+| gate jumps every 12 s | 0.00 | 8.8-9.0 | 0.00 | 136-147 ms, exactly 1 snap per jump |
+| worst case: 90 degree heading steps every 3 s | 2.8-3.3 | 12.6 | 6.5-6.6 | 152-159 ms |
+| circle + 400 ms loss burst | 0.01 | 3.7 | 2.6 | 145 ms, no snap |
+| circle, jitter up to 120 ms | 0.01 | 0.01 | 0.05 | 250 ms (delay rose to the 250 ms cap; legit cost of that jitter) |
+
+Hot path: 7 players, decode + ingest + render + stats, 660 frames: **0 allocations**, ~2 us per frame (budget 200 us).
+
+What M3-10 / M3-11 need to know:
+- The interpolator works in **server time**; feed `arrival_us` = your clock-sync estimate of server now (used only for the delay
+  estimate), and call `render(server_now)` once per frame per entity. Create the `Interpolator` (`StreamSet::ensure`) in the spawn path,
+  never in the frame path; entries for net_ids you did not `ensure` are dropped by default (`only_tracked`).
+- Euler convention lives in `math.h` (`R = Ry(yaw) Rx(pitch) Rz(roll)`); S13.4 decides what X4's `UIPosRot` angles are (degrees or
+  radians, axis order). Convert in the game adapter, or change `euler_to_quat`/`quat_to_euler` once, nowhere else.
+- Hidden (D1) arrives in the FLAGS field like any bit and is already honoured; `kHidden = 1 << 10`. D2 (`ManifestEntry.origin /
+  controller_player`) does not touch Replication. If the schema lands another bit, only `sample.h` changes.
+- Authority avatars (M3-11): build `Sample`s from the relayed `PlayerState` (it carries derived velocity, not Replication) and call
+  `Interpolator::push`; there is no PlayerState decoder here yet.
+- Flags-only Replication entries (no POS) only update the newest sample's flags/status (`apply_state`); velocity-only entries are
+  folded into the baseline for the next pose.
+- Not done here (belongs to the feature layers): spawn/despawn, `SetObjectSectorPos`, sector-index -> local sector id, the `[sync]` log
+  call, the stash save timing, hide/show in game, the epoch value.

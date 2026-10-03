@@ -466,3 +466,30 @@ if(X4MP_TESTS)
   set_tests_properties(hostsim.launch_expired PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
 endif()
 # END M2-12 launch.json + NodeStats
+
+# =============================================================================================
+# BEGIN M3-02 core/ghost (sample ring, Hermite + slerp, adaptive delay, extrapolation, path-error stats, NetMap + registries with stash
+# adoption, Replication decode). Appended by M3-02. Pure C++: x4mp_ghost_tests has no SDK on its include path. The tests replace the
+# global operator new to count allocations (the hot-path test), so they live in their own executable.
+# =============================================================================================
+target_sources(x4mp_core PRIVATE
+  native/core/ghost/interpolator.cpp
+  native/core/ghost/sync_stats.cpp
+  native/core/ghost/registry.cpp
+  native/core/ghost/replication.cpp)
+if(X4MP_TESTS)
+  add_executable(x4mp_ghost_tests
+    tests/ghost/alloc_counter.cpp
+    tests/ghost/test_math.cpp
+    tests/ghost/test_interpolator.cpp
+    tests/ghost/test_tracks.cpp
+    tests/ghost/test_registry.cpp
+    tests/ghost/test_replication.cpp
+    tests/ghost/test_hot_path.cpp)
+  target_include_directories(x4mp_ghost_tests PRIVATE tests/ghost)
+  target_link_libraries(x4mp_ghost_tests PRIVATE x4mp_core Catch2::Catch2WithMain)
+  x4mp_set_warnings(x4mp_ghost_tests)
+  catch_discover_tests(x4mp_ghost_tests TEST_PREFIX "ghost." PROPERTIES TIMEOUT 120)
+  x4mp_assert_no_sdk(x4mp_ghost_tests)
+endif()
+# END M3-02 core/ghost
