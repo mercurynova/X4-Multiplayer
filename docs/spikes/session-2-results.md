@@ -68,3 +68,30 @@ local server + FakeNode authority (`start-server.ps1`), real X4 as client with t
 | D7 web links (R8) | **Only Steam-hosted URLs open**: `OpenWebBrowser("https://steamcommunity.com/...workshop")` opened the default browser; Nexus `https://www.nexusmods.com/...` and `steam://store/...` did **nothing**, although `CanOpenWebBrowser()` was true and the call returned no error. X4 evidently allow-lists steamcommunity.com. Product: Workshop links can open; Nexus links must be shown as copyable URL text | `LINKS PASS what=OpenWebBrowser_called` for all three; user saw only the Workshop page |
 | Pause interplay | After every load the user needed **Esc twice** to unpause. The probe's `Pause()` at universe ready and the user's Esc/menu pause interfere; at hold-over the game was already unpaused and the probe still called `Unpause()`. Product: pause only if not already paused, undo only our own pause, or don't pause at all | probe `pause hold over: Unpause() IsGamePaused_before=false` |
 | Threads (B7 follow-up) | In Run 2 `on_frame_update` was seen on **two thread ids** (`tids=53904,57400`). Re-check before relying on "UI frame thread = one fixed thread"; the host's `assert_main_thread` should compare against the thread of the current `on_frame_update`, not one captured at init | probe `threads ... on_frame_update{... tids=53904,57400,}` |
+
+## Sitting 1 verdict (2026-10-02): M2 wave 2 is unblocked
+
+Decisions for the wave-2 briefs (m2-plan §4.1 B/C/D):
+- **B (join/load/reload):** DLL is unloaded on every save load and `/reloadui`; stash survives; server resume makes
+  it invisible. M2-07 = stash + resume token, no pinning, no `resume.json`. Never pin the DLL (a pinned DLL is not
+  re-initialised). Hooks must be removable at shutdown or avoided.
+- **B2:** load by name via vanilla `loadSave` works; downloaded `x4mp_*` names are not shown in the Load list (fine).
+- **B3:** `Pause()`/`Unpause()` via Lua work, but interfere with the player's own Esc pause: pause only if not
+  already paused and undo only our own pause (or skip pausing; it is harmless in M2).
+- **B7:** game calls only from `on_frame_update`; `on_game_loaded` may arrive on the native thread (copy a flag only);
+  `on_frame_update` was seen on two thread ids in one run, so the main-thread check compares with the current frame's
+  thread.
+- **Build check:** `GetBuildVersionSuffix` is empty; use X4Native's detected build / version string.
+- **C (saves):** Lua wrapper + greyed Save row work; the MD autosave diff suppresses the autosave request; quicksave
+  bypasses Lua but raises `game_saved` (detect + report, hard block M4). Custom save names save and load by name.
+  `game_saved` fires before the file is complete: upload only once the file is complete.
+- **Clock/money:** `GetCurrentGameTime()` == MD `player.age` (pauses stop both); native money = cents, Lua = credits,
+  MD `player.money` = cents.
+- **Object variables on components do not exist**: net ids in an MD table keyed by component (confirm persistence in
+  session 3).
+- **D (UI):** start-menu row insertion via `require("debug")` works without UIX/SirNukes; the standalone window opens
+  over the start menu but must restore it on close; `textHidden` works; X4Native per-extension settings live behind
+  the "…" button; HUD frames are closed by other menus (re-show after menus close); only Steam-hosted URLs open in the
+  browser.
+- **Not done in sitting 1:** D8 (SirNukes/UIX compatibility, optional), S9 with a connected gate. Sittings 2 (Part E)
+  and 3 (Part F) feed later milestones.
