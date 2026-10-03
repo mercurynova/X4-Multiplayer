@@ -419,3 +419,7 @@ save within ~15 s of game time is classed as "same universe" (no new NodeReady).
 loads a checkpoint. The admin `/api/v1/logs` ring buffer did not show `resumed` lines that are in the rolling log file:
 check its category filter (M2-13 or wave 3). `core.retention` still flakes occasionally after the 2026-10-02 fix:
 needs another look.
+
+**Known intermittent (2026-10-03):** `TeamSwarmLiveTests.MovingAPlayerMakesTheFakeAuthorityReassignItsAssetsAndOrdersFollowTheNewTeam`
+timed out once on ubuntu CI ("mover's client to learn the new owner"); passed on re-run and 3/3 locally. Watch it; if it
+recurs, find the race (FakeNode owner-update vs the 30 s wait on a slow runner).
