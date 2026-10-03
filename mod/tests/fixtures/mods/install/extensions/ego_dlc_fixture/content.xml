@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic fixture for core/mods tests. Not a real DLC; hand-written, contains no game data. -->
+<content id="ego_dlc_fixture" name="Fixture DLC" version="900" save="1" enabled="1" author="X4MP tests"/>

@@ -53,14 +53,40 @@ struct Id128 {
 // The extension list the ClientHello carries (mod-management.md phase 1). In-game gathering is M2 (Lua
 // x4mp.extensions verb + core/mods hashing); core only transports it. `hash` is SHA-256 of the sorted
 // "id@version\n" lines of enabled Dlc/Sim extensions (empty = not computed), `entries` the same "id@version" list.
+// `list` is the full ClientHello.extension_list (enabled and disabled; core/mods fills it, M2-X2); empty = legacy node.
+// Enum-typed fields hold the wire values of X4MP.Proto.ExtensionSource / ExtensionClass / HashKind.
+struct ExtensionDependencyReport {
+  std::string id;
+  bool optional = false;
+};
+struct ExtensionReport {
+  std::string id;
+  std::string name;
+  std::string version;
+  std::uint8_t source = 0;  // ExtensionSource: 0 Dlc, 1 Install, 2 User, 3 Workshop
+  bool enabled = false;
+  bool egosoft = false;
+  std::uint64_t workshop_id = 0;
+  std::vector<std::uint8_t> content_hash;  // empty = not computed
+  std::uint8_t hash_kind = 0;              // HashKind: 0 None, 1 CatIndex, 2 Files
+  bool has_native_dll = false;
+  bool replaces_basegame = false;
+  bool save_dependent = false;
+  std::uint8_t class_hint = 0;  // ExtensionClass: 0 Unknown, 1 Dlc, 2 Sim, 3 ClientOnly
+  std::string error;
+  std::string warning;
+  std::vector<ExtensionDependencyReport> dependencies;
+};
 struct ExtensionSnapshot {
   std::vector<std::uint8_t> hash;
   std::vector<std::string> entries;
+  std::vector<ExtensionReport> list;
 };
 class IExtensionProvider {
  public:
   virtual ~IExtensionProvider() = default;
-  // Called once per Session::start() on the caller's (main) thread. Must be quick: no frame-thread file I/O.
+  // Called once per Session::start() on the caller's (main) thread. No file I/O: it may block up to a short bounded
+  // time (core/mods: 2 s) waiting for a worker thread's result, never more.
   virtual ExtensionSnapshot snapshot() = 0;
 };
 
