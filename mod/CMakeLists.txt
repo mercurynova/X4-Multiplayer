@@ -550,3 +550,15 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_chat.cpp)
 endif()
 # END M3-06 chat + player list
+
+# =============================================================================================
+# BEGIN M3-08 team factions in game (features/teams/*.cpp is picked up by the M2-04 features glob; team_hub() is the join feature's
+# hand-over point for Welcome / TeamTable / TeamRelations / TeamMemberChanged). Appended by M3-08.
+#   x4mp_host_tests += tests/test_teams.cpp (model, matrix -> MD call list, apply state machine)
+#   The MD half (md/x4mp_teams.xml, libraries/*.xml) is checked by tools/validate-x4-xml.py, the Lua half by tests/lua/test_teams.lua;
+#   the round trip with the real DLL is part of tests/hostsim/join_flow.hostsim.
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_teams.cpp)
+endif()
+# END M3-08 team factions in game

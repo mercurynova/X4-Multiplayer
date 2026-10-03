@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP product factions (M3-08): x4mp_team_1 .. x4mp_team_8, one per team slot (ADR-014/016, docs/mod-design.md 11.2).
+  Authored by us from the vanilla faction entry format (libraries/factions.xsd). Proven in game by the sitting-0 spike S13.7: the same entries
+  activate with MD set_faction_active, relations apply and lock, hostile shows red, `player` is never locked.
+  active="0": the factions are inert in a save that is not an X4MP session; md/x4mp_teams.xml activates the session's teams (like vanilla does for
+  faction "trinity"). tags="nodiplomacyselection" keeps the factions out of the vanilla diplomacy minigame target list (ADR-047: our own treaty
+  screen, M6). The <relations> block gives every team the same standing as the player faction towards the factions that attack everyone
+  (xenon, khaak ...), so a team ship is not a free target for them; relations towards the other factions stay at the faction default
+  (neutral) until the M6 reputation sync. Names are placeholders on text page 92000 ids 811..884 (name, description, short name, prefix);
+  the player table, chat and GUI show the server's team name. Colours: the same values as libraries/colors.xml (faction_x4mp_team_<n>).
+  No licences are defined: team factions do not trade or build in M3 (M5, ADR-048 mirrors licences to the team).
+-->
+<diff>
+  <add sel="/factions">
+    <faction id="x4mp_team_1" name="{92000,811}" description="{92000,812}" shortname="{92000,813}" prefixname="{92000,814}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="128" b="0" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+    <faction id="x4mp_team_2" name="{92000,821}" description="{92000,822}" shortname="{92000,823}" prefixname="{92000,824}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="0" g="255" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+    <faction id="x4mp_team_3" name="{92000,831}" description="{92000,832}" shortname="{92000,833}" prefixname="{92000,834}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="255" b="0" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+    <faction id="x4mp_team_4" name="{92000,841}" description="{92000,842}" shortname="{92000,843}" prefixname="{92000,844}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="0" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+    <faction id="x4mp_team_5" name="{92000,851}" description="{92000,852}" shortname="{92000,853}" prefixname="{92000,854}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="255" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+    <faction id="x4mp_team_6" name="{92000,861}" description="{92000,862}" shortname="{92000,863}" prefixname="{92000,864}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="140" g="60" b="255" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+    <faction id="x4mp_team_7" name="{92000,871}" description="{92000,872}" shortname="{92000,873}" prefixname="{92000,874}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="0" g="170" b="90" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+    <faction id="x4mp_team_8" name="{92000,881}" description="{92000,882}" shortname="{92000,883}" prefixname="{92000,884}" primaryrace="argon" behaviourset="default" active="0" tags="nodiplomacyselection">
+      <color r="255" g="105" b="180" glow="0.05"/>
+      <account amount="0"/>
+      <icon active="faction_player" inactive="faction_player"/>
+      <relations>
+        <relation faction="criminal" relation="-0.5"/>
+        <relation faction="holyorderfanatic" relation="-1"/>
+        <relation faction="khaak" relation="-1"/>
+        <relation faction="xenon" relation="-1"/>
+      </relations>
+    </faction>
+  </add>
+</diff>

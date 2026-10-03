@@ -11,7 +11,7 @@
 // the DiagHub (last_selftest) so a later task can send it as one message.
 //
 // Checks: x4native.api, x4native.hooks, build.supported, game.adapter, saves.wrappers, saves.block, player.guard,
-// game.time, main_thread. Verdicts: PASS FAIL WARN SKIP. A FAIL never stops the mod.
+// game.time, team.factions (M3-08), main_thread. Verdicts: PASS FAIL WARN SKIP. A FAIL never stops the mod.
 
 #include <atomic>
 #include <memory>

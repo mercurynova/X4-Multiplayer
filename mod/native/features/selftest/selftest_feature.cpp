@@ -8,6 +8,8 @@
 #include "game/main_thread.h"
 #include "game/player_guard.h"
 #include "host/build_check.h"
+#include "features/teams/team_hub.h"
+#include "features/teams/teams_feature.h"
 
 namespace x4mp::features {
 
@@ -155,6 +157,32 @@ std::vector<SelfTestRow> SelfTestFeature::run_checks(host::HostContext& ctx, std
     const bool sane = std::isfinite(*t0) && std::isfinite(*t1) && *t0 >= 0.0 && *t1 >= *t0;
     out.push_back(row("game.time", sane ? "PASS" : "FAIL",
                       std::format("t0={:.2f} t1={:.2f} paused={} monotonic={}", *t0, *t1, paused, *t1 >= *t0)));
+  }
+
+  // 10. team factions (M3-08): the library diff is loaded and the MD setup of this universe reported Ok
+  {
+    const auto& th = teams::team_hub();
+    if (!th.has_session()) {
+      out.push_back(row("team.factions", "SKIP", "no multiplayer session (the team factions are only set up while connected)"));
+    } else if (!ctx.gates.universe_ready) {
+      out.push_back(row("team.factions", "SKIP", "universe not ready"));
+    } else {
+      const auto listed = teams::game_team_factions(ctx.platform);
+      const std::size_t want = th.applied_plan().slots.size();
+      if (listed && listed->empty()) {
+        out.push_back(row("team.factions", "FAIL", "the game lists no x4mp_team_* faction (libraries/factions.xml diff not loaded?)"));
+      } else if (th.state() == teams::SetupState::Ok) {
+        out.push_back(row("team.factions", "PASS",
+                          std::format("{} team factions active, {} relations applied (seq {}), game lists {}", want, th.applied_plan().relations.size(),
+                                      th.seq(), listed ? std::to_string(listed->size()) : std::string("?"))));
+      } else if (th.state() == teams::SetupState::Failed) {
+        out.push_back(row("team.factions", "FAIL", std::format("team setup failed: {}", th.detail())));
+      } else if (th.state() == teams::SetupState::Starting) {
+        out.push_back(row("team.factions", "WARN", "team setup sent, no MD report yet"));
+      } else {
+        out.push_back(row("team.factions", "WARN", std::format("team setup state {} (no team with a faction slot yet?)", teams::state_name(th.state()))));
+      }
+    }
   }
 
   // 9. main thread definition

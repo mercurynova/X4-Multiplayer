@@ -22,6 +22,7 @@
 #include "features/launch/launch_feature.h"
 #include "features/stats/stats_feature.h"
 #include "features/chat/chat_feature.h"
+#include "features/teams/teams_feature.h"
 
 namespace x4mp::host {
 
@@ -33,6 +34,7 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::JoinFeature>());
   registry.add(std::make_unique<x4mp::features::LaunchFeature>());
   registry.add(std::make_unique<x4mp::features::ChatFeature>());  // after join: it forwards what the join pump collected this frame
+  registry.add(std::make_unique<x4mp::features::TeamsFeature>());  // after join: it applies what the join pump collected this frame (M3-08)
   registry.add(std::make_unique<x4mp::features::StatsFeature>());  // last: its frame cost sample covers the earlier features
 }
 
