@@ -1,0 +1,51 @@
+# Session-3 dry run, topology 1 (mod/tests/hostsim/session3_dry_run.ps1): the real x4mp.dll joins the server that
+# tools/session3/start-fake-authority.ps1 started (FakeNode authority serving a dummy save, join password set), the way the real X4 will.
+# Vars: tcp, pw (join password), restart (script that restarts start-fake-authority.ps1 with the same command: B4).
+# x4mp.json (written by tools/session3/write-config.ps1 -SelfTest) is in the work dir's extension folder before the DLL starts.
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Tester","password":"${pw}","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-lua loadSave 3000 contains x4mp_
+expect-stash join.state present
+
+# X4 unloads and re-initialises the DLL on the save load: the session resumes
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_s3_dry
+frame 60Hz 600
+expect-file extension/logs/x4mp.log ServerHello:
+expect-file extension/logs/x4mp.log Welcome: player_id=
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+expect-file extension/logs/x4mp.log session save complete and verified as
+expect-file extension/logs/x4mp.log raised the Lua event loadSave
+expect-file extension/logs/x4mp.log extension shutdown: session unloaded for a resume
+expect-file extension/logs/x4mp.log resuming the session after an extension reload (stage loading
+expect-file extension/logs/x4mp.log universe ready: NodeReady sent
+expect-lua x4mp.status 3000 json $.state == ingame
+expect-admin /api/v1/players $[name==Tester].online == true
+expect-admin /api/v1/players $[name==Tester].id exists
+
+# selftest: true in x4mp.json (written with a UTF-8 byte-order mark by write-config.ps1)
+expect-file extension/logs/x4mp.log SELFTEST begin
+expect-file extension/logs/x4mp.log SELFTEST summary:
+expect-file extension/logs/x4mp.log SELFTEST forwarded
+expect-lua x4mp.notify 3000 contains self-test
+
+# a few seconds of stats (NodeStats every 2 s, the log line every 5 s of frame time)
+frame 60Hz 420
+expect-file extension/logs/x4mp.log stats: fps=
+expect-admin /api/v1/dashboard $.players[name==Tester].stats.fps > 1
+
+# B4: the user presses Ctrl+C in window 1 and starts the same command again: the mod reconnects by itself
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${restart}"
+frame 60Hz 1200
+expect-admin /api/v1/players $[name==Tester].online == true timeout=30000
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 60
+expect-no-secret ${pw}
+shutdown
