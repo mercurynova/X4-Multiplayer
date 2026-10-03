@@ -436,7 +436,9 @@ public class SendQueueTests(Xunit.Abstractions.ITestOutputHelper output)
             }
 
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocBefore;
-            Assert.Equal(0, allocated);
+            // A per-send allocation would show up as >= 300,000 bytes here. A few KB are runtime noise (tiered-JIT
+            // tier-up and OSR can allocate on this thread mid-measurement), which made an exact 0 flaky.
+            Assert.True(allocated < 16 * 1024, $"TrySend allocated {allocated} bytes over {batch * rounds} sends");
             return ticks * 1e9 / Stopwatch.Frequency / (batch * rounds);
         }
 

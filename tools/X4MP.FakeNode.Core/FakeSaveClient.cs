@@ -75,6 +75,9 @@ public sealed class FakeSaveClient : IDisposable
     /// <summary>The <c>current_save_sha256</c> of the latest <c>SessionState</c> that carried one (the session's current checkpoint).</summary>
     public string? AnnouncedSaveSha { get; private set; }
 
+    /// <summary>True when the announced save has a manifest (a client's checkpoint); false for the authority's stored start save, which is only downloaded, verified and "loaded".</summary>
+    private bool HasManifest => _info!.ManifestSha256 is { Count: > 0 };
+
     /// <summary>The latest <c>SessionSaveInfo</c> (null before it arrived).</summary>
     public SessionSaveInfoT? SaveInfo => _info;
 
@@ -311,6 +314,14 @@ public sealed class FakeSaveClient : IDisposable
         if (_kind == UploadKind.Save)
         {
             VerifiedSaveSha = Convert.ToHexStringLower(ShaOf(UploadKind.Save));
+            if (!HasManifest)
+            {
+                // The authority's stored save (an admin upload has no manifest): load it and be ready, nothing to match or catch up.
+                Stage = FakeJoinStage.Loading;
+                _ = Task.Run(() => LoadPipelineAsync(ct), CancellationToken.None);
+                return;
+            }
+
             await StartAsync(UploadKind.Manifest, ct).ConfigureAwait(false);
             return;
         }
@@ -331,7 +342,7 @@ public sealed class FakeSaveClient : IDisposable
             var phaseWait = TimeSpan.FromSeconds(3);
             await ReportStatusAsync(NodePhase.Verifying, 1, SizeOf(UploadKind.Save), force: true, ct).ConfigureAwait(false);
             var sha = ShaOf(UploadKind.Save);
-            var manifestSha = ShaOf(UploadKind.Manifest);
+            byte[] manifestSha = HasManifest ? ShaOf(UploadKind.Manifest) : [];
             await _client.SendAsync(MsgType.SaveReady, b => SaveReady.Pack(b, new SaveReadyT { Sha256 = [.. sha], ManifestSha256 = [.. manifestSha] }), ct).ConfigureAwait(false);
             await ReportStatusAsync(NodePhase.Loading, 0, 0, force: true, ct).ConfigureAwait(false);
             await Tracker.WaitForAsync(NodePhase.Loading, phaseWait, ct).ConfigureAwait(false);
@@ -339,7 +350,18 @@ public sealed class FakeSaveClient : IDisposable
             await ReportStatusAsync(NodePhase.Matching, 0, 0, force: true, ct).ConfigureAwait(false);
             await Tracker.WaitForAsync(NodePhase.Matching, phaseWait, ct).ConfigureAwait(false);
 
-            var manifest = Manifest.GetRootAsManifest(new ByteBuffer(await File.ReadAllBytesAsync(PathOf(UploadKind.Manifest), ct).ConfigureAwait(false)));
+            if (!HasManifest)
+            {
+                await _client.SendAsync(
+                    MsgType.NodeReady,
+                    b => NodeReady.Pack(b, new NodeReadyT { UniverseEpoch = 1, LoadedSaveSha256 = [.. sha] }),
+                    ct).ConfigureAwait(false);
+                Stage = FakeJoinStage.InGame;
+                _ready.TrySetResult();
+                return;
+            }
+
+            var manifest =Manifest.GetRootAsManifest(new ByteBuffer(await File.ReadAllBytesAsync(PathOf(UploadKind.Manifest), ct).ConfigureAwait(false)));
             uint total = (uint)manifest.EntriesLength;
             uint unmatched = (uint)Math.Round(total * _options.UnmatchedFraction);
             var report = new ManifestReportT

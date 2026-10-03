@@ -237,6 +237,11 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         if (node.IsAuthority)
         {
             _authority = node;
+            if (node.Phase == NodePhase.SyncingSave)
+            {
+                SendStartSaveInfo(node); // also after a resume that was cut off while it downloaded
+            }
+
             return;
         }
 
@@ -257,6 +262,10 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
             if (current == NodePhase.InGame)
             {
                 TryRequestInitialSave();
+            }
+            else if (current == NodePhase.SyncingSave && node.Announced)
+            {
+                SendStartSaveInfo(node);
             }
 
             return;
@@ -404,6 +413,8 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         _current = null;
         _previous = null;
         _inFlight = null;
+        _startSave = null;
+        _startInfoConnection = null;
         _seeded = false;
         _stopPending = false;
         _nextAutosave = long.MaxValue;
@@ -453,6 +464,11 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         foreach (var upload in _uploads.Values)
         {
             keep.Add(upload.ShaHex);
+        }
+
+        if (_startSave is { } start && _current is null)
+        {
+            keep.Add(start.Sha);
         }
 
         _protected = keep;
