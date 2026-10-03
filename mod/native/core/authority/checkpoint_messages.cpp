@@ -1,5 +1,7 @@
 #include "core/authority/checkpoint_messages.h"
 
+#include <algorithm>
+
 #include "core/authority/entity_spawn.h"
 #include "manifest_generated.h"
 #include "message_ids_generated.h"
@@ -42,13 +44,23 @@ std::optional<Payload> encode_save_started(std::uint32_t request_id, const sessi
 }
 
 std::optional<Payload> encode_manifest(const session::Id128& checkpoint, double game_time, std::uint32_t next_net_id,
-                                       const std::vector<StringDesc>& strings, const std::vector<SectorDesc>& sectors) {
+                                       const std::vector<StringDesc>& strings, const std::vector<SectorDesc>& sectors,
+                                       const std::vector<ManifestAvatar>& avatars) {
   if (!EntitySpawnBuilder::is_valid_game_time(game_time)) return std::nullopt;
   flatbuffers::FlatBufferBuilder fbb(1024);
   const P::Id128 cp(checkpoint.lo, checkpoint.hi);
   const auto str = make_strings(fbb, strings);
   const auto sec = make_sectors(fbb, sectors);
-  const std::vector<flatbuffers::Offset<P::ManifestEntry>> entries;
+  std::vector<flatbuffers::Offset<P::ManifestEntry>> entries;
+  std::vector<const ManifestAvatar*> sorted;
+  for (const auto& a : avatars) sorted.push_back(&a);
+  std::sort(sorted.begin(), sorted.end(), [](const ManifestAvatar* a, const ManifestAvatar* b) { return a->net_id < b->net_id; });  // entries are sorted by net_id
+  for (const auto* a : sorted) {
+    const P::Vec3f pos(a->x, a->y, a->z);
+    entries.push_back(P::CreateManifestEntryDirect(fbb, a->net_id, static_cast<P::EntityKind>(a->kind), 0, a->macro_ref, a->owner_ref, a->owner_team,
+                                                   a->owner_player, a->sector, a->idcode.c_str(), &pos, 0, P::EntityOrigin::PlayerShip,
+                                                   a->controller_player));
+  }
   P::FinishManifestBuffer(fbb, P::CreateManifestDirect(fbb, &cp, game_time, next_net_id, &str, &sec, &entries));
   return to_payload(fbb);
 }

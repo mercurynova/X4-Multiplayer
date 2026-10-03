@@ -29,6 +29,7 @@ inline constexpr int kAvatarMinHullPercent = 100;  // Q11: the avatar cannot be 
 struct Pose {
   double x = 0, y = 0, z = 0;
   double yaw = 0, pitch = 0, roll = 0;
+  bool operator==(const Pose&) const = default;
 };
 
 [[nodiscard]] double distance_m(const Pose& a, const Pose& b) noexcept;

@@ -9,6 +9,7 @@
 #include "core/authority/checkpoint_messages.h"
 #include "core/authority/entity_spawn.h"
 #include "core/crypto/crypto.h"
+#include "features/avatars/avatar_hub.h"
 #include "common_generated.h"
 #include "message_ids_generated.h"
 
@@ -90,9 +91,49 @@ AuthorityFlow::AuthorityFlow(host::HostContext& ctx, session::Session& session, 
     work_dir_ = ctx.paths->dir / "authority";
     ledger_ = ctx.paths->dir / "authority-saves.json";
   }
+  // M3-11: the avatars take their net ids and string refs from this flow and send through its control lane.
+  avatars::AuthorityServices svc;
+  svc.connected = [this] { return uploader_.connected(); };
+  svc.alloc_net_id = [this] { return allocate_net_id(); };
+  svc.reserve_net_ids_above = [this](std::uint32_t id) { reserve_net_ids_above(id); };
+  svc.string_ref = [this](avatars::StrKind kind, const std::string& value) {
+    return string_ref(static_cast<std::uint8_t>(kind == avatars::StrKind::Faction ? P::StringKind::Faction : P::StringKind::Macro), value);
+  };
+  svc.send_control = [this](std::uint16_t type, std::vector<std::uint8_t> payload) { return send_control(type, payload); };
+  avatars::avatar_hub().set_services(std::move(svc));
+}
+
+std::uint32_t AuthorityFlow::allocate_net_id() {
+  const std::uint32_t id = state_.next_net_id++;
+  persist();
+  return id;
+}
+
+void AuthorityFlow::reserve_net_ids_above(std::uint32_t id) noexcept {
+  if (state_.next_net_id <= id && id != 0xFFFFFFFEu) {
+    state_.next_net_id = id + 1;
+    persist();
+  }
+}
+
+// The server's string table index of (kind, value): one already known, else appended (StringTableAdd with one entry). 0 = could not.
+std::uint32_t AuthorityFlow::string_ref(std::uint8_t kind, const std::string& value) {
+  if (value.empty()) return 0;
+  for (const auto& k : known_strings_) {
+    if (k.kind == kind && k.value == value) return k.index;
+  }
+  if (!uploader_.connected()) return 0;
+  const std::uint32_t index = state_.string_count + 1;
+  const std::vector<x4mp::authority::StringDesc> add = {{index, kind, value}};
+  if (!send_control(T(P::MsgType::StringTableAdd), x4mp::authority::encode_string_table_add(add))) return 0;
+  state_.string_count = index;
+  known_strings_.push_back({kind, value, index});
+  persist();
+  return index;
 }
 
 AuthorityFlow::~AuthorityFlow() {
+  avatars::avatar_hub().clear_services();
   if (prepared_.valid()) prepared_.wait();
 }
 
@@ -106,6 +147,7 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
     spawn_due_ = false;
     ship_wait_ = ship_pending_ = late_ship_ = false;
     sent_macros_.clear();
+    known_strings_.clear();
     state_.spawned = false;
     state_.strings_sent = false;
     state_.string_count = 0;
@@ -113,6 +155,9 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
     state_.checkpoints = 0;
     persist();
   }
+  // M3-11: the avatars announce themselves again; ids already given to avatars stay reserved (a fresh join restarts the counter at 1).
+  avatars::avatar_hub().on_welcome();
+  reserve_net_ids_above(avatars::avatar_hub().max_net_id());
 }
 
 void AuthorityFlow::on_net_disconnected() { uploader_.connection_lost(); }
@@ -247,7 +292,9 @@ void AuthorityFlow::request_save(host::HostContext& ctx) {
     state_.string_count = static_cast<std::uint32_t>(plan_.strings.size());
     spawn_strings_fresh_ = true;
     sent_macros_.clear();
+    known_strings_.clear();
     for (const auto& str : plan_.strings) {
+      known_strings_.push_back({str.kind, str.value, str.index});
       if (str.kind == static_cast<std::uint8_t>(P::StringKind::Macro)) sent_macros_.emplace_back(str.value, str.index);
     }
     persist();
@@ -275,6 +322,7 @@ void AuthorityFlow::on_save_reply(host::HostContext& ctx, const std::string& tex
   }
   if (!x4mp::authority::EntitySpawnBuilder::is_valid_game_time(gt)) return fail(ctx, "no valid game time for SaveStarted");
   game_time_ = gt;
+  manifest_avatars_ = avatars::avatar_hub().manifest_records();  // the avatars exactly as the game saves them now
   const auto started = x4mp::authority::encode_save_started(request_id_, checkpoint_, game_time_, state_.next_net_id);
   if (!started || !send_control(T(P::MsgType::SaveStarted), *started)) return fail(ctx, "SaveStarted not sent");
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: SaveStarted sent (game_time {:.3f}, next_net_id {}); waiting for {}.xml.gz to be complete", game_time_,
@@ -298,9 +346,41 @@ void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
   const auto cp = checkpoint_;
   const auto gt = game_time_;
   const auto next_id = state_.next_net_id;
-  const auto strings = plan_.strings;
+  auto strings = plan_.strings;
   const auto sectors = plan_.sectors;
   const std::string name = save_name_;
+  // M3-11: the avatars become manifest entries; their macro / faction strings join the manifest's own table
+  std::vector<x4mp::authority::ManifestAvatar> avs;
+  {
+    std::uint32_t top = 0;
+    for (const auto& s : strings) top = std::max(top, s.index);
+    const auto ref = [&](std::uint8_t kind, const std::string& value) -> std::uint32_t {
+      for (const auto& s : strings) {
+        if (s.kind == kind && s.value == value) return s.index;
+      }
+      strings.push_back({++top, kind, value});
+      return top;
+    };
+    for (const auto& r : manifest_avatars_) {
+      x4mp::authority::ManifestAvatar m;
+      m.net_id = r.net_id;
+      m.kind = avatars::ship_kind_of_macro(r.macro);
+      m.macro_ref = ref(static_cast<std::uint8_t>(P::StringKind::Macro), r.macro);
+      m.owner_ref = ref(static_cast<std::uint8_t>(P::StringKind::Faction), r.owner);
+      m.owner_team = r.team;
+      m.owner_player = r.player_id;
+      for (const auto& sec : sectors) {
+        if (sec.macro == r.sector_macro) m.sector = sec.index;
+      }
+      m.idcode = r.idcode;
+      m.x = static_cast<float>(r.pose.x);
+      m.y = static_cast<float>(r.pose.y);
+      m.z = static_cast<float>(r.pose.z);
+      m.controller_player = r.online ? r.player_id : 0;
+      avs.push_back(std::move(m));
+    }
+    if (!avs.empty()) X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: manifest lists {} avatar(s)", avs.size());
+  }
   prepared_ = std::async(std::launch::async, [=]() -> Prepared {
     Prepared out;
     auto save = x4mp::authority::describe_upload_file(session::TransferKind::Save, save_path, name);
@@ -308,7 +388,7 @@ void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
       out.error = "cannot read the save file";
       return out;
     }
-    const auto manifest = x4mp::authority::encode_manifest(cp, gt, next_id, strings, sectors);
+    const auto manifest = x4mp::authority::encode_manifest(cp, gt, next_id, strings, sectors, avs);
     if (!manifest) {
       out.error = "invalid game time for the manifest";
       return out;

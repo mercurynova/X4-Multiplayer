@@ -40,10 +40,26 @@ using Payload = std::vector<std::uint8_t>;
 [[nodiscard]] std::optional<Payload> encode_save_started(std::uint32_t request_id, const session::Id128& checkpoint, double game_time,
                                                          std::uint32_t next_net_id);
 
-// The checkpoint manifest (file identifier "X4MF") with no entities (what an authority whose save has no stations uploads).
+// One avatar (a player's persistent ship) in the manifest (M3-11, schema delta D2): nodes bind it after loading the save. macro_ref/owner_ref
+// index the manifest's own string table (`strings` of encode_manifest).
+struct ManifestAvatar {
+  std::uint32_t net_id = 0;
+  std::uint8_t kind = 0;  // EntityKind
+  std::uint32_t macro_ref = 0;
+  std::uint32_t owner_ref = 0;
+  std::uint16_t owner_team = 0;
+  std::uint16_t owner_player = 0;
+  std::uint16_t sector = 0;
+  std::string idcode;
+  float x = 0, y = 0, z = 0;
+  std::uint16_t controller_player = 0;  // 0 = parked
+};
+
+// The checkpoint manifest (file identifier "X4MF"): the entities are the avatars (origin PlayerShip); stations etc. are M4.
 // nullopt for an invalid game_time.
 [[nodiscard]] std::optional<Payload> encode_manifest(const session::Id128& checkpoint, double game_time, std::uint32_t next_net_id,
-                                                     const std::vector<StringDesc>& strings, const std::vector<SectorDesc>& sectors);
+                                                     const std::vector<StringDesc>& strings, const std::vector<SectorDesc>& sectors,
+                                                     const std::vector<ManifestAvatar>& avatars = {});
 
 [[nodiscard]] Payload encode_galaxy_metadata(std::span<const std::uint8_t> save_sha256, const std::vector<SectorDesc>& sectors,
                                              const std::vector<LinkDesc>& links);

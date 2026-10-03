@@ -32,6 +32,7 @@
 #include "core/authority/upload_job.h"
 #include "core/session/session.h"
 #include "features/authority/authority_data.h"
+#include "features/avatars/avatar_plan.h"
 #include "host/feature.h"
 
 namespace x4mp::features::auth {
@@ -72,6 +73,14 @@ class AuthorityFlow {
   // a change resets the back-off so the next frame asks MD at once.
   void note_seat(bool seated, std::uint32_t edges) noexcept;
   [[nodiscard]] std::uint64_t checkpoints_stored() const noexcept { return stored_total_; }
+
+  // Services for the avatars (M3-11, registered with avatar_hub() while this flow lives): the ONE net id counter and the ONE string table of the
+  // session. A new avatar takes its id here; its macro and faction strings are added to the server's table on first use.
+  [[nodiscard]] std::uint32_t allocate_net_id();
+  void reserve_net_ids_above(std::uint32_t id) noexcept;
+  [[nodiscard]] std::uint32_t string_ref(std::uint8_t kind, const std::string& value);
+  [[nodiscard]] bool connected() const noexcept { return uploader_.connected(); }
+  [[nodiscard]] bool send_frame(std::uint16_t type, const std::vector<std::uint8_t>& payload) { return send_control(type, payload); }
 
   // Stash helpers shared with the join feature (the ClientHello of a fresh authority join).
   [[nodiscard]] static std::vector<std::uint8_t> stored_loaded_sha(const session::IStash& stash);
@@ -137,6 +146,13 @@ class AuthorityFlow {
   bool late_ship_ = false;            // spawn_ship_ came from a retry (not from the checkpoint's own collection)
   bool spawn_strings_fresh_ = false;  // the plan's string table was sent with THIS checkpoint (its refs are the server's)
   std::vector<std::pair<std::string, std::uint32_t>> sent_macros_;  // macro strings already in the server's table (memory only)
+  struct KnownString {
+    std::uint8_t kind = 0;
+    std::string value;
+    std::uint32_t index = 0;
+  };
+  std::vector<KnownString> known_strings_;  // every string (any kind) the server's table holds that this flow knows of (memory only)
+  std::vector<avatars::Record> manifest_avatars_;     // M3-11: the avatars as of SaveGame, for the manifest
   std::optional<ShipRec> spawn_ship_;
   GalaxyPlan spawn_plan_;
 };
