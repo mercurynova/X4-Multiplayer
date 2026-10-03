@@ -440,6 +440,55 @@ test("hud: unchanged text and frame present -> no re-show on any tick", function
 	eq(X4MPHud.tick(true), "present")
 end)
 
+test("hud: frame closed by the engine and the delayed-callback queue dropped -> the next status event redraws and re-arms the timer", function()
+	hudSetup()
+	status(INGAME)
+	local n0 = #env.frames
+	-- the engine closes our frame without onCloseElement (save screen) and Helper's one-time queue is lost (a callback raised)
+	_G.View.menus = {}
+	X4MPHud.menu.shown = nil
+	X4MPHud.menu.frame = nil
+	timers = {}
+	truthy(X4MPHud.timerPending, "the flag is stuck: the loop is dead")
+	for _ = 1, 3 do -- the native heartbeat: one status every 2 s
+		status(INGAME)
+		advance(2)
+	end
+	truthy(#env.frames > n0, "redrawn after the status event")
+	truthy(X4MPHud.present())
+	truthy(#timers >= 1, "timer armed again")
+	-- and the loop runs by itself afterwards
+	local n1 = #env.frames
+	_G.View.menus = {}
+	X4MPHud.menu.shown = nil
+	advance(4)
+	truthy(#env.frames > n1, "timer loop alive")
+end)
+
+test("hud: a lost timer is armed again by a status event once it is stale, logged as loop restarted", function()
+	hudSetup()
+	status(INGAME)
+	timers = {}
+	clock = clock + 20
+	status(INGAME)
+	truthy(#timers >= 1)
+	truthy(X4MPHud.timerPending)
+	contains(env.debugText(), "hud: loop restarted (status)")
+end)
+
+test("hud: blocked for a long time by a stale view entry -> drawn anyway and logged", function()
+	hudSetup()
+	status(INGAME)
+	_G.View.menus = { { name = "SaveStale", type = "Helper", id = "Helper2" } }
+	X4MPHud.menu.shown = nil
+	advance(4)
+	eq(#env.frames, 1)
+	advance(12)
+	truthy(#env.frames > 1, "drawn despite the blocker")
+	contains(env.debugText(), "drawing anyway")
+	contains(env.debugText(), "SaveStale")
+end)
+
 test("hud: notify mode sends one notification per change, never a frame", function()
 	hudSetup({ hudMode = "notify" })
 	status(INGAME)

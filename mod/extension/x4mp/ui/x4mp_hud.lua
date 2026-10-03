@@ -50,6 +50,10 @@ H.config = H.config or {
 	yieldMenus = {},     -- names of View menus while which the HUD never draws, hides or touches anything
 	refreshInterval = 5, -- seconds after which an unchanged frame is drawn once more (heals a frame lost without notice)
 	yieldLogInterval = 30, -- seconds between "yielding" log lines
+	timerStale = 2,      -- a pending delayed callback older than this many intervals (+1 s) counts as lost and is armed again
+	restartLogInterval = 30, -- seconds between "loop restarted" log lines
+	blockedMax = 10,     -- seconds another menu may keep the HUD from drawing before it draws anyway (a stale View entry must not hide it for good)
+	outcomeLogInterval = 30, -- seconds between repeats of the same unusual tick outcome in the log
 }
 
 local function log(msg)
@@ -136,6 +140,20 @@ function H.present()
 		end
 	end
 	return true
+end
+
+--- names of the View entries that block drawing, for the log
+function H.blockers()
+	local names = {}
+	if type(View) == "table" and type(View.menus) == "table" then
+		local ignore = H.config.ignoreMenus
+		for _, entry in ipairs(View.menus) do
+			if type(entry) == "table" and entry.name ~= MENU_NAME and not entry.minimized and not (entry.name and ignore[entry.name]) then
+				names[#names + 1] = tostring(entry.name) .. "/" .. tostring(entry.id)
+			end
+		end
+	end
+	return #names > 0 and table.concat(names, ",") or "-"
 end
 
 --- number of View entries that are not ours (any change = some menu opened or closed: draw once more to be safe)
@@ -348,8 +366,8 @@ function H.tick(force)
 	if H.present() then
 		local stale = H.lastDrawAt and (t < H.lastDrawAt or t - H.lastDrawAt >= H.config.refreshInterval)
 		if text ~= H.lastText or H.forceRedraw or stale then
-			local ok = draw(text)
-			if ok then H.lastText, H.forceRedraw = text, nil end
+			local ok, err = draw(text)
+			if ok then H.lastText, H.forceRedraw = text, nil else log("hud: redraw failed: " .. tostring(err)) end
 			return ok and "updated" or "failed"
 		end
 		return "present"
@@ -362,7 +380,16 @@ function H.tick(force)
 		if H.lastText ~= nil then H.goneSince = t end -- it was drawn before: wait out the delay; a first draw is immediate
 	end
 	if H.goneSince and t - H.goneSince < H.config.reshowDelay then return "waiting" end
-	if H.blocked() then return "blocked" end
+	if H.blocked() then
+		H.blockedSince = H.blockedSince or t
+		if t < H.blockedSince or t - H.blockedSince < H.config.blockedMax then return "blocked" end
+		-- Blocked for a long time: probably a stale View entry (session 3 Run 3: the line never came back after the checkpoint saves). Draw
+		-- anyway, at most once per refreshInterval; the engine closes our frame again if a real menu is up, which costs nothing.
+		if H.lastForcedAt and t >= H.lastForcedAt and t - H.lastForcedAt < H.config.refreshInterval then return "blocked" end
+		H.lastForcedAt = t
+		log("hud: blocked for " .. string.format("%.0f", t - H.blockedSince) .. " s by " .. H.blockers() .. ", drawing anyway")
+	end
+	H.blockedSince = nil
 	local ok, err = draw(text)
 	if ok then
 		if H.goneSince then H.reshows = (H.reshows or 0) + 1 end -- counts comebacks, not the first draw
@@ -381,36 +408,58 @@ end
 ------------------------------------------------------------------------------
 -- drivers
 ------------------------------------------------------------------------------
-local function schedule()
-	if H.timerPending then return end
+local function logRestart(reason)
+	local t = now()
+	if not H.lastRestartLog or t < H.lastRestartLog or t - H.lastRestartLog >= H.config.restartLogInterval then
+		H.lastRestartLog = t
+		log("hud: loop restarted (" .. tostring(reason) .. ")")
+	end
+end
+
+--- Arms the self-rescheduling check. Helper's one-time callback queue (helper.lua:922-938, run by the global onUpdate script) is a plain list that
+--- is emptied before its callbacks run, so ONE callback that raises (any mod's) drops the rest of that batch, ours included, and our
+--- "pending" flag would then stay true forever. So a pending callback older than the stale limit counts as lost: it is armed again under a
+--- new generation number (the old one, should it still run, does nothing).
+local function schedule(reason)
 	if type(Helper) ~= "table" or type(Helper.addDelayedOneTimeCallbackOnUpdate) ~= "function" or type(getElapsedTime) ~= "function" then
 		return
 	end
-	H.timerPending = true
+	local t = now()
+	if H.timerPending then
+		local age = t - (H.timerArmedAt or t)
+		if age >= 0 and age < H.config.interval * H.config.timerStale + 1 then return end
+		logRestart(reason or "timer lost")
+	end
+	H.timerGen = (H.timerGen or 0) + 1
+	local gen = H.timerGen
+	H.timerPending, H.timerArmedAt = true, t
 	Helper.addDelayedOneTimeCallbackOnUpdate(function()
+		if gen ~= H.timerGen then return end -- superseded by a newer arm
 		H.timerPending = false
 		local ok, err = pcall(H.tick)
 		if not ok then log("hud: tick raised: " .. tostring(err)) end
-		if H.wanted() or menu.shown then schedule() end
-	end, false, getElapsedTime() + H.config.interval)
+		if H.wanted() or menu.shown then pcall(schedule, "loop") end
+	end, false, t + H.config.interval)
 end
 H.schedule = schedule
 
-local function kick(force)
-	local ok, err = pcall(H.tick, force)
-	if not ok then log("hud: tick raised: " .. tostring(err)) end
-	if H.wanted() then schedule() end
+--- every outside nudge (status event, show / gfx_ok, ...) runs one check and makes sure the loop is armed
+local function kick(force, reason)
+	local ok, res = pcall(H.tick, force)
+	if not ok then log("hud: tick raised: " .. tostring(res)) end
+	if H.wanted() then schedule(reason) end
 end
+H.kick = kick
 
 if not H.hooked then
 	H.hooked = true
-	pcall(RegisterEvent, "show", function() kick() end)
-	pcall(RegisterEvent, "gfx_ok", function() kick() end)
+	pcall(RegisterEvent, "show", function() kick(false, "show") end)
+	pcall(RegisterEvent, "gfx_ok", function() kick(false, "gfx_ok") end)
 	if type(X4MPBridge) == "table" and type(X4MPBridge.on) == "function" then
-		X4MPBridge.on("status", function() kick(true) end) -- a status change is never throttled
+		X4MPBridge.on("status", function() kick(true, "status") end) -- a status change is never throttled
 	else
 		log("hud: bridge missing, the HUD will not update")
 	end
 end
 
-kick()
+kick(false, "load")
