@@ -40,6 +40,7 @@ H.config = H.config or {
 	margin = 20,        -- distance from the top and right screen edge
 	interval = 1.0,     -- seconds between checks of the self-rescheduling loop
 	reshowDelay = 1.0,  -- seconds the frame must have been gone before it is drawn again
+	maxDetail = 60,     -- characters of a status detail shown on the one-line HUD (the full text is on the Multiplayer screen)
 	maxFailures = 3,    -- failed draws in a row before degrading to "notify"
 	ignoreMenus = { ChatWindow = true }, -- View.menus entries that do not count as "another menu is open"
 }
@@ -88,7 +89,9 @@ function H.text()
 	local st = status()
 	if not (st and H.wanted()) then return nil end
 	local id = STATE_TEXT[st.state] or 39
-	local label = T(id, tostring(st.detail or st.reject or ""))
+	local detail = tostring(st.detail or st.reject or "")
+	if #detail > H.config.maxDetail then detail = detail:sub(1, H.config.maxDetail - 3) .. "..." end -- a mod refusal detail lists every DLC
+	local label = T(id, detail)
 	if st.state == "ingame" and type(st.players) == "number" and type(st.ping_ms) == "number" then
 		return T(302, label, st.players, math.floor(st.ping_ms + 0.5))
 	end
@@ -143,6 +146,11 @@ function menu.display()
 		startAnimation = false,
 		blurBackground = false,
 		playerControls = true, -- passive: the player keeps control of the ship and the mouse
+		-- Session 3 (live): without these two the engine treats the frame like any menu and HIDES the whole cockpit HUD (steering overlay,
+		-- radar, target monitor) for as long as it is up. Defaults are false (helper.lua frame properties :3136-3137, forwarded to
+		-- View.registerMenu :4056-4057); menu_followcamera.lua:97 sets them the same way for a passive in-flight frame.
+		keepHUDVisible = true,
+		keepCrosshairVisible = true,
 	})
 	menu.frame:setBackground("solid", { color = Color["frame_background_semitransparent"] })
 	local ftable = menu.frame:addTable(1, { tabOrder = 0, highlightMode = "off", reserveScrollBar = false })
@@ -236,6 +244,11 @@ function H.tick(force)
 		H.lastNotifyKey = nil
 		return "idle"
 	end
+
+	-- A refusal/disconnect in game never opens a menu: the HUD line plus one notification line; the player opens the Multiplayer
+	-- window (/x4mp) for the details.
+	local st0 = status()
+	if m == "hud" and st0 and (st0.state == "rejected" or st0.state == "error") then notify(st0, text) end
 
 	if m == "notify" then
 		H.hide()

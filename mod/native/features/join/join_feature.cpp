@@ -38,6 +38,7 @@ constexpr auto kStatusHeartbeat = milliseconds(2000);    // ping_ms refresh whil
 constexpr auto kSaveListTimeout = seconds(60);
 constexpr auto kLoadFallbackAfter = seconds(15);         // loadSave raised but this DLL is still alive: ask Lua for LoadGame
 constexpr const char* kStateKey = "state";               // stash "join.state"
+constexpr const char* kExtReportedKey = "ext_reported";  // stash "join.ext_reported": the last x4mp.extensions payload from Lua
 
 constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions"};
 
@@ -106,6 +107,14 @@ void JoinFeature::on_init(host::HostContext& ctx) {
   if (ctx.paths != nullptr && !ctx.paths->dir.empty()) po.cache_file = ctx.paths->dir / "ext-hash-cache.json";
   extensions_ = std::make_unique<mods::ExtensionProvider>(std::move(po));
   extensions_->start();
+  // Session 3 (live): after a save load the DLL re-inits and the RESUME ClientHello goes out ~30 s before Lua reports its extension
+  // list again, so it used the scan alone. Reuse the last Lua list that survived in the stash (same game, same extension set).
+  if (const auto kept = stash_->get(kExtReportedKey)) {
+    if (const auto list = join::parse_extensions(*kept); list && !list->empty()) {
+      extensions_->set_reported(*list);
+      X4MP_CLOG(ctx.log, Cat::Ui, Level::Info, "extension list restored from the stash: {} entries", list->size());
+    }
+  }
 
   auth_inbox_ = auth::subscribe_authority_verbs(ctx.platform);  // M2-09: x4mp.auth_md / x4mp.auth_saved (drained by the AuthorityFlow)
 
@@ -273,6 +282,7 @@ void JoinFeature::on_extensions(host::HostContext& ctx, const std::string& paylo
   }
   X4MP_CLOG(ctx.log, Cat::Ui, Level::Info, "extension list from Lua: {} entries", list->size());
   extensions_->set_reported(*list);
+  if (stash_) stash_->put(kExtReportedKey, payload);
 }
 
 void JoinFeature::on_join(host::HostContext& ctx, const std::string& payload) {
@@ -606,7 +616,11 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       }
       break;
     case K::ServerDisconnect: {
-      X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "server Disconnect code={} message='{}' expected='{}'", e.code, e.text, e.expected);
+      X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "server Disconnect code={} message='{}' expected_len={}", e.code, e.text, e.expected.size());
+      // The log line limit is kMaxLineChars: the (not secret) expected text goes out in full, in chunks.
+      for (std::size_t off = 0, n = 1; off < e.expected.size(); off += 180, ++n) {
+        X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "server Disconnect expected[{}]='{}'", n, e.expected.substr(off, 180));
+      }
       if (const auto token = join::reject_for_code(e.code)) {
         stage_ = Stage::Rejected;
         reject_ = std::string(*token);

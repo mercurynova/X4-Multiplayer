@@ -102,6 +102,10 @@ struct ContentXml {
 // Tolerant scanner (no XML library): reads attributes of the <content> element and every <dependency>.
 // nullopt if there is no <content id="..."> element.
 [[nodiscard]] std::optional<ContentXml> parse_content_xml(std::string_view text);
+// The version text the game itself shows (GetExtensionList, Lua) for a content.xml version: X4 stores versions as an integer in
+// hundredths ("900" = 9.00, "105" = 1.05), the game reports "9.00". A value that is not all digits ("1.4", "2.0-beta") is kept as it
+// is. Every version the DLL puts into a ClientHello goes through this, so the native scan and the Lua list always agree.
+[[nodiscard]] std::string normalize_version(std::string_view version);
 
 // ---- class hint / shape (pure, no I/O) ---------------------------------------------------------------------------
 // Order of mod-management 2: Dlc prefix, shipped allowlist (-> ClientOnly), then the heuristic from `shape`.

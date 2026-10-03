@@ -247,9 +247,27 @@ public static class ModPolicyEvaluator
             return true;
         }
 
-        wanted = wanted.Trim();
-        have = have.Trim();
+        wanted = NormalizeVersion(wanted);
+        have = NormalizeVersion(have);
         return rule == VersionRule.Exact ? string.Equals(wanted, have, StringComparison.Ordinal) : CompareVersions(have, wanted) >= 0;
+    }
+
+    /// <summary>
+    /// X4 stores a version as an integer in hundredths in content.xml ("900") while the game reports it dotted ("9.00"). Clients differ in
+    /// which form they send (found live in session 3: a resume ClientHello from the native scan said "900", the Lua list "9.00"), so an
+    /// all-digit text of 3+ digits is turned into the dotted form before comparing. Shorter or non-numeric texts are only trimmed.
+    /// </summary>
+    public static string NormalizeVersion(string version)
+    {
+        version = version.Trim();
+        if (version.Length < 3 || version.Length > 9 || !version.All(char.IsAsciiDigit))
+        {
+            return version;
+        }
+
+        string digits = version.TrimStart('0');
+        digits = digits.PadLeft(3, '0');
+        return digits.Insert(digits.Length - 2, ".");
     }
 
     /// <summary>Dotted/dashed segments compared numerically when both are numbers, else ordinally; missing segments count as 0.</summary>
