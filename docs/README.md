@@ -10,6 +10,7 @@ below. The repo is the only memory that follows you between computers.
 | [dev-setup.md](dev-setup.md) | Per-machine requirements by role, install commands, game settings, paths, ports, rebuilding local-only folders |
 | [server-admin.md](server-admin.md) | Running the server: publish, first login, data dir, ports/firewall, service/systemd, LAN/VPN allow-list, configuration, GUI pages, backups, troubleshooting |
 | [fakenode.md](fakenode.md) | FakeNode test tool: quick start, every command and flag, failure injection, reading the summary, e2e pointer |
+| [hostsim.md](hostsim.md) | `x4mp-hostsim`: fake X4Native host that loads the real `x4mp.dll`; script command reference and how to write scenarios |
 | [`../tools/check-env.ps1`](../tools/check-env.ps1) | One command that checks this machine against dev-setup.md |
 | [`../CLAUDE.md`](../CLAUDE.md) | Project context + working agreements for Claude sessions |
 
