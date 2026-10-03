@@ -26,8 +26,8 @@ expect-lua x4mp.status 3000 json $.role == authority
 expect-lua x4mp.auth_collect 8000
 lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
 lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
-lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_02_sector001_macro|ship_s|player"}
-frame 60Hz 30
+# close-out A item 3: MD has NO player ship at this first checkpoint (no P record; the flow waits its 1.5 s grace and goes on without)
+frame 60Hz 150
 expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
 lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
@@ -36,7 +36,18 @@ expect-file extension/logs/x4mp.log SaveStarted sent (game_time 4242.500
 expect-file extension/logs/x4mp.log save file complete
 expect-file extension/logs/x4mp.log authority: upload
 expect-file extension/logs/x4mp.log stored (save
-expect-file extension/logs/x4mp.log self-spawn sent net_id=1 game_time=4242.500
+expect-file extension/logs/x4mp.log no player ship was reported by MD with the checkpoint
+expect-no-log self-spawn sent
+# ... the flow asks MD for the ship again (ship_only), first answer "none", the second one has the ship: the spawn goes out late
+frame 60Hz 240
+expect-lua x4mp.auth_collect 3000 json $.ship_only == true
+lua-raw x4mp.auth_md {"v":1,"data":"N;"}
+frame 60Hz 420
+expect-lua x4mp.auth_collect 3000 json $.ship_only == true
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_02_sector001_macro|ship_s|player"}
+frame 60Hz 60
+expect-file extension/logs/x4mp.log self-spawn sent net_id=1 game_time=
+expect-file extension/logs/x4mp.log (late: the ship was not known at the checkpoint)
 expect-admin /api/v1/sessions/current $.state == Running timeout=10000
 
 # three FakeNode clients join the Running session, download the authority's checkpoint and verify its SHA-256 (output checked by the runner)

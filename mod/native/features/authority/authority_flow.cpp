@@ -9,6 +9,7 @@
 #include "core/authority/checkpoint_messages.h"
 #include "core/authority/entity_spawn.h"
 #include "core/crypto/crypto.h"
+#include "common_generated.h"
 #include "message_ids_generated.h"
 
 namespace x4mp::features::auth {
@@ -24,6 +25,9 @@ constexpr std::uint16_t T(P::MsgType t) { return static_cast<std::uint16_t>(t); 
 
 constexpr auto kCollectTimeout = seconds(20);
 constexpr auto kShipGrace = milliseconds(1500);  // after the end marker: how long to wait for the ship record
+constexpr auto kShipRetryEvery = seconds(3);     // item 3: between two "where is the player's ship" questions
+constexpr auto kShipAnswerTimeout = seconds(5);  // MD answers within a frame or two; no answer = ask again later
+constexpr int kMaxShipTries = 6;
 constexpr auto kSaveReplyTimeout = seconds(20);
 constexpr auto kFileTimeout = seconds(180);
 constexpr auto kFilePollEvery = milliseconds(250);
@@ -100,8 +104,11 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
   if (!resumed) {
     step_ = Step::Idle;
     spawn_due_ = false;
+    ship_wait_ = ship_pending_ = late_ship_ = false;
+    sent_macros_.clear();
     state_.spawned = false;
     state_.strings_sent = false;
+    state_.string_count = 0;
     state_.next_net_id = 1;
     state_.checkpoints = 0;
     persist();
@@ -158,7 +165,24 @@ void AuthorityFlow::fail(host::HostContext& ctx, const std::string& why) {
 void AuthorityFlow::drain_inbox(host::HostContext& ctx) {
   for (auto& [verb, text] : inbox_->take()) {
     if (verb == "auth_md") {
-      if (step_ != Step::Collecting) continue;
+      if (step_ != Step::Collecting) {
+        // the answer to a ship-only question (item 3): a P record, or N when MD has no ship either
+        if (!ship_pending_ && !ship_wait_) continue;
+        MdCollector answer;
+        if (!answer.add(json_string(text, "data"))) continue;
+        if (answer.ship()) {
+          spawn_ship_ = answer.ship();
+          ship_pending_ = false;
+          ship_wait_ = false;
+          late_ship_ = true;
+          spawn_due_ = !state_.spawned;
+          X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: MD now reports the player's ship ({}) after {} ask(s)", spawn_ship_->macro, ship_tries_);
+        } else if (answer.no_ship_seen() && ship_pending_) {
+          ship_pending_ = false;
+          ship_next_ = Clock::now() + kShipRetryEvery;
+        }
+        continue;
+      }
       const std::string data = json_string(text, "data");
       if (!collected_.add(data)) {
         X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: unreadable galaxy message ignored ({} bytes)", data.size());
@@ -191,6 +215,7 @@ void AuthorityFlow::step(host::HostContext& ctx) {
     return session_.send(lane, type, payload) == net::SendResult::Ok;
   });
   if (spawn_due_) maybe_spawn(ctx);
+  if (ship_wait_ && step_ == Step::Idle && !spawn_due_) step_ship_retry(ctx);
 }
 
 void AuthorityFlow::step_collecting(host::HostContext& ctx) {
@@ -215,9 +240,16 @@ void AuthorityFlow::request_save(host::HostContext& ctx) {
   save_name_ = checkpoint_save_name(checkpoint_.lo);
   if (save_dir_.empty()) return fail(ctx, "the game's save folder is not available");
 
+  spawn_strings_fresh_ = false;
   if (!state_.strings_sent) {
     if (!send_control(T(P::MsgType::StringTableAdd), x4mp::authority::encode_string_table_add(plan_.strings))) return fail(ctx, "StringTableAdd not sent");
     state_.strings_sent = true;
+    state_.string_count = static_cast<std::uint32_t>(plan_.strings.size());
+    spawn_strings_fresh_ = true;
+    sent_macros_.clear();
+    for (const auto& str : plan_.strings) {
+      if (str.kind == static_cast<std::uint8_t>(P::StringKind::Macro)) sent_macros_.emplace_back(str.value, str.index);
+    }
     persist();
   }
   nlohmann::json j;
@@ -322,6 +354,9 @@ void AuthorityFlow::step_hashing(host::HostContext& ctx) {
   spec.step_timeout = seconds(60);
   if (!uploader_.start(std::move(spec))) return fail(ctx, "the upload job could not start (not connected?)");
   spawn_ship_ = collected_.ship();
+  late_ship_ = false;
+  ship_wait_ = false;  // this checkpoint decides again below (a newer collection supersedes an older ship question)
+  ship_pending_ = false;
   spawn_plan_ = plan_;
   step_ = Step::Uploading;
 }
@@ -361,21 +396,52 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
     return;
   }
   if (!spawn_ship_) {
-    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: no player ship was reported by MD; no self-spawn");
+    // Close-out A item 3: MD had no player ship when the checkpoint finished (the first one, ~2 s after the universe is ready:
+    // player.occupiedship was still null). Not a final answer: ask again shortly instead of waiting for the next checkpoint.
     spawn_due_ = false;
+    if (!ship_wait_) {
+      ship_wait_ = true;
+      ship_pending_ = false;
+      ship_tries_ = 0;
+      ship_next_ = Clock::now() + kShipRetryEvery;
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: no player ship was reported by MD with the checkpoint; asking again every {} s (up to {} times)",
+                kShipRetryEvery.count(), kMaxShipTries);
+    }
     return;
   }
   if (!uploader_.connected()) return;  // sent when the link is back
-  x4mp::authority::EntitySpawnBuilder builder(game_time_);
+  // The spawn happened "now": a late ship carries the game time of this moment (never 0); a ship of the checkpoint itself keeps the
+  // checkpoint's game time.
+  double spawn_time = game_time_;
+  if (late_ship_) {
+    const auto now_gt = ctx.game.game_time();
+    if (now_gt && x4mp::authority::EntitySpawnBuilder::is_valid_game_time(*now_gt)) spawn_time = *now_gt;
+  }
+  if (!x4mp::authority::EntitySpawnBuilder::is_valid_game_time(spawn_time)) {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Error, "authority: no valid game time for the self-spawn; not sent");
+    spawn_due_ = false;
+    return;
+  }
+  std::uint32_t macro_ref = spawn_plan_.ship_macro_ref;
+  std::uint16_t ship_sector = spawn_plan_.ship_sector;
+  if (!spawn_strings_fresh_ || late_ship_) {
+    // the server's string table is the one sent with an earlier checkpoint: this plan's indices are not necessarily its indices
+    macro_ref = late_ship_macro_ref(ctx, spawn_ship_->macro);
+    ship_sector = 0;
+    for (const auto& sec : spawn_plan_.sectors) {
+      if (sec.macro == spawn_ship_->sector) ship_sector = sec.index;
+    }
+  }
+  x4mp::authority::EntitySpawnBuilder builder(spawn_time);
   x4mp::authority::SpawnEntity self;
   self.net_id = state_.next_net_id;
   self.kind = spawn_kind_for_class(spawn_ship_->cls);
   self.origin = x4mp::authority::SpawnOrigin::AuthorityRuntime;
-  self.macro_ref = spawn_plan_.ship_macro_ref;
-  self.owner_ref = spawn_plan_.player_faction_ref;
+  self.macro_ref = macro_ref;
+  self.owner_ref = spawn_plan_.player_faction_ref;  // "player" is always the first string, index 1, in every table we send
   self.name = spawn_ship_->name;
   self.idcode = spawn_ship_->idcode;
-  self.sector = spawn_plan_.ship_sector;
+  self.sector = ship_sector;
   (void)builder.add(std::move(self));
   const auto payload = builder.build();
   if (!payload) {
@@ -384,11 +450,58 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
     return;
   }
   (void)send_control(T(P::MsgType::EntitySpawn), *payload);
-  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: self-spawn sent net_id={} game_time={:.3f}", state_.next_net_id, game_time_);
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: self-spawn sent net_id={} game_time={:.3f}{}", state_.next_net_id, spawn_time,
+            late_ship_ ? " (late: the ship was not known at the checkpoint)" : "");
   state_.spawned = true;
   ++state_.next_net_id;
   spawn_due_ = false;
+  ship_wait_ = false;
   persist();
+}
+
+// The ship macro as a string index the server knows: reuse one already sent, else append one (StringTableAdd with a single entry).
+std::uint32_t AuthorityFlow::late_ship_macro_ref(host::HostContext& ctx, const std::string& macro) {
+  for (const auto& [value, index] : sent_macros_) {
+    if (value == macro) return index;
+  }
+  const std::uint32_t index = state_.string_count + 1;
+  const std::vector<x4mp::authority::StringDesc> add = {{index, static_cast<std::uint8_t>(P::StringKind::Macro), macro}};
+  if (!send_control(T(P::MsgType::StringTableAdd), x4mp::authority::encode_string_table_add(add))) {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: could not add the ship macro to the string table");
+    return 0;
+  }
+  state_.string_count = index;
+  sent_macros_.emplace_back(macro, index);
+  persist();
+  return index;
+}
+
+// Item 3: the checkpoint is stored but MD reported no player ship. Ask MD again (only the ship) every few seconds, a bounded number of times.
+void AuthorityFlow::step_ship_retry(host::HostContext& ctx) {
+  if (state_.spawned) {
+    ship_wait_ = false;
+    return;
+  }
+  const auto now = Clock::now();
+  if (ship_pending_) {
+    if (now - ship_asked_ <= kShipAnswerTimeout) return;
+    ship_pending_ = false;  // no answer at all: count it as "no ship" and ask again later
+    ship_next_ = now + kShipRetryEvery;
+  }
+  if (now < ship_next_ || !uploader_.connected()) return;
+  if (ship_tries_ >= kMaxShipTries) {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: still no player ship after {} asks (on foot?); the next checkpoint tries again", ship_tries_);
+    ship_wait_ = false;
+    return;
+  }
+  ++ship_tries_;
+  ship_pending_ = true;
+  ship_asked_ = now;
+  if (!ctx.platform.raise_lua("x4mp.auth_collect", R"({"v":1,"ship_only":true})")) {
+    ship_pending_ = false;
+    ship_wait_ = false;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: the ship question could not be raised (Lua bridge missing)");
+  }
 }
 
 }  // namespace x4mp::features::auth

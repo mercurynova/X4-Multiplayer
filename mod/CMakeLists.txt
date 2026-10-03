@@ -46,6 +46,7 @@ add_library(x4mp_core STATIC
   native/core/net/net.cpp
   native/core/session/session.cpp
   native/core/session/save_download.cpp
+  native/core/session/manifest_cleanup.cpp
   native/core/version/version.cpp)
 target_include_directories(x4mp_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native")
 target_compile_features(x4mp_core PUBLIC cxx_std_23)
@@ -183,6 +184,7 @@ if(X4MP_TESTS)
     tests/test_crypto.cpp
     tests/test_retention.cpp
     tests/test_save_download.cpp
+    tests/test_manifest_cleanup.cpp
     tests/test_session_handshake.cpp
     tests/test_version.cpp)
   target_compile_definitions(x4mp_core_tests PRIVATE X4MP_CORE_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/native/core")
@@ -390,6 +392,12 @@ if(X4MP_TESTS)
     COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/selftest.hostsim"
             --var "SCRIPT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim")
   set_tests_properties(hostsim.selftest PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+
+  # Close-out A item 2: /reloadui restores the universe-ready gate (X4Native never repeats on_universe_ready)
+  add_test(NAME hostsim.reload_universe_ready
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/reload_universe_ready.hostsim"
+            --var "SCRIPT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim")
+  set_tests_properties(hostsim.reload_universe_ready PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
 endif()
 # END M2-10
 

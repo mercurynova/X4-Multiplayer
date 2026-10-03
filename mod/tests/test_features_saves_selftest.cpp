@@ -51,6 +51,24 @@ std::uint32_t fk_stations(UniverseId* r, std::uint32_t n, const char*) {
   return n;
 }
 
+// the factions the fake game defines (item 6); every faction asked about is recorded
+std::vector<std::string> g_defined_factions;
+std::vector<std::string> g_asked_factions;
+std::uint32_t fk_num_factions(bool) { return static_cast<std::uint32_t>(g_defined_factions.size()); }
+std::uint32_t fk_factions(const char** r, std::uint32_t n, bool) {
+  const std::uint32_t got = std::min<std::uint32_t>(n, static_cast<std::uint32_t>(g_defined_factions.size()));
+  for (std::uint32_t i = 0; i < got; ++i) r[i] = g_defined_factions[i].c_str();
+  return got;
+}
+std::uint32_t fk_num_ships_rec(const char* f) {
+  g_asked_factions.emplace_back(f);
+  return fk_num_ships(f);
+}
+std::uint32_t fk_num_stations_rec(const char* f) {
+  g_asked_factions.emplace_back(f);
+  return fk_num_stations(f);
+}
+
 struct Fixture {
   test::TempDir dir;
   test::FakePlatform platform{dir.path};
@@ -277,6 +295,9 @@ TEST_CASE("selftest: missing Lua report and flag mismatch are FAIL; config trigg
 
 TEST_CASE("janitor: counts [MP] names at universe ready, removes nothing", "[janitor][m210]") {
   Fixture f;
+  g_defined_factions = {"argon", "player", "x4mp_team_1"};
+  f.platform.functions["GetNumAllFactions"] = reinterpret_cast<void*>(&fk_num_factions);
+  f.platform.functions["GetAllFactions"] = reinterpret_cast<void*>(&fk_factions);
   f.platform.functions["GetNumAllFactionShips"] = reinterpret_cast<void*>(&fk_num_ships);
   f.platform.functions["GetNumAllFactionStations"] = reinterpret_cast<void*>(&fk_num_stations);
   f.platform.functions["GetAllFactionShips"] = reinterpret_cast<void*>(&fk_ships);
@@ -297,6 +318,67 @@ TEST_CASE("janitor: counts [MP] names at universe ready, removes nothing", "[jan
   CHECK(jan->last().ran);
   CHECK(jan->last().scanned == 4);  // 3 player ships + 1 team-1 station
   CHECK(jan->last().marked == 2);
+  h.shutdown();
+}
+
+TEST_CASE("janitor: never asks about a faction the game does not define (no error lines in the game log)", "[janitor][m210]") {
+  Fixture f;
+  g_asked_factions.clear();
+  g_defined_factions = {"argon", "player"};  // the team factions do not exist yet
+  f.platform.functions["GetNumAllFactions"] = reinterpret_cast<void*>(&fk_num_factions);
+  f.platform.functions["GetAllFactions"] = reinterpret_cast<void*>(&fk_factions);
+  f.platform.functions["GetNumAllFactionShips"] = reinterpret_cast<void*>(&fk_num_ships_rec);
+  f.platform.functions["GetNumAllFactionStations"] = reinterpret_cast<void*>(&fk_num_stations_rec);
+  f.platform.functions["GetAllFactionShips"] = reinterpret_cast<void*>(&fk_ships);
+  f.platform.functions["GetAllFactionStations"] = reinterpret_cast<void*>(&fk_stations);
+  f.platform.functions["GetComponentName"] = reinterpret_cast<void*>(&fk_name);
+  JanitorFeature* jan = nullptr;
+  host::ModHost h(f.platform, with([&jan](host::FeatureRegistry& r) {
+                    auto j = std::make_unique<JanitorFeature>();
+                    jan = j.get();
+                    r.add(std::move(j));
+                  }));
+  REQUIRE(h.init() == host::InitResult::Started);
+  h.on_game_loaded();
+  h.on_universe_ready();
+  h.on_frame();
+  CHECK(jan->last().ran);
+  CHECK(jan->last().factions_queried == 1);  // only "player"
+  REQUIRE_FALSE(g_asked_factions.empty());
+  for (const auto& asked : g_asked_factions) CHECK(asked == "player");
+
+  // once team factions are defined, they are scanned
+  g_asked_factions.clear();
+  g_defined_factions = {"argon", "player", "x4mp_team_1", "x4mp_team_3"};
+  h.on_game_loaded();
+  h.on_universe_ready();
+  h.on_frame();
+  CHECK(jan->last().factions_queried == 3);
+  CHECK(std::ranges::count(g_asked_factions, std::string("x4mp_team_1")) == 2);  // ships + stations
+  CHECK(std::ranges::count(g_asked_factions, std::string("x4mp_team_2")) == 0);
+  h.shutdown();
+}
+
+TEST_CASE("janitor: without the faction list exports only the player is scanned", "[janitor][m210]") {
+  Fixture f;
+  g_asked_factions.clear();
+  f.platform.functions["GetNumAllFactionShips"] = reinterpret_cast<void*>(&fk_num_ships_rec);
+  f.platform.functions["GetNumAllFactionStations"] = reinterpret_cast<void*>(&fk_num_stations_rec);
+  f.platform.functions["GetAllFactionShips"] = reinterpret_cast<void*>(&fk_ships);
+  f.platform.functions["GetAllFactionStations"] = reinterpret_cast<void*>(&fk_stations);
+  f.platform.functions["GetComponentName"] = reinterpret_cast<void*>(&fk_name);
+  JanitorFeature* jan = nullptr;
+  host::ModHost h(f.platform, with([&jan](host::FeatureRegistry& r) {
+                    auto j = std::make_unique<JanitorFeature>();
+                    jan = j.get();
+                    r.add(std::move(j));
+                  }));
+  REQUIRE(h.init() == host::InitResult::Started);
+  h.on_game_loaded();
+  h.on_universe_ready();
+  h.on_frame();
+  CHECK(jan->last().ran);
+  for (const auto& asked : g_asked_factions) CHECK(asked == "player");
   h.shutdown();
 }
 

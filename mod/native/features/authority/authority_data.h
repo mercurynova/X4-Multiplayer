@@ -13,6 +13,7 @@
 //   G;<sector>;<sector>;...   a chunk of sectors, each  macro|cluster_macro|name|owner_faction|x|y|z|gate_dest_macro,gate_dest_macro
 //   E;<count>                  end marker: <count> sectors were sent in total
 //   P;macro|name|idcode|sector_macro|class|owner      the player's ship (class: ship_xs ship_s ship_m ship_l ship_xl or empty)
+//   N;                         the ship-only answer (control "ship", close-out A item 3): MD has no player ship right now
 // Fields never contain '|' or ';' (MD cannot escape them; a record with the wrong field count is dropped and counted).
 
 #include <chrono>
@@ -50,11 +51,13 @@ class MdCollector {
   [[nodiscard]] std::size_t expected() const noexcept { return expected_; }
   [[nodiscard]] const std::vector<SectorRec>& sectors() const noexcept { return sectors_; }
   [[nodiscard]] const std::optional<ShipRec>& ship() const noexcept { return ship_; }
+  [[nodiscard]] bool no_ship_seen() const noexcept { return no_ship_; }  // an "N;" message arrived
   [[nodiscard]] std::size_t dropped_records() const noexcept { return dropped_; }
 
  private:
   std::vector<SectorRec> sectors_;
   std::optional<ShipRec> ship_;
+  bool no_ship_ = false;
   std::size_t expected_ = 0;
   bool end_seen_ = false;
   std::size_t dropped_ = 0;
@@ -118,6 +121,7 @@ struct AuthorityState {
   std::uint32_t next_net_id = 1;
   bool spawned = false;
   bool strings_sent = false;           // StringTableAdd already sent in this session
+  std::uint32_t string_count = 0;      // highest string index the server holds (a later self-spawn adds its macro after it)
   std::uint64_t checkpoints = 0;       // stored in this session (informational)
   std::vector<std::uint8_t> loaded_sha;  // the save this game runs (a loaded session save, or our newest stored checkpoint); empty = unknown
 

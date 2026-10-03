@@ -143,6 +143,18 @@ test("auth_save works without the save wrapper file and reports a failing SaveGa
 	truthy(tostring(reply.error):find("disk full", 1, true))
 end)
 
+test("auth_collect with ship_only asks MD for the ship only (item 3), a plain collect still asks for the galaxy", function()
+	local log = authSetup()
+	env.fire("x4mp.auth_collect", '{"v":1,"ship_only":true}')
+	eq(#log.md, 1)
+	eq(log.md[1][1], "X4MP_Authority")
+	eq(log.md[1][2], "ship")
+	env.fire("x4mp.md_galaxy", "N;")
+	eq(lastRaised("x4mp.auth_md").data, "N;")
+	env.fire("x4mp.auth_collect", '{"v":1}')
+	eq(log.md[2][2], "collect")
+end)
+
 test("auth_save refuses names that are not x4mp_ckpt_ saves", function()
 	local log = authSetup()
 	for _, bad in ipairs({ "save_001", "../x4mp_ckpt_1", "quicksave", "" }) do
