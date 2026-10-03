@@ -469,3 +469,44 @@ What M3-10 / M3-11 need to know:
   folded into the baseline for the next pose.
 - Not done here (belongs to the feature layers): spawn/despawn, `SetObjectSectorPos`, sector-index -> local sector id, the `[sync]` log
   call, the stash save timing, hide/show in game, the epoch value.
+
+### M3-03 UDP realtime lane (mod `core/net`, `mod/native/core/net/udp_{types,lane}.h`, tests `mod/tests/test_udp_lane*.cpp`, ctest `core.udp*` and `udp.*`)
+
+What it does (Q4): after Welcome the session calls `HookContext::start_udp(conn_id, udp_port, udp_token)`; the net thread opens a connected,
+non-blocking UDP socket to the TCP peer's address and runs `UdpLane`: `UdpHello` every 250 ms until `UdpHelloAck` (Binding), then Realtime frames
+go out as datagrams (batched, <= 1200 bytes, one message never spans two) with the ack/ack_bits of the server's datagrams (that is what drives
+the server's replication baselines); bare-header ack after 50 ms of silence with unacked inbound; a `UdpHello` keepalive after 1 s of silence.
+Fallback to TCP (state `Fallback`, no disconnect) when there is no ack within 3 s of binding, or when something we sent that expects an answer
+is unacknowledged and the server's ack field has not advanced for 3 s (so a path that dies is noticed within 3 s whatever the traffic pattern;
+measured 2.97 s live). Re-probe every 30 s (3 s of hellos). Inbound sub-messages are checked with `validate_frame` (the Verifier) and go through
+the same `handle_frame` path as TCP frames (frame hook, Ping/Pong, inbox). Capability `UdpRealtime` (bit 0) is OR-ed into `client_caps` by
+`Session::start` unless `NetOptions::udp.mode == Off`.
+
+API for the next tasks:
+- `NetOptions::udp` (`UdpOptions`: `mode` Auto|Force|Off, `loss_pct`, `block`, `seed`, timers); `NetClient::set_udp_block(bool)`,
+  `Session::set_udp_block(bool)`; `NetStatus::udp` (`UdpStats`: state, datagram/frame/byte counters, simulated drops, malformed, duplicates, binds,
+  fallbacks, reprobes, `acked_seq`, `rx_loss_pct` = what the GUI's `NodeStats.udp_rx_loss_pct` wants). **M3-09/M3-05 wiring:** the session/host feature that
+  fills `NodeStats` can set `udp_active = status.udp.state == UdpState::Active` and `udp_rx_loss_pct = status.udp.rx_loss_pct` (not done here:
+  the host layer is not mine).
+- Senders keep calling `Session::send(Lane::Realtime, type, payload)`; the lane takes the frame when Active and the type is allowed on UDP
+  (Ping, Pong, UdpHello, UdpHelloAck, Replication, WorldUpdate, EntityStatusBatch, PlayerState) and it fits a datagram, else it goes over TCP
+  exactly as before. `Force` mode (tests only) drops instead of using TCP.
+- The datagram codec is the existing `x4mp/wire.h` (golden-tested against the C# `DatagramCodec`); the new part is the C++ `UdpReceiveWindow` (port
+  of the server's `DatagramReceiveWindow`).
+- Server-side limits worth knowing: the server keeps sending Realtime frames over UDP while it considers the node bound, even after the mod fell back
+  (the mod keeps accepting and acking them); the server's `UdpHelloAck` header acks the datagram *before* the hello, which the lane's
+  "ack field advances" rule is built around.
+
+Failure injection / flags (`x4mp-headless`): `--udp auto|force|off`, `--udp-loss PCT`, `--udp-block`, `--udp-block-after SEC`, `--udp-keepalive-ms N`
+(steady probe stream), `--udp-seed N`, `--expect-udp active|fallback|off` (also requires the TCP connection never dropped; with
+`--udp-block-after` the fall-back time must be <= 3.5 s). ctest `smoke.headless_udp_real_server` (skipped without `X4MP_TEST_SERVER`).
+
+Tests: Catch2 `core.udp*` (window incl. wrap, header/sub-message layout, batching and the 1200-byte limit, refused datagrams, bind/hello timing,
+3 s fallback and 30 s re-probe, path dying while bound, idle keepalive, 5 % loss both ways for 60 s of simulated 20 Hz traffic, Force/Off,
+block switch) and `udp.no allocation per frame once bound` (own exe `x4mp_udp_alloc_tests`, reuses `tests/ghost/alloc_counter.cpp`).
+Live: `mod/tests/hostsim/udp_lane_run.ps1` (needs `moduild.ps1` + `tools\e2e.ps1 -Steps Publish`; ports **47920-47922**, 43 s): udp_force,
+udp_loss5 (rx loss 4.7-5.4 %, no fallback), udp_blocked (Fallback within 3 s, connection up), udp_block_after (Fallback 2966 ms after the block,
+connection up), udp_off. Verified: `mod/build.ps1` 305 ctest green; `e2e.ps1 -Steps Publish,HostSim,JoinFlow,ReloadSurvival` green.
+
+**CI (not done here, M3-04 owns `tools/e2e.ps1` and `ci.yml`):** add an e2e step `UdpLane` that runs `mod/tests/hostsim/udp_lane_run.ps1` next to
+HostSim (same pattern as `Invoke-HostSimScript`, ~1 min, Windows only). The Catch2 tests need nothing (they are in `x4mp_core_tests` / `x4mp_udp_alloc_tests`).

@@ -493,3 +493,23 @@ if(X4MP_TESTS)
   x4mp_assert_no_sdk(x4mp_ghost_tests)
 endif()
 # END M3-02 core/ghost
+
+# =============================================================================================
+# BEGIN M3-03 UDP realtime lane (core/net/udp_lane.h is header-only, so x4mp_core needs no new source). Appended by M3-03.
+#   x4mp_core_tests    += tests/test_udp_lane.cpp (datagram layout, ack window, Binding/Active/Fallback state machine, loss)
+#   x4mp_udp_alloc_tests = the lane's per-frame path allocates nothing (own exe: it replaces the global operator new)
+#   smoke.headless_udp_real_server = headless joins a real server with --udp force and expects the lane Active (skipped without
+#   X4MP_TEST_SERVER). The full live scenarios (5 % loss, UDP blocked -> TCP within 3 s) are tests/hostsim/udp_lane_run.ps1.
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_core_tests PRIVATE tests/test_udp_lane.cpp)
+  add_executable(x4mp_udp_alloc_tests tests/test_udp_lane_alloc.cpp tests/ghost/alloc_counter.cpp)
+  target_include_directories(x4mp_udp_alloc_tests PRIVATE tests/ghost)
+  target_link_libraries(x4mp_udp_alloc_tests PRIVATE x4mp_core Catch2::Catch2WithMain)
+  x4mp_set_warnings(x4mp_udp_alloc_tests)
+  catch_discover_tests(x4mp_udp_alloc_tests TEST_PREFIX "udp." PROPERTIES TIMEOUT 60)
+  x4mp_assert_no_sdk(x4mp_udp_alloc_tests)
+  add_test(NAME smoke.headless_udp_real_server COMMAND x4mp-headless --from-env --udp force --expect-udp active --ping 4)
+  set_tests_properties(smoke.headless_udp_real_server PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+endif()
+# END M3-03 UDP realtime lane

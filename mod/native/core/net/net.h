@@ -15,7 +15,10 @@
 //   * Session (M1-N3): ServerHello arrives as a Frame event; reply with send(Lane::Control, ClientHello, ...) from
 //     the main thread, or install NetOptions::frame_hook to answer on the net thread (HMAC etc.) with
 //     HookContext::send. The hook sees every inbound frame except Ping/Pong, before it is queued to the inbox.
-//   * UDP realtime (later): the seam is Transport below; today only Tcp exists and Realtime frames travel over TCP.
+//   * UDP realtime (M3-03): after Welcome the session calls HookContext::start_udp(conn_id, udp_port, udp_token); the net
+//     thread then binds a UDP socket (core/net/udp_lane.h: datagram codec, acks, 3 s fallback to TCP, 30 s re-probe) and
+//     Realtime frames travel over UDP while the lane is Active. Everything else, and every Realtime frame while the lane
+//     is not Active, stays on TCP. NetOptions::udp holds the mode (Auto/Force/Off) and the failure injection.
 //
 // No exceptions cross this API. core/ includes no X4 SDK headers.
 
@@ -29,6 +32,7 @@
 
 #include "core/net/backoff.h"
 #include "core/net/clock_sync.h"
+#include "core/net/udp_types.h"
 #include "x4mp/wire.h"
 
 namespace x4mp::net {
@@ -107,6 +111,7 @@ struct NetStatus {
   std::uint64_t control_replayed = 0;       // retained frames sent after a resume (release_outbox(true))
   std::uint64_t control_discarded_fresh = 0;  // retained frames dropped because the join was fresh (release_outbox(false))
   std::uint64_t write_buffer_bytes = 0;     // currently queued to the socket
+  UdpStats udp;                             // the UDP realtime lane (state Off when disabled / not offered / not connected)
 };
 
 // One thing the net thread hands to the main thread.
@@ -138,6 +143,13 @@ class HookContext {
   virtual std::size_t release_outbox(bool replay_control) = 0;
   // The frame being hooked is handled entirely by the hook: do not queue it to the inbox (bulk save chunks).
   virtual void consume_frame() = 0;
+  // Binds the UDP realtime lane with the Welcome numbers (conn_id, udp_port, udp_token). No-op when udp_port is 0 or
+  // NetOptions::udp.mode is Off. Call it from the Welcome. Never logs the token.
+  virtual void start_udp(std::uint32_t conn_id, std::uint16_t udp_port, std::uint64_t udp_token) {
+    (void)conn_id;
+    (void)udp_port;
+    (void)udp_token;
+  }
 };
 
 struct NetOptions {
@@ -163,6 +175,8 @@ struct NetOptions {
   // HookContext::send are never gated. The session layer sets this so nothing can precede ClientHello. False (the
   // default) keeps M1-N2 behaviour: frames flow as soon as the TCP connection is up.
   bool gate_outbox_until_released = false;
+  // UDP realtime lane (M3-03): mode, failure injection, timers. See udp_types.h.
+  UdpOptions udp;
   // Monotonic microseconds. nullptr = steady_clock. Injectable so tests control backoff and heartbeat timing.
   std::function<std::int64_t()> clock;
   // Optional net-thread hook (see header comment). Must not throw.
@@ -219,6 +233,10 @@ class NetClient {
   // kDisconnectClientQuit (1); the session layer sets kDisconnectClientReload (6) for a planned extension
   // unload. Set it before stop().
   void set_goodbye_code(std::uint16_t code) noexcept;
+
+  // Failure injection / tests: drop every UDP datagram in both directions (a firewall appearing), or stop doing so. Takes
+  // effect within one poll timeout. Also the initial value of NetOptions::udp.block.
+  void set_udp_block(bool block) noexcept;
 
   // Skips the remaining backoff wait / leaves Halted and resets the schedule to 1 s: attempt now.
   void reconnect_now() noexcept;

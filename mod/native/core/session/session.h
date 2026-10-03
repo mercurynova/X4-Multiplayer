@@ -269,6 +269,8 @@ class Session {
   void unload_for_reload();
   // Skip the redial backoff (or leave Halted) and try now.
   void reconnect_now();
+  // Failure injection / tests (x4mp-headless --udp-block-after): drop all UDP datagrams in both directions.
+  void set_udp_block(bool block);
 
   // Starts a download of the announced save into save_dir (what poll() does automatically with auto_download).
   [[nodiscard]] bool download_save(const SaveInfo& info);
