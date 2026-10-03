@@ -219,6 +219,14 @@ game confirms in session 3. Fixed along the way: FakeNode ghost-enumeration race
 `core.retention` test races, a publish-modified `packages.lock.json` that slipped into merges twice (follow-up task
 offered to stop publish from dirtying it). Known intermittent: `core.latest-wins` (seen once). Wave 3 next.
 
+**Status 2026-10-03 (later):** wave 3 **done and merged** (M2-X3 grouped mod refusal, M2-12 `launch.json` + NodeStats,
+M2-14 CI e2e steps + lock-file root fix + HUD notify cue + session-3 kit). CI runs the hostsim e2e scenarios (join,
+20 reloads, authority, mod refusal, launch/stats) and the 50-run upload-kill test on every push. The session-3 kit was
+checked against the final code (found and fixed: the mod never asked for the LogForward capability, so self-test and
+quicksave warnings never reached the server) and dry-run end to end with the real `x4mp.dll` in hostsim
+(`mod/tests/hostsim/session3_dry_run.ps1`, 161 s). **Next: user runs session 3** ([in-game-session-3.md](in-game-session-3.md)),
+then the M2 exit report.
+
 M1 carry-overs placed in M2: `EntitySpawn.game_time` and connection-bound upload jobs (M2-08/09), real `extension_list`
 (M2-X1/X2), authority loading admin-uploaded saves and the post-upload 404 (M2-02/09), `/mods/save-requirements`
 (M2-02), unknown-key refusals on the hub (M2-13). Deferred: HTTPS/CSP and token/audit/user GUIs → M6; economy swarm
