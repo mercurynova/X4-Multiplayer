@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using X4MP.Core.Mods;
+using X4MP.Core.Saves;
 using X4MP.Persistence;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -128,8 +129,39 @@ internal static partial class ModEndpoints
         return Results.Json(views.State(access), ApiJsonContext.Default.ModsStateDto);
     }
 
-    private static IResult SaveRequirements() => Problems.NotImplemented(
-        "Reading the mods a save needs (its <patches> block) is not available in this build; the Mods page cannot flag mods required by the session save yet.");
+    /// <summary>
+    /// The extensions the session's save needs (its <c>&lt;patches&gt;</c>, read from the head of the stored file), each marked with whether the session mod list has an entry
+    /// for it and whether that entry blocks it. The save is <c>?saveId=</c> (a stored save's SHA-256), else the session's current checkpoint, else the save selected for
+    /// the session; with none the list is empty.
+    /// </summary>
+    private static IResult SaveRequirements(string? saveId, SaveService saves, AdminSessions sessions, ModViews views)
+    {
+        bool asked = !string.IsNullOrWhiteSpace(saveId);
+        string? sha = asked ? saveId!.Trim().ToLowerInvariant() : saves.Status.CurrentSha256 ?? sessions.SelectedSha;
+        if (sha is null)
+        {
+            return Results.Json(new SaveRequirementsDto(null, []), ApiJsonContext.Default.SaveRequirementsDto);
+        }
+
+        if (!SaveFileStore.IsValidSha(sha))
+        {
+            return Problems.Validation(new Dictionary<string, string[]> { ["saveId"] = ["saveId is the save's SHA-256 (64 hex digits)."] });
+        }
+
+        if (saves.Files.SizeOf(sha, UploadKind.Save) is null)
+        {
+            // a save somebody asked for by name is a 404; the session's own save that is gone from disk just has no readable requirements
+            return asked ? Problems.NotFound("The save") : Results.Json(new SaveRequirementsDto(sha, []), ApiJsonContext.Default.SaveRequirementsDto);
+        }
+
+        var entries = (views.Policy.Current.Entries ?? []).GroupBy(e => e.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var patches = SavePatchesReader.Read(saves.Files.PathOf(sha, UploadKind.Save))
+            .Select(p => entries.TryGetValue(p.Extension, out var entry)
+                ? new SavePatchDto(p.Extension, p.Name, p.Version, true, entry.Rule == ModRule.Blocked || (entry.Rule == ModRule.Required && !entry.Enabled))
+                : new SavePatchDto(p.Extension, p.Name, p.Version, false, false))
+            .ToList();
+        return Results.Json(new SaveRequirementsDto(sha, patches), ApiJsonContext.Default.SaveRequirementsDto);
+    }
 
     private static IResult CatalogAsync(HttpContext context, ModViews views)
     {

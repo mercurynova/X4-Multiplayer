@@ -341,18 +341,7 @@ public sealed partial class SaveService
         }
 
         _waitingForFresh.Remove(node.PlayerId);
-        bool http = options.HttpFallback && node.Attached is { } attached && (attached.NegotiatedCaps & (ulong)Capability.SaveHttp) != 0;
-        string token = string.Empty;
-        string httpUrl = string.Empty;
-        string manifestUrl = string.Empty;
-        if (http)
-        {
-            token = Tokens.Issue(node.PlayerId, TimeSpan.FromMinutes(options.DownloadTokenMinutes));
-            string baseUrl = options.PublicHttpBaseUrl.TrimEnd('/');
-            httpUrl = $"{baseUrl}/files/saves/{cp.SaveSha}";
-            manifestUrl = $"{baseUrl}/files/saves/{cp.ManifestSha}";
-        }
-
+        var (token, httpUrl, manifestUrl) = HttpFields(node, options, cp.SaveSha!, cp.ManifestSha);
         var info = new SessionSaveInfoT
         {
             CheckpointId = cp.Id.ToWire(),
@@ -368,6 +357,19 @@ public sealed partial class SaveService
             GameTime = cp.GameTime,
         };
         Send(node, ControlFrames.Encode(MsgType.SessionSaveInfo, fbb => SessionSaveInfo.Pack(fbb, info).Value, 512));
+    }
+
+    /// <summary>The HTTP fallback fields of a <c>SessionSaveInfo</c> (empty when the node did not negotiate <c>SaveHttp</c> or the fallback is off). A null manifest has no URL.</summary>
+    private (string Token, string SaveUrl, string ManifestUrl) HttpFields(SessionNode node, SaveOptions options, string saveSha, string? manifestSha)
+    {
+        if (!options.HttpFallback || node.Attached is not { } attached || (attached.NegotiatedCaps & (ulong)Capability.SaveHttp) == 0)
+        {
+            return (string.Empty, string.Empty, string.Empty);
+        }
+
+        string token = Tokens.Issue(node.PlayerId, TimeSpan.FromMinutes(options.DownloadTokenMinutes));
+        string baseUrl = options.PublicHttpBaseUrl.TrimEnd('/');
+        return (token, $"{baseUrl}/files/saves/{saveSha}", manifestSha is null ? string.Empty : $"{baseUrl}/files/saves/{manifestSha}");
     }
 
     /// <summary><c>join_checkpoint_policy = FreshSave</c>: the journal is long or the checkpoint old (protocol.md 6.5).</summary>
