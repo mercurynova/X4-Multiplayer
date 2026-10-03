@@ -48,6 +48,9 @@
     <t id="73">The session is full. Try again later or ask the host for a free slot. %s</t>
     <t id="74">You are banned from this server. %s</t>
     <t id="75">That player name is already in use. Choose another name and join again. %s</t>
+    <t id="45">The session save changed: %s. This game still runs the old one. Open /x4mp to load the new save.</t>
+    <t id="46">Load the new session save</t>
+    <t id="47">Loading replaces the game you are playing now. Progress since the last session save is lost.</t>
     <t id="51">Type /x4mp in the chat window to open this screen at any time.</t>
     <t id="60">Saving is disabled while connected as a client</t>
     <t id="300">Join or manage an X4MP multiplayer session</t>

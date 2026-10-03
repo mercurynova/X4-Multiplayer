@@ -85,7 +85,7 @@ try {
 
     # FakeNode authority offering the dummy save
     $fakeLog = Join-Path $tmp 'fakenode.out.txt'
-    $null = Start-P $fakeExe @('authority', '--server', "127.0.0.1:$TcpPort", '--name', 'FakeAuthority', '--save-file', $dummy) $fakeLog
+    $fake = Start-P $fakeExe @('authority', '--server', "127.0.0.1:$TcpPort", '--name', 'FakeAuthority', '--save-file', $dummy) $fakeLog
     Wait-Until 'the authority checkpoint' { (Test-Path $fakeLog) -and (Select-String -Path $fakeLog -Pattern 'checkpoint stored' -Quiet) } 90
 
     Run-Scenario 'join_flow' 'work-alice' @()
@@ -101,18 +101,61 @@ try {
     Run-Scenario 'join_reject_name' 'work-name' @()
 
     # fill the session (authority + holder = MaxPlayers 2), then a third player is refused as full
-    $null = Start-P $headless @('--port', "$TcpPort", '--name', 'Holder', '--ping', '40', '--timeout', '60') (Join-Path $tmp 'holder.out.txt')
+    $holder = Start-P $headless @('--port', "$TcpPort", '--name', 'Holder', '--ping', '40', '--timeout', '60') (Join-Path $tmp 'holder.out.txt')
     Wait-Until 'the holder to join' {
         $pl = Invoke-RestMethod -Uri "$url/api/v1/players" -Headers $h -WebSession $s2
         $items = if ($pl -is [array]) { $pl } else { $pl.items }
         @($items | Where-Object { $_.name -eq 'Holder' -and $_.online }).Count -gt 0
     } 20
     Run-Scenario 'join_reject_full' 'work-full' @()
+
+    # Session 3, B4: a player in game, the server (and the authority's session) restart, the resume token is refused. The mod must report the
+    # RUNNING universe again (the session save equals it) and the server must show the player InGame; nothing may be loaded.
+    if (-not $holder.HasExited) { & cmd.exe /c "taskkill /PID $($holder.Id) /T /F >nul 2>&1" }
+    $pidFile = Join-Path $tmp 'restart.pids'
+    Set-Content $pidFile "$($server.Id)`r`n$($fake.Id)"
+    $restart = Join-Path $tmp 'restart_server.ps1'
+    $restartText = @'
+$ErrorActionPreference = 'Stop'
+foreach ($old in (Get-Content '@PIDS@')) { if ($old.Trim()) { & cmd.exe /c "taskkill /PID $($old.Trim()) /T /F >nul 2>&1" } }
+$env:X4MP__Net__NodeTcpEndpoint = '127.0.0.1:@TCP@'; $env:X4MP__Net__UdpPort = '@UDP@'; $env:X4MP__Net__ModBuildStrict = 'false'
+$env:X4MP__Net__MaxPlayers = '2'; $env:X4MP__Net__MaxConnectionsPerIp = '64'
+$srv = Start-Process '@SERVER@' -ArgumentList @('--data-dir', '@DATA@', '--port', '@HTTP@') -PassThru -WindowStyle Hidden -RedirectStandardOutput '@OUT@\server2.out.txt' -RedirectStandardError '@OUT@\server2.err.txt'
+$end = (Get-Date).AddSeconds(60)
+while ($true) {
+  if ($srv.HasExited) { throw 'the restarted server exited' }
+  try { if ((Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:@HTTP@/healthz' -TimeoutSec 2).StatusCode -eq 200) { break } } catch { }
+  if ((Get-Date) -gt $end) { throw 'the restarted server never became healthy' }
+  Wait-Process -Id $srv.Id -Timeout 1 -ErrorAction SilentlyContinue
+}
+$fakeLog2 = '@OUT@\fakenode2.out.txt'
+$fk = Start-Process '@FAKE@' -ArgumentList @('authority', '--server', '127.0.0.1:@TCP@', '--name', 'FakeAuthority', '--save-file', '@SAVE@') -PassThru -WindowStyle Hidden -RedirectStandardOutput $fakeLog2 -RedirectStandardError '@OUT@\fakenode2.err.txt'
+Set-Content '@PIDS@' "$($srv.Id)`r`n$($fk.Id)"
+$end = (Get-Date).AddSeconds(120)
+while ($true) {
+  if ($fk.HasExited) { throw 'the restarted FakeNode exited' }
+  if ((Test-Path $fakeLog2) -and (Select-String -Path $fakeLog2 -Pattern 'checkpoint stored' -Quiet)) { break }
+  if ((Get-Date) -gt $end) { throw 'no checkpoint stored after the restart' }
+  Wait-Process -Id $fk.Id -Timeout 1 -ErrorAction SilentlyContinue
+}
+'restarted'
+'@
+    $restartText = $restartText.Replace('@PIDS@', $pidFile).Replace('@TCP@', "$TcpPort").Replace('@UDP@', "$UdpPort").Replace('@HTTP@', "$HttpPort").Replace('@SERVER@', $serverExe).Replace('@DATA@', $data).Replace('@OUT@', $tmp).Replace('@FAKE@', $fakeExe).Replace('@SAVE@', $dummy)
+    Set-Content $restart $restartText
+    Run-Scenario 'join_rejoin' 'work-rita' @('--var', "restart=$restart")
+    $ritaLog = Get-Content (Join-Path $tmp 'work-rita\extension\logs\x4mp.log')
+    $nodeReady = @($ritaLog | Where-Object { $_ -match 'universe ready: NodeReady sent' }).Count
+    $loads = @($ritaLog | Where-Object { $_ -match 'raised the Lua event loadSave' }).Count
+    $rejoins = @($ritaLog | Where-Object { $_ -match 'rejoin: the session save is the running universe' }).Count
+    Write-Host "rejoin verdicts: NodeReady=$nodeReady (expect 2) loadSave=$loads (expect 1) rejoin=$rejoins (expect 1)"
+    if ($nodeReady -ne 2 -or $loads -ne 1 -or $rejoins -ne 1) { throw "the in-game rejoin did not behave: NodeReady=$nodeReady loadSave=$loads rejoin=$rejoins" }
     $exit = 0
 }
 catch { Write-Host "JOIN E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }
 finally {
     Stop-All
+    # the processes the B4 restart script started (hostsim ran it, so they are not in $procs)
+    if ($pidFile -and (Test-Path $pidFile)) { foreach ($id in (Get-Content $pidFile)) { if ($id.Trim()) { try { & cmd.exe /c "taskkill /PID $($id.Trim()) /T /F >nul 2>&1" } catch { } } } }
     Write-Host ("Join e2e {0} in {1:N0} s. Temp tree: {2}" -f $(if ($exit -eq 0) { 'PASSED' } else { 'FAILED' }), $sw.Elapsed.TotalSeconds, $tmp)
 }
 exit $exit

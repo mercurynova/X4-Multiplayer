@@ -139,12 +139,12 @@ local ERROR_TEXT = { bad_address = 20, name_empty = 21, name_long = 22, admin_em
 -- state
 ------------------------------------------------------------------------------
 local ACTIVE_STATES = { connecting = true, handshaking = true, checking_save = true, downloading = true, loading = true,
-	matching = true, ingame = true }
+	matching = true, ingame = true, save_changed = true }
 -- Reject tokens of x4mp.status.reject (native: features/join/join_json.cpp reject_for_code, or "build" from a refused host).
 -- Anything else (or a missing token) uses the generic text 38 with the server's message.
 local REJECT_TEXT = { build = 70, mod = 71, auth = 72, full = 73, banned = 74, name = 75 }
 local STATE_TEXT = { disconnected = 30, connecting = 31, handshaking = 32, checking_save = 33, downloading = 34,
-	loading = 35, matching = 36, ingame = 37, rejected = 38, error = 39 }
+	loading = 35, matching = 36, ingame = 37, rejected = 38, error = 39, save_changed = 45 }
 
 S.state = nil
 
@@ -235,6 +235,8 @@ local function buildStatus(st, rows)
 		label = label:gsub("%s+$", "")
 	elseif state == "error" then
 		label = T(STATE_TEXT.error, tostring(status and (status.detail or status.reject) or ""))
+	elseif state == "save_changed" then
+		label = T(STATE_TEXT.save_changed, tostring(status and status.detail or ""))
 	else
 		label = T(STATE_TEXT[state] or 39, "")
 	end
@@ -242,6 +244,12 @@ local function buildStatus(st, rows)
 	rows[#rows + 1] = text(label, tone)
 	-- M2-X3: a mod refusal lists what to install / enable / disable / update, with links (x4mp_join_mods.lua)
 	if state == "rejected" and status and status.reject == "mod" and X4MPJoinMods then X4MPJoinMods.refusalRows(rows) end
+	-- Re-joined in game and the session now has a different save: nothing is loaded unless the player asks (a load replaces the running game).
+	if state == "save_changed" then
+		rows[#rows + 1] = text(T(47), "warning")
+		rows[#rows + 1] = { type = "button", id = "load_session", text = T(46), active = true,
+			onClick = function() B.send("load_session", {}) S.go("status") end }
+	end
 	if status then
 		if status.server then rows[#rows + 1] = text(T(40, status.server)) end
 		if status.role then rows[#rows + 1] = text(T(41, status.role)) end
