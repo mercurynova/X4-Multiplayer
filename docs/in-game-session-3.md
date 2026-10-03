@@ -94,6 +94,11 @@ powershell -ExecutionPolicy Bypass -File tools\session3\start-fake-authority.ps1
 `FakeNode authority: checkpoint stored (sha ...)`. Leave the window open. Open the GUI, log in as `admin`; keep **Players** and **Logs** at hand. If the script warns
 "GUI not built", Ctrl+C and run it again with `-Rebuild`. Note the clock time you start X4. Ctrl+C in window 1 stops server and fake authority.
 
+The fake authority reports **your DLCs**: the script reads every enabled `ego_dlc_*` extension of your X4 install (and your Documents `content.xml` enabled flags), writes them to
+`out\session3\authority-extensions.json` (versions as the game shows them, e.g. `9.00`) and prints `Authority extensions: your DLCs: ...`. Without that the server refuses a
+player who owns DLCs (a DLC difference refuses even in Warn mode). The server compares DLC versions normalised (`900` equals `9.00`). If the line says `none` or the script
+warns that no DLC was found, pass `-X4Dir "<folder with X4.exe>"`. `-AuthorityExtensions vanilla|modded|FILE` replaces the list (B7 uses `modded`).
+
 **B1. Join from the start menu (criteria 1, 2).** The point: the mod downloads the save itself (slot 4 is only the source of the copy the fake authority serves).
 
 1. Start X4 and stay on the **start menu**. The main list has a row **Multiplayer** (hover: "Join or manage an X4MP multiplayer session"). If it is missing:
@@ -185,7 +190,8 @@ powershell -ExecutionPolicy Bypass -File tools\session3\write-launch.ps1 -Name T
 
 ### If something does not work in Part B
 - No **Multiplayer** row on the start menu: in game `/x4mp` opens the window; look for the `[X4MP] ui: optionsmenu adapter ...` line in `x4mp_s3.log`.
-- Window closed but a blank screen: Alt+F4, tell Claude (the start-menu restore failed).
+- Window closed but a blank screen: Alt+F4, send the `x4mp_s3.log` line `[X4MP] standalone: closed, reopening start menu (...)` (or its absence) to Claude.
+- No cockpit HUD in flight (only our X4MP line): send `x4mp_s3.log`; the HUD frame must keep the vanilla HUD (`keepHUDVisible`). `/x4mp` opens the Multiplayer window for details.
 - Refused for "build": `x4mp.log` has `REFUSING TO START: ...`; send that line.
 - Refused for mods in a **normal** run: disable non-DLC mods and retry, or tell Claude (a DLC difference always refuses).
 - Nothing happens after Connect: look at the Connection status screen text and at `x4mp.log` (`joining ...`, `server Disconnect code=...`).

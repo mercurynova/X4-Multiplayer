@@ -14,6 +14,10 @@
 .PARAMETER UserId       The numeric folder under Documents\Egosoft\X4 (only needed when there are several).
 .PARAMETER Strict       Enforce mod rules strictly (default: Warn, so your own third-party mods do not block the join; a DLC difference always refuses).
 .PARAMETER AuthorityExtensions  Make the fake authority report this extension set (vanilla | modded | a JSON file): used for criterion 7, the mod refusal.
+                        Without it the fake authority reports YOUR enabled DLCs (every enabled ego_dlc_* extension of the X4 install, read from
+                        content.xml and your Documents content.xml enabled flags; written to out\session3\authority-extensions.json), so the server
+                        does not refuse you for owning DLCs (a DLC difference refuses even in Warn mode).
+.PARAMETER X4Dir        The X4 install folder (found through Steam when omitted); only used to read the DLC list.
 .PARAMETER JoinPassword  Server join password for criterion 14 (a THROWAWAY test value you also type into the in-game dialog).
 .PARAMETER Rebuild      Publish again even if the executables exist.
 .PARAMETER TcpPort, UdpPort, HttpPort  Test-only: other ports (the dry run uses 47953-47955).
@@ -25,6 +29,7 @@ param(
     [string]$UserId,
     [switch]$Strict,
     [string]$AuthorityExtensions,
+    [string]$X4Dir,
     [string]$JoinPassword,
     [switch]$Rebuild,
     [int]$TcpPort = 0,
@@ -65,17 +70,30 @@ $fakeLog = Join-Path $OutDir 'fakenode.log'
 $guiUrl = "http://127.0.0.1:$($Ports.Http)"
 $fakeArgs = @('authority', '--server', "127.0.0.1:$($Ports.Tcp)", '--name', 'FakeAuthority', '--save-file', $authSave)
 if ($JoinPassword) { $fakeArgs += @('--password', $JoinPassword) }   # the fake authority must know the join password too
+$dlcFile = $null
+$dlcList = @()
 if ($AuthorityExtensions) { $fakeArgs += @('--authority-extensions', $AuthorityExtensions) }
+else {
+    $x4 = Resolve-X4Dir $X4Dir -AllowMissing
+    $dlcList = @(Get-LocalDlcExtensions $x4 $user)
+    if ($dlcList.Count -gt 0) {
+        $dlcFile = Join-Path $OutDir 'authority-extensions.json'
+        $fakeArgs += @('--authority-extensions', $dlcFile)
+    }
+    else { Write-Warning 'No enabled DLC found in the X4 install: the fake authority reports none (a real player with DLCs would be refused). Pass -X4Dir or -AuthorityExtensions.' }
+}
 
 Write-Host "Save      : $source"
 Write-Host "Copy to   : $authSave"
 Write-Host "Server    : $serverExe  (TCP $($Ports.Tcp) / UDP $($Ports.Udp) on 127.0.0.1, HTTP $($Ports.Http)); mods enforcement: $(if ($Strict) { 'Strict' } else { 'Warn' }); join password: $(if ($JoinPassword) { 'set' } else { 'none' })"
+Write-Host "Authority extensions: $(if ($AuthorityExtensions) { $AuthorityExtensions } elseif ($dlcList.Count) { 'your DLCs: ' + (($dlcList | ForEach-Object { $_.id + '@' + $_.version }) -join ', ') } else { 'none' })"
 Write-Host "FakeNode  : $fakeNodeExe $($fakeArgs -join ' ')"
 Write-Host "GUI       : $guiUrl   (log in as 'admin'; the password is in $(Join-Path $OutDir 'admin-password.txt'), never printed)"
 if (-not $PSCmdlet.ShouldProcess($OutDir, 'Publish, start the server and the FakeNode authority')) { return }
 
 New-Item -ItemType Directory -Force $OutDir, $authDir | Out-Null
 Copy-Item $source $authSave -Force
+if ($dlcFile) { ConvertTo-Json -InputObject @($dlcList) -Depth 4 | Set-Content -Path $dlcFile -Encoding ascii }
 $null = Ensure-Published -Force:$Rebuild
 
 $envVars = @{ X4MP__Mods__Enforcement = $(if ($Strict) { 'Strict' } else { 'Warn' }) }

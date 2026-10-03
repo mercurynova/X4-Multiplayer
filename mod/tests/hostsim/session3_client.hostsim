@@ -4,6 +4,8 @@
 # x4mp.json (written by tools/session3/write-config.ps1 -SelfTest) is in the work dir's extension folder before the DLL starts.
 init
 frame 60Hz 10
+# the player owns the DLC the fake authority reports (extensions come from the Lua list; version as the game reports it)
+lua-raw x4mp.extensions {"v":1,"source":"load","startmenu":true,"count":1,"list":[{"id":"ego_dlc_split","name":"Split Vendetta","version":"9.00","enabled":true,"egosoftextension":true}]}
 lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
 lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Tester","password":"${pw}","team":"auto"}
 frame 60Hz 360

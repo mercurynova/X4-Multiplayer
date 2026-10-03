@@ -254,6 +254,20 @@ std::optional<ContentXml> parse_content_xml(std::string_view text) {
   return c;
 }
 
+std::string normalize_version(std::string_view version) {
+  while (!version.empty() && space(version.front())) version.remove_prefix(1);
+  while (!version.empty() && space(version.back())) version.remove_suffix(1);
+  if (version.empty() || version.size() > 9) return std::string(version);
+  for (const char ch : version) {
+    if (ch < '0' || ch > '9') return std::string(version);
+  }
+  if (version.size() < 3) return std::string(version);  // too short to be hundredths ("1"): leave it alone
+  std::string digits(version);
+  while (digits.size() > 3 && digits.front() == '0') digits.erase(0, 1);
+  digits.insert(digits.size() - 2, ".");
+  return digits;
+}
+
 // ---- class hint --------------------------------------------------------------------------------------------------
 std::string top_level_folder(std::string_view path) {
   while (!path.empty() && (path.front() == '/' || path.front() == '\\')) path.remove_prefix(1);
@@ -461,7 +475,7 @@ ExtensionRecord scan_folder(const fs::path& folder, Source source, HashCache* ca
   }
   r.id = parsed->id;
   r.name = parsed->name;
-  r.version = parsed->version;
+  r.version = normalize_version(parsed->version);
   r.enabled_default = parsed->enabled;
   r.save_dependent = parsed->save;
   r.dependencies = parsed->dependencies;
@@ -634,7 +648,7 @@ session::ExtensionSnapshot build_snapshot(const std::vector<ExtensionRecord>& sc
         if (with_hashes) e.warning = "extension folder not found on disk";  // else: scan not finished, say nothing
       }
       if (!lua.name.empty()) e.name = lua.name;
-      if (!lua.version.empty()) e.version = lua.version;
+      if (!lua.version.empty()) e.version = normalize_version(lua.version);
       e.enabled = lua.enabled;
       e.egosoft = lua.egosoft || e.egosoft;
       join_text(e.error, lua.error);

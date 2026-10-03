@@ -69,7 +69,12 @@ try {
     $s2 = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $null = & $post '/api/v1/auth/login' @{ username = 'admin'; password = $adminPassword } $s2
     $fakeLog = Join-Path $tmp 'fakenode.out.txt'
-    $null = Start-P $fakeExe @('authority', '--server', "127.0.0.1:$TcpPort", '--name', 'FakeAuthority', '--save-file', $dummy) $fakeLog
+    # Session 3: the authority has DLCs (version "9.00" as the game reports them) and the client reports them through the Lua list ONLY
+    # (hostsim has no X4 install to scan). A resume ClientHello after a reload must reuse that list from the stash; without it the
+    # server refuses ExtensionsMismatch (DLC differences refuse even in Warn mode) and the resume fails.
+    $dlcFile = Join-Path $tmp 'authority_extensions.json'
+    Set-Content -Path $dlcFile -Encoding ascii -Value '[{"id":"ego_dlc_split","name":"Split Vendetta","version":"9.00","source":"Dlc","enabled":true,"egosoft":true,"classHint":"Dlc"},{"id":"ego_dlc_boron","name":"Kingdom End","version":"9.00","source":"Dlc","enabled":true,"egosoft":true,"classHint":"Dlc"}]'
+    $null = Start-P $fakeExe @('authority', '--server', "127.0.0.1:$TcpPort", '--name', 'FakeAuthority', '--save-file', $dummy, '--authority-extensions', $dlcFile) $fakeLog
     Wait-Until 'the authority checkpoint' { (Test-Path $fakeLog) -and (Select-String -Path $fakeLog -Pattern 'checkpoint stored' -Quiet) } 90
 
     # ---- generate the scenario (seeded) ----
@@ -77,6 +82,7 @@ try {
     $lines = New-Object System.Collections.Generic.List[string]
     $plan = New-Object System.Collections.Generic.List[string]
     $lines.Add('init'); $lines.Add('frame 60Hz 10')
+    $lines.Add('lua-raw x4mp.extensions {"v":1,"source":"load","startmenu":true,"count":2,"list":[{"id":"ego_dlc_split","name":"Split Vendetta","version":"9.00","enabled":true,"egosoftextension":true},{"id":"ego_dlc_boron","name":"Kingdom End","version":"9.00","enabled":true,"egosoftextension":true}]}')
     $lines.Add('lua-raw x4mp.ui_ready {"v":1,"startmenu":true}')
     $lines.Add('lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Alice","password":"","team":"auto"}')
     $online = 'expect-admin /api/v1/players $[name==Alice].online == true'
@@ -149,6 +155,8 @@ try {
     if ($joinMs.Count -lt $Reloads) { $problems += "join_ms logged $($joinMs.Count) times, expected >= $Reloads" }
     if ($same -ne $sameCount) { $problems += "same-universe verdicts $same, expected $sameCount" }
     if ($new -ne $newCount) { $problems += "new-universe verdicts $new, expected $newCount" }
+    $restored = @($log | Where-Object { $_ -match 'extension list restored from the stash: 2 entries' }).Count
+    if ($restored -lt $Reloads) { $problems += "the Lua extension list was restored from the stash $restored times, expected >= $Reloads" }
     if ($refused -ne 0) { $problems += "$refused refused-resume / over-budget warnings" }
     if ($resumedSrv -lt $Reloads) { $problems += "the server logged $resumedSrv resumes, expected >= $Reloads" }
     if ($left.Count -ne 0) { $problems += "the server logged $($left.Count) 'left' line(s) for Alice" }
