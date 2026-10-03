@@ -1,0 +1,21 @@
+# M2-09 (ctest hostsim.authority_role): the join dialog's "Host this session" option reaches native as role "authority" with the admin
+# password; nothing listens on port 1, so only the request and the secret handling are checked.
+init
+frame 60Hz 20
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:1","name":"Host","password":"session-secret-pw","admin_password":"admin-secret-pw-9","role":"authority","team":"auto"}
+frame 60Hz 60
+expect-file extension/logs/x4mp.log joining 127.0.0.1:1 (roles 3
+expect-lua x4mp.status 3000 json $.state == connecting
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-lua x4mp.status 3000 json $.state == disconnected
+# a plain client join is still roles 2
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:1","name":"Guest","password":"","team":"auto"}
+frame 60Hz 30
+expect-file extension/logs/x4mp.log joining 127.0.0.1:1 (roles 2
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret admin-secret-pw-9
+expect-no-secret session-secret-pw
+shutdown

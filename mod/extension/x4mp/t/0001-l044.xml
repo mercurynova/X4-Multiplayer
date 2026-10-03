@@ -17,6 +17,12 @@
     <t id="13">The password is sent once to the server and is never saved.</t>
     <t id="14">Choosing a team becomes available once the server offers it.</t>
     <t id="15">Last server: %s</t>
+    <t id="16">Host this session as the authority: %s</t>
+    <t id="17">Yes</t>
+    <t id="18">No</t>
+    <t id="19">Admin password</t>
+    <t id="25">Enter the admin password to host the session.</t>
+    <t id="26">The admin password is sent once to the server and is never saved. Only one player can host a session.</t>
     <t id="20">The server address is not valid. Use host or host:port.</t>
     <t id="21">Enter a player name.</t>
     <t id="22">The player name is too long. The limit is %d characters.</t>

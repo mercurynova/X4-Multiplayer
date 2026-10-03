@@ -6,6 +6,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/crypto/crypto.h"
+
 namespace x4mp::features::join {
 
 namespace {
@@ -77,6 +79,10 @@ std::optional<JoinRequest> parse_join(std::string_view text, std::string* error)
   r.password = get_string(doc, "password");
   r.admin_password = get_string(doc, "admin_password");
   r.want_authority = get_string(doc, "role") == "authority" || get_bool(doc, "authority");
+  {
+    std::vector<std::uint8_t> sha;
+    if (crypto::from_hex(get_string(doc, "loaded_save_sha256"), sha) && sha.size() == 32) r.loaded_save_sha256 = std::move(sha);
+  }
   const auto team = doc.find("team");
   if (team != doc.end() && team->is_number_unsigned()) {
     const auto v = team->get<std::uint64_t>();

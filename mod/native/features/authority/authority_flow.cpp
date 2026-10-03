@@ -1,0 +1,394 @@
+#include "features/authority/authority_flow.h"
+
+#include <algorithm>
+#include <cstring>
+#include <fstream>
+
+#include <nlohmann/json.hpp>
+
+#include "core/authority/checkpoint_messages.h"
+#include "core/authority/entity_spawn.h"
+#include "core/crypto/crypto.h"
+#include "message_ids_generated.h"
+
+namespace x4mp::features::auth {
+
+namespace {
+using host::Cat;
+using host::Level;
+namespace fs = std::filesystem;
+namespace P = X4MP::Proto;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+constexpr std::uint16_t T(P::MsgType t) { return static_cast<std::uint16_t>(t); }
+
+constexpr auto kCollectTimeout = seconds(20);
+constexpr auto kShipGrace = milliseconds(1500);  // after the end marker: how long to wait for the ship record
+constexpr auto kSaveReplyTimeout = seconds(20);
+constexpr auto kFileTimeout = seconds(180);
+constexpr auto kFilePollEvery = milliseconds(250);
+constexpr std::size_t kKeepCheckpointSaves = 2;
+constexpr std::size_t kMaxInbox = 64;
+
+std::string hex12(const std::vector<std::uint8_t>& v) {
+  return crypto::to_hex(std::span<const std::uint8_t>(v).first(std::min<std::size_t>(6, v.size())));
+}
+
+std::string json_string(const std::string& text, const char* key) {
+  const auto doc = nlohmann::json::parse(text, nullptr, false);
+  if (!doc.is_object()) return {};
+  const auto it = doc.find(key);
+  return (it != doc.end() && it->is_string()) ? it->get<std::string>() : std::string{};
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------------------------------------------------
+void AuthInbox::push(std::string verb, std::string text) {
+  const std::lock_guard lock(mutex);
+  if (items.size() >= kMaxInbox) items.erase(items.begin());
+  items.emplace_back(std::move(verb), std::move(text));
+}
+std::vector<std::pair<std::string, std::string>> AuthInbox::take() {
+  const std::lock_guard lock(mutex);
+  return std::exchange(items, {});
+}
+
+std::shared_ptr<AuthInbox> subscribe_authority_verbs(host::IPlatform& platform) {
+  auto inbox = std::make_shared<AuthInbox>();
+  for (const char* verb : {"auth_md", "auth_saved"}) {
+    const std::string v = verb;
+    std::shared_ptr<AuthInbox> in = inbox;
+    (void)platform.subscribe_event(("x4mp." + v).c_str(), [in, v](std::string_view text) {
+      if (text.size() <= 256 * 1024) in->push(v, std::string(text));
+    });
+  }
+  return inbox;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+std::vector<std::uint8_t> AuthorityFlow::stored_loaded_sha(const session::IStash& stash) {
+  if (const auto text = stash.get(kStashKey)) return AuthorityState::from_json(*text).loaded_sha;
+  return {};
+}
+void AuthorityFlow::forget_loaded_sha(session::IStash& stash) {
+  if (const auto text = stash.get(kStashKey)) {
+    auto s = AuthorityState::from_json(*text);
+    s.loaded_sha.clear();
+    stash.put(kStashKey, s.to_json());
+  }
+}
+
+AuthorityFlow::AuthorityFlow(host::HostContext& ctx, session::Session& session, session::IStash& stash, std::shared_ptr<AuthInbox> inbox)
+    : session_(session), stash_(stash), inbox_(std::move(inbox)) {
+  if (const auto text = stash_.get(kStashKey)) state_ = AuthorityState::from_json(*text);
+  if (const auto dir = ctx.game.save_folder_path()) save_dir_ = fs::path(*dir);
+  if (ctx.paths != nullptr && !ctx.paths->dir.empty()) {
+    work_dir_ = ctx.paths->dir / "authority";
+    ledger_ = ctx.paths->dir / "authority-saves.json";
+  }
+}
+
+AuthorityFlow::~AuthorityFlow() {
+  if (prepared_.valid()) prepared_.wait();
+}
+
+void AuthorityFlow::persist() const { stash_.put(kStashKey, state_.to_json()); }
+
+void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
+  const auto generation = uploader_.new_connection(resumed);
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: connection generation {} ({})", generation, resumed ? "resumed" : "fresh join");
+  if (!resumed) {
+    step_ = Step::Idle;
+    spawn_due_ = false;
+    state_.spawned = false;
+    state_.strings_sent = false;
+    state_.next_net_id = 1;
+    state_.checkpoints = 0;
+    persist();
+  }
+}
+
+void AuthorityFlow::on_net_disconnected() { uploader_.connection_lost(); }
+
+void AuthorityFlow::note_loaded_save(const std::vector<std::uint8_t>& sha) {
+  if (sha.size() != 32) return;
+  state_.loaded_sha = sha;
+  persist();
+}
+
+bool AuthorityFlow::send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload) {
+  return session_.send(wire::Lane::Control, type, std::span<const std::uint8_t>(payload)) == net::SendResult::Ok;
+}
+
+bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::span<const std::uint8_t> payload) {
+  if (type == T(P::MsgType::RequestSave)) {
+    const auto req = x4mp::authority::parse_request_save(payload);
+    if (!req) return true;
+    if (step_ != Step::Idle || uploader_.running() || uploader_.pending() || spawn_due_) {
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: RequestSave {} ignored, a checkpoint is already in progress", req->request_id);
+      return true;
+    }
+    begin_request(ctx, req->request_id);
+    return true;
+  }
+  return uploader_.on_frame(type, payload);
+}
+
+void AuthorityFlow::begin_request(host::HostContext& ctx, std::uint32_t request_id) {
+  request_id_ = request_id;
+  collected_.reset();
+  end_seen_at_.reset();
+  plan_ = GalaxyPlan{};
+  step_ = Step::Collecting;
+  step_since_ = Clock::now();
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: RequestSave {}: collecting galaxy metadata from MD", request_id);
+  if (!ctx.platform.raise_lua("x4mp.auth_collect", R"({"v":1})")) {
+    fail(ctx, "the Lua bridge is not available (x4mp.auth_collect could not be raised)");
+  }
+}
+
+void AuthorityFlow::fail(host::HostContext& ctx, const std::string& why) {
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Error, "authority: checkpoint request {} failed: {}", request_id_, why);
+  step_ = Step::Idle;
+  watcher_.reset();
+  if (prepared_.valid()) prepared_.wait();
+  prepared_ = {};
+}
+
+void AuthorityFlow::drain_inbox(host::HostContext& ctx) {
+  for (auto& [verb, text] : inbox_->take()) {
+    if (verb == "auth_md") {
+      if (step_ != Step::Collecting) continue;
+      const std::string data = json_string(text, "data");
+      if (!collected_.add(data)) {
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: unreadable galaxy message ignored ({} bytes)", data.size());
+      } else if (collected_.end_seen() && !end_seen_at_) {
+        end_seen_at_ = Clock::now();
+      }
+    } else if (verb == "auth_saved") {
+      if (step_ == Step::WaitSaveReply) {
+        on_save_reply(ctx, text);
+      } else {
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: SaveGame reply with no save pending, ignored");
+      }
+    }
+  }
+}
+
+void AuthorityFlow::step(host::HostContext& ctx) {
+  drain_inbox(ctx);
+  switch (step_) {
+    case Step::Collecting: step_collecting(ctx); break;
+    case Step::WaitSaveReply:
+      if (Clock::now() - step_since_ > kSaveReplyTimeout) fail(ctx, "Lua did not answer the SaveGame request in 20 s");
+      break;
+    case Step::WaitFile: step_wait_file(ctx); break;
+    case Step::Hashing: step_hashing(ctx); break;
+    case Step::Uploading: step_uploading(ctx); break;
+    case Step::Idle: break;
+  }
+  (void)uploader_.pump([this](wire::Lane lane, std::uint16_t type, std::span<const std::uint8_t> payload) {
+    return session_.send(lane, type, payload) == net::SendResult::Ok;
+  });
+  if (spawn_due_) maybe_spawn(ctx);
+}
+
+void AuthorityFlow::step_collecting(host::HostContext& ctx) {
+  const auto now = Clock::now();
+  if (collected_.complete() && (collected_.ship() || (end_seen_at_ && now - *end_seen_at_ > kShipGrace))) {
+    plan_ = build_plan(collected_);
+    if (plan_.sectors.empty()) return fail(ctx, "MD reported no sectors");
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: galaxy collected: {} sectors, {} links, {} strings, ship {}", plan_.sectors.size(),
+              plan_.links.size(), plan_.strings.size(), collected_.ship() ? collected_.ship()->macro : std::string("(none)"));
+    request_save(ctx);
+  } else if (now - step_since_ > kCollectTimeout) {
+    fail(ctx, "MD did not deliver the galaxy metadata in 20 s (is md/x4mp_galaxy.xml loaded?)");
+  }
+}
+
+void AuthorityFlow::request_save(host::HostContext& ctx) {
+  std::array<std::uint8_t, 16> rnd{};
+  if (!crypto::random_bytes(rnd)) return fail(ctx, "no random source for the checkpoint id");
+  std::memcpy(&checkpoint_.lo, rnd.data(), 8);
+  std::memcpy(&checkpoint_.hi, rnd.data() + 8, 8);
+  if (checkpoint_.zero()) checkpoint_.lo = 1;
+  save_name_ = checkpoint_save_name(checkpoint_.lo);
+  if (save_dir_.empty()) return fail(ctx, "the game's save folder is not available");
+
+  if (!state_.strings_sent) {
+    if (!send_control(T(P::MsgType::StringTableAdd), x4mp::authority::encode_string_table_add(plan_.strings))) return fail(ctx, "StringTableAdd not sent");
+    state_.strings_sent = true;
+    persist();
+  }
+  nlohmann::json j;
+  j["v"] = 1;
+  j["name"] = save_name_;
+  j["request_id"] = request_id_;
+  j["display"] = "X4MP checkpoint " + save_name_.substr(10, 8);
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: SaveGame requested as {} (request {})", save_name_, request_id_);
+  step_ = Step::WaitSaveReply;
+  step_since_ = Clock::now();
+  if (!ctx.platform.raise_lua("x4mp.auth_save", j.dump())) fail(ctx, "x4mp.auth_save could not be raised");
+}
+
+void AuthorityFlow::on_save_reply(host::HostContext& ctx, const std::string& text) {
+  const auto doc = nlohmann::json::parse(text, nullptr, false);
+  if (!doc.is_object() || !doc.value("ok", false)) {
+    return fail(ctx, "SaveGame failed in Lua: " + (doc.is_object() ? doc.value("error", std::string("unknown")) : std::string("bad reply")));
+  }
+  double gt = doc.value("game_time", 0.0);  // Lua GetCurrentGameTime() sampled right before SaveGame (== MD player.age)
+  if (!x4mp::authority::EntitySpawnBuilder::is_valid_game_time(gt)) {
+    const auto native = ctx.game.game_time();
+    gt = native.value_or(0.0);
+  }
+  if (!x4mp::authority::EntitySpawnBuilder::is_valid_game_time(gt)) return fail(ctx, "no valid game time for SaveStarted");
+  game_time_ = gt;
+  const auto started = x4mp::authority::encode_save_started(request_id_, checkpoint_, game_time_, state_.next_net_id);
+  if (!started || !send_control(T(P::MsgType::SaveStarted), *started)) return fail(ctx, "SaveStarted not sent");
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: SaveStarted sent (game_time {:.3f}, next_net_id {}); waiting for {}.xml.gz to be complete", game_time_,
+            state_.next_net_id, save_name_);
+  watcher_.emplace(save_dir_ / (save_name_ + ".xml.gz"));
+  next_poll_ = Clock::now();
+  step_ = Step::WaitFile;
+  step_since_ = Clock::now();
+}
+
+void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
+  const auto now = Clock::now();
+  if (now - step_since_ > kFileTimeout) return fail(ctx, "the save file was not complete after 180 s");
+  if (now < next_poll_) return;
+  next_poll_ = now + kFilePollEvery;
+  if (!watcher_->poll(now)) return;
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: save file complete ({} bytes) after {} ms; hashing", watcher_->size(),
+            std::chrono::duration_cast<milliseconds>(now - step_since_).count());
+  const fs::path save_path = watcher_->file();
+  const fs::path work = work_dir_.empty() ? fs::temp_directory_path() / "x4mp-authority" : work_dir_;
+  const auto cp = checkpoint_;
+  const auto gt = game_time_;
+  const auto next_id = state_.next_net_id;
+  const auto strings = plan_.strings;
+  const auto sectors = plan_.sectors;
+  const std::string name = save_name_;
+  prepared_ = std::async(std::launch::async, [=]() -> Prepared {
+    Prepared out;
+    auto save = x4mp::authority::describe_upload_file(session::TransferKind::Save, save_path, name);
+    if (!save) {
+      out.error = "cannot read the save file";
+      return out;
+    }
+    const auto manifest = x4mp::authority::encode_manifest(cp, gt, next_id, strings, sectors);
+    if (!manifest) {
+      out.error = "invalid game time for the manifest";
+      return out;
+    }
+    std::error_code ec;
+    fs::create_directories(work, ec);
+    out.manifest_path = work / (name + ".x4mf");
+    {
+      std::ofstream f(out.manifest_path, std::ios::binary | std::ios::trunc);
+      f.write(reinterpret_cast<const char*>(manifest->data()), static_cast<std::streamsize>(manifest->size()));
+      if (!f) {
+        out.error = "cannot write the manifest";
+        return out;
+      }
+    }
+    auto mf = x4mp::authority::describe_upload_file(session::TransferKind::Manifest, out.manifest_path, "manifest");
+    if (!mf) {
+      out.error = "cannot read the manifest back";
+      return out;
+    }
+    out.save = std::move(*save);
+    out.manifest = std::move(*mf);
+    out.ok = true;
+    return out;
+  });
+  step_ = Step::Hashing;
+}
+
+void AuthorityFlow::step_hashing(host::HostContext& ctx) {
+  if (!prepared_.valid()) return fail(ctx, "internal: no hash job");
+  if (prepared_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+  ready_ = prepared_.get();
+  if (!ready_.ok) return fail(ctx, ready_.error);
+  if (!send_control(T(P::MsgType::GalaxyMetadata), x4mp::authority::encode_galaxy_metadata(ready_.save.sha256, plan_.sectors, plan_.links))) {
+    return fail(ctx, "GalaxyMetadata not sent");
+  }
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: upload {} ({} bytes) + manifest ({} bytes)", hex12(ready_.save.sha256), ready_.save.size,
+            ready_.manifest.size);
+  x4mp::authority::UploadSpec spec;
+  spec.checkpoint = checkpoint_;
+  spec.files = {ready_.save, ready_.manifest};
+  spec.ghosts_cleaned = true;
+  spec.step_timeout = seconds(60);
+  if (!uploader_.start(std::move(spec))) return fail(ctx, "the upload job could not start (not connected?)");
+  spawn_ship_ = collected_.ship();
+  spawn_plan_ = plan_;
+  step_ = Step::Uploading;
+}
+
+void AuthorityFlow::step_uploading(host::HostContext& ctx) {
+  const auto st = uploader_.stats();
+  if (counted_stored_ < st.checkpoints_stored) {
+    counted_stored_ = st.checkpoints_stored;
+    on_checkpoint_stored(ctx);
+    return;
+  }
+  if (const auto& r = uploader_.last_result();
+      r && r->state == x4mp::authority::UploadState::Failed && !uploader_.pending() && !uploader_.running()) {
+    fail(ctx, std::string("upload failed: ") + x4mp::authority::to_string(r->error) + " " + r->detail);
+  }
+}
+
+void AuthorityFlow::on_checkpoint_stored(host::HostContext& ctx) {
+  ++stored_total_;
+  ++state_.checkpoints;
+  state_.loaded_sha = ready_.save.sha256;  // this game is the source of that checkpoint
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: checkpoint {} stored (save {}, request {})", save_name_, hex12(ready_.save.sha256), request_id_);
+  std::error_code ec;
+  fs::remove(ready_.manifest_path, ec);  // our own temporary manifest file
+  if (!ledger_.empty()) {
+    const auto removed = record_and_trim(ledger_, save_dir_, save_name_, kKeepCheckpointSaves);
+    if (!removed.empty()) X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: removed {} old checkpoint save(s)", removed.size());
+  }
+  persist();
+  step_ = Step::Idle;
+  spawn_due_ = !state_.spawned;
+}
+
+void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
+  if (state_.spawned) {
+    spawn_due_ = false;
+    return;
+  }
+  if (!spawn_ship_) {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: no player ship was reported by MD; no self-spawn");
+    spawn_due_ = false;
+    return;
+  }
+  if (!uploader_.connected()) return;  // sent when the link is back
+  x4mp::authority::EntitySpawnBuilder builder(game_time_);
+  x4mp::authority::SpawnEntity self;
+  self.net_id = state_.next_net_id;
+  self.kind = spawn_kind_for_class(spawn_ship_->cls);
+  self.origin = x4mp::authority::SpawnOrigin::AuthorityRuntime;
+  self.macro_ref = spawn_plan_.ship_macro_ref;
+  self.owner_ref = spawn_plan_.player_faction_ref;
+  self.name = spawn_ship_->name;
+  self.idcode = spawn_ship_->idcode;
+  self.sector = spawn_plan_.ship_sector;
+  (void)builder.add(std::move(self));
+  const auto payload = builder.build();
+  if (!payload) {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Error, "authority: self-spawn refused: {}", x4mp::authority::to_string(payload.error()));
+    spawn_due_ = false;
+    return;
+  }
+  (void)send_control(T(P::MsgType::EntitySpawn), *payload);
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: self-spawn sent net_id={} game_time={:.3f}", state_.next_net_id, game_time_);
+  state_.spawned = true;
+  ++state_.next_net_id;
+  spawn_due_ = false;
+  persist();
+}
+
+}  // namespace x4mp::features::auth

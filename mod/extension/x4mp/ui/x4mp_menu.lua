@@ -128,10 +128,11 @@ function S.validateJoin(state)
 	elseif n > S.NAME_MAX then
 		errs.name = "name_long"
 	end
+	if state.host and (state.adminPassword or "") == "" then errs.admin = "admin_empty" end
 	return next(errs) == nil, errs
 end
 
-local ERROR_TEXT = { bad_address = 20, name_empty = 21, name_long = 22 }
+local ERROR_TEXT = { bad_address = 20, name_empty = 21, name_long = 22, admin_empty = 25 }
 
 ------------------------------------------------------------------------------
 -- state
@@ -154,6 +155,8 @@ function S.initState()
 		address = type(u.lastAddress) == "string" and u.lastAddress or "",
 		name = type(u.lastName) == "string" and u.lastName or "",
 		password = "",
+		host = false, -- M2-09: "Host this session as the authority"
+		adminPassword = "",
 		team = "auto", -- placeholder: the team list needs the server pre-query (later task)
 		errors = {},
 		notice = nil,
@@ -196,6 +199,15 @@ local function buildJoin(st, rows)
 	rows[#rows + 1] = { type = "edit", id = "password", label = T(5), value = st.password, hidden = true, maxChars = 128,
 		description = T(5), onChange = function(v) st.password = v end }
 	rows[#rows + 1] = text(T(13), "inactive")
+	-- M2-09: host option. The admin password only exists while the toggle is on; it is cleared after the send and when the window closes.
+	rows[#rows + 1] = { type = "button", id = "host", text = T(16, st.host and T(17) or T(18)), active = not busy,
+		onClick = function() st.host = not st.host if not st.host then st.adminPassword = "" end S.render() end }
+	if st.host then
+		rows[#rows + 1] = { type = "edit", id = "adminpassword", label = T(19), value = st.adminPassword, hidden = true, maxChars = 128,
+			description = T(19), onChange = function(v) st.adminPassword = v end }
+		if st.errors.admin then rows[#rows + 1] = text(T(ERROR_TEXT[st.errors.admin]), "error") end
+		rows[#rows + 1] = text(T(26), "inactive")
+	end
 	rows[#rows + 1] = text(T(6) .. ": " .. T(7), "normal")
 	rows[#rows + 1] = text(T(14), "inactive")
 	if st.notice then rows[#rows + 1] = text(st.notice, "warning") end
@@ -304,7 +316,11 @@ end
 
 --- called by the renderer when the window is gone: the password does not outlive the window
 function S.onClosed()
-	if S.state then S.state.password = "" end
+	if S.state then
+		S.state.password = ""
+		S.state.adminPassword = ""
+		S.state.host = false
+	end
 end
 
 ------------------------------------------------------------------------------
@@ -328,9 +344,15 @@ function S.submitJoin()
 	local address = S.normalizeAddress(st.address)
 	local name = S.sanitizeName(st.name)
 	local payload = { address = address, name = name, password = st.password or "", team = st.team or "auto" }
+	if st.host then
+		payload.role = "authority"
+		payload.admin_password = st.adminPassword
+	end
 	st.password = ""
+	st.adminPassword = ""
 	local sent, err = B.send("join", payload)
 	payload.password = nil
+	payload.admin_password = nil
 	if sent then
 		local u = S.user()
 		u.lastAddress = address

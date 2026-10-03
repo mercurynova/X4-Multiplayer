@@ -74,3 +74,9 @@ JSON path: `$.a.b[0].c`, `list[name==Bob].state`, `.length` on arrays/objects/st
    `tools/e2e.ps1`) ask for a step; the server, admin password, FakeNode authority and `--var` values are provided there.
 3. Assert through `expect-lua` (what the mod tells Lua), `expect-state`, `expect-admin` (what the server saw) and
    `expect-file` on `extension/logs/x4mp.log`. Keep each scenario under ~30 s of wall time.
+
+## M2-09 authority scenarios (not in CI)
+`mod/tests/hostsim/authority_flow_run.ps1` (ports 47956-47958, ~80 s; needs `mod/build.ps1` and `tools/e2e.ps1 -Steps Publish`): the real DLL is the
+authority of a session created from an uploaded save. `authority_flow.hostsim` plays the Lua/MD side (`lua-raw x4mp.auth_md ...`, `expect-lua x4mp.auth_save`,
+`exec authority_sim.ps1 -Mode save` writes the checkpoint file the game would write, `-Mode post` presses "Save now"); `authority_running_save.hostsim` is the
+"already runs the save" branch. `hostsim.authority_role` (ctest) checks the join role and password handling without a server.
