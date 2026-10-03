@@ -235,6 +235,10 @@ jobs:
       - name: XML well-formedness (mod/extension)
         run: |
           python3 -c "import glob, xml.dom.minidom as m; fs = sorted(glob.glob('mod/extension/**/*.xml', recursive=True)); [(print(f), m.parse(f)) for f in fs]; print('well-formed:', len(fs), 'files')"
+      - name: Lua unit tests (mod/tests/lua)
+        run: |
+          sudo apt-get install -y --no-install-recommends lua5.1 >/dev/null
+          sh mod/tests/lua/run.sh --require
       - name: Detect Lua files
         id: lua
         run: |
@@ -249,7 +253,7 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends luarocks >/dev/null
           sudo luarocks install luacheck >/dev/null
-          luacheck mod/extension --no-color
+          luacheck mod/extension --config mod/extension/x4mp/.luacheckrc --no-color
 
   # ---------------------------------------------------------------------------------------------
   # End-to-end (M1-C1). The same script runs locally: `pwsh tools/e2e.ps1` (docs/dev-setup.md section 10).
