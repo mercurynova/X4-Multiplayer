@@ -1,0 +1,54 @@
+# M2-10: save control + self-test against the real x4mp.dll (ctest hostsim.selftest, needs --var SCRIPT_DIR=<this folder>).
+# No server: the self-test table is asserted in the mod log (the LogForward sender is M2-06's; without a session the
+# table is logged only, which the log line "not forwarded" documents) and in the Lua events the mod raises.
+init
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${SCRIPT_DIR}/write_selftest_config.ps1" "${work}/extension/x4mp.json"
+ui_reload
+
+# Lua comes up: ui_ready -> the mod pushes the block flag (not a client yet)
+lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
+frame 60Hz 5
+expect-lua x4mp.saves 5000 json $.block == false
+
+# Lua reports its wrappers
+lua-raw x4mp.saves_status {"v":1,"save_game":true,"is_saving_possible":true,"menu_row":true,"tooltip":true,"blocking":false,"detail":"hostsim"}
+
+# selftest=true: runs by itself once the universe is ready
+load_save slot.xml.gz
+frame 60Hz 10
+expect-file extension/logs/x4mp.log SELFTEST begin (trigger=config
+expect-file extension/logs/x4mp.log SELFTEST PASS  saves.wrappers
+expect-file extension/logs/x4mp.log SELFTEST PASS  build.supported
+expect-file extension/logs/x4mp.log SELFTEST PASS  game.time
+expect-file extension/logs/x4mp.log SELFTEST PASS  main_thread
+expect-file extension/logs/x4mp.log SELFTEST summary:
+expect-lua x4mp.notify 5000 contains self-test
+
+# connected as a client (test seam): the block flag flips, Lua is told, a bypassing save is reported
+drop-lua x4mp.saves
+lua-raw x4mp.saves_debug {"v":1,"role":"client","connected":true}
+frame 60Hz 3
+expect-lua x4mp.saves 5000 json $.block == true
+lua-raw x4mp.game_saved {"v":1,"success":1,"age":123.4}
+frame 60Hz 3
+expect-lua x4mp.notify 5000 contains local copy
+expect-file extension/logs/x4mp.log while connected as a client
+
+# chat command: the second table, now with Lua still reporting blocking=false while we are a client -> saves.block FAIL
+lua-raw x4mp.selftest {"v":1}
+frame 60Hz 10
+expect-file extension/logs/x4mp.log SELFTEST begin (trigger=chat
+expect-file extension/logs/x4mp.log SELFTEST FAIL  saves.block
+lua-raw x4mp.saves_status {"v":1,"save_game":true,"is_saving_possible":true,"menu_row":true,"tooltip":true,"blocking":true}
+lua-raw x4mp.selftest {"v":1}
+frame 60Hz 10
+expect-file extension/logs/x4mp.log expected true (client=true) lua reports true
+
+# survives a reload (stash kept, new Lua state): ui_ready pushes the flag again; the client state is gone with the DLL
+drop-lua x4mp.saves
+reload
+lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
+frame 60Hz 5
+expect-lua x4mp.saves 5000 json $.block == false
+frame fast 60
+expect-no-secret never-written-password

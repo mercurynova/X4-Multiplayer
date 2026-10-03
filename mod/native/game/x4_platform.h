@@ -3,6 +3,7 @@
 // exists for that target alone). Every method is null-safe against a cleared/absent API pointer.
 
 #include <mutex>
+#include <vector>
 
 #include "host/platform.h"
 
@@ -19,8 +20,12 @@ class X4Platform final : public host::IPlatform {
   bool stash_set(const char* key, const void* data, std::uint32_t size) override;
   [[nodiscard]] const void* stash_get(const char* key, std::uint32_t* size) override;
   bool stash_remove(const char* key) override;
+  bool subscribe_event(const char* name, EventFn fn) override;
+  bool raise_lua(const char* name, std::string_view text) override;
+  ~X4Platform() override;  // unsubscribes the bridge events
 
  private:
+  std::vector<int> event_subscriptions_;
   std::mutex log_mutex_;  // native_log is called from the logger's writer thread and from the main thread
 };
 

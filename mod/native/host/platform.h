@@ -3,6 +3,7 @@
 // SDK-free and testable. The real implementation (game/x4_platform.cpp) wraps X4NativeAPI; tests use a fake.
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,22 @@ class IPlatform {
   // Pointer valid until the next set/remove of the same key; nullptr when absent.
   [[nodiscard]] virtual const void* stash_get(const char* key, std::uint32_t* size) = 0;
   virtual bool stash_remove(const char* key) = 0;
+
+  // Lua <-> native bridge (docs/mod-design.md section 7). Defaults do nothing so fakes that do not care need no code.
+  // subscribe_event: `fn` receives the text Lua passed to __X4NATIVE_API.raise_event(name, text). It may run on any
+  // thread: copy the text and handle it in on_frame. Subscriptions are dropped when the platform is destroyed.
+  using EventFn = std::function<void(std::string_view)>;
+  virtual bool subscribe_event(const char* name, EventFn fn) {
+    (void)name;
+    (void)fn;
+    return false;
+  }
+  // raise_lua: delivers `text` to Lua's RegisterEvent(name, ...). Main thread only. false when it could not be raised.
+  virtual bool raise_lua(const char* name, std::string_view text) {
+    (void)name;
+    (void)text;
+    return false;
+  }
 };
 
 }  // namespace x4mp::host

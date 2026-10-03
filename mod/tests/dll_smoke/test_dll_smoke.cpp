@@ -11,6 +11,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #define WIN32_LEAN_AND_MEAN
@@ -152,6 +153,14 @@ void fire(const char* name) {
   }
 }
 
+std::size_t host_event_subs() {
+  std::size_t n = 0;
+  for (const auto& s : g.subs) {
+    if (std::string_view(s.name).rfind("x4mp.", 0) != 0) ++n;
+  }
+  return n;
+}
+
 bool subscribed(const char* name) {
   for (const auto& s : g.subs) {
     if (s.name == name) return true;
@@ -189,7 +198,7 @@ TEST_CASE("x4mp.dll: exports, init, frames, gates, shutdown", "[dll]") {
   CHECK(subscribed("on_game_loaded"));
   CHECK(subscribed("on_universe_ready"));
   CHECK(subscribed("on_ui_reload"));
-  CHECK(g.subs.size() == 4);
+  CHECK(host_event_subs() == 4);  // the bridge verbs ("x4mp.*", features) come on top and are not counted here
 
   for (int i = 0; i < 600; ++i) fire("on_frame_update");
   fire("on_game_loaded");
@@ -224,7 +233,7 @@ TEST_CASE("x4mp.dll: reload = shutdown + init with the stash kept", "[dll]") {
   REQUIRE(g.stash.count("host.state") == 1);
 
   REQUIRE(dll.init(&api) == X4NATIVE_OK);  // same DLL, same stash
-  CHECK(g.subs.size() == 4);
+  CHECK(host_event_subs() == 4);  // the bridge verbs ("x4mp.*", features) come on top and are not counted here
   fire("on_frame_update");
   dll.shutdown();
 

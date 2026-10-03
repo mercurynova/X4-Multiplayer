@@ -1158,6 +1158,11 @@ header of `x4mp_bridge.lua`. Native side: `x4n::on("x4mp.<verb>", cb)` for verbs
 | native → Lua | `x4mp.error` | `{"v":1,"code":"…","text":"…"}` shown on the status screen |
 | native → Lua | `x4mp.load_save` | `{"v":1,"name":"x4mp_<sha12>"}`, name without `.xml.gz`. Default handler validates the name (no path parts) and calls `LoadGame(name)` 0.1 s later through `Helper.addDelayedOneTimeCallbackOnUpdate` (the vanilla `loadSave` event cannot be raised from Lua; M2-06 may replace the handler) |
 | native → Lua | `x4mp.open` | `{"v":1,"screen":"main\|join\|status"}` opens the X4MP window (same as chat `/x4mp [screen]`) |
+| native → Lua | `x4mp.saves` | **M2-10**, handled by `x4mp_saves.lua` (registered through `B.on`, the bridge file is untouched). `{"v":1,"block":true\|false}`: native pushes it after every `ui_ready`, on game load and universe ready, and whenever the connection state changes. `block` is true while connected as a pure client. Lua starts every state unblocked and clears the MD flag at load; this push is what blocks (the Lua flag is lost on every load / `/reloadui`) |
+| Lua → native | `x4mp.saves_status` | **M2-10**. `{"v":1,"save_game":bool,"is_saving_possible":bool,"menu_row":bool,"tooltip":bool,"blocking":bool,"detail":"config:uix\|handoff\|debug:<fn>\|none"}`: what the wrappers installed and the Lua flag. Sent at load and after every `x4mp.saves`; feeds the self-test rows `saves.wrappers` / `saves.block` |
+| Lua → native | `x4mp.game_saved` | **M2-10**. `{"v":1,"success":0\|1,"age":123.4}` for every completed game save (MD `event_game_saved` through the Lua event `x4mp.md_game_saved`, `md/x4mp_saves.xml`). Native logs a warning and forwards it as `LogForward` (rate limit one per 5 s) when it happens while connected as a client (quicksave bypasses the Lua wrapper) |
+| Lua → native | `x4mp.selftest` | **M2-10**. `{"v":1}`, sent by the chat command `/x4mp_selftest` (a chained `ExecuteDebugCommand` wrapper in `x4mp_saves.lua`). Native runs the self-test on the next frames and logs / forwards the PASS table (`SELFTEST <verdict> <check> <detail>` lines) |
+| Lua → native | `x4mp.saves_debug` | **M2-10 test seam**, honoured only with `selftest=true` in `x4mp.json`: `{"v":1,"role":"client\|authority\|none","connected":bool}` sets the node state the saves feature reacts to (hostsim drives it; the real source is the join feature through `DiagHub::set_connection`) |
 
 JSON subset: objects, arrays, strings with all escapes and `\uXXXX` (surrogate pairs become UTF-8), numbers, booleans, `null`
 (dropped inside objects, `json.null` inside arrays). Depth ≤ 32.
@@ -1538,6 +1543,17 @@ Run `/x4mp_selftest` (chat), or `selftest=true` in the config, at
   `SafeRemove`, timing each step;
 - `PlayerGuard` contents;
 - save-wrap installed.
+
+**As built (M2-10):** native `features/selftest` runs the checks `x4native.api` (versions, exports resolved N/15),
+`x4native.hooks` (0 by design), `build.supported`, `game.adapter` (missing exports), `saves.wrappers` and `saves.block` (Lua's
+`x4mp.saves_status`), `player.guard` (SKIP before the universe is ready), `game.time` (two samples, monotonic) and `main_thread`
+(definition, violations). Triggers: `/x4mp_selftest` (bridge verb `x4mp.selftest`) and `selftest=true` in `x4mp.json` (runs at
+universe ready). Output: log lines `SELFTEST PASS|FAIL|WARN|SKIP <check> <detail>`, the same lines as `LogForward` (through
+`features/diag` `DiagHub`, once the session code installs a sender with `set_log_sender`; without one the log says
+`not forwarded`), the table kept in `DiagHub::last_selftest()`, and an `x4mp.notify` summary. The janitor skeleton
+(`features/janitor`) counts `[MP] ` names among the player's and `x4mp_team_1..8` ships and stations at universe ready (log only).
+The checks that need ghosts, factions or the options-menu adapter (sector map, `x4mp_team_1` activation, adapter probes, test ghost)
+are added by the tasks that own those parts.
 
 ---
 

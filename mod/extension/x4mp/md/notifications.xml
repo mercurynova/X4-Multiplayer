@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP (M2-10): diff of the vanilla autosave request loop in md/notifications.xml.
+
+  While global.$x4mp_noSave is true (set by ui/x4mp_saves.lua through md/x4mp_saves.xml whenever this node is connected as a
+  client) the autosave request is dropped and the request cue is reset, exactly like the vanilla "request failed" path. The
+  inserted branch sits in front of the one that runs trigger_autosave. With the flag unset or false nothing changes.
+  Verified in game (session 2, C2): the request path is suppressed. Only a minimal selector of the vanilla file is used.
+-->
+<diff>
+  <add sel="//cue[@name='AutoSave_Attempt']/actions/do_elseif[@value='player.autosave.available']" pos="before">
+    <do_elseif value="player.autosave.available and @global.$x4mp_noSave">
+      <reset_cue cue="AutoSave_Request"/>
+    </do_elseif>
+  </add>
+</diff>

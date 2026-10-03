@@ -8,6 +8,7 @@
 // Timing: the game functions need a loaded game; the host only calls the universe-dependent ones
 // (player guard) after on_universe_ready. The save-list functions are start-menu safe.
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -46,7 +47,10 @@ struct GameFns {
   bool (*IsValidComponent)(UniverseId componentid) = nullptr;
 };
 
-using GetFunctionFn = std::function<void*(const char* name)>;  // X4NativeAPI::get_game_function or a fake
+// Number of exports in GameFns (keep in step with resolve_game_fns / missing_exports; the self-test reports resolved/total).
+inline constexpr std::size_t kGameFnCount = 15;
+
+using GetFunctionFn =std::function<void*(const char* name)>;  // X4NativeAPI::get_game_function or a fake
 
 // Resolves every GameFns member by name through `get` (nullptr `get` => all missing).
 [[nodiscard]] GameFns resolve_game_fns(const GetFunctionFn& get);
