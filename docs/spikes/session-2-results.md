@@ -95,3 +95,16 @@ Decisions for the wave-2 briefs (m2-plan §4.1 B/C/D):
   browser.
 - **Not done in sitting 1:** D8 (SirNukes/UIX compatibility, optional), S9 with a connected gate. Sittings 2 (Part E)
   and 3 (Part F) feed later milestones.
+
+## Sitting 1, Run 3 (D8), SirNukes Mod Support APIs 1.95 + kuertee UI Extensions 90.09 both enabled, 2026-10-03
+
+| Item | Result | Evidence |
+|---|---|---|
+| R3/R6 start-menu row | **PASS**: with UIX present, config capture used UIX's accessor (`uix_getConfig ok=true`, `config_capture source=uix`); row inserted exactly once; main menu redrew | `UI PASS what=row_state ... rows_with_id=1` |
+| R4 X4Native settings | **PASS**: the probe toggle behind "…" is still there | user |
+| R5 chat coexistence | **PASS**: `/x4mpspike ping` works; SirNukes' `/rui` alias (reloadui) works; `/x4mpspike ping` still works afterwards (both wrap the chat command path) | `NOTIFY ... ping_ok` |
+| B6 after reload | **PASS**: after `/rui`, running `ui` again keeps the row exactly once | `rows_with_id=1` |
+| SirNukes "Extension Options" | **PASS**: still present in the Esc menu and opens | user |
+
+Not run (optional): SirNukes-only and UIX-only. The product menu adapter (M2-11) uses the same probe chain: UIX accessor
+first, then `require("debug")`.
