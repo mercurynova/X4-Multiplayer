@@ -129,6 +129,11 @@ the menu closes. The Esc menu should have a **Multiplayer** row too. Say which o
 **B4. Reconnect (criterion 4).** In game: window 1 Ctrl+C (stops server **and** fake authority). The HUD (and the **Connection status** line) goes to **Connecting** (the mod uses that
 word for reconnecting); X4 must keep running. After about 20 seconds start window 1 again with the **same command** as B0. Look for: the HUD shows **Connected** again within about
 5 seconds **after** window 1 prints `checkpoint stored`; X4 never froze. Write down what the status line says meanwhile (it may show the save download again: fine).
+Expected after the server comes back (the resume token is gone, so the mod joins fresh): `x4mp.log` shows `rejoin: fresh Welcome while the universe is running`, then
+`rejoin: the session save is the running universe` and `universe ready: NodeReady sent`; **no** `raised the Lua event loadSave` and no loading screen; the GUI **Players** page shows Tester
+**InGame** again. The vanilla cockpit HUD (radar, steering overlay) stays the whole time. If the session save is a different one, the HUD says **The session save changed: ...** and nothing loads
+until you open `/x4mp` and press **Load the new session save**. `x4mp_s3.log` has `[X4MP] hud: view Helper6=X4MPHud[hud=1,pc=1] frames=1` lines: if the cockpit HUD disappears anyway,
+send that log (each line lists everything X4 holds in its view stack at that moment).
 
 **B5. 30 minutes connected (criterion 5).** Fly around a quiet sector for 30 minutes (do B6 meanwhile). Look for: no disconnect (**Logs**: no new `detached` for Tester after B4);
 **Players** shows Status "Online NN ms" and FPS; the Tester detail page **Connection** panel shows Ping, FPS, **Frame time (p95)**, **Mod main-thread cost (p95)**, **Traffic in / out**,

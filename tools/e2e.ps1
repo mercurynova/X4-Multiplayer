@@ -24,8 +24,9 @@
     LaunchStats (Windows, M2-12) launch_stats_run.ps1: a launch.json connects the real x4mp.dll without UI and is deleted;
                 an expired one is ignored; NodeStats reach the admin API. Ports 47971-47973.
     JoinFlow    (Windows, M2-14) mod/tests/hostsim/join_flow_run.ps1: the real x4mp.dll joins a server whose authority is a FakeNode
-                serving a dummy save (download, load, reload + resume, NodeReady, InGame) plus the name / full / banned refusals.
-                Own server on ports 47953-47955.
+                serving a dummy save (download, load, reload + resume, NodeReady, InGame) plus the name / full / banned refusals and the
+                session-3 B4 case (join_rejoin.hostsim: server restart while in game, fresh Welcome, the running universe is reported again,
+                the server shows the player InGame, nothing is loaded). Own server on ports 47953-47955.
     ReloadSurvival  (Windows, M2-14) reload_survival_run.ps1: 20 seeded reloads at random phases, always resumed, same player id,
                 no leave. Ports 47953-47955.
     AuthorityFlow   (Windows, M2-14) authority_flow_run.ps1: the real x4mp.dll as the AUTHORITY for a session made from an admin

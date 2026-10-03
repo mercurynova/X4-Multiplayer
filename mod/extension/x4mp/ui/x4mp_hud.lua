@@ -23,7 +23,7 @@
 -- ego_viewhelper/viewhelper.lua (View.menus entries carry name/type/minimized), ego_detailmonitorhelper/helper.lua
 -- (Helper.registerMenu :1331, createFrameHandle, clearFrame, addDelayedOneTimeCallbackOnUpdate :940).
 
--- luacheck: globals X4MPBridge X4MPScreens X4MPHud __X4MP_USER Menus Helper Color View AddUITriggeredEvent getElapsedTime RegisterEvent
+-- luacheck: globals X4MPBridge X4MPScreens X4MPHud __X4MP_USER Menus Helper Color View AddUITriggeredEvent getElapsedTime RegisterEvent IsValidWidgetElement
 
 local H = X4MPHud or {}
 X4MPHud = H
@@ -31,7 +31,7 @@ H.loaded = true
 
 local MENU_NAME = "X4MPHud"
 local STATE_TEXT = { connecting = 31, handshaking = 32, checking_save = 33, downloading = 34, loading = 35, matching = 36,
-	ingame = 37, rejected = 38, error = 39 }
+	ingame = 37, rejected = 38, error = 39, save_changed = 45 }
 
 H.config = H.config or {
 	mode = "hud",
@@ -46,7 +46,9 @@ H.config = H.config or {
 	maxDetail = 60,     -- characters of a status detail shown on the one-line HUD (the full text is on the Multiplayer screen)
 	maxFailures = 3,    -- failed draws in a row before degrading to "notify"
 	ignoreMenus = { ChatWindow = true }, -- View.menus entries that do not count as "another menu is open"
-	yieldMenus = { ChatWindow = true },  -- while one of these is open the HUD never draws, hides or touches anything (belt and braces)
+	-- Off: the HUD is on layer 6 and cannot displace the chat window (Helper3). Yielding left the line gone for minutes after the chat closed.
+	yieldMenus = {},     -- names of View menus while which the HUD never draws, hides or touches anything
+	refreshInterval = 5, -- seconds after which an unchanged frame is drawn once more (heals a frame lost without notice)
 	yieldLogInterval = 30, -- seconds between "yielding" log lines
 }
 
@@ -119,10 +121,31 @@ local function viewEntryPresent()
 end
 
 --- true when our frame is on screen
+--- Live session 3: after the chat window (or the map) closed, the line never came back because a View entry of ours outlived the frame.
+--- A frame counts as on screen only while the view entry exists AND we still consider it shown (onCloseElement / cleanup clear that) AND the
+--- engine still knows the frame widget.
 function H.present()
 	local v = viewEntryPresent()
-	if v ~= nil then return v end
-	return menu.shown == true
+	if v == false then return false end
+	if menu.shown ~= true then return false end
+	if v == true and type(IsValidWidgetElement) == "function" and type(menu.frames) == "table" then
+		local f = menu.frames[H.config.layer]
+		if f ~= nil then
+			local ok, valid = pcall(IsValidWidgetElement, f)
+			if ok and not valid then return false end
+		end
+	end
+	return true
+end
+
+--- number of View entries that are not ours (any change = some menu opened or closed: draw once more to be safe)
+local function otherMenuCount()
+	if type(View) ~= "table" or type(View.menus) ~= "table" then return 0 end
+	local n = 0
+	for _, entry in ipairs(View.menus) do
+		if type(entry) == "table" and entry.name ~= MENU_NAME then n = n + 1 end
+	end
+	return n
 end
 
 --- name of an open menu from config.yieldMenus (the chat window), or nil
@@ -184,10 +207,23 @@ function menu.cleanup()
 	menu.frame = nil
 end
 
+--- Releases our registration in View the way vanilla Helper.clearMenu does for its own frames (helper.lua clearFrame -> View.unregisterMenu).
+--- View.clearMenus({ Helper = true }) (run by every vanilla Helper menu that opens, helper.lua:1404) only calls our clearCallback; the entry
+--- stays in View.menus unless the callback removes it. A stale "Helper<layer>" entry would still be counted by View.currentFrames and by the
+--- AND-ed View.keepHUDVisible() / hasPlayerControls() flags that every later CreateView / UpdateFrame / CloseFrame call passes to the engine.
+local function releaseRegistration()
+	if type(Helper) ~= "table" or type(Helper.clearFrame) ~= "function" then return end
+	menu.closing = true
+	local ok, err = pcall(Helper.clearFrame, menu, H.config.layer)
+	menu.closing = nil
+	if not ok then log("hud: releasing the view registration failed: " .. tostring(err)) end
+end
+
 --- the engine closes our frame whenever another menu opens (session 2): note it, draw again later; never reopen from here
 function menu.onCloseElement()
 	if menu.closing then return end
 	if menu.shown then H.goneSince = now() end
+	if viewEntryPresent() == true then releaseRegistration() end
 	menu.cleanup()
 end
 
@@ -215,6 +251,30 @@ end
 ------------------------------------------------------------------------------
 -- show / hide / notify
 ------------------------------------------------------------------------------
+--- What View holds right now, one short line: "Helper6=X4MPHud[hud=1,pc=1] Helper2=MapMenu[hud=0,pc=0] frames=2". The cockpit HUD is shown only
+--- while every entry says hud=1 (viewhelper.lua keepHUDVisible / hasPlayerControls are ANDs over all entries), so this line is the evidence
+--- for "why is the vanilla HUD gone". It is logged only when it changes.
+function H.viewSnapshot()
+	if type(View) ~= "table" or type(View.menus) ~= "table" then return nil end
+	local parts = {}
+	for _, entry in ipairs(View.menus) do
+		if type(entry) == "table" then
+			local pr = type(entry.properties) == "table" and entry.properties or {}
+			parts[#parts + 1] = string.format("%s=%s[hud=%d,pc=%d%s]", tostring(entry.id), tostring(entry.name), pr.keepHUDVisible and 1 or 0,
+				pr.playerControls and 1 or 0, entry.minimized and ",min" or "")
+		end
+	end
+	return table.concat(parts, " ") .. " frames=" .. tostring(View.currentFrames)
+end
+
+local function logViewChange()
+	local snap = H.viewSnapshot()
+	if snap and snap ~= H.lastSnapshot then
+		H.lastSnapshot = snap
+		log("hud: view " .. snap)
+	end
+end
+
 local function draw(text)
 	if not registerMenu() then return false, "no_helper" end
 	menu.text = text
@@ -223,14 +283,15 @@ local function draw(text)
 		menu.cleanup()
 		return false, tostring(err)
 	end
+	H.lastDrawAt = now()
+	logViewChange()
 	return true
 end
 
 function H.hide()
-	if menu.shown then
-		menu.closing = true
-		pcall(function() Helper.clearFrame(menu, H.config.layer) end)
-		menu.closing = nil
+	-- also when only a stale registration is left (the frame is gone but View still lists us): it must not outlive the HUD
+	if menu.shown or viewEntryPresent() == true then
+		releaseRegistration()
 		menu.cleanup()
 	end
 	H.lastText, H.goneSince = nil, nil
@@ -280,14 +341,20 @@ function H.tick(force)
 		return notify(status(), text) and "notified" or "idle"
 	end
 
+	local others = otherMenuCount()
+	if H.lastOthers ~= nil and others ~= H.lastOthers then H.forceRedraw = true end -- a menu opened or closed
+	H.lastOthers = others
+
 	if H.present() then
-		if text ~= H.lastText then -- redraw only on change
+		local stale = H.lastDrawAt and (t < H.lastDrawAt or t - H.lastDrawAt >= H.config.refreshInterval)
+		if text ~= H.lastText or H.forceRedraw or stale then
 			local ok = draw(text)
-			if ok then H.lastText = text end
+			if ok then H.lastText, H.forceRedraw = text, nil end
 			return ok and "updated" or "failed"
 		end
 		return "present"
 	end
+	H.forceRedraw = nil
 
 	-- frame not on screen: either never drawn, or an engine-side close (menu) removed it
 	if menu.shown then menu.cleanup() end

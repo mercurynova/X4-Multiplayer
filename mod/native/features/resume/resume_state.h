@@ -37,7 +37,7 @@ struct Fingerprint {
 
 // The persisted join state ("join.state" in the stash).
 struct State {
-  std::string stage;  // joining | downloading | preparing | loading | ingame
+  std::string stage;  // joining | downloading | preparing | loading | ingame | rejoining
   std::string save_name;
   std::vector<std::uint8_t> save_sha;
   bool has_manifest = false;

@@ -65,6 +65,8 @@ class JoinFeature final : public host::IFeature {
     InGame,       // NodeReady sent
     Rejected,     // the server refused us (reject_ is set)
     Failed,       // local failure (download, save folder ...)
+    Rejoining,    // in-game, the session was lost and the server issued a FRESH Welcome (restart / expired resume token): the running universe is
+                  // reported again (Matching + NodeReady) when the session save equals it; a different save waits for the player's choice
   };
 
   // ---- verbs ----
@@ -78,6 +80,11 @@ class JoinFeature final : public host::IFeature {
   void pump_session(host::HostContext& ctx);
   void handle_session_event(host::HostContext& ctx, const session::SessionEvent& event);  // M2-09 hook point
   void handle_save_ready(host::HostContext& ctx);
+  // ---- fresh Welcome while the universe runs (session 3, B4) ----
+  void begin_rejoin(host::HostContext& ctx);
+  void handle_rejoin_save(host::HostContext& ctx);
+  void step_rejoin(host::HostContext& ctx);
+  void on_load_session(host::HostContext& ctx);  // verb x4mp.load_session: the player chose to load the changed session save
   // ---- M2-09 hook points (authority) ----
   void sync_authority(host::HostContext& ctx);
   void step_authority_ready(host::HostContext& ctx);
@@ -112,6 +119,8 @@ class JoinFeature final : public host::IFeature {
   Clock::time_point welcomed_at_{};                    // the newest Welcome (authority: grace before "no save to load")
   int my_phase_ = -1;                                  // our NodePhase as the server last published it in RosterUpdate (-1 unknown)
   bool ready_pending_ = false;                         // Matching sent, NodeReady waits for the roster to confirm it
+  bool rejoin_report_ = false;                         // Rejoining: the session save is the running universe, report it once the universe is ready
+  bool rejoin_choice_ = false;                         // Rejoining: the session save differs from the running universe, waiting for the player
   Clock::time_point matching_sent_at_{};
   std::uint64_t pending_epoch_ = 0;
   int authority_ready_step_ = 0;                       // 0 waiting, 1 Loading sent (Matching + NodeReady follow)
