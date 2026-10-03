@@ -41,6 +41,9 @@ below. The repo is the only memory that follows you between computers.
 | [roadmap.md](roadmap.md) | Milestones M0–M6, task ids + acceptance criteria, spikes S1–S9, backlog |
 | [execution-plan.md](execution-plan.md) | Opus-plans/Sonnet-codes workflow, delegation waves, brief template, review checklist |
 | [m1-exit-report.md](m1-exit-report.md) | M1 exit evidence: each exit criterion with command, key numbers, verdict and issues found (2026-10-02) |
+| [m2-plan.md](m2-plan.md) | M2 plan (mod in real X4): scope and non-goals, 18 exit criteria (CI vs in game), session-2 dependencies with fallbacks, waves 0–3 with task table (M2-001..006, M2-01..14, M2-X1..X3), testing strategy, risks, open questions |
+| [in-game-session-2.md](in-game-session-2.md) | User test script for in-game session 2: native probe (join, load, reload, threads), save control, game clock, menus/HUD, extension list, links, retests V12/S9, S10 on-foot, S11 diplomacy, S12 HQ; logs to send back |
+| [spikes/session-1.md](spikes/session-1.md), [spikes/session-1-results.md](spikes/session-1-results.md) | In-game session 1 script and verdicts (2026-10-01) |
 
 ## Quick facts
 - Game: X4 9.00 build 611726 (pinned). Protected UI mode OFF. Same DLC set for all players.
