@@ -44,6 +44,29 @@ bool DiagHub::forward_log(log::Level level, std::string_view text) {
   return copy(level, text);
 }
 
+void DiagHub::set_stats_link(StatsLink link) {
+  const std::lock_guard lock(m_);
+  stats_link_ = std::move(link);
+}
+
+bool DiagHub::sample_net(NetSample& out) const {
+  std::function<bool(NetSample&)> fn;
+  {
+    const std::lock_guard lock(m_);
+    fn = stats_link_.sample;
+  }
+  return fn && fn(out);
+}
+
+bool DiagHub::send_control(std::uint16_t type, std::vector<std::uint8_t> payload) const {
+  std::function<bool(std::uint16_t, std::vector<std::uint8_t>)> fn;
+  {
+    const std::lock_guard lock(m_);
+    fn = stats_link_.send_control;
+  }
+  return fn && fn(type, std::move(payload));
+}
+
 void DiagHub::set_saves_status(SavesStatus s) {
   const std::lock_guard lock(m_);
   saves_ = std::move(s);
@@ -70,6 +93,7 @@ void DiagHub::reset() {
   connected_ = false;
   ++epoch_;
   sender_ = nullptr;
+  stats_link_ = {};
   saves_ = {};
   selftest_.clear();
 }

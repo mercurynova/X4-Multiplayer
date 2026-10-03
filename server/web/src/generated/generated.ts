@@ -669,6 +669,18 @@ export interface NodeLogLineDto {
   text: string;
 }
 
+export interface NodeStatsDto {
+  fps: number;
+  frameMsP95: number;
+  gameTime: number;
+  rttMs: number;
+  rxBytesPerS: number;
+  txBytesPerS: number;
+  netMainMsP95: number;
+  memoryMb: number;
+  receivedAt: string;
+}
+
 export interface PatchModPolicyRequest {
   sourceMode: string | null;
   unknownDefault: string | null;
@@ -763,6 +775,7 @@ export interface PlayerLiveDto {
   muted: boolean;
   teamId: number | null;
   teamName: string | null;
+  stats: NodeStatsDto | null;
 }
 
 export interface PlayerModStatusDto {

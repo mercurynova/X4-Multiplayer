@@ -69,21 +69,9 @@ InitResult ModHost::init() noexcept {
     paths_ = resolve_config_paths(extension_path_, options_.documents_override);
     config::LoadOptions lo;
     lo.user_file = paths_.user_file;
-    lo.launch_file = paths_.launch_file;
+    // launch.json is NOT given to config::load: the launch feature (M2-12) consumes it and starts the join through the join flow.
     auto loaded = config::load(lo);
     config_ = loaded.config;
-    if (config_.launch.active) {
-      // launch.json was consumed by load(): remember which keys it set so a /reloadui (which no longer sees the
-      // file) can re-apply them over a re-read x4mp.json.
-      config::LoadOptions user_only;
-      user_only.user_file = paths_.user_file;
-      const config::Config base = config::load(user_only).config;
-      launch_overlay_.active = true;
-      launch_overlay_.server = config_.server_host != base.server_host || config_.tcp_port != base.tcp_port;
-      launch_overlay_.name = config_.player_name != base.player_name;
-      launch_overlay_.password = config_.password != base.password;
-      launch_overlay_.snapshot = config_;
-    }
 
     HostLog::Options ho;
     ho.file = config_.log_file.empty() ? paths_.default_log_file : std::filesystem::path(config_.log_file);
@@ -298,19 +286,7 @@ void ModHost::on_ui_reload() noexcept {
   try {
     config::LoadOptions lo;
     lo.user_file = paths_.user_file;
-    lo.launch_file = paths_.launch_file;
     auto loaded = config::load(lo);
-    // launch.json is one-shot: a reload that finds no new request keeps the one consumed at init.
-    if (!loaded.config.launch.active && launch_overlay_.active) {
-      const config::Config& s = launch_overlay_.snapshot;
-      loaded.config.launch = s.launch;
-      if (launch_overlay_.server) {
-        loaded.config.server_host = s.server_host;
-        loaded.config.tcp_port = s.tcp_port;
-      }
-      if (launch_overlay_.name) loaded.config.player_name = s.player_name;
-      if (launch_overlay_.password) loaded.config.password = s.password;
-    }
     config_ = loaded.config;
     for (const auto& w : log_->apply_config(config_)) log_->raw(Cat::Host, Level::Warn, w);
     config::report(loaded, log_->logger());

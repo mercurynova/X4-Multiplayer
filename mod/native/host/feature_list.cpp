@@ -19,6 +19,8 @@
 #include "features/saves/saves_feature.h"
 #include "features/selftest/selftest_feature.h"
 #include "features/join/join_feature.h"
+#include "features/launch/launch_feature.h"
+#include "features/stats/stats_feature.h"
 
 namespace x4mp::host {
 
@@ -28,6 +30,8 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::SelfTestFeature>());
   registry.add(std::make_unique<x4mp::features::JanitorFeature>());
   registry.add(std::make_unique<x4mp::features::JoinFeature>());
+  registry.add(std::make_unique<x4mp::features::LaunchFeature>());
+  registry.add(std::make_unique<x4mp::features::StatsFeature>());  // last: its frame cost sample covers the earlier features
 }
 
 }  // namespace x4mp::host

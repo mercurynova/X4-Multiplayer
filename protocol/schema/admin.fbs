@@ -71,6 +71,7 @@ table NodeStats {
   memory_mb:uint;
   md_hook_state:FeatureState;    // Mission Director hooks (Capability.MdHooks)
   team_setup_state:FeatureState; // x4mp_team_<slot> factions + relations applied (Capability.TeamFactions)
+  net_main_ms_p95:float;         // p95 of the mod's own main-thread cost per frame over the last 2 s (host frame budget; appended in M2-12)
 }
 
 enum LogLevel : ubyte { Debug = 0, Info, Warn, Error }

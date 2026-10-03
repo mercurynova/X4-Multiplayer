@@ -110,11 +110,6 @@ class ModHost {
   ClockNs clock_;
 
   config::Config config_;
-  struct LaunchOverlay {  // which keys the (consumed, one-shot) launch.json overrode at init
-    bool active = false;
-    bool server = false, name = false, password = false;
-    config::Config snapshot;
-  } launch_overlay_;
   ConfigPaths paths_;
   std::unique_ptr<HostLog> log_;
   game::GameApi game_;

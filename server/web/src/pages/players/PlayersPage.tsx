@@ -70,6 +70,7 @@ export function PlayersPage() {
                 <th scope="col">Status</th>
                 <th scope="col">Team</th>
                 <th scope="col">Role</th>
+                <th scope="col">FPS</th>
                 <th scope="col">Address</th>
                 <th scope="col">Playtime</th>
                 <th scope="col">Last seen</th>
@@ -90,6 +91,7 @@ export function PlayersPage() {
                   </td>
                   <td>{live?.teamName ?? player.teamName ?? ''}</td>
                   <td>{online && live ? live.roles : ''}</td>
+                  <td data-testid="player-fps">{online && live && live.stats ? Math.round(live.stats.fps) : ''}</td>
                   <td>{live?.remoteAddress ?? player.lastIp ?? ''}</td>
                   <td>{formatDuration(player.totalPlaytimeSeconds)}</td>
                   <td>{online ? 'now' : formatAgo(player.lastSeen)}</td>

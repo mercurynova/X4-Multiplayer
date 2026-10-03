@@ -199,29 +199,28 @@ TEST_CASE("a feature that throws is contained and disabled after 3 frames", "[ho
   CHECK(host.running());  // the host itself keeps going
 }
 
-TEST_CASE("config comes from x4mp.json and a one-shot launch.json", "[host][modhost][config]") {
+TEST_CASE("config comes from x4mp.json; launch.json is left for the launch feature", "[host][modhost][config]") {
   Fixture f;
   f.dir.write("x4mp.json", R"({"server_host":"example.org","frame_budget_us":900,"log_level":"debug","log_categories":{"net":"warn"}})");
   f.dir.write("launch.json", R"({"server":"10.0.0.5:4000","name":"Pilot"})");
   Probe probe;
   ModHost host(f.platform, with_probe(probe));
   REQUIRE(host.init() == InitResult::Started);
-  CHECK(host.config().server_host == "10.0.0.5");
-  CHECK(host.config().tcp_port == 4000);
-  CHECK(host.config().player_name == "Pilot");
+  // M2-12: the host no longer reads launch.json (features/launch consumes it and starts the join); x4mp.json alone feeds the config.
+  CHECK(host.config().server_host == "example.org");
+  CHECK(host.config().player_name.empty());
   CHECK(host.config().frame_budget_us == 900);
   CHECK(host.budget().budget_ns() == 900'000);
-  CHECK(host.config().launch.active);
+  CHECK_FALSE(host.config().launch.active);
   CHECK(host.log()->category_level(Cat::Net) == Level::Warn);
   CHECK(host.log()->category_level(Cat::Sess) == Level::Debug);
-  CHECK_FALSE(std::filesystem::exists(f.dir.path / "launch.json"));  // consumed
+  CHECK(std::filesystem::exists(f.dir.path / "launch.json"));  // untouched by the host
   CHECK(host.paths().portable);
 }
 
-TEST_CASE("on_ui_reload re-reads x4mp.json and keeps the launch request", "[host][modhost][config]") {
+TEST_CASE("on_ui_reload re-reads x4mp.json", "[host][modhost][config]") {
   Fixture f;
   f.dir.write("x4mp.json", R"({"frame_budget_us":1000})");
-  f.dir.write("launch.json", R"({"server":"10.0.0.5:4000"})");
   Probe probe;
   ModHost host(f.platform, with_probe(probe));
   REQUIRE(host.init() == InitResult::Started);
@@ -232,8 +231,6 @@ TEST_CASE("on_ui_reload re-reads x4mp.json and keeps the launch request", "[host
   CHECK(probe.config == 1);
   CHECK(host.config().player_name == "Renamed");
   CHECK(host.budget().budget_ns() == 2'500'000);
-  CHECK(host.config().launch.active);  // not lost by the reload
-  CHECK(host.config().server_host == "10.0.0.5");
 
   // A broken file keeps defaults for the bad key and does not take the host down.
   f.dir.write("x4mp.json", R"({"frame_budget_us":"fast"})");
