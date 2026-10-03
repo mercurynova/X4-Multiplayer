@@ -695,7 +695,7 @@ public static partial class LiveRunner
             }
             catch (Exception ex)
             {
-                stats.Fail(ex is OperationCanceledException ? "ping timed out" : ex.Message);
+                stats.Fail(ex is OperationCanceledException ? "ping timed out" : DescribeFailure(ex));
                 await lines.WriteAsync($"[{plan.Name}] connection lost: {stats.LastError}").ConfigureAwait(false);
             }
             finally
@@ -754,6 +754,12 @@ public static partial class LiveRunner
             }
         }, CancellationToken.None);
     }
+
+    /// <summary>The message of a node failure; programming errors (a collection changed during enumeration, a null) also name the exception and its top frame.</summary>
+    private static string DescribeFailure(Exception ex) =>
+        ex is InvalidOperationException or NullReferenceException or ArgumentException or KeyNotFoundException
+            ? $"{ex.Message} [{ex.GetType().Name} at {ex.StackTrace?.Split((char)10).FirstOrDefault()?.Trim()}]"
+            : ex.Message;
 
     private static async Task ReportLoopAsync(List<LiveNodeStats> stats, LiveRunOptions run, SynchronizedWriter lines, Stopwatch clock, CancellationToken ct)
     {

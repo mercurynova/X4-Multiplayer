@@ -92,6 +92,12 @@ public interface IAdminClient
     /// <summary>A player's extension report arrived (a join, admitted, warned or rejected; mods topic; only for clients that may see players' mod lists). Keyed per player: the latest wins when the queue is busy.</summary>
     Task PlayerModsReported(PlayerModStatusDto status);
 
+    /// <summary>A connection was refused over its mods and its key is bound to no player (an unknown key; mods topic; only for clients that may see players' mod lists). Keyed per key: the latest wins when the queue is busy.</summary>
+    Task UnboundRejectionReported(UnboundRejectionDto rejection);
+
+    /// <summary>A node forwarded log lines or a self-test table (dashboard topic). Coalesced per player: at most one push per player every 250 ms, the latest state wins.</summary>
+    Task NodeDiagnosticsChanged(NodeDiagnosticsDto diagnostics);
+
     /// <summary>A connected player is waiting for a team (AdminAssign or an unmade Lobby choice; teams topic).</summary>
     Task PlayerAwaitingTeam(TeamMemberDto member);
 }

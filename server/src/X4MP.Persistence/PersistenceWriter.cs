@@ -35,6 +35,7 @@ public sealed class PersistenceWriter : IAsyncDisposable
     private readonly SqliteConnection _connection;
     private readonly int _maxBatchItems;
     private readonly TimeSpan _flushInterval;
+    private readonly TimeSpan _disposeTimeout;
     private readonly Task _loop;
     private int _disposed;
 
@@ -46,6 +47,7 @@ public sealed class PersistenceWriter : IAsyncDisposable
 
         _maxBatchItems = options.MaxBatchItems;
         _flushInterval = options.FlushInterval;
+        _disposeTimeout = options.DisposeTimeout;
         _channel = Channel.CreateBounded<Item>(new BoundedChannelOptions(options.QueueCapacity)
         {
             SingleReader = true,
@@ -56,6 +58,9 @@ public sealed class PersistenceWriter : IAsyncDisposable
         _loop = Task.Factory.StartNew(
             RunAsync, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
     }
+
+    /// <summary>Receives a one-line warning when something goes wrong outside a caller's reach (the shutdown flush timing out). The server wires it to its log.</summary>
+    public Action<string>? OnWarning { get; set; }
 
     /// <summary>Raised after each batch commits (also for batches retried item-by-item).</summary>
     public event Action<BatchCommitted>? BatchCommitted;
@@ -102,7 +107,17 @@ public sealed class PersistenceWriter : IAsyncDisposable
         }
 
         _channel.Writer.TryComplete();
-        await _loop.ConfigureAwait(false);
+        try
+        {
+            await _loop.WaitAsync(_disposeTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // The loop is stuck (a locked database, a hung disk): give up so shutdown ends. The connection is left open because the loop may still use it.
+            OnWarning?.Invoke($"persistence writer did not finish within {_disposeTimeout.TotalSeconds:F0} s at shutdown; {_channel.Reader.Count} queued writes may be lost");
+            return;
+        }
+
         await _connection.DisposeAsync().ConfigureAwait(false);
     }
 

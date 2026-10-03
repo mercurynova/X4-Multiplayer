@@ -128,6 +128,11 @@ internal sealed class ModViews(
         ? null
         : new ModViolationDto(v.PolicyVersion, Refs(v.Install), Refs(v.Enable), Refs(v.Disable), Refs(v.Update));
 
+    /// <summary>The DTO of a refused connection whose key is bound to no player (REST list and hub push share it).</summary>
+    public static UnboundRejectionDto UnboundRejection(ExtensionReportRecord r) => new(
+        Convert.ToHexStringLower(r.KeyHash ?? [])[..Math.Min(12, (r.KeyHash?.Length ?? 0) * 2)], r.AttemptedName ?? string.Empty, r.At, r.PolicyVersion,
+        r.Items.Count, ViolationDto(r.Violation));
+
     private static List<ModRefDto> Refs(List<ModRefT>? list) =>
         [.. (list ?? []).Select(r => new ModRefDto(
             r.Id ?? string.Empty, r.Name ?? string.Empty, r.Version ?? string.Empty, r.HaveVersion ?? string.Empty, Nexus(r.NexusUrl), (long)r.WorkshopId,

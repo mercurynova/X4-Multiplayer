@@ -10,6 +10,7 @@ import { problemToFormErrors } from '../../lib/problem';
 import { ConfirmDialog } from './ActionDialogs';
 import { formatDateTime, formatDuration } from './format';
 import { PlayerModsSection } from '../mods/PlayerReports';
+import { NodeDiagnosticsSection } from './NodeDiagnosticsSection';
 import { PlayerActions } from './PlayerActions';
 import { playersApi } from './playersApi';
 import './players.css';
@@ -204,6 +205,8 @@ export function PlayerDetailPage() {
       <Notes detail={detail} canEdit={isAdmin} onSaved={() => void load()} />
 
       <PlayerModsSection playerId={player.id} />
+
+      <NodeDiagnosticsSection playerId={player.id} />
 
       <div className="panel">
         <h2>Bans</h2>
