@@ -395,6 +395,15 @@ test("hud: the chat window does not count as another menu", function()
 	falsy(X4MPHud.blocked())
 end)
 
+test("hud: the top bar and the docked menu stay up in normal play and do not block the line", function()
+	hudSetup()
+	status(INGAME)
+	openOtherMenu("TopLevelMenu")
+	falsy(X4MPHud.blocked())
+	openOtherMenu("DockedMenu")
+	falsy(X4MPHud.blocked())
+end)
+
 -- chatwindow.lua (vanilla): layer 3 ("Helper3"), viewHelperType "Chat", no keepHUDVisible; Enter (edit box) sets playerControls false. The vanilla
 -- cockpit HUD is therefore hidden by the chat itself, not by us. Our frame is Helper6, so it neither displaces nor needs to yield to the chat.
 test("hud: chat open persistently -> the line stays and keeps updating, the chat is never touched", function()
