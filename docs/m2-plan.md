@@ -300,7 +300,9 @@ V26 (a save copied from another machine); a download of the user's own save is c
 2. Yes: the local server may hold copies of the test saves (this PC only, under git-ignored `out\`).
 3. Admin password in the Join dialog (HMAC proof only) is fine for now; a GUI "host key" can come later.
 4. Yes: "detected and shown in the GUI" is enough for M2; hard quicksave block in M4.
-5. Not installed yet; the user can install SirNukes and/or kuertee UIX before the session. The script must say
+5. Update 2026-10-02: SirNukes Mod Support APIs and kuertee UIX are now **installed but disabled**. Sitting 1 runs
+   with both disabled (vanilla baseline); the script tells the user when to enable them for R3–R6 and to disable them
+   again afterwards. (Original answer: not installed yet; the user can install SirNukes and/or kuertee UIX before the session.) The script must say
    which tests need them, and run without them otherwise (SirNukes stays reference-only per ADR-043).
 6. Not yet; the user can make the PHQ/research, early no-PHQ and docked-at-bar saves, and may find a mid-game save
    online. The session-2 kit must tolerate a third-party save: list its extensions/DLC on load and flag unknown
