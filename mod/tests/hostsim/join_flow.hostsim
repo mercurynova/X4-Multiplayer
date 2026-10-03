@@ -1,0 +1,33 @@
+# M2-06 acceptance: join -> download -> loadSave -> (X4 reloads the DLL) -> resume -> universe ready -> NodeReady -> the server shows
+# the player InGame. Run by mod/tests/hostsim/join_flow_run.ps1 (needs the server + a FakeNode authority; vars: tcp, save_sha).
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Alice","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.status 1000 json $.state == connecting
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-lua loadSave 3000 contains x4mp_
+exec cmd /c dir /b "${save_dir}\*.xml.gz"
+expect-stash join.state present
+expect-lua x4mp.status 3000 json $.state == loading
+
+# X4 now unloads and re-initialises the DLL (stash kept): the session resumes, the player is still not InGame
+reload
+expect-state reloads == 1
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+expect-lua x4mp.status 3000 json $.state == loading
+
+# the universe becomes ready (on_game_loaded + on_universe_ready): LoadStatus Matching, ManifestReport, NodeReady
+load_save x4mp_join_e2e
+frame 60Hz 180
+expect-file extension/logs/x4mp.log NodeReady sent
+expect-lua x4mp.status 3000 json $.state == ingame
+expect-admin /api/v1/players $[name==Alice].online == true
+expect-admin /api/v1/players $[name==Alice].id exists
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 60
+expect-no-secret never-written-password
+shutdown

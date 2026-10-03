@@ -1,0 +1,7 @@
+# M2-06: a name that is already in use (the authority's) is refused; reject=name (Lua text 75).
+init
+frame 60Hz 10
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"FakeAuthority","password":"","team":"auto"}
+frame 60Hz 240
+expect-lua x4mp.status 3000 json $.reject == name
+shutdown

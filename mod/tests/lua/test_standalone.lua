@@ -119,3 +119,61 @@ test("a missing Helper is logged, not fatal", function()
 	eq(X4MPScreens.open("main"), true)
 	t.contains(env.debugText(), "Helper missing")
 end)
+
+-- Session-2 finding D2: closing our window over the start menu must bring the start menu back (vanilla: OpenMenu("OptionsMenu", nil, nil, true)).
+local function optionsOpens()
+	local n = 0
+	for _, name in ipairs(env.opened) do if name == "OptionsMenu" then n = n + 1 end end
+	return n
+end
+
+test("closing the window opened over the start menu reopens the options menu", function()
+	env.startmenu = true
+	local S, menu = setup()
+	S.open("join")
+	eq(optionsOpens(), 0)
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 1)
+end)
+
+test("the restore waits for the delayed callback when Helper offers it", function()
+	env.startmenu = true
+	local S, menu = setup()
+	local delayed
+	Helper.addDelayedOneTimeCallbackOnUpdate = function(fn) delayed = fn end
+	_G.getElapsedTime = function() return 5 end
+	S.open("join")
+	menu.onCloseElement("back")
+	eq(optionsOpens(), 0, "not yet")
+	truthy(delayed)
+	delayed()
+	eq(optionsOpens(), 1)
+end)
+
+test("no restore when opened in game, or while a session save is being loaded", function()
+	env.startmenu = false
+	local S, menu = setup()
+	S.open("join")
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 0, "in game: vanilla handling resumes by itself")
+
+	env.startmenu = true
+	S.open("join")
+	env.fire("x4mp.load_save", '{"name":"x4mp_abc"}')
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 0, "a load started: the game replaces the screen")
+
+	S.open("join") -- opening a screen again ends the loading flag
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 1)
+end)
+
+test("a redraw of the open window does not count as a new open over the start menu", function()
+	env.startmenu = true
+	local S, menu = setup()
+	S.open("join")
+	env.startmenu = false
+	S.open("status")
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 1, "the start-menu flag was taken when the window opened")
+end)
