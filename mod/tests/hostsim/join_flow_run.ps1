@@ -11,6 +11,7 @@
 [CmdletBinding()]
 param([string]$Config = 'relwithdebinfo', [int]$TcpPort = 47953, [int]$UdpPort = 47954, [int]$HttpPort = 47955)
 $ErrorActionPreference = 'Stop'
+function Get-Sha256Hex([string]$Path) { $s = [IO.File]::OpenRead($Path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($h.ComputeHash($s)) -replace '-', '').ToLowerInvariant() } finally { $h.Dispose() } } finally { $s.Dispose() } }  # not Get-FileHash: a 5.1 child of pwsh 7 cannot autoload Microsoft.PowerShell.Utility
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $build = Join-Path $repo "mod\build\msvc-x64-$Config"
 $hostSim = Join-Path $build 'x4mp-hostsim.exe'
@@ -61,7 +62,7 @@ try {
     $fs = [IO.File]::Create($dummy); $gz = New-Object IO.Compression.GZipStream($fs, [IO.Compression.CompressionMode]::Compress)
     $head = [Text.Encoding]::UTF8.GetBytes('<?xml version="1.0" encoding="utf-8"?><savegame><info><game id="x4mp-join-e2e"/></info></savegame>')
     $gz.Write($head, 0, $head.Length); $gz.Write($rnd, 0, $rnd.Length); $gz.Dispose(); $fs.Dispose()
-    $dummySha = (Get-FileHash $dummy -Algorithm SHA256).Hash.ToLowerInvariant()
+    $dummySha = Get-Sha256Hex $dummy
 
     $data = Join-Path $tmp 'data'; New-Item -ItemType Directory -Force $data | Out-Null
     $envVars = @{ X4MP__Net__NodeTcpEndpoint = "127.0.0.1:$TcpPort"; X4MP__Net__UdpPort = "$UdpPort"; X4MP__Net__ModBuildStrict = 'false'
