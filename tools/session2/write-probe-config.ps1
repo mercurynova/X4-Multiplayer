@@ -13,6 +13,7 @@
 .PARAMETER Pin
   Writes pin_module=true (B6b only; also read when X4 starts).
 .PARAMETER AutoLoad
+  Pass 0 or 1 (powershell -File passes $false as text, which a [bool] parameter rejects).
   $false: the probe downloads the save but does not load it by itself (Part D8 restarts).
 #>
 [CmdletBinding(SupportsShouldProcess)]
