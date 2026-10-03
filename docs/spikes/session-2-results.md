@@ -31,3 +31,13 @@ local server + FakeNode authority (`start-server.ps1`), real X4 as client with t
   writes its own file in append mode with a banner per init, so this only affects the probe.
 - Usability: the probe waits silently when `x4mp_probe.json` is missing; the session kit should check the config
   exists before X4 starts.
+
+## Sitting 1, Run 2 (first attempt, hooks on), 2026-10-02
+
+- **Pinning breaks re-init.** With `hooks:true` the probe pins its DLL at shutdown. On the save load X4Native logged
+  "UI reloaded — DLL re-initialized", but the probe never logged a new `x4native_init` and never reconnected: the server
+  showed `detached: "ClientReload"`, then `left: ResumeGraceExpired` 60 s later. A pinned module is **not** re-initialised
+  by X4Native, so hooks that force a pin are unusable across save loads. Consequence: product code must **not pin**,
+  and any hook must be removable on shutdown (or not used). B6b (pin) is answered by this: do not pin.
+- Run 2 was restarted with `hooks:false`; C2 used `saves2;native=0` (MD blocker only), C5 without the native
+  `GetCurrentGameTime` hook.
