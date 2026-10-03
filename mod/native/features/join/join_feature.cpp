@@ -401,6 +401,9 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
   o.save_dir = fs::path(*save_dir);
   o.extensions = extensions_.get();
   o.stash = stash_.get();
+  // Capability LogForward (1<<10): without it the server never grants the log sender (update_diag), so the self-test table and the
+  // quicksave warning would stay in the local log only (found by the session-3 kit dry run). Nothing else is advertised yet.
+  o.client_caps = std::uint64_t{1} << 10;
   o.net.backoff_first_ms = 500;
 
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "joining {} (roles {}, {})", server_text_, static_cast<int>(o.requested_roles),

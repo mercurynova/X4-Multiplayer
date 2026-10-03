@@ -83,6 +83,8 @@ if ($JoinPassword) { $envVars['X4MP__Net__JoinPassword'] = $JoinPassword }
 $server = Start-S3Server $serverExe $envVars
 try {
     $null = Initialize-AdminSession
+    Set-S3NexusEntry -Present:($AuthorityExtensions -eq 'modded')
+    Set-S3Enforcement -Strict:$Strict
     Write-Host ''
     Write-Host "Server is up. Admin GUI: $guiUrl"
     Write-Host "Admin password file: $($Admin.PasswordFile)  (open it yourself; log in as 'admin')"
