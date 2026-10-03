@@ -211,3 +211,39 @@ if(X4MP_SPIKES)
   endif()
 endif()
 # X4MP_SPIKES end
+
+# =============================================================================================
+# X4MP_AUTHORITY begin (M2-08): core/authority (upload job bound to one connection generation, EntitySpawn encoder that cannot
+# emit game_time 0, checkpoint message encoders), the headless authority driver, Catch2 tests and the live kill-the-link test.
+# =============================================================================================
+target_sources(x4mp_core PRIVATE
+  native/core/authority/entity_spawn.cpp
+  native/core/authority/upload_job.cpp
+  native/core/authority/checkpoint_messages.cpp)
+
+if(X4MP_TESTS)
+  # x4mp-headless --authority (tools/headless/authority_driver.*): the checkpoint flow without X4.
+  target_sources(x4mp-headless PRIVATE tools/headless/authority_driver.cpp)
+  target_include_directories(x4mp-headless PRIVATE tools/headless)
+
+  add_executable(x4mp_authority_tests
+    tests/authority/test_entity_spawn.cpp
+    tests/authority/test_upload_job.cpp)
+  target_include_directories(x4mp_authority_tests PRIVATE tests/authority)
+  target_compile_definitions(x4mp_authority_tests PRIVATE X4MP_NATIVE_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/native")
+  target_link_libraries(x4mp_authority_tests PRIVATE x4mp_core Catch2::Catch2WithMain)
+  x4mp_set_warnings(x4mp_authority_tests)
+  catch_discover_tests(x4mp_authority_tests TEST_PREFIX "authority." PROPERTIES TIMEOUT 120)
+  x4mp_assert_no_sdk(x4mp_authority_tests)
+
+  # Live test (M2-08): 50 runs, each against a fresh REAL server behind a proxy that kills the connection at a random byte of the
+  # upload. Skipped (exit 77) unless X4MP_LIVE_SERVER_EXE names a published x4mp-server. Ports: X4MP_LIVE_PORT_BASE (default 47980).
+  add_executable(x4mp_authority_live tests/authority/live_authority_upload.cpp tools/headless/authority_driver.cpp)
+  target_include_directories(x4mp_authority_live PRIVATE tools/headless tests/authority)
+  target_link_libraries(x4mp_authority_live PRIVATE x4mp_core ws2_32)
+  x4mp_set_warnings(x4mp_authority_live)
+  x4mp_assert_no_sdk(x4mp_authority_live)
+  add_test(NAME live.authority_upload_kill COMMAND x4mp_authority_live)
+  set_tests_properties(live.authority_upload_kill PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1200)
+endif()
+# X4MP_AUTHORITY end
