@@ -34,6 +34,7 @@
 #include "core/session/session.h"
 #include "features/join/join_json.h"
 #include "features/join/platform_stash.h"
+#include "features/resume/resume_state.h"
 #include "host/feature.h"
 
 namespace x4mp::features {
@@ -84,6 +85,9 @@ class JoinFeature final : public host::IFeature {
   void update_diag(host::HostContext& ctx);
   void send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload);
   void persist_state(const char* stage) const;
+  [[nodiscard]] const char* resume_stage_name() const;  // M2-07: the persisted stage for the current stage_ ("" = nothing to resume)
+  void sample_fingerprint(host::HostContext& ctx, const host::FrameInfo& info);  // M2-07
+  void decide_after_reload(host::HostContext& ctx);  // M2-07: universe ready seen by a resumed in-game incarnation
   [[nodiscard]] session::ClientIdentity make_identity(host::HostContext& ctx) const;
   [[nodiscard]] bool load_player_key(host::HostContext& ctx, std::array<std::uint8_t, 32>& key);
 
@@ -125,6 +129,13 @@ class JoinFeature final : public host::IFeature {
   std::atomic<bool> game_loaded_flag_{false};
   std::atomic<bool> universe_ready_flag_{false};
   bool universe_pending_ = false;  // universe ready seen, waiting for a usable session to report on
+
+  // M2-07 reload survival (features/resume/resume_state.h): epoch of the last NodeReady, last in-game fingerprint, and the
+  // state of the previous incarnation while "new universe vs /reloadui" is still undecided.
+  std::uint64_t epoch_ = 0;
+  resume::Fingerprint fingerprint_;
+  std::uint32_t fingerprint_frame_ = 0;
+  std::optional<resume::State> undecided_;
 
   // status throttle (x4mp.status at most 2 Hz)
   std::string last_status_;
