@@ -65,6 +65,7 @@ Ping/Pong. Options accept `--name value` and `--name=value`. `--verify` and the 
 | `--verify` | Check every `Replication` entry against ground truth; exit code 1 on any error (section 5) |
 | `--sectors N --ships N --tick HZ --fps N` | Fake universe and authority shape (defaults 152 sectors, 10225 ships, 20 Hz, 60 fps) |
 | `--save-mb N` | authority: size of the fake save it uploads on request (default 4, max 4096), so the transfer moves real bytes |
+| `--save-file PATH` | authority (or swarm with `--with-authority`): upload this existing `.xml.gz` save verbatim (real SHA-256) as the checkpoint, with an empty-station manifest, instead of a generated one; a missing file is a parse error (non-zero exit). Prints `FakeNode authority: checkpoint stored (sha <hex>)` (used by `tools/session2/start-server.ps1`) |
 | `--udp` | Use the UDP realtime lane (binds with `UdpHello`; falls back to TCP after 3 s; needs the server's UDP port open) |
 
 ### Teams

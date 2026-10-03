@@ -424,12 +424,17 @@ public static partial class LiveRunner
         {
             saves = new FakeAuthoritySaves(
                 link.Client, authority,
-                new FakeAuthoritySaveOptions { SaveBytes = run.SaveBytes ?? o.SaveMb * 1024L * 1024, Directory = saveDir },
+                new FakeAuthoritySaveOptions { SaveBytes = run.SaveBytes ?? o.SaveMb * 1024L * 1024, Directory = saveDir, ExistingSave = o.SaveFile },
                 text => _ = lines.WriteAsync($"[{name}] {text}"));
             saves.CheckpointStored += result =>
             {
                 stats.MarkInGame();
                 stats.SetSaveBytes(saves.BytesSent);
+                if (o.SaveFile is not null)
+                {
+                    _ = lines.WriteAsync($"FakeNode authority: checkpoint stored (sha {result.Save.ShaHex})");
+                }
+
                 _ = lines.WriteAsync($"[{name}] checkpoint stored: save {result.Save.ShaHex[..12]} ({result.Save.Size} bytes), the session can start");
             };
         }

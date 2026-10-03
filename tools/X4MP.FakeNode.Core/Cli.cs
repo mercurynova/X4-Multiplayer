@@ -163,6 +163,9 @@ public sealed record CliOptions
     /// <summary>authority: size of the fake save it uploads on <c>RequestSave</c> (megabytes).</summary>
     public int SaveMb { get; init; } = 4;
 
+    /// <summary>authority: upload this existing <c>.xml.gz</c> save verbatim as the checkpoint (empty-station manifest) instead of a generated one (<c>--save-file</c>); null = generated.</summary>
+    public string? SaveFile { get; init; }
+
     /// <summary>client/swarm: clients propose ship-for-credits trades to each other and accept the ones they receive (M1-E5); implies team assets.</summary>
     public bool Trade { get; init; }
 
@@ -315,6 +318,7 @@ public static class CliParser
           --relations coop|allied|ffa|twoteams   swarm: team layout; implies --teams (coop 1, twoteams 2, allied/ffa one per client) and prints the server settings it needs
           --team-assets        authority: give its ships team owners (implied by --commander; start the authority with it when clients run elsewhere)
           --save-mb N          authority: size of the fake save it uploads (default 4)
+          --save-file PATH     authority: upload this real .xml.gz save verbatim (real SHA-256, empty-station manifest) instead of a generated one
           --trade              clients propose ship-for-credits trades to each other and accept incoming ones (implies --team-assets)
           --trade-fail PCT     authority: fail PCT percent of the AssetTransferOrders (the server must refund and unlock)
           --trade-timeout PCT  authority: withhold the confirm of PCT percent of the orders; a third of those never answer a TradeQuery either (InDoubt)
@@ -429,6 +433,16 @@ public static class CliParser
             return Fail("--extensions and --extensions-preset are mutually exclusive");
         if (o.ExtensionsPreset == ExtensionPreset.Mismatch && command == FakeNodeCommand.Authority)
             return Fail("--extensions-preset mismatch is for clients (the authority takes vanilla|modded)");
+        if (o.SaveFile is not null)
+        {
+            if (command is not (FakeNodeCommand.Authority or FakeNodeCommand.Swarm))
+                return Fail("--save-file is an authority/swarm option");
+            if (command == FakeNodeCommand.Swarm && !o.WithAuthority)
+                return Fail("--save-file on swarm needs --with-authority");
+            if (!File.Exists(o.SaveFile))
+                return Fail($"--save-file: file not found: {o.SaveFile}");
+        }
+
         if (o.Relations != RelationsPreset.None && command != FakeNodeCommand.Swarm)
             return Fail("--relations is a swarm option");
         return new CliParseResult(o, null);
@@ -468,6 +482,8 @@ public static class CliParser
                 return PositiveInt(o, key, value, v => v > ushort.MaxValue ? null : o with { Sector = (ushort)v });
             case "save-mb":
                 return PositiveInt(o, key, value, v => v > 4096 ? null : o with { SaveMb = v });
+            case "save-file":
+                return (o with { SaveFile = Path.GetFullPath(value) }, null);
             case "loss":
                 string number = value.TrimEnd('%');
                 return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double loss) && loss is >= 0 and <= 100
