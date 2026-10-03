@@ -5,7 +5,7 @@
 // off-thread game call as a contract violation before it reaches this class.
 //
 // This is NOT a simulation: positions change only when the mod calls SetObjectSectorPos or a `ship path` advances during
-// `frame`. Units: metres; angles are stored raw as given (the mod and the script agree on the unit; paths write degrees).
+// `frame`. Units: metres; angles are stored raw as given (the mod and the script agree on the unit; paths write radians (S13.4: the game gives radians)).
 #pragma once
 
 #include <cstdint>
@@ -61,6 +61,7 @@ class World {
   bool seat = false;      // the player sits in the pilot seat of player_ship
   bool docked = false;    // IsPlayerOccupiedShipDocked
   bool seta = false;      // IsSetaActive
+  bool in_highway = false;  // GetContextByClass(ship, "highway") answers a highway (M3-09)
   bool controlled_when_docked = true;  // assumption pending S13.9: GetPlayerControlledShipID stays set while docked
   bool teleport_allowed = true;
   std::string teleport_reason = "hostsim: teleport denied";

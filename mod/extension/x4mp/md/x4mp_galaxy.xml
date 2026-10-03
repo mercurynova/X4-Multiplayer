@@ -164,5 +164,108 @@
       </actions>
     </cue>
 
+    <!-- ===================================== M3-09: sector map (every node) =====================================
+         Lua -> MD  AddUITriggeredEvent("X4MP_Authority", "map", "1"): every sector of the galaxy as a (macro, component) pair, so native can map
+         the game's sector UniverseID <-> macro <-> the wire's sector index (features/selfship/galaxy_map.h).
+         MD -> Lua  'x4mp.md_sector_tag' (param = the sector macro id) immediately followed by 'x4mp.md_sector' (param = the sector; Lua converts it
+                    with ConvertStringTo64Bit as the session-4 spike S13.7 did for ships), then 'x4mp.md_sector_end' (param = the count). -->
+    <cue name="X4MP_Galaxy_Map" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Authority'" control="'map'"/>
+      </conditions>
+      <actions>
+        <find_sector name="$MapSectors" multiple="true"/>
+        <do_for_each name="$MapSec" in="$MapSectors">
+          <raise_lua_event name="'x4mp.md_sector_tag'" param="$MapSec.macro.id"/>
+          <raise_lua_event name="'x4mp.md_sector'" param="$MapSec"/>
+        </do_for_each>
+        <raise_lua_event name="'x4mp.md_sector_end'" param="$MapSectors.count"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================== M3-09: SETA is unavailable in multiplayer =====================================
+         Lua -> MD  AddUITriggeredEvent("X4MP_Authority", "seta_block", "1"|"0")  while connected: block SETA at the source
+                    AddUITriggeredEvent("X4MP_Authority", "seta_off", "1")        native saw IsSetaActive: switch it off now
+         MD -> Lua  'x4mp.md_seta' ('blocked')  MD stopped a SETA start itself (native shows "SETA is disabled in multiplayer")
+         Source of the SETA start: md/modes.xml Mode_SETA listens to the signal (player.entity, 'startactivity', activity.seta); the
+         input action calls StartPlayerActivity("seta") (menu_map.lua) and the engine key INPUT_ACTION_TOGGLE_SETA_MODE feeds the same
+         signal. Our guard listens to the same signal and stops the activity again: signal 'stopactivity' (what md/modes.xml Phase4 does for
+         the tea easter egg), then toggle_timewarp / set_timewarp_factor only while player.timewarp.active (session-4 spike S13.9 recipe). -->
+    <cue name="X4MP_Seta_Flag" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Authority'" control="'seta_block'"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_SetaBlock" exact="if event.param3 == '1' then 1 else 0"/>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Seta_Reset" instantiate="true">
+      <conditions>
+        <check_any>
+          <event_game_loaded/>
+          <event_game_started/>
+        </check_any>
+      </conditions>
+      <actions>
+        <!-- the flag is saved with the game: a loaded game is not connected until native says so again -->
+        <set_value name="md.$X4MP_SetaBlock" exact="0"/>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Seta_Guard" instantiate="true">
+      <conditions>
+        <event_object_signalled object="player.entity" param="'startactivity'" param2="activity.seta"/>
+      </conditions>
+      <actions>
+        <do_if value="@md.$X4MP_SetaBlock">
+          <signal_objects object="player.entity" param="'stopactivity'" param2="activity.seta" param3="false"/>
+          <raise_lua_event name="'x4mp.md_seta'" param="'blocked'"/>
+        </do_if>
+      </actions>
+      <cues>
+        <cue name="X4MP_Seta_Guard_Check">
+          <!-- the stopactivity signal above should have ended it; if SETA is still on after 200 ms, toggle it off (spike S13.9) -->
+          <delay exact="200ms"/>
+          <actions>
+            <do_if value="@md.$X4MP_SetaBlock and player.timewarp.active">
+              <toggle_timewarp/>
+            </do_if>
+          </actions>
+        </cue>
+      </cues>
+    </cue>
+
+    <cue name="X4MP_Seta_Off" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Authority'" control="'seta_off'"/>
+      </conditions>
+      <actions>
+        <do_if value="player.timewarp.active">
+          <signal_objects object="player.entity" param="'stopactivity'" param2="activity.seta" param3="false"/>
+        </do_if>
+      </actions>
+      <cues>
+        <cue name="X4MP_Seta_Off_Toggle">
+          <delay exact="300ms"/>
+          <actions>
+            <do_if value="player.timewarp.active">
+              <toggle_timewarp/>
+            </do_if>
+          </actions>
+          <cues>
+            <cue name="X4MP_Seta_Off_Factor">
+              <delay exact="300ms"/>
+              <actions>
+                <do_if value="player.timewarp.active">
+                  <set_timewarp_factor/>
+                </do_if>
+              </actions>
+            </cue>
+          </cues>
+        </cue>
+      </cues>
+    </cue>
+
   </cues>
 </mdscript>

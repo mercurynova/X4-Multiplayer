@@ -6,18 +6,16 @@
 
 namespace hostsim {
 namespace {
-constexpr double kPi = 3.14159265358979323846;
-constexpr double kRadToDeg = 180.0 / kPi;
 
-UIPosRot make(const Vec3& p, double yaw_deg) {
+UIPosRot make(const Vec3& p, double yaw_rad) {
   UIPosRot u{};
   u.x = static_cast<float>(p.x);
   u.y = static_cast<float>(p.y);
   u.z = static_cast<float>(p.z);
-  u.yaw = static_cast<float>(yaw_deg);
+  u.yaw = static_cast<float>(yaw_rad);
   return u;
 }
-double heading_deg(double dx, double dz) { return std::atan2(dx, dz) * kRadToDeg; }  // 0 = +z, 90 = +x
+double heading_rad(double dx, double dz) { return std::atan2(dx, dz); }  // radians, 0 = +z, pi/2 = +x
 }  // namespace
 
 std::optional<Vec3> parse_vec3(const std::string& s) {
@@ -108,6 +106,7 @@ std::uint64_t World::context(std::uint64_t id, const std::string& cls, bool incl
     include_self = true;
   }
   const Obj* o = find(id);
+  if (cls == "highway") return in_highway && id == player_ship ? 500001 : 0;  // a stand-in highway component
   if (cls == "sector") return o ? o->sector : (has_sector(id) ? id : 0);
   if (!o) return 0;
   if (include_self && o->cls == cls) return o->id;
@@ -149,7 +148,7 @@ void World::start_path(const Path& p) {
     case PathKind::Line:
     case PathKind::Gate:
       path_.angle = 0;
-      s->pos = make(p.from, heading_deg(p.to.x - p.from.x, p.to.z - p.from.z));
+      s->pos = make(p.from, heading_rad(p.to.x - p.from.x, p.to.z - p.from.z));
       break;
     case PathKind::None: break;
   }
@@ -164,7 +163,7 @@ void World::advance(double dt) {
     const double a = path_.angle;
     const Vec3 p{path_.center.x + path_.radius * std::cos(a), path_.center.y, path_.center.z + path_.radius * std::sin(a)};
     // tangent of (cos a, sin a) in the x-z plane is (-sin a, cos a)
-    s->pos = make(p, heading_deg(-std::sin(a), std::cos(a)));
+    s->pos = make(p, heading_rad(-std::sin(a), std::cos(a)));
     return;
   }
   const double dx = path_.to.x - path_.from.x, dy = path_.to.y - path_.from.y, dz = path_.to.z - path_.from.z;
@@ -173,19 +172,19 @@ void World::advance(double dt) {
   if (len <= 0 || path_.angle >= len) {
     if (path_.kind == PathKind::Gate) {
       if (path_.to_sector != 0) s->sector = path_.to_sector;
-      s->pos = make(path_.exit, heading_deg(dx, dz));
+      s->pos = make(path_.exit, heading_rad(dx, dz));
       ++gate_jumps_;
       path_.kind = PathKind::None;
     } else if (path_.loop) {
       path_.angle = std::fmod(path_.angle, len > 0 ? len : 1.0);
     } else {
-      s->pos = make(path_.to, heading_deg(dx, dz));
+      s->pos = make(path_.to, heading_rad(dx, dz));
       path_.kind = PathKind::None;
     }
     if (path_.kind == PathKind::None) return;
   }
   const double t = len > 0 ? path_.angle / len : 0;
-  s->pos = make({path_.from.x + dx * t, path_.from.y + dy * t, path_.from.z + dz * t}, heading_deg(dx, dz));
+  s->pos = make({path_.from.x + dx * t, path_.from.y + dy * t, path_.from.z + dz * t}, heading_rad(dx, dz));
 }
 
 }  // namespace hostsim

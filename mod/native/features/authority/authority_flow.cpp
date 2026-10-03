@@ -25,9 +25,9 @@ constexpr std::uint16_t T(P::MsgType t) { return static_cast<std::uint16_t>(t); 
 
 constexpr auto kCollectTimeout = seconds(20);
 constexpr auto kShipGrace = milliseconds(1500);  // after the end marker: how long to wait for the ship record
-constexpr auto kShipRetryEvery = seconds(3);     // item 3: between two "where is the player's ship" questions
-constexpr auto kShipAnswerTimeout = seconds(5);  // MD answers within a frame or two; no answer = ask again later
-constexpr int kMaxShipTries = 6;
+constexpr auto kShipAnswerTimeout = seconds(5);  // MD answers within a frame or two; no answer = counted like "no ship"
+constexpr int kAskBackoffMin = 20;               // frames: first re-ask when MD says "no ship" while the game says the player sits
+constexpr int kAskBackoffMax = 600;
 constexpr auto kSaveReplyTimeout = seconds(20);
 constexpr auto kFileTimeout = seconds(180);
 constexpr auto kFilePollEvery = milliseconds(250);
@@ -176,10 +176,10 @@ void AuthorityFlow::drain_inbox(host::HostContext& ctx) {
           ship_wait_ = false;
           late_ship_ = true;
           spawn_due_ = !state_.spawned;
-          X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: MD now reports the player's ship ({}) after {} ask(s)", spawn_ship_->macro, ship_tries_);
+          X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: MD now reports the player's ship ({}) after {} ask(s)", spawn_ship_->macro, ship_asks_);
         } else if (answer.no_ship_seen() && ship_pending_) {
           ship_pending_ = false;
-          ship_next_ = Clock::now() + kShipRetryEvery;
+          schedule_reask();
         }
         continue;
       }
@@ -215,7 +215,7 @@ void AuthorityFlow::step(host::HostContext& ctx) {
     return session_.send(lane, type, payload) == net::SendResult::Ok;
   });
   if (spawn_due_) maybe_spawn(ctx);
-  if (ship_wait_ && step_ == Step::Idle && !spawn_due_) step_ship_retry(ctx);
+  if (ship_wait_ && step_ == Step::Idle && !spawn_due_) step_ship_wait(ctx);
 }
 
 void AuthorityFlow::step_collecting(host::HostContext& ctx) {
@@ -397,15 +397,17 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
   }
   if (!spawn_ship_) {
     // Close-out A item 3: MD had no player ship when the checkpoint finished (the first one, ~2 s after the universe is ready:
-    // player.occupiedship was still null). Not a final answer: ask again shortly instead of waiting for the next checkpoint.
+    // player.occupiedship was still null; or the player stands in the cockpit after a load). Not a final answer: the spawn waits for the
+    // pilot seat (M3-09). step_ship_wait asks MD once when the player sits (at once if they already do).
     spawn_due_ = false;
     if (!ship_wait_) {
       ship_wait_ = true;
       ship_pending_ = false;
-      ship_tries_ = 0;
-      ship_next_ = Clock::now() + kShipRetryEvery;
-      X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: no player ship was reported by MD with the checkpoint; asking again every {} s (up to {} times)",
-                kShipRetryEvery.count(), kMaxShipTries);
+      ship_asks_ = 0;
+      ask_wait_frames_ = 0;
+      ask_backoff_frames_ = 0;
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: no player ship was reported by MD with the checkpoint; the self-spawn waits for the pilot seat ({})",
+                seated_ ? "the player sits: asking MD now" : "the player stands");
     }
     return;
   }
@@ -476,27 +478,43 @@ std::uint32_t AuthorityFlow::late_ship_macro_ref(host::HostContext& ctx, const s
   return index;
 }
 
-// Item 3: the checkpoint is stored but MD reported no player ship. Ask MD again (only the ship) every few seconds, a bounded number of times.
-void AuthorityFlow::step_ship_retry(host::HostContext& ctx) {
+void AuthorityFlow::note_seat(bool seated, std::uint32_t edges) noexcept {
+  if (edges != seat_edges_) {  // a sit-down, stand-up or ship change: ask at the next opportunity, no back-off
+    seat_edges_ = edges;
+    ask_wait_frames_ = 0;
+    ask_backoff_frames_ = 0;
+  }
+  seated_ = seated;
+}
+
+void AuthorityFlow::schedule_reask() noexcept {
+  ask_backoff_frames_ = ask_backoff_frames_ == 0 ? kAskBackoffMin : std::min(ask_backoff_frames_ * 2, kAskBackoffMax);
+  ask_wait_frames_ = ask_backoff_frames_;
+}
+
+// Item 3 / M3-09: the checkpoint is stored but MD reported no player ship. The seat decides: while the player stands nothing is asked
+// (the sit-down edge asks); while they sit MD is asked once, then again only after a frame-counted back-off if it still says "none".
+void AuthorityFlow::step_ship_wait(host::HostContext& ctx) {
   if (state_.spawned) {
     ship_wait_ = false;
     return;
   }
+  if (!seated_) return;
   const auto now = Clock::now();
   if (ship_pending_) {
     if (now - ship_asked_ <= kShipAnswerTimeout) return;
-    ship_pending_ = false;  // no answer at all: count it as "no ship" and ask again later
-    ship_next_ = now + kShipRetryEvery;
+    ship_pending_ = false;  // no answer at all: count it as "no ship"
+    schedule_reask();
   }
-  if (now < ship_next_ || !uploader_.connected()) return;
-  if (ship_tries_ >= kMaxShipTries) {
-    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: still no player ship after {} asks (on foot?); the next checkpoint tries again", ship_tries_);
-    ship_wait_ = false;
+  if (ask_wait_frames_ > 0) {
+    --ask_wait_frames_;
     return;
   }
-  ++ship_tries_;
+  if (!uploader_.connected()) return;
+  ++ship_asks_;
   ship_pending_ = true;
   ship_asked_ = now;
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: the player sits in the pilot seat: asking MD for the ship (ask {})", ship_asks_);
   if (!ctx.platform.raise_lua("x4mp.auth_collect", R"({"v":1,"ship_only":true})")) {
     ship_pending_ = false;
     ship_wait_ = false;

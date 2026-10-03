@@ -341,6 +341,7 @@ class Runner {
     else if (cmd == "ship") cmd_ship(t);
     else if (cmd == "seat") cmd_toggle(t, "seat on|off", host_.world.seat);
     else if (cmd == "seta") cmd_toggle(t, "seta on|off", host_.world.seta);
+    else if (cmd == "highway") cmd_toggle(t, "highway on|off", host_.world.in_highway);
     else if (cmd == "dock") cmd_dock(t, true);
     else if (cmd == "undock") cmd_dock(t, false);
     else if (cmd == "world") cmd_world(t);

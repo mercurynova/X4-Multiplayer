@@ -8,8 +8,13 @@
 //   answers x4mp.auth_saved {ok, game_time} -> SaveStarted(game_time) -> wait until <name>.xml.gz is complete (size stable, openable)
 //   -> hash on a worker, empty-station manifest -> StringTableAdd (once), GalaxyMetadata, upload with CheckpointUploader (End only after
 //   the final ack, stale SaveStored ignored) -> after both files are stored: ONE self-spawn EntitySpawn of the player's ship with the
-//   same game_time (when MD had no player ship yet, e.g. the very first checkpoint ~2 s after the universe is ready, the ship is asked for
-//   again every few seconds, bounded, and the spawn carries the game time of that moment: close-out A item 3) -> old x4mp_ckpt_* saves beyond the newest two are removed (only ones this mod made, listed in authority-saves.json).
+//   same game_time. When MD had no player ship yet (the very first checkpoint ~2 s after the universe is ready, or the player stands in
+//   the cockpit after a load: session 3), the spawn waits for the PILOT SEAT: the selfship feature (M3-09) reports the seat natively
+//   (GetPlayerOccupiedShipID) and the flow asks MD for the ship ONCE per sit-down (x4mp.auth_collect {"ship_only":true}), or at once
+//   when the player already sits while the checkpoint is stored. No timer, no retry limit: a player who stands for minutes still gets
+//   the spawn when they sit down. MD answering "none" although the game says the player sits is asked again after a frame-counted
+//   back-off (20 frames, doubling up to 600). The spawn carries the game time of that moment, never 0 -> old x4mp_ckpt_* saves beyond
+//   the newest two are removed (only ones this mod made, listed in authority-saves.json).
 //
 // Threading: everything on the frame thread except the hash worker. Lua verbs only copy text into AuthInbox.
 
@@ -63,6 +68,9 @@ class AuthorityFlow {
   [[nodiscard]] Step current_step() const noexcept { return step_; }
   [[nodiscard]] const AuthorityState& state() const noexcept { return state_; }
   [[nodiscard]] bool waiting_for_ship() const noexcept { return ship_wait_; }
+  // The player's seat state, every frame (from the selfship feature through its hub). `edges` counts sit-downs, stand-ups and ship changes:
+  // a change resets the back-off so the next frame asks MD at once.
+  void note_seat(bool seated, std::uint32_t edges) noexcept;
   [[nodiscard]] std::uint64_t checkpoints_stored() const noexcept { return stored_total_; }
 
   // Stash helpers shared with the join feature (the ClientHello of a fresh authority join).
@@ -87,7 +95,8 @@ class AuthorityFlow {
   void step_uploading(host::HostContext& ctx);
   void on_checkpoint_stored(host::HostContext& ctx);
   void maybe_spawn(host::HostContext& ctx);
-  void step_ship_retry(host::HostContext& ctx);
+  void step_ship_wait(host::HostContext& ctx);
+  void schedule_reask() noexcept;
   [[nodiscard]] std::uint32_t late_ship_macro_ref(host::HostContext& ctx, const std::string& macro);
   void fail(host::HostContext& ctx, const std::string& why);
   void persist() const;
@@ -116,12 +125,15 @@ class AuthorityFlow {
   std::uint64_t counted_stored_ = 0;
   std::uint64_t stored_total_ = 0;
   bool spawn_due_ = false;
-  // The ship was unknown when the checkpoint finished: ask MD again (x4mp.auth_collect {"ship_only":true}) until it answers or the tries run out.
+  // The ship was unknown when the checkpoint finished: ask MD (x4mp.auth_collect {"ship_only":true}) when the player sits (seat edge).
   bool ship_wait_ = false;
   bool ship_pending_ = false;
-  int ship_tries_ = 0;
-  Clock::time_point ship_next_{};
+  int ship_asks_ = 0;
   Clock::time_point ship_asked_{};
+  bool seated_ = false;
+  std::uint32_t seat_edges_ = 0;
+  int ask_wait_frames_ = 0;     // frames until the next ask
+  int ask_backoff_frames_ = 0;  // the back-off after an "MD has no ship" answer while the game says the player sits
   bool late_ship_ = false;            // spawn_ship_ came from a retry (not from the checkpoint's own collection)
   bool spawn_strings_fresh_ = false;  // the plan's string table was sent with THIS checkpoint (its refs are the server's)
   std::vector<std::pair<std::string, std::uint32_t>> sent_macros_;  // macro strings already in the server's table (memory only)

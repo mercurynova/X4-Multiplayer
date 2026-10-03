@@ -69,8 +69,9 @@ Selectors: `<id>`, `last` (newest object, spawned by the mod or by `world object
 |---|---|
 | `seat on\|off` | the player sits in / leaves the pilot seat (`GetPlayerOccupiedShipID`/`ControlledShipID` are 0 when off) |
 | `dock [on\|off]`, `undock` | `IsPlayerOccupiedShipDocked`; docking stops the path and moves the ship to the station's sector |
+| `highway on\|off` | `GetContextByClass(ship, "highway")` answers a highway (M3-09) |
 | `seta on\|off` | `IsSetaActive` (it does not change `speed`: combine with `set speed 5`) |
-| `ship path circle radius=R speed=S [center=x,y,z] [sector=ID]` | the player ship flies a circle in the x-z plane (m, m/s); heading = tangent in degrees (0 = +z, 90 = +x) |
+| `ship path circle radius=R speed=S [center=x,y,z] [sector=ID]` | the player ship flies a circle in the x-z plane (m, m/s); heading = tangent in RADIANS (0 = +z, pi/2 = +x; S13.4: the game gives radians) |
 | `ship path line from=x,y,z to=x,y,z speed=S [sector=ID] [loop]` | straight line; stops at `to` (restarts with `loop`) |
 | `ship path gate from=.. to=.. speed=S sector=A to_sector=B [exit=x,y,z]` | line, then the ship appears in sector B at `exit` (default `to`); counts `gate_jumps` |
 | `ship path stop`, `ship place sector=ID pos=x,y,z [yaw=deg]` | stop the path / put the ship somewhere at once |

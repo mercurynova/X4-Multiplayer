@@ -60,8 +60,8 @@ expect-object player x > 53
 expect-object player x < 55
 expect-object player z > 84
 expect-object player z < 84.3
-expect-object player yaw < -57
-expect-object player yaw > -58
+expect-object player yaw < -0.99
+expect-object player yaw > -1.01
 expect-state path_active == 1
 ship path stop
 expect-state path_active == 0

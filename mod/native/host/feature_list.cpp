@@ -23,6 +23,7 @@
 #include "features/stats/stats_feature.h"
 #include "features/chat/chat_feature.h"
 #include "features/teams/teams_feature.h"
+#include "features/selfship/selfship_feature.h"
 
 namespace x4mp::host {
 
@@ -31,6 +32,7 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::SavesFeature>());
   registry.add(std::make_unique<x4mp::features::SelfTestFeature>());
   registry.add(std::make_unique<x4mp::features::JanitorFeature>());
+  registry.add(std::make_unique<x4mp::features::SelfShipFeature>());  // before join: the seat edge reaches the authority flow in the same frame
   registry.add(std::make_unique<x4mp::features::JoinFeature>());
   registry.add(std::make_unique<x4mp::features::LaunchFeature>());
   registry.add(std::make_unique<x4mp::features::ChatFeature>());  // after join: it forwards what the join pump collected this frame
