@@ -2,7 +2,8 @@
 # the X4 install is found through Steam, Documents through [Environment]::GetFolderPath('MyDocuments').
 
 $script:Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$script:OutDir = Join-Path $script:Repo 'out\session2'
+# X4MP_S2_OUT_DIR: test-only override of out\session2 (the dry run keeps its files in a temp folder).
+$script:OutDir = if ($env:X4MP_S2_OUT_DIR) { $env:X4MP_S2_OUT_DIR } else { Join-Path $script:Repo 'out\session2' }
 $script:Ports = @{ Tcp = 47780; Udp = 47781; Http = 47790 }
 $script:ExtensionNames = @('x4native', 'x4mp_probe', 'x4mp_spike')
 
@@ -47,7 +48,9 @@ function Resolve-X4Dir([string]$X4Dir, [switch]$AllowMissing) {
 }
 
 function Get-X4DocsRoot {
-    return (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Egosoft\X4')
+    # X4MP_S2_DOCS_ROOT is a test-only stand-in for the Documents folder (the dry run uses it so nothing real is touched).
+    $docs = if ($env:X4MP_S2_DOCS_ROOT) { $env:X4MP_S2_DOCS_ROOT } else { [Environment]::GetFolderPath('MyDocuments') }
+    return (Join-Path $docs 'Egosoft\X4')
 }
 
 # Documents\Egosoft\X4\<numeric id>; -UserId picks one when several exist. -AllowMissing: dry runs.
