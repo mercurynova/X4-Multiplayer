@@ -103,6 +103,8 @@
           <event_game_loaded/>
           <event_game_started/>
         </check_any>
+        <!-- v2: the session-1 run no longer starts by itself. Set md.$X4MP_AutoRun to re-enable it. -->
+        <check_value value="@md.$X4MP_AutoRun"/>
       </conditions>
       <actions>
         <!-- ===================================== CONFIG BLOCK (edit here) =====================================

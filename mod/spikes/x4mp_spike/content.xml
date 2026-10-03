@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Throwaway in-game spike extension for X4MP (session 1). XML + Lua only, no native DLL.
+<!-- Throwaway in-game spike extension for X4MP (sessions 1 and 2, v2). XML + Lua only, no native DLL.
+     Blocks run on demand (chat /x4mpspike <block>); nothing runs automatically. The Lua files are listed in ui.xml
+     (extension-level ui.xml, same as a vanilla addon), not here: content.xml has no file list.
      save="0": the extension is not required to load the savegame (same as the reference's content.xml format). -->
-<content id="x4mp_spike" name="X4MP Spike (test)" description="Throwaway in-game test extension for X4MP spike session 1. Remove after use." author="X4MP" version="900" date="2026-10-01" save="0" enabled="1">
-  <text language="44" name="X4MP Spike (test)" description="Throwaway in-game test extension for X4MP spike session 1. Remove after use."/>
+<content id="x4mp_spike" name="X4MP Spike (test)" description="Throwaway in-game test extension for X4MP spike sessions 1 and 2. Remove after use." author="X4MP" version="901" date="2026-10-02" save="0" enabled="1">
+  <text language="44" name="X4MP Spike (test)" description="Throwaway in-game test extension for X4MP spike sessions 1 and 2. Remove after use."/>
 </content>

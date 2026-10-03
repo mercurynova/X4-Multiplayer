@@ -1,21 +1,141 @@
-# X4MP spike extension `x4mp_spike` (session 1)
+# X4MP spike extension `x4mp_spike` (session 1 + v2 framework for session 2)
 
-Throwaway in-game test extension. XML + Lua only, no native DLL. It runs the eight steps of
-[docs/spikes/session-1.md](../../docs/spikes/session-1.md) by itself after a save loads, writes
-machine-readable lines to the X4 debug log and shows on-screen notifications. **Not shipped.** Remove it
-after the session (`uninstall-spike.ps1`) and throw the two test saves away.
+Throwaway in-game test extension. XML + Lua only, no native DLL. **Not shipped.** Remove it after the session
+(`uninstall-spike.ps1`) and throw the test saves away.
 
-## Use
+* **v2 (session 2, [docs/in-game-session-2.md](../../docs/in-game-session-2.md))**: a block registry. Nothing runs by
+  itself; every test is a *block* the user starts on demand. See "v2: blocks" below.
+* **Session 1** (the eight steps of [docs/spikes/session-1.md](../../docs/spikes/session-1.md)) is kept, but its MD
+  auto-run on game load is switched off (`md.$X4MP_AutoRun` must be set to re-enable it). Its sections further down
+  stay valid as the reference for those log keys.
+
+## Use (v2)
 
 1. `mod\spikes\install-spike.ps1` (optional `-X4Dir "<folder with X4.exe>"`). Installs to
-   `<X4>\extensions\x4mp_spike\` and unblocks the files.
+   `<X4>\extensions\x4mp_spike\` and unblocks the files. (Session 2 normally uses `tools\session2\install.ps1`.)
 2. Steam launch options: `-debug all -logfile x4mp_spike.log`. Settings > Extensions: Protected UI mode OFF.
-3. Load the test save (made before installing). Wait. Total run time is about 8 minutes (15 s start delay,
-   then the steps at the times in the config block). Be in space (not docked), in a ship.
-4. When "X4MP spike complete" appears: save to a new slot, quit to the main menu, load that save. On that
-   load the extension only runs the **Verify** checks (the `md.$X4MP_Done` flag is in the save).
-5. Send back the log (or all lines containing `[X4MP-SPIKE]`) plus the notes the notifications ask for.
-6. `uninstall-spike.ps1`.
+3. Start a block (see below), read the notification, send the log (every line with `[X4MP-SPIKE]`).
+
+## v2: blocks
+
+A block is a Lua function registered under a name. Blocks run **only** when launched; running a block twice is safe
+(idempotent: no duplicate menu rows, wrappers or windows).
+
+| Launcher | How |
+|---|---|
+| Chat | open the chat window, type `/x4mpspike <block> [k=v ...]` (the vanilla chat window passes `/cmd args` to `ExecuteDebugCommand`; `x4mp_spike_core.lua` wraps that global and delegates every other command). `/x4mpspike list` shows the registered blocks. Works in game, not in the start menu (no chat there) |
+| Lua event | `x4mp_spike.run`, param `<block>;k=v;k=v`. Raised by the M2-005 probe (its `spike_block` config watch, which `tools/session2/run-block.ps1` writes) and usable from any MD cue (below). Works in the start menu too |
+
+### Blocks owned by the framework (task M2-001)
+
+| Block | What it does (session-2 part) |
+|---|---|
+| `list`, `ping` | registered block list; framework smoke test (Lua log, MD round trip, notification) |
+| `ui` | D1: capture OptionsMenu `config` (UIX accessor, then `require("debug")` upvalue scan of `displayOptions`, `createOptionsFrame`, `displayOption`, validated), insert the row **"Multiplayer (X4MP test)"** after `timelines` (if no `config`: wrap `displayOptions` and draw the row into the frame, appended at the end), redraw the main menu if showing. A click on the row opens the standalone window |
+| `ui_standalone` | D2/D4: standalone menu `X4MPSpikeMenu` over the start menu or in game: title, **"Test password"** edit box (`textHidden = true`), **"Check"** button (logs only the length), "Close". The frame also has the standard close button |
+| `hud` | D5/V23: passive frame on **layer 3** (same layer as the chat window), top right, "X4MP test HUD". `hud off` removes it. Logs whether the frame is still present after other menus (1 Hz, on change only) |
+| `extensions` | D6/R7: dumps `GetExtensionList()` (field names with types, then one line per extension with every scalar field) and `GetModifiedBasegameUIFilesExtensions()` |
+| `links` | D7/R8: window with **"Nexus page"**, **"Workshop page"**, **"Steam link"** (https, https, `steam://`); each asks `CanOpenWebBrowser()` first, then `OpenWebBrowser(url)` |
+
+Blocks of the other tasks (`saves*`, `clock`, `money`, `v12`, `s9gate`, `onfoot1/2`, `diplo1..7`, `hq*`) are
+registered from their own files; until those tasks land the files are inert stubs that only log `LUA INFO what=stub_loaded`.
+
+### Writing a block (M2-002..004)
+
+Only edit your own files: `ui/x4mp_spike_saves.lua` (M2-002), `ui/x4mp_spike_onfoot.lua` (M2-003),
+`ui/x4mp_spike_diplo.lua` and `ui/x4mp_spike_hq.lua` (M2-004), plus your own `md/x4mp_spike_<name>.xml` and library
+diffs. `ui.xml` already lists them; `x4mp_spike_core.lua` loads first, so the global `X4MPSpike` exists in your file.
+
+```lua
+-- luacheck: globals X4MPSpike
+local S = X4MPSpike
+local K, log = S.K, S.log
+
+S.register("saves1", function(args)          -- args.raw, args.<k>, args._[1..] (positional)
+    log("C1", "INFO", K("what", "wrapper_installed"))
+    S.notify("saves1: wrapper installed (logging only)")   -- on-screen text "X4MP spike: ..."
+end, "C1 wrap SaveGame")
+
+S.registerMD("diplo1", "S11.1 (implemented in md/x4mp_spike_diplo.xml)")   -- Lua only forwards to MD
+```
+
+| API | Meaning |
+|---|---|
+| `X4MPSpike.register(name, fn, desc)` | register a block; `fn(args)` runs inside `pcall` (an error logs `RUN FAIL what=block_error`); the same name again replaces it |
+| `X4MPSpike.registerMD(name, desc)` | block implemented in MD: running it calls `toMD(name, args.raw)` |
+| `X4MPSpike.run(name, rawArgs)` | run a block now |
+| `X4MPSpike.log(step, level, kv)`, `X4MPSpike.K(name, value, ...)` | session-1 log line `[X4MP-SPIKE] <step> <PASS/FAIL/INFO/MEASURE> k=v ...`; `K` builds the `k=v` pairs (spaces in values become `_`) |
+| `X4MPSpike.notify(text)` | on-screen notification (through MD); text is prefixed `X4MP spike: ` and logged as `NOTIFY INFO text=` |
+| `X4MPSpike.toMD(control, value)` | Lua to MD |
+| `X4MPSpike.now()` | seconds from `QueryPerformanceCounter` when available (else `GetCurRealTime`) |
+| `X4MPSpike.addUpdate(fn)` | per-frame hook. **Never call `SetScript("onUpdate", ...)` yourself**: it keeps one handler and would replace the framework's |
+| `X4MPSpike.startRoutine(name, fn)`, `waitSeconds(s)`, `waitFrames(n)` | coroutine scheduler on the frame loop |
+| `X4MPSpike.parseArgs(text)` | `"k=v k=v pos"` or `"k=v;k=v"` to `{ k = v, _ = {pos}, raw = text }` |
+| `X4MPSpike.blockNames()` | sorted list of registered blocks |
+
+**MD trigger convention** (for blocks implemented in MD, and for MD cues that must start a Lua block):
+
+* **Lua to MD**: `X4MPSpike.toMD(control, value)` is `AddUITriggeredEvent("X4MP_Spike2", control, value)`. In MD:
+  `<event_ui_triggered screen="'X4MP_Spike2'" control="'saves1'"/>`; the value is `event.param3`, the control `event.param2`.
+  Use the **block name as the control** so `registerMD(name)` works; use other control names for replies.
+  (The screen id without the 2, `X4MP_Spike`, is session 1's channel and stays as it was.)
+* **MD to Lua**: `<raise_lua_event name="'x4mp_spike.run'" param="'<block>;k=v;k=v'"/>` starts a Lua block, same as typing
+  `/x4mpspike <block> k=v`. Other MD to Lua messages can use your own event name with `RegisterEvent`.
+* **MD log lines** use the same format with `debug_text ... filter="general" context="false"`:
+  `'[X4MP-SPIKE] <step> <level> k=v ...'`. MD can show a notification itself with `show_notification`.
+  `md/x4mp_spike_core.xml` logs every Spike2 event as `MD INFO what=spike2_event control=`, so a cue you forgot to
+  write shows up in the log.
+
+## v2 log keys
+
+`step` values added in v2: `RUN`, `NOTIFY`, `UI`, `HUD`, `EXT`, `LINKS`, `MD`; `LUA` as before.
+
+| Line | Meaning |
+|---|---|
+| `LUA INFO what=x4mp_spike_core_loaded version=2 timer= run_event=x4mp_spike.run` | framework loaded (also after `/reloadui`) |
+| `LUA INFO what=chat_command_wrapper command=x4mpspike result=wrapped` (or `installed_no_previous`, `already_installed`) | `ExecuteDebugCommand` wrapper installed |
+| `LUA INFO what=stub_loaded file=` | a task stub file loaded (nothing registered) |
+| `RUN INFO block= state=start run=N args=` and `state=returned` | a block started / returned; `run=N` counts runs in this Lua state (a second run shows `run=2`) |
+| `RUN INFO what=blocks known=a,b,c` | answer to `list` |
+| `RUN FAIL what=unknown_block block= known=` | no such block |
+| `RUN FAIL block= what=block_error err=` | the block raised a Lua error |
+| `RUN INFO what=ping src= frame= timer=` and `MD INFO what=lua_to_md_ping frame= age=` | `ping` block, Lua side and MD side |
+| `RUN INFO block= what=forwarded_to_md` | an MD block was started |
+| `NOTIFY INFO text=` | notification requested |
+| `MD INFO what=spike2_event control=` | MD saw a Lua to MD event |
+| `UI INFO what=optionsmenu_found found= menus=` | `OptionsMenu` present in `Menus` |
+| `UI INFO what=optionsmenu_functions displayOptions= createOptionsFrame= displayOption= submenuHandler= currentOption= isStartmenu=` | types of the functions the adapter needs |
+| `UI INFO what=protected_ui_mode value=` | `GetUISafeModeOption()` |
+| `UI INFO what=uix_accessor present=` and `UI PASS/INFO what=uix_getConfig ok= valid=` | UIX source (R1 source 1) |
+| `UI PASS/INFO what=require_debug require_ok= type= getupvalue= global_debug=` | V20: does `require("debug")` work, is `getupvalue` there |
+| `UI INFO what=upvalue_named_config function= index= valid=` and `UI INFO what=upvalue_scan function= is_function= upvalues= found=` | scan of each vanilla function |
+| `UI PASS what=config_capture source=uix` or `source=debug:<function>` (`main_rows= optionsLayer=`) | V20 answer: which source captured a valid `config`. `source=none` plus `note=falling_back_to_displayOptions_wrapper` otherwise; `reused=true` on a second run |
+| `UI PASS/FAIL what=row_state method=config_insert` or `wrap_displayOptions`, `action=inserted/already_present/appended_at_end/wrapper_installed/wrapper_already_installed rows_with_id=` | the row append. `rows_with_id` must be 1, also after a second run (**idempotency check**) |
+| `UI INFO what=main_menu_redraw ok= reason=` | the main menu was redrawn so the row shows |
+| `UI INFO what=ui_block_done source=` | `ui` finished |
+| `UI INFO what=row_clicked row=` | the user clicked the row |
+| `UI INFO what=standalone_menu_registered name=X4MPSpikeMenu`, `UI INFO what=standalone_OpenMenu_called mode= err=` | menu registered; `OpenMenu` called (the result of the call, not of the display) |
+| `UI INFO what=standalone_onShowMenu mode= is_startmenu=` and `UI PASS/FAIL what=standalone_displayed mode= err=` | the engine called our menu / the frame was built and displayed (D2 answer: these appear when it opens over the start menu) |
+| `UI INFO what=password_check length= text_hidden_requested=true` | **Check** clicked; only the length (-1 = nothing typed). The text is dropped afterwards and never logged |
+| `UI INFO what=standalone_close mode= due_to=` | window closed |
+| `UI FAIL what=helper_missing` | global `Helper` not available |
+| `HUD INFO what=hud_menu_registered`, `HUD PASS/FAIL what=hud_displayed layer=3`, `HUD INFO what=hud_closed` | `hud` block |
+| `HUD INFO what=frame_present_change present=` | our layer-3 frame appeared or disappeared (1 Hz poll); compare with what you saw after opening the map or pause menu |
+| `EXT INFO what=GetExtensionList count=` and `EXT INFO what=field_names fields=name:string,...` | R7 shape of the list |
+| `EXT INFO extension index= <field>=<value> ...` | one line per extension, every scalar field (strings cut at 80 chars, at most 200 extensions) |
+| `EXT INFO what=GetModifiedBasegameUIFilesExtensions value=` | extensions that modify base-game UI files (`(empty)` if none) |
+| `LINKS INFO what=click which=nexus` (or `workshop`, `steam`) `url= can_open_web_browser=` | a link button was clicked |
+| `LINKS PASS/FAIL what=OpenWebBrowser_called which=` and `LINKS INFO what=OpenWebBrowser_skipped reason=CanOpenWebBrowser_false` | the call ran (what opened is the user's observation) / was skipped |
+
+Greps: `[X4MP-SPIKE] UI`, `[X4MP-SPIKE] RUN`, `[X4MP-SPIKE] .* FAIL`.
+
+---
+
+# Session 1 (kept for reference)
+
+Session 1 ran the eight steps of [docs/spikes/session-1.md](../../docs/spikes/session-1.md) by itself after a save
+loaded. In v2 this is off unless `md.$X4MP_AutoRun` is set. Total run time was about 8 minutes. Be in space (not
+docked), in a ship, when running them.
 
 Config (step on/off, ghost counts `100,250,500`, ghosts per frame, seconds per tier, spawn distances, step
 durations) is the **CONFIG BLOCK** at the top of the `Boot` cue in `md/x4mp_spike.xml`. Set `$ForceFullRun`
@@ -27,7 +147,7 @@ to `true` to run all steps again on a save that already completed a run.
 [X4MP-SPIKE] <step> <PASS|FAIL|INFO|MEASURE> key=value key=value ...
 ```
 
-`step` is `S1`..`S9`, `MISC`, `LUA`, `BOOT`, `VERIFY`, `DONE`. MD lines come from `debug_text filter="general"`,
+`step` is `S1`..`S9`, `MISC`, `LUA`, `BOOT`, `VERIFY`, `DONE` (session 1) and `RUN`, `NOTIFY`, `UI`, `HUD`, `EXT`, `LINKS`, `MD` (v2, table above). MD lines come from `debug_text filter="general"`,
 Lua lines from `DebugError`. Spaces inside values are replaced by `_` on the Lua side. Useful greps:
 
 | grep | meaning |

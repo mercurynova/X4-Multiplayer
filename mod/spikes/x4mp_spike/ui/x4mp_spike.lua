@@ -1,4 +1,5 @@
--- x4mp_spike.lua : Lua side of the throwaway X4MP in-game spike extension.
+-- x4mp_spike.lua : Lua side of the session-1 steps of the throwaway X4MP in-game spike extension (kept in v2;
+-- the v2 framework is x4mp_spike_core.lua, which must load before this file).
 --
 -- Everything here is wrapped in pcall. Every result line starts with "[X4MP-SPIKE]" and is written with
 -- DebugError (vanilla global, used e.g. in ui/addons/ego_chatwindow/chatwindow.lua:445), so it shows up in
@@ -904,7 +905,12 @@ local function init()
 		RegisterEvent("X4MP_Spike_obj", onObj)
 		RegisterEvent("X4MP_Spike_cmd", onCmd)
 		RegisterEvent("X4MP_Spike_pong", onPong)
-		SetScript("onUpdate", onUpdate)
+		-- v2: x4mp_spike_core.lua owns the single "onUpdate" script (SetScript keeps one handler); hook in through it
+		if type(X4MPSpike) == "table" and type(X4MPSpike.addUpdate) == "function" then
+			X4MPSpike.addUpdate(onUpdate)
+		else
+			SetScript("onUpdate", onUpdate)
+		end
 	end)
 	log("LUA", ok and "INFO" or "FAIL", K("what", "x4mp_spike_lua_loaded", "timer", timerKind, "cdef_issues", cdefFail, "err", ok and "" or err))
 end
