@@ -164,15 +164,15 @@
     {
       "file": "0x0101_RosterUpdate.bin",
       "kind": "frame",
-      "size": 168,
-      "sha256": "9ba7e4446f00683a8fa906125e218a86bffa319d8292381188727b91d8d4a54c",
+      "size": 172,
+      "sha256": "2859c38a65e2da5567c47ef7d543b11c1549ef1518815439c49709e993084728",
       "msgType": 257,
       "msgName": "RosterUpdate",
       "variant": "",
       "lane": 0,
       "payloadOffset": 8,
-      "payloadLength": 160,
-      "fields": {"Full":true,"Players":[{"Name":"Alice","Phase":7,"PingMs":23,"PlayerId":1,"Roles":3,"Sector":12,"ShipNetId":1001,"TeamId":1,"TeamRole":1},{"Name":"Bob","Phase":4,"PingMs":80,"PlayerId":2,"Roles":2,"Sector":0,"ShipNetId":0,"TeamId":2,"TeamRole":0}],"Removed":[9]}
+      "payloadLength": 164,
+      "fields": {"Full":true,"Players":[{"Name":"Alice","Online":true,"Phase":7,"PingMs":23,"PlayerId":1,"Roles":3,"Sector":12,"ShipNetId":1001,"TeamId":1,"TeamRole":1},{"Name":"Bob","Online":false,"Phase":4,"PingMs":80,"PlayerId":2,"Roles":2,"Sector":0,"ShipNetId":0,"TeamId":2,"TeamRole":0}],"Removed":[9]}
     },
     {
       "file": "0x0102_SessionSettings.bin",
@@ -646,14 +646,14 @@
       "file": "0x0300_PlayerState.bin",
       "kind": "frame",
       "size": 96,
-      "sha256": "7bbea509d3e01fbca136f9a10cff8da311001845b5baf9ed49516c06012db869",
+      "sha256": "7d231ede52a5ce6c34847e13bd197bf73bf63539cf61a1afb4d72c9b72ca85ee",
       "msgType": 768,
       "msgName": "PlayerState",
       "variant": "",
       "lane": 1,
       "payloadOffset": 8,
       "payloadLength": 88,
-      "fields": {"Flags":8,"Hull":250,"NetId":1001,"Pitch":-1000,"Px":6400,"Py":-6400,"Pz":12800,"Roll":500,"SampleTimeUs":5000000,"Sector":12,"Seq":100,"Shield":10,"TargetNetId":1002,"Yaw":1000}
+      "fields": {"Flags":1032,"Hull":250,"NetId":1001,"Pitch":-1000,"Px":6400,"Py":-6400,"Pz":12800,"Roll":500,"SampleTimeUs":5000000,"Sector":12,"Seq":100,"Shield":10,"TargetNetId":1002,"Yaw":1000}
     },
     {
       "file": "0x0301_PlayerShip.bin",
@@ -3366,7 +3366,7 @@
       "file": "dgram_mixed.bin",
       "kind": "datagram",
       "size": 392,
-      "sha256": "a9862b5ed5f721fd1b8383a362fec41d0089cf6948ce8af8909305c715b10cb6",
+      "sha256": "dcfc1e83f700484d6d23b16491b9b5ade7587339e1ea54071362dfb3dd9bdce2",
       "protoMajor": 0,
       "connId": 3735928559,
       "seq": 7,

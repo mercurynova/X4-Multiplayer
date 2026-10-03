@@ -111,6 +111,107 @@ public sealed class AdminApiPlayerTests(AdminServerFixture f) : IClassFixture<Ad
         }
     }
 
+    // ------------------------------------------------------------------ avatars (M3-01, plan Q6)
+
+    private static uint _avatarIds = 7000;
+
+    /// <summary>Puts a player avatar into the server's mirror, as the authority's <c>EntitySpawn</c> would.</summary>
+    private async Task<uint> SpawnAvatarAsync(long playerId, ushort controller)
+    {
+        uint netId = Interlocked.Increment(ref _avatarIds);
+        var payload = X4MP.Protocol.MessageEncoder.EncodePayload(
+            b => EntitySpawn.Pack(b, new EntitySpawnT
+            {
+                Entities =
+                [
+                    new EntityRecordT
+                    {
+                        NetId = netId, Kind = EntityKind.ShipS, Origin = EntityOrigin.PlayerShip, OwnerTeam = 1, OwnerPlayer = (ushort)playerId,
+                        ControllerPlayer = controller, Name = "Pilot", Idcode = "AVA-" + netId, Hull = 255, Shield = 255,
+                        State = new EntityStateT { NetId = netId, Sector = 1, Px = 640 },
+                    },
+                ],
+            }),
+            512);
+        var spawn = X4MP.Protocol.MessageRegistry.Default.Decode<EntitySpawn>(
+            new X4MP.Protocol.Frame(MsgType.EntitySpawn, X4MP.Protocol.FrameOptions.None, X4MP.Protocol.Lane.Control, payload));
+        await f.Server.Actor.CallAsync(() =>
+        {
+            f.Server.World.ApplySpawn(spawn);
+            return true;
+        });
+        return netId;
+    }
+
+    private Task<bool> InMirrorAsync(uint netId) => f.Server.Actor.CallAsync(() => f.Server.World.TryGet(netId, out _));
+
+    [Fact]
+    public async Task KickLeavesTheAvatarParkedUnlessTheAdminAsksToRemoveIt()
+    {
+        var (keep, keepId) = await f.JoinAsync(f.NextName("Parked"));
+        var (drop, dropId) = await f.JoinAsync(f.NextName("Removed"));
+        await using var k = keep;
+        await using var d = drop;
+        uint keepAvatar = await SpawnAvatarAsync(keepId, (ushort)keepId);
+        uint dropAvatar = await SpawnAvatarAsync(dropId, (ushort)dropId);
+
+        using (var response = await Admin.CallAsync(HttpMethod.Post, $"/api/v1/players/{keepId}/kick", new { reason = "plain kick" }))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        await Api.AssertDisconnectedAsync(keep, DisconnectCode.Kicked, TimeSpan.FromSeconds(5));
+        Assert.True(await InMirrorAsync(keepAvatar), "a plain kick leaves the avatar in the universe (parked)");
+
+        using (var response = await Admin.CallAsync(HttpMethod.Post, $"/api/v1/players/{dropId}/kick", new { reason = "grief", removeAvatar = true }))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        await Api.AssertDisconnectedAsync(drop, DisconnectCode.Kicked, TimeSpan.FromSeconds(5));
+        Assert.False(await InMirrorAsync(dropAvatar), "kick with removeAvatar removes the ship");
+        Assert.True(await InMirrorAsync(keepAvatar));
+        var row = await Api.WaitForAuditAsync(f.Server, "player.kick", dropId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Contains("\"avatarsRemoved\":\"1\"", row.DataJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RemovingTheAvatarOfAnOfflinePlayerWorksThroughKickWithTheOptionAndPlainKickStillConflicts()
+    {
+        long offline = await f.CreateOfflinePlayerAsync(f.NextName("Gone"));
+        uint avatar = await SpawnAvatarAsync(offline, 0); // parked: its player left
+
+        using (var response = await Admin.CallAsync(HttpMethod.Post, $"/api/v1/players/{offline}/kick", new { reason = "x" }))
+        {
+            await response.AssertProblemAsync(HttpStatusCode.Conflict, "PlayerNotOnline");
+        }
+
+        Assert.True(await InMirrorAsync(avatar));
+
+        using (var response = await Admin.CallAsync(HttpMethod.Post, $"/api/v1/players/{offline}/kick", new { reason = "clean up", removeAvatar = true }))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        Assert.False(await InMirrorAsync(avatar));
+    }
+
+    [Fact]
+    public async Task BanWithRemoveAvatarAlsoRemovesTheShipsOfTheBannedPlayer()
+    {
+        var (node, id) = await f.JoinAsync(f.NextName("BanShip"));
+        await using var joined = node;
+        uint avatar = await SpawnAvatarAsync(id, (ushort)id);
+
+        using var create = await Admin.CallAsync(HttpMethod.Post, "/api/v1/bans", new { playerId = id, reason = "cheating", durationMinutes = 5, removeAvatar = true });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        await Api.AssertDisconnectedAsync(node, DisconnectCode.Banned, TimeSpan.FromSeconds(5));
+        Assert.False(await InMirrorAsync(avatar));
+        long banId = (await create.JsonAsync()).GetProperty("id").GetInt64();
+        var row = await Api.WaitForAuditAsync(f.Server, "ban.create", banId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Contains("\"avatarsRemoved\":\"1\"", row.DataJson, StringComparison.Ordinal);
+    }
+
     // ------------------------------------------------------------------ mute
 
     [Fact]

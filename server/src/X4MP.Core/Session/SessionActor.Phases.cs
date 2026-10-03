@@ -267,7 +267,12 @@ public sealed partial class SessionActor
                 slot.DetachedAt,
                 slot.DetachReason,
                 slot.Attached is null && slot.DetachDeadline != long.MaxValue ? Math.Max(0, _time.GetElapsedTime(now, slot.DetachDeadline).TotalSeconds) : null,
-                slot.BaselineEpoch));
+                slot.BaselineEpoch,
+                slot.Sector,
+                slot.ShipNetId,
+                slot.PosX,
+                slot.PosY,
+                slot.PosZ));
         }
 
         AuthoritySnapshot authority;

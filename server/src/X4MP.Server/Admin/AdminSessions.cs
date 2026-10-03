@@ -10,8 +10,12 @@ namespace X4MP.Server.Admin;
 
 /// <summary>What the admin side knows about the live session at one moment.</summary>
 internal sealed record LiveSession(
-    SessionSnapshot Snapshot, long DbId, SessionRecord? Row, IReadOnlySet<int> Muted, IReadOnlyDictionary<int, MuteEntry> Mutes, ITeamDirectory? Teams = null)
+    SessionSnapshot Snapshot, long DbId, SessionRecord? Row, IReadOnlySet<int> Muted, IReadOnlyDictionary<int, MuteEntry> Mutes, ITeamDirectory? Teams = null,
+    GalaxyModel? Galaxy = null)
 {
+    /// <summary>The name of a sector from the galaxy metadata, or null (no galaxy yet, or an unknown index).</summary>
+    public string? SectorName(ushort sector) => sector == 0 ? null : Galaxy?.Find(sector)?.Name;
+
     /// <summary>The team id and name of a player, or nulls while the player has no team.</summary>
     public (long? Id, string? Name) TeamOf(long playerId)
     {
@@ -62,7 +66,8 @@ internal sealed class AdminSessions(SessionActor actor, SqliteAdminQueries queri
         long dbId = await actor.GetStoreSessionIdAsync().ConfigureAwait(false);
         var mutes = (await chat.MutedAsync().ConfigureAwait(false)).ToDictionary(m => m.PlayerId);
         var row = dbId > 0 ? queries.FindSession(dbId) : null;
-        return new LiveSession(snapshot, dbId, row, mutes.Keys.ToHashSet(), mutes, teams);
+        // The galaxy model is immutable and replaced as a whole by the actor: reading the reference from here is safe.
+        return new LiveSession(snapshot, dbId, row, mutes.Keys.ToHashSet(), mutes, teams, mirror.Galaxy.Current);
     }
 
     public Task<int> EntityCountAsync() => actor.CallAsync(() => mirror.Count);

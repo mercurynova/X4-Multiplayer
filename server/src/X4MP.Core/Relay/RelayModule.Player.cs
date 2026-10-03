@@ -52,6 +52,9 @@ public sealed partial class RelayModule
         }
 
         node.Sector = state.Sector;
+        node.PosX = state.Px;
+        node.PosY = state.Py;
+        node.PosZ = state.Pz;
         var velocity = flow.Estimator.Add(state.Sector, state.Flags, state.SampleTimeUs, state.Px, state.Py, state.Pz);
         _mirror?.ApplyPlayerVelocity(node.PlayerId, velocity.X, velocity.Y, velocity.Z);
 
@@ -201,7 +204,37 @@ public sealed partial class RelayModule
 
     // ------------------------------------------------------------------ the mirror tells us which ship is whose
 
-    public void OnEntitySpawned(MirrorEntity entity, bool isNew, ushort previousSector, ulong journalSeq)
+    public void OnEntitySpawned(MirrorEntity entity, bool isNew, ushort previousSector, ulong journalSeq) => BindShip(entity);
+
+    /// <summary>
+    /// An <c>EntityChange</c> that sets <c>controller_player</c>: a rejoining player gets its parked avatar back (the authority may answer
+    /// <c>PlayerShip</c> with a change instead of a new spawn), and when the authority clears it (the player left, M3 plan Q6) the avatar
+    /// stays in the mirror as a parked ship and a node that still lists it drops it.
+    /// </summary>
+    public void OnEntityChanged(MirrorEntity entity, EntityChange change, ulong journalSeq)
+    {
+        if ((change.Fields & ChangeField.Controller) == 0)
+        {
+            return;
+        }
+
+        if (entity.ControllerPlayer != 0)
+        {
+            BindShip(entity);
+            return;
+        }
+
+        foreach (var node in _nodes.Values)
+        {
+            if (node.ShipNetId == entity.NetId)
+            {
+                node.ShipNetId = 0;
+                BroadcastRoster(node);
+            }
+        }
+    }
+
+    private void BindShip(MirrorEntity entity)
     {
         if (entity.ControllerPlayer == 0)
         {
@@ -219,6 +252,64 @@ public sealed partial class RelayModule
         node.ShipNetId = entity.NetId;
         Publish(new PlayerShipAssigned(_time.GetUtcNow(), SessionId, player, entity.NetId, previous));
         BroadcastRoster(node);
+    }
+
+    // ------------------------------------------------------------------ removing a player's avatar (admin kick/ban option)
+
+    /// <summary>
+    /// Removes every avatar of a player from the session: the mirror drops it (so the server stops replicating it and the nodes that held
+    /// it get <c>EntityDespawn{Removed}</c>) and the authority is told to remove the real ship with an <c>EntityDespawn{Removed}</c> of the
+    /// same <c>net_id</c> (the only server-to-authority removal order; held until the authority is in game when it is not now).
+    /// Returns the removed <c>net_id</c>s.
+    /// </summary>
+    public Task<IReadOnlyList<uint>> RemoveAvatarsAsync(int playerId)
+    {
+        var driver = _driver ?? throw new InvalidOperationException("the relay is not attached to a session");
+        return driver.CallAsync<IReadOnlyList<uint>>(() => RemoveAvatars(playerId));
+    }
+
+    private List<uint> RemoveAvatars(int playerId)
+    {
+        if (_mirror is null)
+        {
+            return [];
+        }
+
+        var found = new List<uint>();
+        foreach (var entity in _mirror.All)
+        {
+            if (entity.Origin == EntityOrigin.PlayerShip && (entity.OwnerPlayer == playerId || entity.ControllerPlayer == playerId))
+            {
+                found.Add(entity.NetId);
+            }
+        }
+
+        foreach (var node in _nodes.Values)
+        {
+            if (node.PlayerId == playerId && node.ShipNetId != 0 && !found.Contains(node.ShipNetId))
+            {
+                found.Add(node.ShipNetId);
+            }
+        }
+
+        _avatarRequests.Remove(playerId);
+        foreach (uint netId in found)
+        {
+            _mirror.Remove(netId, DespawnReason.Removed, journal: false);
+            if (Authority is { } authority)
+            {
+                var frame = Encode(
+                    MsgType.EntityDespawn,
+                    fbb => EntityDespawn.Pack(fbb, new EntityDespawnT { Entries = [new DespawnEntryT { NetId = netId, Reason = DespawnReason.Removed }] }),
+                    64);
+                TrySend(authority, frame);
+                frame.Release();
+            }
+
+            Stats.AvatarsRemoved++;
+        }
+
+        return found;
     }
 
     public void OnEntityDespawned(MirrorEntity entity, DespawnReason reason, uint killerNetId, ulong journalSeq)

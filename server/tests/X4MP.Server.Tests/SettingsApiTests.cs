@@ -294,6 +294,74 @@ public class SettingsApiTests
         Assert.True(actor.Settings.Version > initial.Version);
     }
 
+    [Fact]
+    public async Task TheAvatarSettingsRoundTripAndReachTheNodes()
+    {
+        await using var factory = new AuthFactory();
+        var token = factory.Services.GetRequiredService<AdminStore>().CreateToken("a", AdminRoles.Admin);
+        var client = factory.CreateClient();
+        var actor = factory.Services.GetRequiredService<X4MP.Core.Session.SessionActor>();
+
+        using (var schema = await client.SendAsync(Get("/api/v1/settings/schema", token)))
+        {
+            using var doc = JsonDocument.Parse(await schema.Content.ReadAsStringAsync());
+            var all = doc.RootElement.GetProperty("settings").EnumerateArray().ToDictionary(e => e.GetProperty("key").GetString()!);
+            var macro = all["Avatars.StarterShipMacro"];
+            Assert.Equal("ship_arg_s_fighter_01_a_macro", macro.GetProperty("default").GetString());
+            Assert.True(macro.GetProperty("pushToNodes").GetBoolean());
+            Assert.False(macro.GetProperty("requiresRestart").GetBoolean());
+            var loadout = all["Avatars.StarterLoadout"];
+            Assert.Equal(string.Empty, loadout.GetProperty("default").GetString());
+            Assert.True(loadout.GetProperty("pushToNodes").GetBoolean());
+            var offset = all["Avatars.SpawnOffsetMeters"];
+            Assert.Equal(300, offset.GetProperty("default").GetInt32());
+            Assert.True(offset.GetProperty("pushToNodes").GetBoolean());
+        }
+
+        var start = Stopwatch.StartNew();
+        while (actor.Settings is null)
+        {
+            Assert.True(start.Elapsed < TimeSpan.FromSeconds(20), "the actor never got its initial node-relevant settings");
+            await Task.Delay(10);
+        }
+
+        Assert.Equal("ship_arg_s_fighter_01_a_macro", actor.Settings.Values["Avatars.StarterShipMacro"].GetString());
+        Assert.Equal(300, actor.Settings.Values["Avatars.SpawnOffsetMeters"].GetInt32());
+        Assert.Equal(string.Empty, actor.Settings.Values["Avatars.StarterLoadout"].GetString());
+
+        using (var bad = await client.SendAsync(Patch("""{"Avatars.SpawnOffsetMeters":10}""", token: token)))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode); // below the 50 m minimum
+        }
+
+        var before = actor.Settings;
+        using (var ok = await client.SendAsync(Patch("""{"Avatars.StarterShipMacro":"ship_arg_m_frigate_01_a_macro","Avatars.SpawnOffsetMeters":500,"Avatars.StarterLoadout":"default_ship_arg_s_fighter_01_a"}""", token: token)))
+        {
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+
+        var until = Stopwatch.StartNew();
+        while (ReferenceEquals(actor.Settings, before))
+        {
+            Assert.True(until.Elapsed < TimeSpan.FromSeconds(10), "the push took longer than 10 seconds");
+            await Task.Delay(5);
+        }
+
+        Assert.Equal("ship_arg_m_frigate_01_a_macro", actor.Settings!.Values["Avatars.StarterShipMacro"].GetString());
+        Assert.Equal(500, actor.Settings.Values["Avatars.SpawnOffsetMeters"].GetInt32());
+        Assert.Equal("default_ship_arg_s_fighter_01_a", actor.Settings.Values["Avatars.StarterLoadout"].GetString());
+        var options = factory.Services.GetRequiredService<IOptionsMonitor<AvatarOptions>>().CurrentValue;
+        Assert.Equal("ship_arg_m_frigate_01_a_macro", options.ResolveStarterShipMacro(teamId: 3, race: "argon")); // the one place the ship comes from
+        Assert.Equal("default_ship_arg_s_fighter_01_a", options.ResolveStarterLoadout(teamId: 3, race: "argon"));
+    }
+
+    [Fact]
+    public void ABlankStarterShipSettingFallsBackToTheArgonElite()
+    {
+        Assert.Equal(AvatarOptions.DefaultStarterShipMacro, new AvatarOptions { StarterShipMacro = "  " }.ResolveStarterShipMacro());
+        Assert.Equal("ship_arg_s_fighter_01_a_macro", AvatarOptions.DefaultStarterShipMacro);
+    }
+
     private sealed class RecordingPusher : ISessionSettingsPusher
     {
         public List<SessionSettingsSnapshot> Snapshots { get; } = [];

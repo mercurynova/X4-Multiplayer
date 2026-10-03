@@ -8,7 +8,7 @@ import { E, groups, SNAPSHOT_EVENT } from '../../hub/contract';
 import { useHubGroup } from '../../hub/HubProvider';
 import { problemToFormErrors } from '../../lib/problem';
 import { ConfirmDialog } from './ActionDialogs';
-import { formatDateTime, formatDuration } from './format';
+import { formatDateTime, formatDuration, formatWhere } from './format';
 import { PlayerModsSection } from '../mods/PlayerReports';
 import { NodeDiagnosticsSection } from './NodeDiagnosticsSection';
 import { PlayerActions } from './PlayerActions';
@@ -91,6 +91,12 @@ function Connection({ live, address }: { live: PlayerLiveDto | null; address: st
       <dd>{live.phase}</dd>
       <dt>Address</dt>
       <dd>{live.remoteAddress ?? ''}</dd>
+      {live.sectorId !== null && (
+        <>
+          <dt>Sector</dt>
+          <dd data-testid="player-where">{formatWhere(live)}</dd>
+        </>
+      )}
       <dt>Ping</dt>
       <dd>{Math.round(live.rttMs)} ms</dd>
       <dt>FPS</dt>

@@ -335,9 +335,10 @@ public sealed partial class SessionActor
             SendTo(slot, ControlFrames.Encode(MsgType.ServerNotice, fbb => ServerNotice.Pack(fbb, notice).Value, 256));
         }
 
-        if (!node.Welcome.Resumed)
+        if (!node.Welcome.Resumed || slot.AnnouncedOffline)
         {
-            BroadcastRosterUpsert(slot, except: slot); // the joiner already got the full roster
+            slot.AnnouncedOffline = false;
+            BroadcastRosterUpsert(slot, except: slot); // the joiner already got the full roster; after a visible drop the others see online=true again
         }
 
         SendPing(slot, Now);

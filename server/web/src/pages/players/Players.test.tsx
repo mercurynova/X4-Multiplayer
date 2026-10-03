@@ -53,6 +53,10 @@ const live = (playerId: number, name: string): PlayerLiveDto => ({
   teamId: null,
   teamName: null,
   stats: null,
+  sectorId: null,
+  sectorName: null,
+  position: null,
+  shipNetId: null,
 });
 
 let calls: Call[];
@@ -141,7 +145,35 @@ describe('players list', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     const post = calls.find((c) => c.method === 'POST');
     expect(post?.url).toBe('/api/v1/players/1/kick');
-    expect(JSON.parse(post?.body ?? '{}')).toEqual({ reason: 'afk' });
+    expect(JSON.parse(post?.body ?? '{}')).toEqual({ reason: 'afk', removeAvatar: null });
+  });
+
+  it('can also remove the avatar when kicking', async () => {
+    const hub = setup('/players', (c) => (c.method === 'POST' ? new Response(null, { status: 202 }) : json(200, [bob])));
+    await screen.findByRole('row', { name: /Bob/ });
+    act(() => hub.push('PlayerChanged', live(1, 'Bob')));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Kick Bob' }));
+    const dialog = screen.getByRole('dialog', { name: 'Kick Bob' });
+    await user.click(within(dialog).getByLabelText(/Also remove their ships/));
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'griefing');
+    await user.click(within(dialog).getByRole('button', { name: 'Kick' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(JSON.parse(calls.find((c) => c.method === 'POST')?.body ?? '{}')).toEqual({ reason: 'griefing', removeAvatar: true });
+  });
+
+  it('shows the sector and position of an online player', async () => {
+    const hub = setup('/players', () => json(200, [bob, eve]));
+    await screen.findByRole('row', { name: /Bob/ });
+    act(() =>
+      hub.push('PlayerChanged', { ...live(1, 'Bob'), sectorId: 7, sectorName: 'Argon Prime', position: { x: 12_345, y: 0, z: -4_560 }, shipNetId: 500 }),
+    );
+    expect(within(screen.getByRole('row', { name: /Bob/ })).getByTestId('player-sector')).toHaveTextContent('Argon Prime (12.3, -4.6 km)');
+    // No galaxy yet: the sector index is shown; nothing before the first position.
+    act(() => hub.push('PlayerChanged', { ...live(1, 'Bob'), sectorId: 7, sectorName: null, position: null }));
+    expect(within(screen.getByRole('row', { name: /Bob/ })).getByTestId('player-sector')).toHaveTextContent('sector 7');
+    act(() => hub.push('PlayerChanged', live(1, 'Bob')));
+    expect(within(screen.getByRole('row', { name: /Bob/ })).getByTestId('player-sector')).toBeEmptyDOMElement();
   });
 
   it('requires a reason to ban and maps an ApiProblem 400 to the fields', async () => {
@@ -194,6 +226,7 @@ describe('players list', () => {
       ipCidr: '10.0.0.1/32',
       reason: 'cheating',
       durationMinutes: 1440,
+      removeAvatar: null,
     });
   });
 

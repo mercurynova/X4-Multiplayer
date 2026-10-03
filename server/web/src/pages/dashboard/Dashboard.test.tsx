@@ -35,6 +35,10 @@ const player = (id: number, over: Partial<PlayerLiveDto> = {}): PlayerLiveDto =>
   teamId: null,
   teamName: null,
   stats: null,
+  sectorId: null,
+  sectorName: null,
+  position: null,
+  shipNetId: null,
   ...over,
 });
 

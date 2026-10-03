@@ -33,6 +33,16 @@ public interface IIntentValidator
     RejectReason? Validate(SessionNode sender, IntentT intent);
 }
 
+/// <summary>What the admin side may do with player avatars (M3-01). Runs on the session actor, so it is safe from any thread.</summary>
+public interface IAvatarControl
+{
+    /// <summary>
+    /// Removes every avatar of a player (kick/ban with "remove their ships", M3 plan Q6): the mirror drops it, nodes that held it get
+    /// <c>EntityDespawn{Removed}</c>, and the authority is ordered to remove the real ship the same way. Returns the removed <c>net_id</c>s.
+    /// </summary>
+    Task<IReadOnlyList<uint>> RemoveAvatarsAsync(int playerId);
+}
+
 /// <summary>
 /// What the admin side may do with chat (server-design 1.3 admin API, M1-W6). Every call runs on the session actor, so it is safe
 /// from any thread. Muting is persisted and survives a restart.
@@ -86,6 +96,9 @@ public sealed class RelayStats
     public long StatesSuperseded { get; internal set; }
 
     public long PlayerShipsForwarded { get; internal set; }
+
+    /// <summary>Avatars removed on an admin kick/ban with "remove their ships" (M3-01).</summary>
+    public long AvatarsRemoved { get; internal set; }
 
     public long IntentsForwarded { get; internal set; }
 

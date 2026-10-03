@@ -66,6 +66,13 @@ public sealed class SessionNode
     /// <summary>The sector of the last <c>PlayerState</c> (0 = unknown), kept by the relay for the roster.</summary>
     public ushort Sector { get; internal set; }
 
+    /// <summary>The position of the last <c>PlayerState</c> in 1/64 m inside <see cref="Sector"/>, kept by the relay for the admin GUI (M3-01).</summary>
+    public int PosX { get; internal set; }
+
+    public int PosY { get; internal set; }
+
+    public int PosZ { get; internal set; }
+
     /// <summary>The phase the node left when it detached; a resume goes back to it.</summary>
     public NodePhase PhaseBeforeDetach { get; internal set; } = NodePhase.Admitted;
 
@@ -103,6 +110,9 @@ public sealed class SessionNode
     /// <summary>True after the actor sent the roster and session state following <c>Welcome</c>.</summary>
     internal bool Announced { get; set; }
 
+    /// <summary>True while the others were told <c>online=false</c> (a lost socket inside the resume grace); the resume tells them it is back.</summary>
+    internal bool AnnouncedOffline { get; set; }
+
     internal long DetachDeadline { get; set; } = long.MaxValue;
 
     internal long LastInboundTicks { get; set; }
@@ -134,7 +144,12 @@ public sealed record NodeSnapshot(
     DateTimeOffset? DetachedAt,
     DetachReason? DetachReason,
     double? ResumeRemainingSeconds,
-    int BaselineEpoch);
+    int BaselineEpoch,
+    ushort Sector = 0,
+    uint ShipNetId = 0,
+    int PosX = 0,
+    int PosY = 0,
+    int PosZ = 0);
 
 public enum AuthorityStatus
 {

@@ -48,9 +48,19 @@ export interface DialogProps {
   onDone: (message: string) => void;
 }
 
+function RemoveAvatarField({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="check">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      Also remove their ships from the universe (otherwise their avatar stays parked where it is)
+    </label>
+  );
+}
+
 export function KickDialog({ player, onClose, onDone }: DialogProps & { player: PlayerDto }) {
+  const [removeAvatar, setRemoveAvatar] = useState(false);
   const form = useActionForm(
-    (reason) => playersApi.kick(player.id, reason),
+    (reason) => playersApi.kick(player.id, reason, removeAvatar),
     () => {
       onDone(`Kicked ${player.name}.`);
       onClose();
@@ -60,6 +70,7 @@ export function KickDialog({ player, onClose, onDone }: DialogProps & { player: 
     <Dialog title={`Kick ${player.name}`} onClose={onClose}>
       <form onSubmit={form.submit} noValidate>
         <p className="muted">The player is disconnected now and may rejoin. The reason is shown to the player and logged.</p>
+        <RemoveAvatarField checked={removeAvatar} onChange={setRemoveAvatar} />
         <ReasonField form={form} />
         <Buttons form={form} confirm="Kick" onClose={onClose} />
       </form>
@@ -122,6 +133,7 @@ export function BanDialog({ player, onClose, onDone }: DialogProps & { player?: 
   const [keyHash, setKeyHash] = useState('');
   const [cidr, setCidr] = useState('');
   const [alsoIp, setAlsoIp] = useState(false);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
   const [duration, setDuration] = useState('perm');
   const [custom, setCustom] = useState('');
 
@@ -138,6 +150,7 @@ export function BanDialog({ player, onClose, onDone }: DialogProps & { player?: 
           ipCidr: kind === 'ip' ? cidr.trim() : kind === 'player' && alsoIp && player?.lastIp ? `${player.lastIp}/32` : null,
           reason,
           durationMinutes: minutes,
+          removeAvatar: removeAvatar ? true : null,
         })
         .then(() => undefined),
     () => {
@@ -236,6 +249,7 @@ export function BanDialog({ player, onClose, onDone }: DialogProps & { player?: 
           </label>
         )}
         {form.errors['durationMinutes'] && <span className="field-error">{form.errors['durationMinutes']}</span>}
+        <RemoveAvatarField checked={removeAvatar} onChange={setRemoveAvatar} />
         <ReasonField form={form} />
         <Buttons form={form} confirm="Ban" onClose={onClose} />
       </form>

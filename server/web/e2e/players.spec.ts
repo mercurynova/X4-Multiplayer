@@ -37,6 +37,19 @@ test.describe('players', () => {
     await expect(page.getByText('Connection', { exact: true })).toBeVisible();
   });
 
+  test('shows the sector and position of a flying bot on the list and on the detail page (M3-01)', async ({ page, bots }) => {
+    await page.goto('/players');
+    const bot = bots.start({ command: 'client', name: 'Flyer', duration: 60 });
+    await bot.waitForLine(IN_GAME);
+    const r = row(page, 'Flyer');
+    // The bot sends PlayerState from its first tick; the dashboard snapshot carries the sector (galaxy name) and the position in km.
+    await expect(r.getByTestId('player-sector')).toHaveText(/\S+ \(-?\d+\.\d, -?\d+\.\d km\)/, { timeout: 15_000 });
+    const text = await r.getByTestId('player-sector').innerText();
+    await r.getByRole('link', { name: 'Flyer' }).click();
+    await expect(page.getByTestId('player-where')).toHaveText(/\S+ \(-?\d+\.\d, -?\d+\.\d km\)/);
+    expect(text).not.toContain('sector 0');
+  });
+
   test('kick disconnects the bot and the list shows it offline within 2 s; ban blocks it; unban lets it back', async ({ page, bots }) => {
     await page.goto('/players');
     let bot = bots.start({ command: 'client', name: 'Victim', duration: 90 });

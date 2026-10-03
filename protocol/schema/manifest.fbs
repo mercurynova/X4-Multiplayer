@@ -21,6 +21,9 @@ table ManifestEntry {
   idcode:string;                 // GetObjectIDCode()
   position:Vec3f;                // sector-relative, exact float from save time
   parent_net_id:uint;
+  // Appended M3-01 (D2): avatars are manifest entries so nodes can bind them after a load. origin=PlayerShip + the player.
+  origin:EntityOrigin;
+  controller_player:ushort;      // 0 = not a player ship
 }
 
 table Manifest {

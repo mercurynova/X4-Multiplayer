@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GalaxyPlayerDto } from '../../generated/generated';
 import { parseFollow, resolveFollow, sectorPath } from './follow';
 
-const p = (id: number, sectorId: number): GalaxyPlayerDto => ({ id, name: `P${id}`, sectorId, pos: { x: 0, y: 0, z: 0 }, headingDeg: 0 });
+const p = (id: number, sectorId: number): GalaxyPlayerDto => ({ id, name: `P${id}`, sectorId, pos: { x: 0, y: 0, z: 0 }, headingDeg: 0, online: true });
 
 describe('follow on jump', () => {
   it('does nothing when nobody is followed', () => {

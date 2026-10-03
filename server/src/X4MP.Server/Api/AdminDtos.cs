@@ -21,11 +21,16 @@ public sealed record SessionSummaryDto(
 public sealed record AuthorityStatusDto(
     long PlayerId, string? Name, string Status, double? GraceRemainingSeconds, string? GameBuild, string? ModVersion);
 
-/// <summary>A node of the live session (<c>Phase</c> is the NodePhase name, <c>Roles</c> the Role flags as text).</summary>
+/// <summary>
+/// A node of the live session (<c>Phase</c> is the NodePhase name, <c>Roles</c> the Role flags as text). <c>SectorId</c> (the wire sector index),
+/// <c>SectorName</c> (from the galaxy metadata, null until it arrived) and <c>Position</c> (metres inside the sector) come from the player's
+/// latest <c>PlayerState</c>; all null until the first one. <c>ShipNetId</c> is the avatar the authority assigned (null = none).
+/// </summary>
 [TsContract]
 public sealed record PlayerLiveDto(
     long PlayerId, long? ConnectionId, string Name, string Roles, string Phase, bool Connected, string? RemoteAddress, double RttMs,
-    double Fps, long ConnectedSeconds, bool Muted, long? TeamId = null, string? TeamName = null, NodeStatsDto? Stats = null);
+    double Fps, long ConnectedSeconds, bool Muted, long? TeamId = null, string? TeamName = null, NodeStatsDto? Stats = null,
+    long? SectorId = null, string? SectorName = null, Vec3Dto? Position = null, long? ShipNetId = null);
 
 /// <summary>The latest <c>NodeStats</c> a node reported (every 2 s, M2-12). <c>NetMainMsP95</c> is the mod's own main-thread cost per frame (p95 over the last 2 s).</summary>
 [TsContract]
@@ -85,9 +90,9 @@ public sealed record PlayerSessionDto(
 public sealed record PlayerDetailDto(
     PlayerDto Player, string KeyHash, PlayerLiveDto? Live, List<PlayerSessionDto> History, List<BanDto> Bans);
 
-/// <summary>Body of <c>POST /api/v1/players/{id}/kick</c>.</summary>
+/// <summary>Body of <c>POST /api/v1/players/{id}/kick</c>. <c>RemoveAvatar</c> also removes the player's avatar (ship) from the universe; without it the avatar stays parked (M3 plan Q6).</summary>
 [TsContract]
-public sealed record KickRequest(string? Reason);
+public sealed record KickRequest(string? Reason, bool? RemoveAvatar = null);
 
 /// <summary>Body of <c>POST /api/v1/players/{id}/mute</c>; no <c>Minutes</c> = until lifted.</summary>
 [TsContract]
@@ -105,10 +110,10 @@ public sealed record BanDto(
 
 /// <summary>
 /// Body of <c>POST /api/v1/bans</c>: at least one of <c>PlayerId</c>, <c>KeyHash</c> (hex SHA-256 of a known player's key) and
-/// <c>IpCidr</c> (an address or CIDR block). No <c>DurationMinutes</c> = permanent.
+/// <c>IpCidr</c> (an address or CIDR block). No <c>DurationMinutes</c> = permanent. <c>RemoveAvatar</c> also removes the avatars of the banned players.
 /// </summary>
 [TsContract]
-public sealed record CreateBanRequest(long? PlayerId, string? KeyHash, string? IpCidr, string? Reason, int? DurationMinutes);
+public sealed record CreateBanRequest(long? PlayerId, string? KeyHash, string? IpCidr, string? Reason, int? DurationMinutes, bool? RemoveAvatar = null);
 
 /// <summary>One chat line from the history.</summary>
 [TsContract]

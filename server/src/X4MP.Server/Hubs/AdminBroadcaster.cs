@@ -232,6 +232,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
     {
         var snapshot = _actor.Snapshot;
         var names = snapshot.Nodes.ToDictionary(n => n.PlayerId, n => n.Name);
+        var connected = snapshot.Nodes.Where(n => n.Connected).Select(n => n.PlayerId).ToHashSet();
         var players = new List<GalaxyPlayerDto>();
         foreach (var ship in _mirror.PlayerShips)
         {
@@ -241,7 +242,26 @@ public sealed partial class AdminBroadcaster : BackgroundService
                 names.GetValueOrDefault(ship.PlayerId) ?? ship.PlayerId.ToString(CultureInfo.InvariantCulture),
                 ship.Sector,
                 new Vec3Dto(Quantize.PositionToMetres(ship.Px), Quantize.PositionToMetres(ship.Py), Quantize.PositionToMetres(ship.Pz)),
-                ((yawDeg % 360) + 360) % 360));
+                ((yawDeg % 360) + 360) % 360,
+                connected.Contains(ship.PlayerId)));
+        }
+
+        // Avatars nobody pilots (their player left) stay in the universe as parked ships: show them, marked offline.
+        foreach (var parked in _mirror.ParkedAvatars)
+        {
+            if (parked.OwnerPlayer == 0 || parked.Sector == 0 || players.Any(p => p.Id == parked.OwnerPlayer))
+            {
+                continue;
+            }
+
+            double yawDeg = Quantize.RotationToRadians(parked.Yaw) * 180.0 / Math.PI;
+            players.Add(new GalaxyPlayerDto(
+                parked.OwnerPlayer,
+                names.GetValueOrDefault(parked.OwnerPlayer) ?? parked.Name ?? parked.OwnerPlayer.ToString(CultureInfo.InvariantCulture),
+                parked.Sector,
+                new Vec3Dto(Quantize.PositionToMetres(parked.Px), Quantize.PositionToMetres(parked.Py), Quantize.PositionToMetres(parked.Pz)),
+                ((yawDeg % 360) + 360) % 360,
+                false));
         }
 
         var agg = _mirror.Summary.Values

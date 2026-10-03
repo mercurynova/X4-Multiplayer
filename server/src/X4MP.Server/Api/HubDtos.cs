@@ -22,9 +22,12 @@ public sealed record Vec3Dto(double X, double Y, double Z);
 [TsContract]
 public sealed record LogFilterDto(string? Level, string? Source, string? Q);
 
-/// <summary>A player ship on the galaxy map. <c>HeadingDeg</c> is the yaw in degrees.</summary>
+/// <summary>
+/// A player ship on the galaxy map. <c>HeadingDeg</c> is the yaw in degrees. <c>Online</c> is false for a player whose node is detached and
+/// for an avatar parked in the universe after its player left (M3 plan Q6); then <c>Id</c> is the owning player and <c>Name</c> the ship's name.
+/// </summary>
 [TsContract]
-public sealed record GalaxyPlayerDto(long Id, string Name, long SectorId, Vec3Dto Pos, double HeadingDeg);
+public sealed record GalaxyPlayerDto(long Id, string Name, long SectorId, Vec3Dto Pos, double HeadingDeg, bool Online = true);
 
 /// <summary>Ship and station counts of a sector from the authority's <c>GalaxySummary</c>.</summary>
 [TsContract]
