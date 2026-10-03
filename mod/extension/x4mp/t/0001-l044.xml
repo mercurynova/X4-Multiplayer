@@ -53,5 +53,33 @@
     <t id="300">Join or manage an X4MP multiplayer session</t>
     <t id="301">X4MP: %s</t>
     <t id="302">X4MP: %s, %s players, %s ms</t>
+    <t id="400">Your mods do not match this session.</t>
+    <t id="401">Install: %s</t>
+    <t id="402">Enable: %s</t>
+    <t id="403">Disable: %s</t>
+    <t id="404">Update: %s</t>
+    <t id="405">%s, version %s</t>
+    <t id="406">%s</t>
+    <t id="407">Id: %s</t>
+    <t id="408">You have version %s, this session uses %s</t>
+    <t id="409">Note: %s</t>
+    <t id="410">Open Workshop page</t>
+    <t id="411">Cannot be opened from the game. Copy this address into a web browser:</t>
+    <t id="412">The game cannot open a browser here. Copy this address into a web browser:</t>
+    <t id="413">Changes need a game restart. Enable and disable mods in Settings, Extensions.</t>
+    <t id="414">Switch these on in Settings, Extensions, then restart the game.</t>
+    <t id="415">Switch these off in Settings, Extensions, then restart the game.</t>
+    <t id="416">Install these first, then restart the game.</t>
+    <t id="417">Update these, then restart the game.</t>
+    <t id="418">and %s more</t>
+    <t id="420">Mods of this session</t>
+    <t id="423">Required: %s</t>
+    <t id="424">Allowed: %s</t>
+    <t id="425">Not allowed: %s</t>
+    <t id="426">The enabled DLC and gameplay mods of the host are required automatically.</t>
+    <t id="428">A player whose mods differ is refused.</t>
+    <t id="429">A player whose mods differ gets a warning.</t>
+    <t id="430">No extra mods are listed for this session.</t>
+    <t id="431">Address</t>
   </page>
 </language>
