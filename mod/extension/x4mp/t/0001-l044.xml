@@ -37,5 +37,8 @@
     <t id="43">Ping: %s ms</t>
     <t id="44">Players: %s</t>
     <t id="51">Type /x4mp in the chat window to open this screen at any time.</t>
+    <t id="300">Join or manage an X4MP multiplayer session</t>
+    <t id="301">X4MP: %s</t>
+    <t id="302">X4MP: %s, %s players, %s ms</t>
   </page>
 </language>
