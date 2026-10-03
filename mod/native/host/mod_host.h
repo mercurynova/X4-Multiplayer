@@ -26,6 +26,7 @@
 //     flushes and closes the log. The next init sees it in HostContext::previous (gates are NOT restored: M2-07).
 // ---------------------------------------------------------------------------------------------------------------
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -96,6 +97,10 @@ class ModHost {
 
  private:
   void log_header();
+  void install_refused_responder() noexcept;
+  void drain_pending_events() noexcept;
+  void handle_game_loaded() noexcept;
+  void handle_universe_ready() noexcept;
   void maybe_log_perf(std::int64_t now_ns);
   void write_stash_state();
   void teardown_log() noexcept;
@@ -127,6 +132,8 @@ class ModHost {
   std::string refusal_reason_;
   std::string extension_path_;
 
+  std::atomic<bool> pending_game_loaded_{false};      // delivered off the frame thread: replayed by the next on_frame
+  std::atomic<bool> pending_universe_ready_{false};
   std::uint64_t frame_index_ = 0;
   std::int64_t last_frame_ns_ = 0;
   std::int64_t last_perf_ns_ = 0;

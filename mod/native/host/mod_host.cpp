@@ -9,6 +9,7 @@
 #include "game/main_thread.h"
 #include "game/player_guard.h"
 #include "game/safe_remove.h"
+#include "host/status_json.h"
 
 namespace x4mp::host {
 
@@ -107,10 +108,11 @@ InitResult ModHost::init() noexcept {
     bi.version = game_.game_version_struct();
     bi.build_suffix = game_.build_version_suffix();
     bi.game_types_build = game_.info().game_types_build;
+    bi.x4native_version = game_.info().x4native_version;
     build_ = check_build(bi, version::game_build_pin());
 
     budget_ = std::make_unique<FrameBudget>(config_.frame_budget_us, clock_);
-    ctx_ = std::make_unique<HostContext>(HostContext{config_, game_, *log_, platform_, *budget_, gates_, previous_, extension_path_});
+    ctx_ = std::make_unique<HostContext>(HostContext{config_, game_, *log_, platform_, *budget_, gates_, previous_, extension_path_, &paths_});
 
     log_header();
     platform_.native_log(log::Level::Info, version::hello_line());
@@ -122,6 +124,7 @@ InitResult ModHost::init() noexcept {
                 "REFUSING TO START: " + build_.reason + " [detected " + build_.detected + ", mod pin " +
                     std::string(version::game_build_pin()) + "]; the mod stays inert (no events, no features)");
       log_->flush();
+      install_refused_responder();
       return InitResult::Refused;
     }
     if (build_.status == BuildStatus::Unverified) {
@@ -161,6 +164,19 @@ InitResult ModHost::init() noexcept {
   }
 }
 
+// A refused host subscribes to no game event, but the Lua UI still has to show the player WHY (criterion 6): it answers the
+// three verbs the join UI sends with a "rejected / build" status carrying the reason. Verb handlers run inside the Lua call
+// (the UI thread), so raising the Lua event from them is legal.
+void ModHost::install_refused_responder() noexcept {
+  try {
+    const std::string status = make_status_json(StatusFields{.state = "rejected", .detail = build_.reason, .reject = "build"});
+    IPlatform* platform = &platform_;
+    const auto answer = [platform, status](std::string_view) { (void)platform->raise_lua("x4mp.status", status); };
+    for (const char* verb : {"x4mp.ui_ready", "x4mp.request_status", "x4mp.join"}) platform_.on_lua_verb(verb, answer);
+  } catch (...) {
+  }
+}
+
 void ModHost::log_header() {
   HostLog& l = *log_;
   l.raw(Cat::Host, Level::Info, version::hello_line());
@@ -186,6 +202,7 @@ void ModHost::on_frame() noexcept {
   if (!running_) return;
   try {
     game::main_thread().capture_frame();
+    drain_pending_events();
     budget_->begin_frame();
     const std::int64_t now = clock_();
     ++frame_index_;
@@ -228,8 +245,23 @@ void ModHost::maybe_log_perf(std::int64_t now_ns) {
   budget_->reset_window();
 }
 
+// Session-2 finding B7: on_game_loaded can be delivered on X4Native's native thread. The gates and the features' hooks must only
+// run on the frame thread, so an off-thread delivery is parked in an atomic flag and replayed (in order) by the next on_frame.
 void ModHost::on_game_loaded() noexcept {
   if (!running_) return;
+  if (!game::main_thread().is_main()) {
+    pending_game_loaded_.store(true);
+    return;
+  }
+  handle_game_loaded();
+}
+
+void ModHost::drain_pending_events() noexcept {
+  if (pending_game_loaded_.exchange(false)) handle_game_loaded();
+  if (pending_universe_ready_.exchange(false)) handle_universe_ready();
+}
+
+void ModHost::handle_game_loaded() noexcept {
   try {
     gates_.game_loaded = true;
     gates_.universe_ready = false;
@@ -241,6 +273,15 @@ void ModHost::on_game_loaded() noexcept {
 
 void ModHost::on_universe_ready() noexcept {
   if (!running_) return;
+  if (!game::main_thread().is_main()) {
+    pending_universe_ready_.store(true);
+    return;
+  }
+  drain_pending_events();  // a parked on_game_loaded must come first
+  handle_universe_ready();
+}
+
+void ModHost::handle_universe_ready() noexcept {
   try {
     gates_.game_loaded = true;
     gates_.universe_ready = true;

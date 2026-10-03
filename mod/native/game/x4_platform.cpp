@@ -1,6 +1,9 @@
 #include "game/x4_platform.h"
 
+#include <string>
+
 #include <x4n_core.h>
+#include <x4n_events.h>
 #include <x4n_log.h>
 #include <x4n_stash.h>
 
@@ -54,5 +57,42 @@ const void* X4Platform::stash_get(const char* key, std::uint32_t* size) {
 }
 
 bool X4Platform::stash_remove(const char* key) { return api_ok() && ::x4n::stash::remove(key); }
+
+namespace {
+void verb_trampoline(const char*, void* data, void* userdata) {
+  auto* handler = static_cast<const host::IPlatform::LuaVerbHandler*>(userdata);
+  if (handler == nullptr || !*handler) return;
+  try {
+    (*handler)(data != nullptr ? std::string_view(static_cast<const char*>(data)) : std::string_view());
+  } catch (...) {
+    // A verb handler must never throw into X4Native.
+  }
+}
+}  // namespace
+
+bool X4Platform::on_lua_verb(const char* event, LuaVerbHandler handler) {
+  if (!api_ok() || !::x4n::detail::g_api->subscribe || event == nullptr || !handler) return false;
+  auto verb = std::make_unique<Verb>();
+  verb->handler = std::move(handler);
+  verb->subscription = ::x4n::detail::g_api->subscribe(event, &verb_trampoline, &verb->handler, ::x4n::detail::g_api);
+  if (verb->subscription <= 0) return false;
+  verbs_.push_back(std::move(verb));
+  return true;
+}
+
+void X4Platform::clear_lua_verbs() {
+  for (auto& v : verbs_) {
+    if (api_ok() && ::x4n::detail::g_api->unsubscribe && v->subscription > 0) ::x4n::detail::g_api->unsubscribe(v->subscription);
+  }
+  verbs_.clear();
+}
+
+X4Platform::~X4Platform() { clear_lua_verbs(); }
+
+int X4Platform::raise_lua(const char* event, std::string_view param) {
+  if (!api_ok() || !::x4n::detail::g_api->raise_lua_event || event == nullptr) return -1;
+  const std::string text(param);  // NUL-terminated copy
+  return ::x4n::raise_lua(event, text.c_str());
+}
 
 }  // namespace x4mp::game
