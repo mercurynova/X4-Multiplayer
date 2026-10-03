@@ -146,6 +146,92 @@ public sealed class FakeGalaxy
         return g;
     }
 
+    /// <summary>Sectors that have at least one gate: a player can fly from them. Every sector of a generated galaxy; a dump may hold isolated ones.</summary>
+    public IReadOnlyList<ushort> PlayableSectors => _playable ??= [.. Sectors.Where(s => _adjacency[s.Index].Count > 0).Select(s => s.Index)];
+
+    private IReadOnlyList<ushort>? _playable;
+
+    /// <summary>Gate links in a dump that named a sector the dump does not contain (ignored).</summary>
+    public int IgnoredGateTargets { get; private set; }
+
+    /// <summary>
+    /// A galaxy with the sectors and gate links of a real dump (<c>--galaxy-file</c>, see <see cref="GalaxyDump"/>): sector macros, cluster macros and
+    /// the gate graph come from the file, in the real order (index = rank of the macro, ordinal). Everything the dump does not carry (names, map
+    /// positions, owners, gate positions, the ships and stations) is generated from <paramref name="seed"/>, so it stays deterministic. Gate pairs
+    /// are undirected; every link is a plain gate.
+    /// </summary>
+    public static FakeGalaxy FromDump(ulong seed, GalaxyOptions options, GalaxyDump dump)
+    {
+        ArgumentNullException.ThrowIfNull(dump);
+        var g = new FakeGalaxy(seed, options);
+        var ordered = dump.Sectors.OrderBy(s => s.Macro, StringComparer.Ordinal).ToList();
+        var indexOf = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < ordered.Count; i++)
+            indexOf[ordered[i].Macro] = i;
+
+        // clusters: the macro the dump names, else "<prefix>_sectorNNN_macro" -> "<prefix>_macro", else the sector itself
+        string ClusterOf(GalaxyDumpSector s)
+        {
+            if (s.Cluster.Length > 0)
+                return s.Cluster;
+            var m = System.Text.RegularExpressions.Regex.Match(s.Macro, @"^(?<c>.+)_sector\d+_macro$");
+            return m.Success ? m.Groups["c"].Value + "_macro" : s.Macro;
+        }
+
+        var clusterOrder = ordered.Select(ClusterOf).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        var hex = HexSpiral(clusterOrder.Count);
+        var inCluster = new Dictionary<string, int>(StringComparer.Ordinal);
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var sectors = new FakeSector[ordered.Count];
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            string cluster = ClusterOf(ordered[i]);
+            int c = clusterOrder.IndexOf(cluster);
+            int within = inCluster.GetValueOrDefault(cluster);
+            inCluster[cluster] = within + 1;
+            var match = System.Text.RegularExpressions.Regex.Match(cluster, @"cluster_(?<n>\d+)");
+            int clusterNumber = match.Success && int.TryParse(match.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int n) ? n : c + 1;
+            var sm = System.Text.RegularExpressions.Regex.Match(ordered[i].Macro, @"cluster_(?<c>\d+)_sector(?<s>\d+)");
+            string name = sm.Success
+                ? string.Create(CultureInfo.InvariantCulture, $"Cluster {sm.Groups["c"].Value} Sector {sm.Groups["s"].Value}")
+                : ordered[i].Macro.EndsWith("_macro", StringComparison.Ordinal) ? ordered[i].Macro[..^6] : ordered[i].Macro;
+            string candidate = name;
+            for (int k = 2; !names.Add(candidate); k++)
+                candidate = string.Create(CultureInfo.InvariantCulture, $"{name} {k}");
+            double cx = 400.0 * (hex[c].Q + (hex[c].R * 0.5));
+            double cz = 400.0 * (hex[c].R * 0.8660254037844386);
+            sectors[i] = new FakeSector
+            {
+                Index = (ushort)(i + 1),
+                Macro = ordered[i].Macro,
+                ClusterMacro = cluster,
+                ClusterNumber = clusterNumber,
+                Name = candidate,
+                GalaxyPos = new Vec3(cx + (within * 70.0), 0, cz + ((within % 2) * 55.0)),
+                OwnerFaction = (int)(DetHash.Hash(seed, 0xFAC, (ulong)c) % 16UL),
+            };
+        }
+
+        g.Sectors = sectors;
+        var pairs = new SortedSet<(int, int)>();
+        int ignored = 0;
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            foreach (string target in ordered[i].Gates)
+            {
+                if (!indexOf.TryGetValue(target, out int j))
+                    ignored++;
+                else if (j != i)
+                    pairs.Add(i < j ? (i, j) : (j, i));
+            }
+        }
+
+        g.IgnoredGateTargets = ignored;
+        g.MaterializeLinks(pairs, () => LinkKind.Gate);
+        g.BuildEntities();
+        return g;
+    }
+
     // ---------------- sectors ----------------
 
     private sealed record RawSector(int Cluster, int ClusterNumber, int InCluster, string Macro, string ClusterMacro, Vec3 Pos, int Faction);
@@ -317,13 +403,22 @@ public sealed class FakeGalaxy
             if (rng.Chance(extraP))
                 chosen.Add(e);
 
+        MaterializeLinks(chosen, () => rng.Chance(0.10) ? LinkKind.Highway : LinkKind.Gate);
+    }
+
+    /// <summary>
+    /// Turns sector pairs (0-based positions in <see cref="Sectors"/>) into links with deterministic gate positions (about 18 km from the centre
+    /// towards the neighbour) and builds the adjacency tables. <paramref name="kindOf"/> is asked once per pair, in pair order.
+    /// </summary>
+    private void MaterializeLinks(IEnumerable<(int A, int B)> chosen, Func<LinkKind> kindOf)
+    {
         var links = new List<FakeLink>();
         foreach (var (a, b) in chosen)
         {
             ushort ia = (ushort)(a + 1), ib = (ushort)(b + 1);
             if (ia > ib)
                 (ia, ib) = (ib, ia);
-            var kind = rng.Chance(0.10) ? LinkKind.Highway : LinkKind.Gate;
+            var kind = kindOf();
             var delta = Sectors[ib - 1].GalaxyPos - Sectors[ia - 1].GalaxyPos;
             var dir = delta.Length > 0 ? delta / delta.Length : new Vec3(1, 0, 0);
             Vec3 Jitter(ulong salt) => new(

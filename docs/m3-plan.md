@@ -565,3 +565,35 @@ connection up), udp_off. Verified: `mod/build.ps1` 305 ctest green; `e2e.ps1 -St
 
 **CI (not done here, M3-04 owns `tools/e2e.ps1` and `ci.yml`):** add an e2e step `UdpLane` that runs `mod/tests/hostsim/udp_lane_run.ps1` next to
 HostSim (same pattern as `Invoke-HostSimScript`, ~1 min, Windows only). The Catch2 tests need nothing (they are in `x4mp_core_tests` / `x4mp_udp_alloc_tests`).
+### M3-05 FakeNode for M3 (2026-10-03, branch worktree-agent-ad3bc793b2ba07f02)
+
+Done as briefed; user guide in [fakenode.md](fakenode.md) ("Avatars, wingmen, chat echo and the galaxy file"). What the others need to know:
+
+- **Wire behaviour the mod / M3-01 / M3-09 can rely on.** The fake authority answers every forwarded `PlayerShip` with `StringTableAdd` (new macro and `x4mp_team_k` faction)
+  then `EntitySpawn{origin=PlayerShip, controller_player=<requester>, owner_team, owner_player, macro_ref=real macro, name="[MP] <player>"}`, 300 to 600 m from the host
+  ship, same sector. The first request also self-spawns the **host ship** (same macro/sector/position as the request, `controller_player` = the authority's player id, name
+  `[MP] Host`). Same player asks again -> same avatar and net_id (controller restored, last relayed `PlayerState` pose). Leave (`RosterUpdate.removed`, or absent from a full
+  roster) -> `EntityChange{Controller=0}`. The fake authority has the Authority role only, so it sends no `PlayerState` for the host ship.
+- **Where a request comes from in FakeNode.** Opt-in: `--avatars` / `--wingman` (otherwise bots behave as in M1/M2: no `PlayerShip`, net_id 0). Every bot says it stands at the same
+  "host stand" (`FakeAvatarFlow.HostStand`: first sector with a gate, (1500, 0, -1200) m) in the macro of `--host-ship-macro`.
+- **`--galaxy-file`** reads exactly the sitting-0 JSON (`format`, `sectors[{macro, cluster, gates[]}]`; tolerant: missing `cluster`/`gates`, unknown gate targets ignored). It has no
+  gate positions, so links are plain gates with the generated deterministic positions (about 18 km out); sector names/owners/map positions are synthetic. Index = ordinal rank of the
+  macro, as the mod does. Fixture: `server/tests/X4MP.FakeNode.Tests/Fixtures/galaxy-dump-small.json` (synthetic, 7 sectors, one isolated).
+- **Schema D1/D2 and `Avatars.*` settings are not used.** The code is written against the schema as it is today. Rebase touch points when M3-01 lands: (1) `FakeAvatars` could read
+  `Avatars.StarterShipMacro` / `SpawnOffsetMeters` from `SessionSettings` instead of `--avatar-macro`/`--avatar-offset` (one place: `FakeAuthorityOptions.Avatars` built in
+  `LiveRunner.Session.cs` `RunAuthorityAsync`); (2) a `Hidden` flag could be sent by a bot through `PlayerStateT.Flags` (nothing sends it today); (3) the manifest entries for avatars
+  (D2) are not produced (`FakeAuthoritySaves` untouched).
+- **Own ship and the interest set (M3-01 audit).** Today the server still puts a node's own avatar into its interest set (the `InterestChecksum` counts it) but sends **no
+  Replication entries for it**. `FakeClientSession` copes with both worlds: the own avatar is a ghost exempt from the stale check, and when a checksum only matches without it the
+  session drops it for good (`OwnShipExcludedByServer`). If M3-01 stops sending the avatar's `EntitySpawn` to its owner altogether, `--avatars` bots will time out after 10 s
+  ("no avatar within 10 s of the PlayerShip request"): the answer spawn to the requester is part of the takeover flow (4.3 step 1), keep it, or tell me and I switch the bots to
+  learn the net_id from `RosterUpdate.ship_net_id` instead.
+- **Measured (loopback, this machine, run next to other builds):** 3 wingmen + 1 "real" bot, over about 15 s: Near rate of every player stream 19.1 Hz (p50 gap 47 ms, p95 77 ms), a
+  120 s explore run through the 4-sector fixture with gate jumps: 19.8 Hz, `follow-jumps=2`, `position-errors=0`. Under load single streams dipped to 16.7 Hz, so
+  `AvatarLiveTests.WingmenFly...` asserts median >= 18 Hz and each >= 15 Hz.
+- **Chat.** `FakeClientHandle.SendChatAsync` for tests; `--chat-echo` bots answer All/Team/Whisper (whisper back to the sender only), never an `echo: ` message.
+- **Tests added.** FakeNode.Tests: `AvatarTests` (see the files), `GalaxyDumpTests`, `WingmanChatSyncTests`; Server.Tests `Net/AvatarLiveTests` (6 live: wingmen + Near rate, avatar
+  round trip with host ship, resume without duplicates, leave -> parked and still replicated, chat echo incl. whisper privacy, galaxy file swarm with `--verify`).
+  `tools/e2e.ps1 -Steps Publish,Swarm,AuthorityFlow` green; `packages.lock.json` untouched.
+- **Not done / deliberately small:** no UDP-specific avatar behaviour (the bots use whatever lane `--udp` gives); wingmen do not avoid collisions with each other; the avatar flow is not
+  re-run after a client resume (the server keeps the binding; `FakeClientSession` keeps `OwnAvatar` across `ResetForResume`).

@@ -48,6 +48,27 @@ public sealed class FakeStringTable
 
     public uint Index(string value) => _index[value];
 
+    /// <summary>
+    /// The index of <paramref name="value"/>, added when the table does not hold it yet (an avatar's real ship macro or a team faction the fake
+    /// galaxy does not know). A new entry is also returned in <paramref name="added"/> so the caller can send it as <c>StringTableAdd</c> before
+    /// the first message that refers to it.
+    /// </summary>
+    public uint Ensure(string value, StringKind kind, out StringEntryT? added)
+    {
+        lock (_entries)
+        {
+            if (_index.TryGetValue(value, out uint existing))
+            {
+                added = null;
+                return existing;
+            }
+
+            Add(value, kind);
+            added = _entries[^1];
+            return added.Index;
+        }
+    }
+
     private void Add(string value, StringKind kind)
     {
         if (_index.ContainsKey(value))
@@ -92,6 +113,9 @@ public sealed record FakeAuthorityOptions
     /// with a single team). Fixed on first use so the tagging stays stable while teams come and go.
     /// </summary>
     public IReadOnlyList<ushort>? TeamIds { get; init; }
+
+    /// <summary>Avatar provisioning (M3-05): starter ship macro, spawn offset, host ship name.</summary>
+    public FakeAvatarOptions Avatars { get; init; } = new();
 }
 
 /// <summary>
@@ -147,6 +171,7 @@ public sealed class FakeAuthority
         };
         Strings = new FakeStringTable(world.Galaxy);
         NetIds = new NetIdAllocator();
+        Avatars = new FakeAvatars(this, _opt.Avatars);
         foreach (var e in world.Galaxy.Entities)
         {
             uint id = NetIds.Allocate();
@@ -158,6 +183,10 @@ public sealed class FakeAuthority
     public FakeWorld World { get; }
     public FakeStringTable Strings { get; }
     public NetIdAllocator NetIds { get; }
+
+    /// <summary>The avatars of the players and the self-spawned host ship (<c>PlayerShip</c> answers, M3-05).</summary>
+    public FakeAvatars Avatars { get; }
+
     public uint CaptureEpoch { get; private set; }
 
     /// <summary>CaptureSet sector indices that were out of range (ignored).</summary>

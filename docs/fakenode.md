@@ -128,6 +128,74 @@ fakenode swarm --clients 6 --with-authority --authority-extensions modded --exte
 
 Summary lines: `economy`, `dupes`, `income`, `reconciliation`, `invariants`; any drift, duplicate effect or invariant failure sets exit code 1.
 
+### Avatars, wingmen, chat echo and the galaxy file (M3-05)
+
+These make FakeNode a stand-in for a **real X4 player** next to bots: a real client (or a hostsim) joins a swarm, takes over its avatar, sees the
+other players as `[MP] <name>` ghosts and the bots fly around it. Design: [m3-plan.md](m3-plan.md) 4.3 (avatars, takeover), 4.4, 4.5, 4.11.
+
+| Option | Meaning |
+|---|---|
+| `--avatars` | clients (client/swarm): after joining, send `PlayerShip` ("I stand in the host's ship at this place", macro from `--host-ship-macro`), wait for the avatar the authority spawns, and fly as it from its place (the flight starts at the avatar, the first sample is a `Teleport`). Without it a bot never asks for a ship and sends `PlayerState` with net_id 0 (the M1/M2 behaviour). Fails the bot when no avatar arrives within 10 s (`LiveRunOptions.AvatarTimeout`: is there an authority?) |
+| `--wingman NAME` | clients: fly near the **replicated** ship of the player called NAME (implies `--avatars`). The target is found by its ghost name (`[MP] NAME`, case-insensitive, `(offline)` ignored); the bot named NAME itself ignores the option and flies its `--behavior`, so `swarm --clients 4 --wingman Bot01` is "one player and three wingmen". The pose comes from the bot's own ghost table (Replication end to end), extrapolated by its age (at most 1 s). Until the target is known the wingman holds its place |
+| `--wingman-speed M` | top speed in m/s (default 350, a little above the 250 m/s cruise of a `FakePlayer`) |
+| `--wingman-radius M` | distance from the target (default 400) |
+| `--wingman-mode orbit\|formation` | `orbit` (default): circles the target in a ring (0.25 rad/s, golden-angle phase per bot, +-40 m height steps). `formation`: a fixed slot behind and beside the target that turns with its heading |
+| `--chat-echo` | clients: answer every chat message of another player with `echo: <text>` on the same channel (All, Team, or a whisper back to the sender). Own messages, server/system/admin messages and messages that already start with `echo: ` are never echoed |
+| `--galaxy-file FILE` | authority/swarm/galaxy: build the galaxy from a galaxy dump instead of generating the sectors: real sector macros (index = ordinal rank of the macro, like the mod), cluster macros and the gate graph from the file; names, map positions, owners, gate positions and the ships/stations are generated from `--seed` (a dump has no gate positions). `--sectors` is ignored. The file is the JSON the sitting-0 spike writes (`galaxy_dump` block, `tools/session4/extract-galaxy-dump.ps1` -> `out/session4/galaxy-dump.json`): `{"format":1,"sectors":[{"macro":"cluster_01_sector001_macro","cluster":"cluster_01_macro","gates":["cluster_01_sector002_macro"]}]}`; `cluster` and `gates` may be missing, gates naming sectors that are not in the file are ignored (counted), a sector without gates is allowed (bots never start there). A broken file is a parse error (exit 2). Every process of one run needs the same file and `--seed` (clients build their ground truth from it). `fakenode galaxy --galaxy-file F` prints the stats |
+| `--avatar-macro MACRO` | authority: the ship macro of every avatar (default `ship_arg_s_fighter_01_a_macro`, the Argon Elite; m3-plan Q5. The macro is also sent as `StringTableAdd`) |
+| `--avatar-offset M` | authority: distance of a new avatar from the host ship (default 450: 300 to 600 m with a per-slot spread, golden-angle direction) |
+| `--host-name NAME` | authority: the host ship shows up as `[MP] NAME` (default `Host`) |
+| `--host-ship-macro MACRO` | clients: the macro of the ship they say they stand in (the host's ship; default the Elite) |
+
+**What the authority does.** `PlayerShip` (the server forwards it, with the sender's player id) is answered by `FakeAvatars` (no flag needed; it only
+reacts to requests):
+
+1. **Host ship.** The first request makes the authority self-spawn the host ship exactly where the client says it stands (same macro, sector, position;
+   `EntitySpawn{origin=PlayerShip, controller_player=<authority's player id>}`, named `[MP] Host`, parked). A real client therefore sees `[MP] Host`
+   where its local copy of the host ship was. The fake authority sends no `PlayerState` for it (it has no Client role).
+2. **Avatar.** `EntitySpawn{origin=PlayerShip, controller_player=<requester>, owner_team, owner_player}` with the starter macro, name `[MP] <player>`,
+   owner faction `x4mp_team_<slot>` (slot from the team table, else the team id; `player` for a node without a team), sector of the host ship, 300 to
+   600 m from it. New strings (the real macro, the team faction) are sent as `StringTableAdd` first. A request waits up to 1 s for the roster to name
+   its player (`RosterWait`), else the avatar is called `[MP] Player<id>`.
+3. **Again.** A request for a player that already has an avatar (a rejoin, or the server re-forwarding held requests after an authority resume)
+   returns the same avatar and net_id (controller set again, at the pose the relayed `PlayerState`s last put it): never a duplicate. The `FakeAvatars`
+   table lives in the authority object, so it survives everything the authority connection does inside one process.
+4. **Leave.** A player that leaves (`RosterUpdate.removed`, or missing from a full roster) gets `EntityChange{Controller=0}`: the avatar stays, parked
+   (m3-plan Q6; `(offline)` is added by the clients). A server that detaches the node first only removes it after `Net.ResumeGraceSeconds` (60 s).
+
+**What a bot learns.** `FakeClientSession` tracks every player ship ghost (origin `PlayerShip` or a controller): name, controller, newest pose
+(merged from the entries), and arrival statistics. Its own avatar is recognised from the spawn (`OwnAvatar`); the server counts it in the interest
+set but sends no entries for it, so it is exempt from the stale check, and if the server leaves it out of its checksum entirely (M3-01) the session
+notices and stops counting it (`OwnShipExcludedByServer`).
+
+**`[sync]` lines.** At the end of a run every bot in the avatar flow prints one line per player ship it saw (the mod prints `err`/`lat`; a bot cannot
+know the true path, so it logs what arrived):
+
+```
+avatars: provisioned=4 reissued=0 parked=0 host=net_id=11270 sector=1 name=[MP] Host spawns-sent=5 changes-sent=0
+avatar-flow: bots=4 with-avatar=4 without=0 avg-latency=22 ms wingmen=3 followed-samples=987 follow-jumps=0
+[Bot02] [sync] net=11273 player=[MP] Bot01 entries=300 span_s=15.7 rate_hz=19.1 near_entries=300 near_rate_hz=19.1 gap_ms p50/p95/max=47/77/109 speed_max=250
+sync: bots=4 ships-tracked=16 min-near-rate-hz=19.1
+chat: bots=3 received=9 echoed=4
+```
+
+`near` = same sector and within 15 km of the bot's own ship. `near_rate_hz` = consecutive near entries per second, counting only gaps under 250 ms
+(so a gate jump does not count against the 20 Hz tick); `rate_hz` is the plain overall rate; the `gap_ms` percentiles and the maximum see every gap
+(a gate jump or a stall shows there). Not part of the exit code. Tests read the same numbers through `session.SyncSummaries()`.
+
+```powershell
+# one "real" player (Bot01 wanders) and three wingmen orbiting it; the sync lines show the 20 Hz Near rate each wingman gets for Bot01
+fakenode swarm --clients 4 --with-authority --wingman Bot01 --duration 30
+# a real client joins: it sees [MP] Host, [MP] Bot01.., chat works both ways (the bots echo)
+fakenode swarm --clients 3 --with-authority --avatars --chat-echo --duration 600
+# the real galaxy (sector macros from the sitting-0 dump), wingmen that follow gate jumps (a gate takes about 75 s at 250 m/s)
+fakenode swarm --clients 3 --with-authority --wingman Bot01 --behavior explore --galaxy-file out/session4/galaxy-dump.json --duration 300
+```
+
+Limits: the bots' world is the fake one (own sectors, ships and gate positions), only the sector macros and links are real; the host ship does not move;
+the fake authority does not read the `Avatars.*` server settings (they come with M3-01: until then use `--avatar-macro`/`--avatar-offset`); avatars
+are not in the fake checkpoint manifest (D2 of m3-plan 4.13).
+
 ### Failure injection
 
 | Option / command | Meaning |

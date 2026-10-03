@@ -18,7 +18,7 @@ public enum ClientBehavior
 /// (20 Hz). The client is authoritative for its own ship's motion, so the stepper owns position; jumps flag
 /// <see cref="StateFlags.Teleport"/> on the first sample in the new sector.
 /// </summary>
-public sealed class FakePlayer
+public sealed class FakePlayer : IShipMotion
 {
     public const double TickRateHz = 20.0;
     public const double CruiseSpeed = 250.0;
@@ -41,7 +41,11 @@ public sealed class FakePlayer
         _galaxy = galaxy;
         _behavior = behavior;
         _rng = new DetRandom(DetHash.Hash(seed, 0x91A7E5, (ulong)index));
-        Sector = (ushort)(1 + (int)(_rng.NextUInt64() % (ulong)galaxy.Sectors.Count));
+        var playable = galaxy.PlayableSectors;
+        ulong pick = _rng.NextUInt64();
+        Sector = playable.Count == galaxy.Sectors.Count
+            ? (ushort)(1 + (int)(pick % (ulong)galaxy.Sectors.Count))
+            : playable[(int)(pick % (ulong)playable.Count)]; // a galaxy dump can hold sectors without a gate: never start there
         Position = RandomPoint();
         if (behavior == ClientBehavior.Patrol)
             BuildRoute();
@@ -50,6 +54,29 @@ public sealed class FakePlayer
 
     public ushort Sector { get; private set; }
     public Vec3 Position { get; private set; }
+
+    /// <summary>
+    /// Puts the ship at a place chosen from outside (the avatar the authority spawned for it) and flags the next sample as a teleport. The route of a
+    /// Patrol player restarts from there.
+    /// </summary>
+    public void PlaceAt(ushort sector, Vec3 position)
+    {
+        Sector = sector;
+        Position = position;
+        _teleportPending = true;
+        _needWaypoint = true;
+        _targetIsGate = false;
+        _gateTo = 0;
+        if (_behavior == ClientBehavior.Patrol)
+        {
+            _route.Clear();
+            _routeIndex = 0;
+            if (_galaxy.Neighbors(sector).Count > 0)
+                BuildRoute();
+        }
+
+        PickTarget();
+    }
     public double Yaw { get; private set; }
     public double Pitch { get; private set; }
     public uint NetId { get; set; }
@@ -106,6 +133,8 @@ public sealed class FakePlayer
                 break;
         }
     }
+
+    public PlayerStateT NextSample(long tick) => Step(tick);
 
     /// <summary>Advances to <paramref name="tick"/> (each tick must be stepped once, in order) and returns the sample.</summary>
     public PlayerStateT Step(long tick)
