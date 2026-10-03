@@ -1,0 +1,3 @@
+# A script that fails on purpose (ctest hostsim.failure_exit_code expects exit code 1 and "HOSTSIM FAIL line 3").
+init
+expect-lua x4stub.never_raised 200

@@ -1,0 +1,54 @@
+# x4mp-hostsim self-test against the stub extension (ctest hostsim.stub): every fake of the host API.
+set setting.greeting hello-from-script
+init
+expect-log stub init boots=1
+expect-lua x4stub.hello json $.boots == 1
+expect-stash boots present
+expect-stash note == kept
+expect-sub on_frame_update
+expect-sub on_native_frame_update
+expect-bridge x4stub.join
+
+# frames: the stub reads the game functions on frame 1 and raises x4stub.frames every 100 frames
+frame 60Hz 120
+expect-lua x4stub.frames 2000 json $ == 100
+expect-log stub: save dir
+expect-state reload_save_list_calls == 1
+expect-state frames == 120
+expect-state game_time > 2.9
+
+# Lua -> native event with a JSON payload; the stub echoes it back through raise_lua_event
+lua x4stub.join {"name":"Bob","tags":["a","b"],"n":3}
+expect-lua x4stub.status json $.echo.name == Bob
+lua x4stub.join {"name":"Eve"}
+expect-lua x4stub.status contains Eve
+expect-no-lua x4stub.status 100
+
+# lifecycle events
+load_save slot1.xml.gz
+expect-lua x4stub.universe_ready
+expect-log on_universe_ready
+save
+expect-log on_game_save
+ui_reload
+expect-lua x4stub.ui_reloaded
+set paused 1
+frame fast 10
+expect-state paused == 1
+set paused 0
+
+# reload: shutdown + FreeLibrary + LoadLibrary + init, stash kept, registrations rebuilt
+reload
+expect-log stub init boots=2
+expect-lua x4stub.hello json $.boots == 2
+expect-state reloads == 1
+expect-state subs.on_frame_update == 1
+expect-stash boots present
+frame 60Hz 30
+
+# restart = the game was restarted: stash is gone
+restart
+expect-lua x4stub.hello json $.boots == 1
+expect-state reloads == 2
+
+expect-no-secret hunter2-never-used
