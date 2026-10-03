@@ -239,7 +239,11 @@ class ServerProcess {
     // environment block = ours + the server's configuration (the published server reads X4MP__ variables; e2e.ps1 does the same)
     std::wstring env;
     if (LPWCH cur = ::GetEnvironmentStringsW()) {
-      for (const wchar_t* p = cur; *p != L'\0'; p += wcslen(p) + 1) env.append(p, wcslen(p) + 1);
+      for (const wchar_t* p = cur; *p != L'\0'; p += wcslen(p) + 1) {
+        // drop inherited X4MP__ settings (a parent may have left empty ones behind): ours below are the only server configuration
+        if (_wcsnicmp(p, L"X4MP__", 6) == 0) continue;
+        env.append(p, wcslen(p) + 1);
+      }
       ::FreeEnvironmentStringsW(cur);
     }
     const auto add = [&env](const std::wstring& kv) { env.append(kv); env.push_back(L'\0'); };
