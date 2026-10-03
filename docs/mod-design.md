@@ -427,6 +427,15 @@ netmap.epoch     = universe epoch (see 4.2)
 unexpected disconnect, so the reload is invisible to the other players. The
 stash is in-process memory and dies with the game, which is the semantics we want.
 
+**`/reloadui` and the universe-ready gate (close-out A item 2).** X4Native replays `on_game_loaded` after `/reloadui` (its `IsPlayerValid
+(immediate)` check) but never `on_universe_ready`: that event only comes from the MD cue `event_universe_generated`, which does not fire for a
+universe that already exists. So the host (`ModHost::maybe_synthesize_universe_ready`) opens the gate itself when `on_game_loaded` arrives
+(a) in an incarnation that has not run a frame yet, (b) after a previous incarnation that shut down with the universe ready (stash
+`host.state`), and (c) the game answers with a player id and a clock. Log line: `reload: the universe was ready before the reload ...`.
+Features then see the normal `on_universe_ready` (self-test, player guard, the join feature's same-universe-or-new decision, which logs
+`reload resume: same universe (ui reload; ...)`). A save load is never treated that way: there `on_game_loaded` comes ~16 s before the real
+`on_universe_ready` and at least one frame has run (logged as `reload: game loaded after N frame(s), a load in progress`).
+
 ### 2.7 Logging
 
 - File: `%USERPROFILE%\Documents\Egosoft\X4\<account>\x4native\x4mp\x4mp.log`
@@ -1051,7 +1060,8 @@ data**. They do go into authority session saves, by design (1.2, 11.8).
      freeze, plus whatever time the game's own save takes.
    - A manual save by the authority's user goes through the same wrapped
      `SaveGame`, which runs `SaveJob` instead.
-4. **Janitor on load (both roles).** At `on_universe_ready`, scan for objects
+4. **Janitor on load (both roles).** (It asks the game only about factions that `GetAllFactions` lists: `GetNumAllFactionShips("x4mp_team_N")`
+   for an undefined faction writes a "Failed to retrieve faction" error line, 16 per load, close-out A item 6.) At `on_universe_ready`, scan for objects
    carrying our ghost name prefix (`[MP] `). With the team model, faction
    ownership is **not** a ghost marker, because team factions own real assets.
    Also scan for the reference mod's leftovers: objects owned by `x4mp_host` or
@@ -1181,7 +1191,7 @@ header of `x4mp_bridge.lua`. Native side: `x4n::on("x4mp.<verb>", cb)` for verbs
 | Lua → native | `x4mp.selftest` | **M2-10**. `{"v":1}`, sent by the chat command `/x4mp_selftest` (a chained `ExecuteDebugCommand` wrapper in `x4mp_saves.lua`). Native runs the self-test on the next frames and logs / forwards the PASS table (`SELFTEST <verdict> <check> <detail>` lines) |
 | Lua → native | `x4mp.saves_debug` | **M2-10 test seam**, honoured only with `selftest=true` in `x4mp.json`: `{"v":1,"role":"client\|authority\|none","connected":bool}` sets the node state the saves feature reacts to (hostsim drives it; the real source is the join feature through `DiagHub::set_connection`) |
 | Lua → native | `x4mp.join` (M2-09 fields) | `"role":"authority","admin_password":"..."` when the Join dialog's "Host this session as the authority" is on (native requests roles Authority\|Client = 3 and sends only an HMAC proof). Optional test seam `"loaded_save_sha256":"<64 hex>"`: "this game already runs the session's start save" (ClientHello then makes the server skip the SessionSaveInfo). Without the seam native uses the sha it remembers in the stash (`join.authority`: the last loaded session save or stored checkpoint of this game run; cleared when the player loads another save) |
-| native → Lua | `x4mp.auth_collect` | **M2-09** (`x4mp_authority.lua`). `{"v":1}`: asks MD (`AddUITriggeredEvent("X4MP_Authority","collect","1")`, `md/x4mp_galaxy.xml`) for the sectors and the player's ship; MD answers with the Lua event `x4mp.md_galaxy` strings `G;..` / `E;n` / `P;..` (format: `features/authority/authority_data.h`) which Lua relays unchanged |
+| native → Lua | `x4mp.auth_collect` | **M2-09** (`x4mp_authority.lua`). `{"v":1}` (galaxy + ship) or `{"v":1,"ship_only":true}` (only the ship, answered by `P;...` or `N;`; close-out A item 3): asks MD (`AddUITriggeredEvent("X4MP_Authority","collect","1")`, `md/x4mp_galaxy.xml`) for the sectors and the player's ship; MD answers with the Lua event `x4mp.md_galaxy` strings `G;..` / `E;n` / `P;..` (format: `features/authority/authority_data.h`) which Lua relays unchanged |
 | Lua → native | `x4mp.auth_md` | **M2-09**. `{"v":1,"data":"<md message>"}` |
 | native → Lua | `x4mp.auth_save` | **M2-09**. `{"v":1,"name":"x4mp_ckpt_<16 hex>","request_id":N,"display":"..."}`: Lua calls `SaveGame(name, display)` inside `X4MPSaves.allowSaves` and answers |
 | Lua → native | `x4mp.auth_saved` | **M2-09**. `{"v":1,"ok":true,"game_time":123.4,"request_id":N}` or `{"ok":false,"error":"..."}`; `game_time` = Lua `GetCurrentGameTime()` sampled right before `SaveGame` (native falls back to its own sample when absent). The file is NOT complete yet (session 2 C4): native waits for `<name>.xml.gz` to be stable and openable, then hashes it on a worker |
@@ -1383,7 +1393,11 @@ prompt).
 
 - This is a separate menu registered like `chatwindow.lua` (lines 28–44):
   `Menus` insert plus `Helper.registerMenu(menu)`, with its own small frame on
-  a high layer (`config.layer = 3`, the same layer the chat uses), anchored at
+  its own layer (`config.layer = 6`: View keys frames by `"Helper" .. layer`, so the chat's layer 3 would replace the chat) **and its own
+  view type** (`viewHelperType = "X4MPHud"`, like the chat's `"Chat"`): the default type `"Helper"` makes the vanilla paths that close or
+  count "Helper menus" (`View.clearMenus({ Helper = true })`, `View.hasMenu({ Helper = true })`, the Esc handling) treat the HUD line as an
+  open menu, which kept the chat in its typing state and the cockpit HUD hidden after Esc (close-out A item 1). Never redraws while a
+  minimized menu exists (`frame:display()` runs `Helper.closeMinimizedMenus`). Anchored at
   the top-right. Position is persisted in `__X4MP_USER.hudPos`.
 - Content: a coloured dot (green connected, amber degraded or resuming, red
   offline), role, ping in ms, player count, and while degraded a reason ("MD

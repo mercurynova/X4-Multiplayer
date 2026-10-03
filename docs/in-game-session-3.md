@@ -120,7 +120,9 @@ Look for: all of the above in order, no red error line. Test the window itself o
 
 **B2. `/reloadui` (criterion 3).** In game open the chat (your Toggle Chat Window key), type `/reloadui`, Enter. Look for: the HUD line (top right, "X4MP: Connected, ...") and the
 Multiplayer entry are back within about 2 seconds; **Players** still shows Tester online; **Logs** show another `detached: "ClientReload"` + `resumed`, no `left:`. Mod log:
-`reload resume: same universe (ui reload; ...)`. If it says `new universe` instead, tell Claude (the fingerprint rule is then wrong).
+`reload: the universe was ready before the reload ...` (the host opens the universe-ready gate itself, X4Native never repeats `on_universe_ready` after
+`/reloadui`), then `universe ready (epoch 1, ...)` and `reload resume: same universe (ui reload; ...)`. If it says `new universe` instead, tell Claude (the fingerprint rule is then
+wrong). The self-test (`/x4mp_selftest`) must show `player.guard` as PASS or WARN, no longer SKIP.
 
 **B3. HUD and menus.** Open the map, close it, press Esc, close it. The HUD line may vanish while a menu is open: it must **come back by itself** within about a second after
 the menu closes. The Esc menu should have a **Multiplayer** row too. Say which of these did not happen. In `x4mp_s3.log` find `[X4MP] ui: optionsmenu adapter OK(source=...)` or
