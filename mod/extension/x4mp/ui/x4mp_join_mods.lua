@@ -265,6 +265,10 @@ end)
 
 B.on("status", function(p)
 	local state = p.state
+	if state == "rejected" and M.refusal and M.refusal.total > 0 then
+		-- the players see the grouped screen only; keep the server's raw text where support can find it
+		log("mod refusal detail (not shown): " .. tostring(p.detail or ""))
+	end
 	if state ~= "rejected" then M.refusal = nil end
 	if state == "disconnected" or state == "rejected" or state == "error" then M.policy = nil end
 end)

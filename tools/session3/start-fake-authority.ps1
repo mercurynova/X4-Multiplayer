@@ -2,6 +2,8 @@
 .SYNOPSIS
   Session 3, topology 1: local server + a FakeNode AUTHORITY that serves your own save; the real X4 joins as a client.
 .DESCRIPTION
+  X4 saves are synced by Steam Cloud: files you delete (x4mp_*.xml.gz leftovers) are restored at the next X4 start, so a save served before turns the
+  download test into a cache hit. The script checks for that (see -FreshDownload and -SaveName).
   1. Copies <Documents>\Egosoft\X4\<id>\save\<SaveName>.xml.gz (verbatim; the original is never touched) to out\session3\authority-save\.
   2. Publishes the server and FakeNode when missing, starts the server (out\session3\data, TCP 47780, UDP 47781, HTTP 47790, game port on
      127.0.0.1 only; Net.ModBuildStrict off) and signs in as admin (first-run password change is done for you; the password goes to
@@ -19,6 +21,9 @@
                         does not refuse you for owning DLCs (a DLC difference refuses even in Warn mode).
 .PARAMETER X4Dir        The X4 install folder (found through Steam when omitted); only used to read the DLC list.
 .PARAMETER JoinPassword  Server join password for criterion 14 (a THROWAWAY test value you also type into the in-game dialog).
+.PARAMETER FreshDownload  Serve a copy whose gzip header timestamp is changed (same decompressed save, different bytes), so its download name
+                        x4mp_<12 hex>.xml.gz has never been seen by this PC or Steam Cloud and B1 really downloads. Your saves are not touched; only the
+                        copy in out\session3\authority-save differs. Without it, the script warns when that name already exists in your save folder.
 .PARAMETER Rebuild      Publish again even if the executables exist.
 .PARAMETER TcpPort, UdpPort, HttpPort  Test-only: other ports (the dry run uses 47953-47955).
 #>
@@ -31,6 +36,7 @@ param(
     [string]$AuthorityExtensions,
     [string]$X4Dir,
     [string]$JoinPassword,
+    [switch]$FreshDownload,
     [switch]$Rebuild,
     [int]$TcpPort = 0,
     [int]$UdpPort = 0,
@@ -83,8 +89,22 @@ else {
     else { Write-Warning 'No enabled DLC found in the X4 install: the fake authority reports none (a real player with DLCs would be refused). Pass -X4Dir or -AuthorityExtensions.' }
 }
 
+# Steam Cloud / cache-hit check (close-out B item 8): what name will the mod give the downloaded copy, and is it already in the save folder?
+$cloud = Test-SteamCloudSaveFolder $saveDir
+if ((Test-Path $source) -and -not $FreshDownload) {
+    $expectName = Get-SaveDownloadName $source
+    if (Test-Path (Join-Path $saveDir $expectName)) {
+        Write-Warning ("$expectName already exists in your save folder" + $(if ($cloud) { ' (and Steam Cloud restores deleted files there at every X4 start)' } else { '' }) +
+            ': the B1 download would be a CACHE HIT, not a download. Re-run with -FreshDownload (serves a copy with a new name) or with a -SaveName that was never served before.')
+    }
+    elseif ($cloud) {
+        Write-Warning "Steam Cloud manages your save folder: x4mp_*.xml.gz files you delete come back at X4 start. $expectName is not there now, so B1 will download; after this run it stays (and syncs), so use -FreshDownload next time."
+    }
+}
+elseif ($FreshDownload -and $cloud) { Write-Host 'Steam Cloud detected: -FreshDownload serves a never-seen save name, so B1 downloads for real.' }
+
 Write-Host "Save      : $source"
-Write-Host "Copy to   : $authSave"
+Write-Host "Copy to   : $authSave$(if ($FreshDownload) { '  (FreshDownload: gzip header timestamp changed, same save content)' })"
 Write-Host "Server    : $serverExe  (TCP $($Ports.Tcp) / UDP $($Ports.Udp) on 127.0.0.1, HTTP $($Ports.Http)); mods enforcement: $(if ($Strict) { 'Strict' } else { 'Warn' }); join password: $(if ($JoinPassword) { 'set' } else { 'none' })"
 Write-Host "Authority extensions: $(if ($AuthorityExtensions) { $AuthorityExtensions } elseif ($dlcList.Count) { 'your DLCs: ' + (($dlcList | ForEach-Object { $_.id + '@' + $_.version }) -join ', ') } else { 'none' })"
 Write-Host "FakeNode  : $fakeNodeExe $($fakeArgs -join ' ')"
@@ -92,7 +112,13 @@ Write-Host "GUI       : $guiUrl   (log in as 'admin'; the password is in $(Join-
 if (-not $PSCmdlet.ShouldProcess($OutDir, 'Publish, start the server and the FakeNode authority')) { return }
 
 New-Item -ItemType Directory -Force $OutDir, $authDir | Out-Null
-Copy-Item $source $authSave -Force
+if ($FreshDownload) {
+    New-FreshDownloadCopy $source $authSave
+    $fresh = Get-SaveDownloadName $authSave
+    if (Test-Path (Join-Path $saveDir $fresh)) { throw "Unlikely: $fresh exists in the save folder; run again." }
+    Write-Host "Fresh download name: $fresh (not in your save folder, so the client downloads it)"
+}
+else { Copy-Item $source $authSave -Force }
 if ($dlcFile) { ConvertTo-Json -InputObject @($dlcList) -Depth 4 | Set-Content -Path $dlcFile -Encoding ascii }
 $null = Ensure-Published -Force:$Rebuild
 
