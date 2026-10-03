@@ -2,6 +2,7 @@
 /reference/
 /reference-analyzer/
 /reference-tatertrader/
+/reference-shiprooms/
 /x4-unpacked/
 
 # Server runtime data (SQLite, saves, logs, initial admin password)

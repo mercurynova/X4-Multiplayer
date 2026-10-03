@@ -304,6 +304,25 @@ show in the name tag.
 
 ---
 
+### 2.x Reference: "More Ship Rooms" mod (local `reference-shiprooms/`, reference only)
+
+Added 2026-10-02 from a mod archive the user supplied. It is purely XML: one `<diff>` per ship macro
+(`assets/units/size_l|size_xl/ship_*.xml`, plus copies under `extensions/ego_dlc_split`, `ego_dlc_terran` and a
+third-party ship mod) that adds one or more `<connection name="con_room_NN" tags="window dynamicroom">` with an
+offset to `/components/component/connections`. The game then fills those slots with generated interior rooms when
+the ship is built. `content.xml` has `save="0"`, so saves do not record it as a requirement.
+
+Lessons for X4MP:
+- Extra walkable rooms on L/XL ships need only a ship-macro connection diff tagged `dynamicroom`; no MD or Lua. This
+  is a candidate route for the M3b "MP lounge" if a station room cannot be reserved (§3), for example a lounge on
+  the team HQ's capital ship.
+- Which room type fills a `dynamicroom` slot (bar, office, etc.) is decided by the game; this mod does not force a
+  bar. Session-2 Part F should record the room types the game actually generated.
+- A test save made with this mod is "modded rooms": S10 results from it must be labelled as such, and because the
+  slots are baked into ships built after install, already-built ships may not change.
+- Because it diffs vanilla and DLC macros, it is a typical "Allowed, content-only" mod for the ADR-044 mod policy
+  (no DLL, no `subst_*.cat`), and a good fixture shape for M2-03's class hints.
+
 ## 3. Design proposal
 
 ### 3.0 Tiers
