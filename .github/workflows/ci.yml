@@ -8,6 +8,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      everything:
+        description: "Run every job, ignoring the changed-path filter (a manual dispatch always does; kept as an explicit switch)"
+        type: boolean
+        default: true
+      windows_dotnet:
+        description: "Also run the .NET job on windows-latest (bills 2x; normally only on push to main)"
+        type: boolean
+        default: false
 
 # A newer push to the same PR/branch cancels the older run.
 concurrency:
@@ -53,6 +62,7 @@ jobs:
           set -euo pipefail
           all=false
           files=""
+          # workflow_dispatch: the `everything` input defaults to true; unticking it still runs everything (there is no diff to filter on).
           if [ "$EVENT" = "pull_request" ]; then
             files="$(git diff --name-only "$PR_BASE...$PR_HEAD")" || all=true
           elif [ "$EVENT" = "push" ]; then
@@ -118,7 +128,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/main' && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' && inputs.windows_dotnet) && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -263,7 +273,8 @@ jobs:
   #               exit (drift, duplicate effect, invariant failure) fails the job.
   #   playwright: the Playwright suite (Chromium) against the published server exe.
   # plus a windows job (e2e-headless) with the C++ x4mp-headless client (handshake, heartbeat, resume, save download) and
-  # x4mp-hostsim (M2-01: the real x4mp.dll in a fake X4Native host against the real server; scenarios in mod/tests/hostsim).
+  # x4mp-hostsim (M2-01: the real x4mp.dll in a fake X4Native host against the real server; scenarios in mod/tests/hostsim:
+  # smoke, join flow, reload survival, authority flow, mod refusal) and the M2-08 live authority upload kill test (ports 47980-47983).
   # ---------------------------------------------------------------------------------------------
   e2e:
     needs: changes
@@ -347,9 +358,9 @@ jobs:
       - name: Create vcpkg cache dir
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
-      - name: E2E (Publish,Headless,HostSim)
+      - name: E2E (Publish, Headless, HostSim, JoinFlow, ReloadSurvival, AuthorityFlow, ModRefusal, UploadKill)
         shell: pwsh
-        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim
+        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,UploadKill
       - name: Upload E2E logs
         if: failure()
         uses: actions/upload-artifact@v4
