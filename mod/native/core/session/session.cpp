@@ -312,6 +312,8 @@ struct Session::Impl {
     const auto w = parse_welcome(payload);
     if (!w) return;
     net_resume = w->resume_token;
+    // UDP realtime lane (M3-03): bind with the Welcome numbers; the net layer ignores udp_port 0 and UdpMode::Off.
+    ctx.start_udp(w->conn_id, w->udp_port, w->udp_token);
     // Reliable-Control retention: replay after a resume, drop after a fresh join. Nothing queued by the main
     // thread has reached the wire before this point (the gate), so ClientHello was the first frame.
     const std::size_t n = ctx.release_outbox(w->resumed);
@@ -425,6 +427,9 @@ bool Session::start() {
 
   net::NetOptions nopt = o.net;
   nopt.gate_outbox_until_released = true;
+  // Capability UdpRealtime (bit 0, common.fbs): advertised unless the lane is switched off. The server only offers a udp_port
+  // to nodes that advertise it. impl_->opt.client_caps is what the ClientHello reads.
+  if (nopt.udp.mode != net::UdpMode::Off) impl_->opt.client_caps |= std::uint64_t{1};
   Impl* impl = impl_.get();
   nopt.frame_hook = [impl](std::uint16_t type, wire::Lane lane, std::span<const std::uint8_t> payload,
                            net::HookContext& ctx) { impl->on_net_frame(type, lane, payload, ctx); };
@@ -441,6 +446,7 @@ net::SendResult Session::send(wire::Lane lane, std::uint16_t type, std::span<con
 net::NetStatus Session::net_status() const noexcept { return impl_->net.status(); }
 DownloadProgress Session::save_progress() const { return impl_->downloader.progress(); }
 void Session::reconnect_now() { impl_->net.reconnect_now(); }
+void Session::set_udp_block(bool block) { impl_->net.set_udp_block(block); }
 
 void Session::mark_in_session() {
   if (state_ == State::Joining) state_ = State::InSession;

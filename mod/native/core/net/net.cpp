@@ -19,8 +19,10 @@
 
 #include "control_generated.h"
 #include "core/log/log.h"
+#include "core/net/udp_lane.h"
 #include "core/queue/queue.h"
 #include "message_ids_generated.h"
+#include <memory>
 #include "x4mp/registry.h"
 #include "x4mp/wire.h"
 
@@ -67,6 +69,7 @@ constexpr std::size_t kInboxCapacity = 4096;
 // frames) or drops (Realtime frames). TCP flow control then pushes back on the server.
 constexpr std::size_t kPendingLimit = 2 * kInboxCapacity;
 constexpr std::size_t kReadChunk = 64 * 1024;
+constexpr DWORD kSioUdpConnReset = static_cast<DWORD>(0x9800000C);  // SIO_UDP_CONNRESET (mstcpip.h) = _WSAIOW(IOC_VENDOR, 12)
 
 std::int64_t steady_us() noexcept {
   return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch())
@@ -122,7 +125,10 @@ struct NetClient::Impl final : HookContext {
         opt(std::move(options)),
         clock(opt.clock ? opt.clock : std::function<std::int64_t()>(&steady_us)),
         outbox(make_outbox_options(*this)),
-        backoff(opt.backoff_first_ms, opt.backoff_cap_ms) {}
+        backoff(opt.backoff_first_ms, opt.backoff_cap_ms),
+        udp_lane(opt.udp, [this](wire::ByteSpan d) { return udp_send(d); }) {
+    udp_block_flag.store(opt.udp.block);
+  }
 
   static queue::ReliableOutbox<OutFrame>::Options make_outbox_options(Impl& self) {
     queue::ReliableOutbox<OutFrame>::Options o;
@@ -145,6 +151,7 @@ struct NetClient::Impl final : HookContext {
   std::atomic<bool> heartbeat_enabled{false};
   std::atomic<std::uint16_t> goodbye_code{kDisconnectClientQuit};
   std::atomic<std::uint64_t> outbox_evicted{0};
+  std::atomic<bool> udp_block_flag{false};
   std::atomic<bool> started{false};
   std::thread thread;
 
@@ -159,6 +166,10 @@ struct NetClient::Impl final : HookContext {
   std::int64_t retry_at_us = 0;
   Backoff backoff;
   std::int64_t connected_at_us = -1;
+  UdpLane udp_lane;  // declared after backoff (constructor order); owned by the net thread
+  Socket udp_sock;
+  std::vector<std::uint8_t> udp_rx = std::vector<std::uint8_t>(2048);
+  std::uint64_t udp_verify_failures = 0;
 
   std::vector<std::uint8_t> rbuf;
   std::size_t roff = 0;
@@ -203,6 +214,8 @@ struct NetClient::Impl final : HookContext {
     st.control_retained_frames = static_cast<std::uint32_t>(retained.size());
     st.control_retained_bytes = retained_bytes;
     st.outbox_dropped = dropped_not_connected + outbox_evicted.load(std::memory_order_relaxed);
+    st.udp = udp_lane.stats();
+    st.udp.malformed += udp_verify_failures;
     status_slot.publish(st);
     dirty = false;
     last_publish_us = now;
@@ -223,6 +236,14 @@ struct NetClient::Impl final : HookContext {
   // Appends a complete frame to the write path (net thread only).
   bool append_frame(OutFrame&& f) {
     ++st.frames_out;
+    // Realtime frames ride the UDP lane while it is Active (batched into datagrams; flushed at the end of the drain).
+    if (f.lane == Lane::Realtime && udp_lane.state() != UdpState::Off && f.bytes.size() > wire::kFrameHeaderSize) {
+      const std::uint16_t type = static_cast<std::uint16_t>(f.bytes[4] | (f.bytes[5] << 8));
+      if (udp_lane.send_realtime(type, wire::ByteSpan(f.bytes.data() + wire::kFrameHeaderSize, f.bytes.size() - wire::kFrameHeaderSize),
+                             clock())) {
+        return true;
+      }
+    }
     if (f.lane == Lane::Bulk) {
       bulk_bytes += f.bytes.size();
       bulkq.push_back(std::move(f.bytes));
@@ -286,6 +307,89 @@ struct NetClient::Impl final : HookContext {
     return n;
   }
   void consume_frame() override { consume_current = true; }
+
+  // ---- UDP realtime lane (M3-03) -----------------------------------------------------------------
+  bool udp_send(wire::ByteSpan d) {
+    if (!udp_sock.valid()) return false;
+    const int n = ::send(udp_sock.get(), reinterpret_cast<const char*>(d.data()), static_cast<int>(d.size()), 0);
+    return n == static_cast<int>(d.size());
+  }
+
+  void close_udp() {
+    udp_lane.stop();
+    udp_sock.close();
+  }
+
+  // HookContext. Called from the Welcome on the net thread, so the TCP connection's address (addrs[addr_idx]) is known.
+  void start_udp(std::uint32_t conn_id, std::uint16_t port, std::uint64_t token) override {
+    close_udp();
+    if (opt.udp.mode == UdpMode::Off || port == 0 || phase != ConnState::Connected || addr_idx >= addrs.size()) return;
+    ResolvedAddr a = addrs[addr_idx];
+    if (a.family == AF_INET) {
+      reinterpret_cast<sockaddr_in*>(&a.addr)->sin_port = htons(port);
+    } else if (a.family == AF_INET6) {
+      reinterpret_cast<sockaddr_in6*>(&a.addr)->sin6_port = htons(port);
+    } else {
+      return;
+    }
+    Socket s(::socket(a.family, SOCK_DGRAM, IPPROTO_UDP));
+    if (!s.valid()) {
+      X4MP_LOGW("net: udp: socket() failed (winsock error {}); Realtime stays on TCP", ::WSAGetLastError());
+      return;
+    }
+    u_long nonblocking = 1;
+    (void)::ioctlsocket(s.get(), FIONBIO, &nonblocking);
+    DWORD bytes = 0;
+    BOOL no_reset = FALSE;  // SIO_UDP_CONNRESET off: an ICMP port-unreachable must not break receives
+    (void)::WSAIoctl(s.get(), kSioUdpConnReset, &no_reset, sizeof(no_reset), nullptr, 0, &bytes, nullptr, nullptr);
+    const int rcvbuf = 1 << 20;
+    (void)::setsockopt(s.get(), SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
+    // Connected UDP socket: the kernel then drops datagrams from any other source.
+    if (::connect(s.get(), reinterpret_cast<const sockaddr*>(&a.addr), a.len) != 0) {
+      X4MP_LOGW("net: udp: connect() failed (winsock error {}); Realtime stays on TCP", ::WSAGetLastError());
+      return;
+    }
+    udp_sock = std::move(s);
+    udp_lane.start(conn_id, token, clock());
+    X4MP_LOGI("net: udp: binding to {}:{} (mode {})", ep.host, port, to_string(opt.udp.mode));
+    dirty = true;
+  }
+
+  void on_udp_message(std::uint16_t type, wire::ByteSpan payload) {
+    const wire::MessageDescriptor* d = wire::find_message(type);
+    if (d == nullptr) {
+      ++udp_verify_failures;
+      return;
+    }
+    wire::FrameView view;
+    view.header.payload_length = static_cast<std::uint32_t>(payload.size());
+    view.header.type = type;
+    view.header.flags = 0;
+    view.header.lane = d->lane;
+    view.payload = payload;
+    view.consumed = wire::kFrameHeaderSize + payload.size();
+    if (!wire::validate_frame(view)) {  // the FlatBuffers Verifier runs before anything is read (ADR-041)
+      ++udp_verify_failures;
+      return;
+    }
+    ++st.frames_in;
+    dirty = true;
+    handle_frame(view);
+  }
+
+  void do_udp_read() {
+    for (int i = 0; i < 64; ++i) {
+      const int n = ::recv(udp_sock.get(), reinterpret_cast<char*>(udp_rx.data()), static_cast<int>(udp_rx.size()), 0);
+      if (n < 0) {
+        if (::WSAGetLastError() == WSAECONNRESET) continue;  // stray ICMP on some stacks
+        break;                                               // WSAEWOULDBLOCK: drained
+      }
+      rx_stamp_us = clock();
+      udp_lane.on_datagram(wire::ByteSpan(udp_rx.data(), static_cast<std::size_t>(n)), rx_stamp_us,
+                       [this](std::uint16_t type, wire::ByteSpan payload) { on_udp_message(type, payload); });
+      dirty = true;
+    }
+  }
 
   void send_disconnect_frame(std::uint16_t code, const std::string& message) {
     flatbuffers::FlatBufferBuilder fbb(128);
@@ -470,6 +574,7 @@ struct NetClient::Impl final : HookContext {
   // Ends a connection or a failed connect attempt and decides what happens next.
   void finish_connection(DisconnectReason reason, std::string text, std::uint16_t code, std::int64_t now) {
     const bool was_connected = connected_at_us >= 0;
+    close_udp();
     sock.close();
     addrs.clear();
     addr_idx = 0;
@@ -534,6 +639,7 @@ struct NetClient::Impl final : HookContext {
       }
     }
     drain_batch.clear();
+    if (connected && udp_lane.state() != UdpState::Off) udp_lane.flush(clock());
   }
 
   // Sends as much as the socket takes without blocking. Returns false if the connection was dropped.
@@ -720,17 +826,28 @@ struct NetClient::Impl final : HookContext {
                       "write buffer over " + std::to_string(opt.write_cap_bytes) + " bytes (peer not reading)");
       return;
     }
+    if (udp_lane.state() != UdpState::Off) {
+      udp_lane.set_block(udp_block_flag.load(std::memory_order_relaxed));
+      udp_lane.tick(now);
+    }
     if (!flush_write_once()) return;
 
     const bool backpressured = pending.size() >= kPendingLimit;
     const bool want_write = pending_write_bytes() > 0;
     if (backpressured) {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      if (udp_sock.valid()) do_udp_read();
     } else {
-      WSAPOLLFD pfd{};
+      WSAPOLLFD fds[2]{};
+      WSAPOLLFD& pfd = fds[0];
       pfd.fd = sock.get();
       pfd.events = static_cast<SHORT>(POLLRDNORM | (want_write ? POLLWRNORM : 0));
-      const int rc = ::WSAPoll(&pfd, 1, static_cast<INT>(opt.poll_timeout_ms));
+      const bool with_udp = udp_sock.valid();
+      if (with_udp) {
+        fds[1].fd = udp_sock.get();
+        fds[1].events = POLLRDNORM;
+      }
+      const int rc = ::WSAPoll(fds, with_udp ? 2 : 1, static_cast<INT>(opt.poll_timeout_ms));
       if (rc == SOCKET_ERROR) {
         drop_connection(DisconnectReason::SocketError, "WSAPoll failed (winsock error " + std::to_string(::WSAGetLastError()) + ")");
         return;
@@ -738,6 +855,7 @@ struct NetClient::Impl final : HookContext {
       if (rc > 0) {
         if ((pfd.revents & (POLLRDNORM | POLLHUP | POLLERR)) != 0) do_read();
         if (phase == ConnState::Connected && (pfd.revents & POLLWRNORM) != 0) (void)flush_write_once();
+        if (with_udp && phase == ConnState::Connected && udp_sock.valid() && (fds[1].revents & (POLLRDNORM | POLLERR)) != 0) do_udp_read();
       }
     }
     if (phase == ConnState::Connected) {
@@ -886,6 +1004,10 @@ void NetClient::enable_heartbeat() noexcept {
 
 void NetClient::set_goodbye_code(std::uint16_t code) noexcept {
   if (impl_) impl_->goodbye_code.store(code);
+}
+
+void NetClient::set_udp_block(bool block) noexcept {
+  if (impl_) impl_->udp_block_flag.store(block, std::memory_order_relaxed);
 }
 
 void NetClient::reconnect_now() noexcept {

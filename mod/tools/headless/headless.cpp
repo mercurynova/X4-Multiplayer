@@ -10,6 +10,13 @@
 //       (a gzip whose root element is <savegame>) plus an empty-station manifest, then sends one self-spawn EntitySpawn with a
 //       nonzero game_time and stays HOLD_SECONDS (--ping) before leaving. Survives a dropped connection: the upload resumes.
 //
+// UDP realtime lane (M3-03, core/net/udp_lane.h): --udp auto|force|off (default auto; force = Realtime frames never use TCP, no
+// fallback; off = capability not advertised), --udp-loss PCT (drop that share of datagrams in each direction), --udp-block (drop
+// all of them from the start: a firewall), --udp-block-after SECONDS (the firewall appears mid-session; the fall-back time to TCP is
+// measured and must be <= 3.5 s), --udp-keepalive-ms N (send a UdpHello every N ms when idle: a steady probe stream for loss tests),
+// --udp-seed N, --expect-udp active|fallback|off (exit 1 unless the lane is in that state at the end of the --ping window and the
+// TCP connection never dropped). Prints a `udp:` line every second while pinging.
+//
 // --key-file reads the 32-byte player key as hex, or creates it (random) if the file does not exist.
 // --reload: after joining, unload_for_reload() (Disconnect ClientReload, intent -> in-memory stash), then a NEW Session is
 // built from the stash exactly as main.cpp will after X4Native restarts the extension, and the Welcome must say
@@ -58,6 +65,13 @@ struct Args {
   std::string work_dir;
   int roles = 0;  // 0 = default for the mode (Client; Authority|Client with --authority)
   int step_timeout_seconds = 60;
+  std::string udp_mode = "auto";
+  double udp_loss = 0.0;
+  bool udp_block = false;
+  int udp_block_after = -1;
+  int udp_keepalive_ms = 0;
+  std::uint64_t udp_seed = 0;
+  std::string expect_udp;
 };
 
 class StaticExtensions final : public session::IExtensionProvider {
@@ -279,6 +293,13 @@ int main(int argc, char** argv) {
     else if (arg == "--work-dir") a.work_dir = next();
     else if (arg == "--roles") a.roles = std::atoi(next().c_str());
     else if (arg == "--step-timeout") a.step_timeout_seconds = std::atoi(next().c_str());
+    else if (arg == "--udp") a.udp_mode = next();
+    else if (arg == "--udp-loss") a.udp_loss = std::atof(next().c_str());
+    else if (arg == "--udp-block") a.udp_block = true;
+    else if (arg == "--udp-block-after") a.udp_block_after = std::atoi(next().c_str());
+    else if (arg == "--udp-keepalive-ms") a.udp_keepalive_ms = std::atoi(next().c_str());
+    else if (arg == "--udp-seed") a.udp_seed = static_cast<std::uint64_t>(std::strtoull(next().c_str(), nullptr, 10));
+    else if (arg == "--expect-udp") a.expect_udp = next();
     else {
       std::fprintf(stderr, "unknown argument %s (see the header of headless.cpp)\n", arg.c_str());
       return 2;
@@ -312,6 +333,16 @@ int main(int argc, char** argv) {
   opt.identity.mod_version = a.mod_version;
   opt.save_dir = a.save_dir;
   opt.net.backoff_first_ms = 500;
+  const auto udp_mode = net::parse_udp_mode(a.udp_mode);
+  if (!udp_mode || (!a.expect_udp.empty() && a.expect_udp != "active" && a.expect_udp != "fallback" && a.expect_udp != "off")) {
+    std::fprintf(stderr, "--udp must be auto|force|off and --expect-udp active|fallback|off\n");
+    return 2;
+  }
+  opt.net.udp.mode = *udp_mode;
+  opt.net.udp.loss_pct = a.udp_loss;
+  opt.net.udp.block = a.udp_block;
+  opt.net.udp.seed = a.udp_seed;
+  if (a.udp_keepalive_ms > 0) opt.net.udp.keepalive_ms = a.udp_keepalive_ms;
   if (a.authority) {
     opt.requested_roles = static_cast<std::uint8_t>(a.roles != 0 ? a.roles : 3);  // Authority | Client (ADR: mod hosts as both)
     opt.auto_download = false;
@@ -359,20 +390,58 @@ int main(int argc, char** argv) {
     s.mark_in_session();
 
     // Ping for a while: the net layer's own heartbeat measures RTT.
-    const auto ping_end = Clock::now() + std::chrono::seconds(a.ping_seconds);
+    const auto ping_start = Clock::now();
+    const auto ping_end = ping_start + std::chrono::seconds(a.ping_seconds);
+    const std::uint32_t connections0 = s.net_status().connections;
     std::int64_t last_print = -1;
+    bool blocked_now = false;
+    Clock::time_point t_block{};
+    std::int64_t fallback_ms = -1;
     pump(s, events, ping_end, [&] {
       const auto st = s.net_status();
       const auto sec = std::chrono::duration_cast<std::chrono::seconds>(ping_end - Clock::now()).count();
-      if (sec != last_print && st.rtt_us > 0) {
+      if (a.udp_block_after >= 0 && !blocked_now && Clock::now() - ping_start >= std::chrono::seconds(a.udp_block_after)) {
+        blocked_now = true;
+        t_block = Clock::now();
+        s.set_udp_block(true);
+        std::printf("udp: BLOCKED now (state=%s)\n", net::to_string(st.udp.state));
+      }
+      if (blocked_now && fallback_ms < 0 && st.udp.state == net::UdpState::Fallback) {
+        fallback_ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t_block).count();
+        std::printf("udp: fell back to TCP %lld ms after the block\n", static_cast<long long>(fallback_ms));
+      }
+      if (sec != last_print) {
         last_print = sec;
-        std::printf("ping: rtt=%lldus min=%lldus clock_offset=%lldus frames_in=%llu\n", static_cast<long long>(st.rtt_us),
-                    static_cast<long long>(st.rtt_min_us), static_cast<long long>(st.clock_offset_us),
-                    static_cast<unsigned long long>(st.frames_in));
+        if (st.rtt_us > 0) {
+          std::printf("ping: rtt=%lldus min=%lldus clock_offset=%lldus frames_in=%llu\n", static_cast<long long>(st.rtt_us),
+                      static_cast<long long>(st.rtt_min_us), static_cast<long long>(st.clock_offset_us),
+                      static_cast<unsigned long long>(st.frames_in));
+        }
+        const auto& u = st.udp;
+        std::printf("udp: state=%s out=%llu in=%llu sim_drops=%llu/%llu acked_seq=%u rx_loss=%.1f%% binds=%u fallbacks=%u reprobes=%u\n",
+                    net::to_string(u.state), static_cast<unsigned long long>(u.datagrams_out),
+                    static_cast<unsigned long long>(u.datagrams_in), static_cast<unsigned long long>(u.sim_drops_tx),
+                    static_cast<unsigned long long>(u.sim_drops_rx), u.acked_seq, static_cast<double>(u.rx_loss_pct), u.binds,
+                    u.fallbacks, u.reprobes);
       }
       return false;
     });
     const auto st = s.net_status();
+    if (!a.expect_udp.empty()) {
+      const char* got = net::to_string(st.udp.state);
+      const bool state_ok = (a.expect_udp == "active" && st.udp.state == net::UdpState::Active) ||
+                            (a.expect_udp == "fallback" && st.udp.state == net::UdpState::Fallback) ||
+                            (a.expect_udp == "off" && st.udp.state == net::UdpState::Off);
+      const bool conn_ok =
+          st.state == net::ConnState::Connected && st.connections == connections0 && s.state() != session::State::Disconnected;
+      std::printf("udp: expect %s, got %s; tcp connection %s (connections %u -> %u)\n", a.expect_udp.c_str(), got,
+                  conn_ok ? "stayed up" : "DROPPED", connections0, st.connections);
+      if (!state_ok || !conn_ok) rc = 1;
+      if (a.udp_block_after >= 0 && (fallback_ms < 0 || fallback_ms > 3500)) {
+        std::printf("udp: fallback after the block took %lld ms (need <= 3500)\n", static_cast<long long>(fallback_ms));
+        rc = 1;
+      }
+    }
     if (st.rtt_us == 0 && a.ping_seconds > 0) {
       std::fprintf(stderr, "no Pong received\n");
       rc = 1;
