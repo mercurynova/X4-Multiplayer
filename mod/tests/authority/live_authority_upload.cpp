@@ -318,12 +318,12 @@ class ServerProcess {
 
 // ---- one run --------------------------------------------------------------------------------------------------------------
 
-// The last `max_chars` of a text file on one line (newlines become " | "), for failure messages.
+// The first and last `max_chars / 2` of a text file on one line (newlines become " | "), for failure messages.
 std::string tail_of(const fs::path& file, std::size_t max_chars) {
   std::ifstream in(file, std::ios::binary);
   if (!in) return "(no log file)";
   std::string all((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  if (all.size() > max_chars) all.erase(0, all.size() - max_chars);
+  if (all.size() > max_chars) all = all.substr(0, max_chars / 2) + " ... " + all.substr(all.size() - (max_chars / 2));  // head (the message) + tail (the stack)
   for (auto& c : all) {
     if (c == '\r') c = ' ';
     else if (c == '\n') c = '|';
@@ -381,7 +381,7 @@ RunResult run_once(int run, const std::string& server_exe, std::uint16_t base, s
     return res;
   }
   if (!server.wait_ready(tcp, 60s)) {
-    res.why = "the server did not open its node port (" + server.describe_exit() + "; see " + (dir / "server.log").string() + ") log tail: " + tail_of(dir / "server.log", 1500);
+    res.why = "the server did not open its node port (" + server.describe_exit() + "; see " + (dir / "server.log").string() + ") log tail: " + tail_of(dir / "server.log", 3000);
     return res;
   }
 
