@@ -280,13 +280,27 @@ struct Session::Impl {
     const std::vector<std::uint8_t> player_key(opt.player_key.begin(), opt.player_key.end());
     const X4MP::Proto::Id128 token(net_resume.lo, net_resume.hi);
     const std::vector<flatbuffers::Offset<X4MP::Proto::SaveRef>> cached;
+    std::vector<flatbuffers::Offset<X4MP::Proto::ExtensionInfo>> ext_list;
+    ext_list.reserve(ext.list.size());
+    for (const auto& r : ext.list) {
+      std::vector<flatbuffers::Offset<X4MP::Proto::ExtensionDependency>> deps;
+      deps.reserve(r.dependencies.size());
+      for (const auto& d : r.dependencies) {
+        deps.push_back(X4MP::Proto::CreateExtensionDependencyDirect(fbb, d.id.c_str(), d.optional));
+      }
+      ext_list.push_back(X4MP::Proto::CreateExtensionInfoDirect(
+          fbb, r.id.c_str(), r.name.c_str(), r.version.c_str(), static_cast<X4MP::Proto::ExtensionSource>(r.source),
+          r.enabled, r.egosoft, r.workshop_id, &r.content_hash, static_cast<X4MP::Proto::HashKind>(r.hash_kind),
+          r.has_native_dll, r.replaces_basegame, r.save_dependent,
+          static_cast<X4MP::Proto::ExtensionClass>(r.class_hint), r.error.c_str(), r.warning.c_str(), &deps));
+    }
     const auto& idn = opt.identity;
     fbb.Finish(X4MP::Proto::CreateClientHelloDirect(
         fbb, wire::kProtocolMajor, wire::kProtocolMinor, idn.mod_version.c_str(), idn.mod_build.c_str(),
         idn.game_version.c_str(), idn.game_build.c_str(), idn.x4native_version.c_str(), idn.platform.c_str(),
         &ext.hash, &ext_strings, &player_key, opt.player_name.c_str(),
         static_cast<X4MP::Proto::Role>(opt.requested_roles), opt.client_caps, &auth_proof, &admin_proof, &token,
-        net_last_journal_seq, &opt.loaded_save_sha256, &cached, opt.preferred_team));
+        net_last_journal_seq, &opt.loaded_save_sha256, &cached, opt.preferred_team, &ext_list));
     (void)ctx.send(wire::Lane::Control, T(X4MP::Proto::MsgType::ClientHello),
                    std::span<const std::uint8_t>(fbb.GetBufferPointer(), fbb.GetSize()));
     // Pings may start only now: the server treats any frame but ClientHello as UnexpectedMessage before it.

@@ -1,0 +1,4 @@
+{
+  "library": "native/dll_mod.dll",
+  "priority": 50
+}
