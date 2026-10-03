@@ -62,7 +62,6 @@ X4N_SHUTDOWN {
     for (std::size_t i = 0; i < g_subscription_count; ++i) x4n::off(g_subscriptions[i]);
     g_subscription_count = 0;
     if (g_host) g_host->shutdown();  // feature on_shutdown, stash state, log flush (needs the API pointer, still set)
-    if (g_platform) g_platform->clear_lua_verbs();  // Lua verbs (x4mp.join ...): no handler runs after this
     g_host.reset();
     g_platform.reset();
   } catch (...) {

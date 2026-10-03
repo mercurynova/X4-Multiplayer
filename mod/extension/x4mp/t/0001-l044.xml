@@ -36,12 +36,16 @@
     <t id="42">Team: %s</t>
     <t id="43">Ping: %s ms</t>
     <t id="44">Players: %s</t>
-    <t id="60">Your X4 build is not supported. Install the build this X4MP version needs, or ask the host which build the session uses. %s</t>
-    <t id="61">Your X4MP version or your mods do not match the server. Update X4MP or change your mods as the host asks. %s</t>
-    <t id="62">The session password is wrong. %s</t>
-    <t id="63">The session is full. Try again later or ask the host for a free slot. %s</t>
-    <t id="64">You are banned from this server. %s</t>
-    <t id="65">That player name is already in use. Choose another name and join again. %s</t>
+    <t id="70">Your X4 build is not supported. Install the build this X4MP version needs, or ask the host which build the session uses. %s</t>
+    <t id="71">Your X4MP version or your mods do not match the server. Update X4MP or change your mods as the host asks. %s</t>
+    <t id="72">The session password is wrong. %s</t>
+    <t id="73">The session is full. Try again later or ask the host for a free slot. %s</t>
+    <t id="74">You are banned from this server. %s</t>
+    <t id="75">That player name is already in use. Choose another name and join again. %s</t>
     <t id="51">Type /x4mp in the chat window to open this screen at any time.</t>
+    <t id="60">Saving is disabled while connected as a client</t>
+    <t id="300">Join or manage an X4MP multiplayer session</t>
+    <t id="301">X4MP: %s</t>
+    <t id="302">X4MP: %s, %s players, %s ms</t>
   </page>
 </language>

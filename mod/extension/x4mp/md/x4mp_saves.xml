@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP save control, MD side (M2-10). Lua side: ui/x4mp_saves.lua.
+
+  Lua -> MD  AddUITriggeredEvent("X4MP_Saves", "noSave", "1" | "0")  sets/clears global.$x4mp_noSave, which the diff in
+             md/notifications.xml reads to drop the vanilla autosave request. The flag lives in the save game, so Lua sets it
+             again on every load (native pushes the real state).
+  MD -> Lua  raise_lua_event 'x4mp.md_game_saved' "success=<0|1>;age=<seconds>" for every completed game save (menu,
+             quicksave, autosave, SaveGame): Lua forwards it to native, which warns when it happened while we are a client
+             (quicksave bypasses the Lua wrappers, session 2 C3). The event fires before the file is complete (C4).
+  Syntax: event_ui_triggered and event_game_saved as used by vanilla md/*.xml and the session-2 spike.
+-->
+<mdscript name="X4MP_Saves" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Saves_SetFlag" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Saves'" control="'noSave'"/>
+      </conditions>
+      <actions>
+        <set_value name="global.$x4mp_noSave" exact="event.param3 == '1'"/>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Saves_GameSaved" instantiate="true">
+      <conditions>
+        <event_game_saved/>
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4mp.md_game_saved'" param="'success=' + (if event.param then 1 else 0) + ';age=' + player.age"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

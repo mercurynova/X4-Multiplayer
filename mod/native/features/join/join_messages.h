@@ -25,6 +25,10 @@ enum class JoinPhase : std::uint8_t { SyncingSave = 2, Verifying = 3, Loading = 
 [[nodiscard]] Payload encode_node_ready(std::uint64_t universe_epoch, const std::vector<std::uint8_t>& loaded_save_sha256);
 
 // Wire message type numbers (X4MP.Proto.MsgType).
+// One LogForward frame with a single line (level 0 Debug .. 3 Error, time_us = unix microseconds).
+[[nodiscard]] Payload encode_log_forward(int level, std::uint64_t time_us, std::string_view text);
+[[nodiscard]] std::uint16_t msg_log_forward() noexcept;
+
 [[nodiscard]] std::uint16_t msg_load_status() noexcept;
 [[nodiscard]] std::uint16_t msg_manifest_report() noexcept;
 [[nodiscard]] std::uint16_t msg_node_ready() noexcept;
