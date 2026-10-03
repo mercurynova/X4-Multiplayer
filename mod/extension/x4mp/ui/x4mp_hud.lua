@@ -1,9 +1,9 @@
 -- x4mp_hud.lua : connection status HUD (M2-11, mod-design 7.5).
 --
--- A small passive frame at the top right of the screen on layer 3 (like the chat window), showing e.g.
+-- A small passive frame at the top right of the screen on its own layer 6 (NOT the chat window's layer 3, see config.layer), showing e.g.
 -- "X4MP: Connected, 3 players, 45 ms" from the x4mp.status topic. It takes no input and no focus.
 --
--- Session 2 (D5): the layer-3 frame displays fine, but any other menu (map, Esc) closes it and it does not come back. So this
+-- Session 2 (D5): the frame displays fine, but any other menu (map, Esc) closes it and it does not come back. So this
 -- file keeps the *wish* to show the HUD separately from the frame, notices when the frame is gone (the engine calls
 -- menu.onCloseElement, and the frame disappears from View.menus) and draws it again once no other menu is open. The check is
 -- driven by several redundant sources, throttled to one run per 0.25 s, because the game offers no documented "menu closed" event:
@@ -35,7 +35,10 @@ local STATE_TEXT = { connecting = 31, handshaking = 32, checking_save = 33, down
 
 H.config = H.config or {
 	mode = "hud",
-	layer = 3,
+	-- Session 3 root cause: View.registerMenu / Helper.clearFrame key a frame by "Helper" .. layer (helper.lua:4115, :1578), so a second
+	-- frame on layer 3 REPLACED the chat window's registration (chatwindow.lua:54 layer = 3) and the engine closed the chat. Layer 3 is
+	-- also used by movie.lua:18, 2 by many menus, 1 helptext, 0 debuglog, 4 is the Helper default. 6 is unused by vanilla.
+	layer = 6,
 	width = 300,        -- scaled with Helper.scaleX
 	margin = 20,        -- distance from the top and right screen edge
 	interval = 1.0,     -- seconds between checks of the self-rescheduling loop
@@ -43,6 +46,8 @@ H.config = H.config or {
 	maxDetail = 60,     -- characters of a status detail shown on the one-line HUD (the full text is on the Multiplayer screen)
 	maxFailures = 3,    -- failed draws in a row before degrading to "notify"
 	ignoreMenus = { ChatWindow = true }, -- View.menus entries that do not count as "another menu is open"
+	yieldMenus = { ChatWindow = true },  -- while one of these is open the HUD never draws, hides or touches anything (belt and braces)
+	yieldLogInterval = 30, -- seconds between "yielding" log lines
 }
 
 local function log(msg)
@@ -118,6 +123,16 @@ function H.present()
 	local v = viewEntryPresent()
 	if v ~= nil then return v end
 	return menu.shown == true
+end
+
+--- name of an open menu from config.yieldMenus (the chat window), or nil
+function H.yielding()
+	if type(View) ~= "table" or type(View.menus) ~= "table" then return nil end
+	local y = H.config.yieldMenus
+	for _, entry in ipairs(View.menus) do
+		if type(entry) == "table" and entry.name and y[entry.name] then return entry.name end
+	end
+	return nil
 end
 
 --- true when another (non-ignored, non-minimized) menu is open: drawing then would be useless or disturb it
@@ -239,6 +254,16 @@ function H.tick(force)
 
 	local m = mode()
 	local text = H.text()
+	if text and m == "hud" then
+		local who = H.yielding()
+		if who then -- never draw, clear or re-open anything while the chat window is up; the frame is on another layer and stays as it is
+			if not H.lastYieldLog or t < H.lastYieldLog or t - H.lastYieldLog >= H.config.yieldLogInterval then
+				H.lastYieldLog = t
+				log("hud: yielding to open menu " .. who)
+			end
+			return "yielding"
+		end
+	end
 	if not text then
 		H.hide()
 		H.lastNotifyKey = nil
