@@ -45,7 +45,9 @@ H.config = H.config or {
 	reshowDelay = 1.0,  -- seconds the frame must have been gone before it is drawn again
 	maxDetail = 60,     -- characters of a status detail shown on the one-line HUD (the full text is on the Multiplayer screen)
 	maxFailures = 3,    -- failed draws in a row before degrading to "notify"
-	ignoreMenus = { ChatWindow = true }, -- View.menus entries that do not count as "another menu is open"
+	-- View.menus entries that do not count as "another menu is open". TopLevelMenu (menu_toplevel.lua, the top bar) and DockedMenu
+	-- (menu_docked.lua, shown while docked) stay up during normal play: session-3 retest logged "blocked for 10 s by TopLevelMenu/Helper2".
+	ignoreMenus = { ChatWindow = true, TopLevelMenu = true, DockedMenu = true },
 	-- Off: the HUD is on layer 6 and cannot displace the chat window (Helper3). Yielding left the line gone for minutes after the chat closed.
 	yieldMenus = {},     -- names of View menus while which the HUD never draws, hides or touches anything
 	refreshInterval = 5, -- seconds after which an unchanged frame is drawn once more (heals a frame lost without notice)
