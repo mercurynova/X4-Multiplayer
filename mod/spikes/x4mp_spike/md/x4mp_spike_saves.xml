@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike_saves : MD side of the spike v2 blocks saves*, clock, money, v12, s9gate (task M2-002).
+  Lua side: ui/x4mp_spike_saves.lua (v12 and s9gate are implemented here, registered with registerMD there).
+  Convention (mod/spikes/README.md): Lua -> MD is AddUITriggeredEvent("X4MP_Spike2", control, value)
+    -> <event_ui_triggered screen="'X4MP_Spike2'" control="'<control>'"/>, value = event.param3.
+  MD -> Lua: raise_lua_event 'x4mp_spike.run' (start a block) and 'x4mp_spike.game_saved' (every game save).
+
+  Controls handled here:
+    saves_noSave  value '1'/'0'  set/clear global.$x4mp_noSave (read by the md/notifications.xml diff, test C2)
+    saves2_md                    try to signal the vanilla autosave request cue (does the diff suppress it?)
+    money_md      value stage    log player.money next to Lua's GetPlayerMoney (test C6)
+    clock_start   value seconds  clock block started (persisted so the block can resume after a save load)
+    clock_tick    value n        MD side of the 1 Hz clock sample: logs player.age (test C5)
+    clock_done                   clock block finished, forget the resume state
+    v12                          block v12 (object variables, test V12 retest)
+    s9gate                       block s9gate (activate an inactive gate, test S9 retest)
+
+  Persisted in the save (md.$ globals, so they come back after a load): X4MP_S2_ClockN/Dur, X4MP_S2_V12Ship/Station,
+  X4MP_S2_Gate. The Loaded cues below read them after event_game_loaded.
+
+  Syntax sources (all under x4-unpacked/): event_ui_triggered libraries/common.xsd:12023; event_game_saved common.xsd:16555
+  (param = success); event_game_loaded md/notifications.xml; set_object_active common.xsd:33743 (md/setup_dlc_boron
+  extension, Boron_Gates_Open_*); find_gate space/active/multiple md/factionlogic.xml:967; set_known md/*.xml;
+  object variables player.entity.$x md/*.xml and set_value name="$Obj.$var"; global.$x names md/*.xml (create_list
+  name="global.$..."); remove_value md/*.xml; raise_lua_event md/cover.xml; show_notification md/diplomacy.xml.
+-->
+<mdscript name="X4MP_SpikeSaves" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <!-- ===================================================== save control (C1 to C4) ===================================================== -->
+
+    <cue name="S2_SetNoSave" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'saves_noSave'"/>
+      </conditions>
+      <actions>
+        <set_value name="global.$x4mp_noSave" exact="event.param3 == '1'"/>
+        <debug_text text="'[X4MP-SPIKE] SAVE INFO what=md_noSave_flag value=' + global.$x4mp_noSave + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- every completed game save (menu, quicksave, autosave, SaveGame from Lua): the Lua side compares it with its
+         own SaveGame wrapper calls (C3: quicksave through the wrapper or not; C4: time to the save event) -->
+    <cue name="S2_GameSaved" instantiate="true">
+      <conditions>
+        <event_game_saved/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] SAVE INFO what=md_event_game_saved success=' + event.param + ' age=' + player.age + ' noSave_flag=' + (@global.$x4mp_noSave)" filter="general" context="false"/>
+        <raise_lua_event name="'x4mp_spike.game_saved'" param="'success=' + event.param + ';age=' + player.age"/>
+      </actions>
+    </cue>
+
+    <!-- C2 extra: ask the vanilla autosave request cue directly. If the nested cue cannot be addressed from outside its
+         parent, the engine logs an error next to the line below; the real test is the user's sector change. -->
+    <cue name="S2_TryVanillaAutosave" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'saves2_md'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] SAVE INFO what=md_signal_vanilla_AutoSave_Request noSave_flag=' + (@global.$x4mp_noSave) + ' autosave_available=' + player.autosave.available + ' age=' + player.age" filter="general" context="false"/>
+        <signal_cue cue="md.Notifications.AutoSave_Request" check="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== money (C6, MD side) ===================================================== -->
+    <cue name="S2_MoneyMD" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'money_md'"/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] MONEY INFO what=md_player_money stage=' + event.param3 + ' player_money=' + player.money + ' credits=' + (player.money / 1Cr) + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== clock (C5) ===================================================== -->
+    <cue name="S2_ClockStart" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'clock_start'"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_S2_ClockDur" exact="event.param3"/>
+        <set_value name="md.$X4MP_S2_ClockN" exact="1"/>
+        <debug_text text="'[X4MP-SPIKE] CLOCK INFO what=md_clock_start duration_s=' + event.param3 + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="S2_ClockTick" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'clock_tick'"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_S2_ClockN" exact="event.param3"/>
+        <debug_text text="'[X4MP-SPIKE] CLOCK MEASURE side=md n=' + event.param3 + ' age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <cue name="S2_ClockDone" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'clock_done'"/>
+      </conditions>
+      <actions>
+        <remove_value name="md.$X4MP_S2_ClockN"/>
+        <remove_value name="md.$X4MP_S2_ClockDur"/>
+        <debug_text text="'[X4MP-SPIKE] CLOCK INFO what=md_clock_done age=' + player.age" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== V12: object variables ===================================================== -->
+    <cue name="S2_V12" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'v12'"/>
+      </conditions>
+      <actions>
+        <!-- target 1: the player's ship (never removed by this block) -->
+        <set_value name="$Ship" exact="player.ship"/>
+        <do_if value="not $Ship">
+          <set_value name="$Ship" exact="player.occupiedship"/>
+        </do_if>
+        <do_if value="not $Ship">
+          <find_ship name="$Owned" space="player.galaxy" owner="faction.player" multiple="true"/>
+          <do_if value="$Owned.count gt 0">
+            <set_value name="$Ship" exact="$Owned.{1}"/>
+          </do_if>
+        </do_if>
+        <!-- target 2: any station in the player's sector -->
+        <find_station name="$Stations" space="player.sector" multiple="true"/>
+        <do_if value="$Stations.count gt 0">
+          <set_value name="$Station" exact="$Stations.{1}"/>
+        </do_if>
+
+        <do_if value="$Ship">
+          <set_value name="$Ship.$x4mp_netid" exact="4242"/>
+          <set_value name="$Ship.$x4mp_big" exact="4000000000"/>
+          <set_value name="$Ship.$x4mp_str" exact="'18446744073709551615'"/>
+          <set_value name="md.$X4MP_S2_V12Ship" exact="$Ship"/>
+          <debug_text text="'[X4MP-SPIKE] V12 INFO what=set_on_ship ship=' + $Ship.knownname + ' owner=' + $Ship.owner.id + ' netid_readback=' + (@$Ship.$x4mp_netid) + ' big_readback=' + (@$Ship.$x4mp_big) + ' str_readback=' + (@$Ship.$x4mp_str)" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] V12 FAIL what=set_on_ship result=no_ship_found'" filter="general" context="false"/>
+        </do_else>
+
+        <do_if value="$Station">
+          <set_value name="$Station.$x4mp_netid" exact="7"/>
+          <set_value name="md.$X4MP_S2_V12Station" exact="$Station"/>
+          <debug_text text="'[X4MP-SPIKE] V12 INFO what=set_on_station station=' + $Station.knownname + ' netid_readback=' + (@$Station.$x4mp_netid)" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] V12 INFO what=set_on_station result=no_station_in_player_sector'" filter="general" context="false"/>
+        </do_else>
+
+        <show_notification text="'X4MP spike: v12: set. Now save to a NEW slot, load it, wait 20 s (the result is written to the log).'" timeout="30s" priority="5"/>
+      </actions>
+    </cue>
+
+    <!-- after every load: if the save carries our V12 reference, check what survived -->
+    <cue name="S2_V12Verify" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <delay exact="15s"/>
+      <actions>
+        <set_value name="$PS" exact="@md.$X4MP_S2_V12Ship"/>
+        <do_if value="$PS">
+          <debug_text text="'[X4MP-SPIKE] V12 ' + (if (@$PS.$x4mp_netid) == 4242 then 'PASS' else 'FAIL') + ' what=verify_ship_via_md_global_ref exists=' + $PS.exists + ' netid=' + (@$PS.$x4mp_netid) + ' big=' + (@$PS.$x4mp_big) + ' str=' + (@$PS.$x4mp_str) + ' owner=' + (@$PS.owner.id)" filter="general" context="false"/>
+          <!-- and by searching, without our stored reference -->
+          <find_ship name="$Found" space="player.galaxy" owner="faction.player" multiple="true"/>
+          <set_value name="$WithNetId" exact="0"/>
+          <do_for_each name="$FS" in="$Found">
+            <do_if value="(@$FS.$x4mp_netid) == 4242">
+              <set_value name="$WithNetId" exact="$WithNetId + 1"/>
+            </do_if>
+          </do_for_each>
+          <debug_text text="'[X4MP-SPIKE] V12 ' + (if $WithNetId gt 0 then 'PASS' else 'FAIL') + ' what=verify_ship_found_by_search player_ships=' + $Found.count + ' with_netid_4242=' + $WithNetId" filter="general" context="false"/>
+          <set_value name="$PSt" exact="@md.$X4MP_S2_V12Station"/>
+          <do_if value="$PSt">
+            <debug_text text="'[X4MP-SPIKE] V12 ' + (if (@$PSt.$x4mp_netid) == 7 then 'PASS' else 'FAIL') + ' what=verify_station exists=' + $PSt.exists + ' netid=' + (@$PSt.$x4mp_netid)" filter="general" context="false"/>
+          </do_if>
+          <show_notification text="'X4MP spike: v12: verify done, see the log.'" timeout="15s" priority="5"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== S9 retest: gate activation ===================================================== -->
+    <cue name="S2_S9Gate" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s9gate'"/>
+      </conditions>
+      <actions>
+        <find_gate name="$Inactive" space="player.galaxy" active="false" multiple="true"/>
+        <debug_text text="'[X4MP-SPIKE] S9 MEASURE what=gate_retest inactive_gates=' + $Inactive.count" filter="general" context="false"/>
+        <do_if value="$Inactive.count gt 0">
+          <!-- prefer a gate in a sector the player already knows, so it can be looked at on the map -->
+          <set_value name="$Gate" exact="$Inactive.{1}"/>
+          <do_for_each name="$G" in="$Inactive">
+            <do_if value="not $PickedKnown and $G.sector.isknown">
+              <set_value name="$Gate" exact="$G"/>
+              <set_value name="$PickedKnown" exact="true"/>
+            </do_if>
+          </do_for_each>
+          <set_value name="$SectorKnownBefore" exact="$Gate.sector.isknown"/>
+          <do_if value="not $SectorKnownBefore">
+            <set_known object="$Gate.sector" known="true"/>
+          </do_if>
+          <set_value name="$Dest" exact="@$Gate.destination"/>
+          <debug_text text="'[X4MP-SPIKE] S9 INFO what=gate_before sector=' + $Gate.sector.macro.id + ' sector_name=' + $Gate.sector.name + ' sector_known_before=' + $SectorKnownBefore + ' isactive=' + $Gate.isactive + ' dest_sector=' + (@$Dest.sector.macro.id) + ' dest_gate_active=' + (@$Dest.isactive)" filter="general" context="false"/>
+          <set_object_active object="$Gate" activate="true"/>
+          <set_value name="md.$X4MP_S2_Gate" exact="$Gate"/>
+          <debug_text text="'[X4MP-SPIKE] S9 ' + (if $Gate.isactive then 'PASS' else 'INFO') + ' what=gate_after_set_object_active isactive_now=' + $Gate.isactive + ' dest_gate_active=' + (@$Dest.isactive) + ' (the engine may apply it a frame later; verify block re-reads after the load)'" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: s9gate: activated a gate in sector ' + $Gate.sector.name + '. Open the map and look at it, then save to a NEW slot and load it.'" timeout="40s" priority="5"/>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S9 FAIL what=gate_retest result=no_inactive_gate_in_this_save'" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: s9gate: no inactive gate in this save (see log).'" timeout="20s" priority="5"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="S2_S9GateVerify" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <delay exact="15s"/>
+      <actions>
+        <set_value name="$VG" exact="@md.$X4MP_S2_Gate"/>
+        <do_if value="$VG">
+          <debug_text text="'[X4MP-SPIKE] S9 ' + (if $VG.isactive then 'PASS' else 'FAIL') + ' what=gate_active_survived_reload exists=' + $VG.exists + ' sector=' + $VG.sector.macro.id + ' isactive=' + $VG.isactive" filter="general" context="false"/>
+          <show_notification text="'X4MP spike: s9gate: verify done, see the log. Look at the gate on the map.'" timeout="15s" priority="5"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- ===================================================== load-time bookkeeping ===================================================== -->
+    <cue name="S2_LoadedFlag" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <actions>
+        <debug_text text="'[X4MP-SPIKE] SAVE INFO what=md_loaded noSave_flag=' + (@global.$x4mp_noSave) + ' age=' + player.age + ' (the Lua wrapper blocking flag restarts as false after a load: re-run saves1_block)'" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+    <!-- C5: a save made while the clock block ran: resume it after the load so the log covers save/reload -->
+    <cue name="S2_ClockResume" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <delay exact="8s"/>
+      <actions>
+        <set_value name="$N" exact="@md.$X4MP_S2_ClockN"/>
+        <do_if value="$N and $N lt (@md.$X4MP_S2_ClockDur)">
+          <debug_text text="'[X4MP-SPIKE] CLOCK INFO what=md_resume_clock n=' + $N + ' duration_s=' + md.$X4MP_S2_ClockDur + ' age=' + player.age" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp_spike.run'" param="'clock;resume=1;n=' + $N + ';dur=' + md.$X4MP_S2_ClockDur"/>
+        </do_if>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>
