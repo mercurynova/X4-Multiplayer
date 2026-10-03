@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike (M2-002, test C2): diff of the vanilla autosave request loop in md/notifications.xml.
+
+  The branch "player.autosave.available" of cue AutoSave_Attempt (the one that runs <trigger_autosave/>) gets a sibling
+  in front of it. While global.$x4mp_noSave is true (set by the spike blocks saves1_block / saves2, cleared by saves4
+  or "saves1_block off=1") the request is dropped, a log line is written and the request cue is reset (same as the
+  vanilla "request failed" path). With the flag unset or false this changes nothing.
+  Only a minimal selector of the vanilla file is used; no vanilla content is copied.
+-->
+<diff>
+  <add sel="//cue[@name='AutoSave_Attempt']/actions/do_elseif[@value='player.autosave.available']" pos="before">
+    <do_elseif value="player.autosave.available and @global.$x4mp_noSave">
+      <debug_text text="'[X4MP-SPIKE] SAVE INFO what=autosave_suppressed_by_md_diff age=' + player.age" filter="general" context="false"/>
+      <reset_cue cue="AutoSave_Request"/>
+    </do_elseif>
+  </add>
+</diff>
