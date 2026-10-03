@@ -1,0 +1,17 @@
+# e2e HostSim step (tools/e2e.ps1): the real x4mp.dll against the real server.
+# Needs: --admin-url/--admin-user/--admin-password, --server-pid (or --server-exe/--server-arg for start-server).
+expect-admin /healthz
+expect-admin /api/v1/server $.version exists
+frame 60Hz 600
+reload
+expect-state reloads == 1
+frame fast 60
+expect-admin /api/v1/server $.version exists
+
+# the server dies and comes back: the mod host keeps ticking, the admin API answers again
+kill-server
+frame fast 30
+start-server
+expect-admin /healthz
+expect-admin /api/v1/server $.version exists
+frame 60Hz 60
