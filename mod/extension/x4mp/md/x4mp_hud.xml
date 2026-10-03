@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP HUD notify cue (M2-14). Lua side: ui/x4mp_hud.lua.
+
+  Lua -> MD  AddUITriggeredEvent("X4MP", "notify", text): the HUD "notify" mode (hudMode = "notify", or the automatic fallback after
+             failed frame draws) sends a short status text; this cue shows it as a normal on-screen notification.
+  Syntax: event_ui_triggered (param = screen, param2 = control, param3 = value) and show_notification as in the session-2 probe
+  shim and vanilla md/*.xml. The cue only displays text and changes no game state.
+-->
+<mdscript name="X4MP_Hud" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Hud_Notify" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP'" control="'notify'"/>
+      </conditions>
+      <actions>
+        <show_notification text="event.param3" timeout="8s"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>
