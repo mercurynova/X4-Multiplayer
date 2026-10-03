@@ -1,8 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Addon registration, same structure as vanilla ui/addons/*/ui.xml (e.g. ego_chatwindow) and as an
-     extension-level ui.xml. Needs Settings > Extensions > Protected UI mode OFF. -->
+     extension-level ui.xml. Needs Settings > Extensions > Protected UI mode OFF.
+     Load order matters: x4mp_spike_core.lua defines the global X4MPSpike (block registry) and must come first.
+     The four x4mp_spike_<name>.lua files are owned by M2-002 (saves), M2-003 (onfoot), M2-004 (diplo, hq): stubs until
+     those tasks fill them, so they only edit their own file. The dependency is the same one the vanilla chat window
+     declares (it provides the global Helper used by the menus in x4mp_spike_ui.lua). -->
 <addon name="x4mp_spike">
   <environment type="menus">
+    <file name="ui/x4mp_spike_core.lua" />
     <file name="ui/x4mp_spike.lua" />
+    <file name="ui/x4mp_spike_ui.lua" />
+    <file name="ui/x4mp_spike_saves.lua" />
+    <file name="ui/x4mp_spike_onfoot.lua" />
+    <file name="ui/x4mp_spike_diplo.lua" />
+    <file name="ui/x4mp_spike_hq.lua" />
+    <dependency name="ego_detailmonitorHelper" />
   </environment>
 </addon>
