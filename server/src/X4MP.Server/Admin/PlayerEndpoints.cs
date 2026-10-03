@@ -20,6 +20,7 @@ internal static class PlayerEndpoints
         var players = routes.MapGroup("/api/v1/players");
         players.MapGet("", ListPlayersAsync).RequireAuthorization(AdminPolicies.Viewer);
         players.MapGet("/{id:long}", GetPlayerAsync).RequireAuthorization(AdminPolicies.Viewer);
+        players.MapGet("/{id:long}/diagnostics", GetDiagnostics).RequireAuthorization(AdminPolicies.Viewer);
         players.MapPost("/{id:long}/kick", KickAsync).RequireAuthorization(AdminPolicies.Admin);
         players.MapPost("/{id:long}/mute", MuteAsync).RequireAuthorization(AdminPolicies.Admin);
         players.MapDelete("/{id:long}/mute", UnmuteAsync).RequireAuthorization(AdminPolicies.Admin);
@@ -94,6 +95,24 @@ internal static class PlayerEndpoints
             [.. queries.PlayerHistory(id, 50).Select(h => new PlayerSessionDto(h.SessionId, h.SessionName, h.JoinedAt, h.LeftAt, h.LeaveReason, h.Role))],
             [.. bans.Select(b => AdminMapping.ToDto(b, now))]);
         return Results.Json(detail, ApiJsonContext.Default.PlayerDetailDto);
+    }
+
+    private static IResult GetDiagnostics(long id, AdminSessions sessions, SqliteAdminQueries queries, X4MP.Core.Diagnostics.NodeDiagnosticsStore diagnostics)
+    {
+        if (id > int.MaxValue || id < 1)
+        {
+            return Problems.NotFound("The player");
+        }
+
+        // What the node sent is served at once (the player row is written behind and may lag a moment); a player with nothing yet must exist.
+        if (diagnostics.Get((int)id) is { } snapshot)
+        {
+            return Results.Json(DiagnosticsMapping.ToDto(snapshot), ApiJsonContext.Default.NodeDiagnosticsDto);
+        }
+
+        return queries.FindPlayer(id, sessions.Time.GetUtcNow()) is { } player
+            ? Results.Json(new NodeDiagnosticsDto(id, player.Name, null, [], 0, 0), ApiJsonContext.Default.NodeDiagnosticsDto)
+            : Problems.NotFound("The player");
     }
 
     private static async Task<IResult> KickAsync(

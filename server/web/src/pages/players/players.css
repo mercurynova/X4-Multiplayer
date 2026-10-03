@@ -45,3 +45,12 @@ textarea[aria-invalid='true'] { border-color: var(--danger); }
 label.check { display: flex; align-items: center; gap: 0.5rem; }
 label.check input { width: auto; margin: 0; }
 button.danger { background: var(--danger); color: var(--bg); }
+
+.flag-ok { background: var(--surface); color: var(--ok); }
+.selftest-pass { color: var(--ok); }
+.selftest-warn { color: var(--warn); }
+.selftest-fail { color: var(--danger); font-weight: 700; }
+.node-log {
+  max-height: 16rem; overflow: auto; margin: 0; padding: 0.5rem; font-size: 0.8em; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: ui-monospace, Consolas, monospace; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}

@@ -109,6 +109,11 @@ public sealed class ModsHubTests
         var attempt = rejections.EnumerateArray().Single(r => r.GetProperty("attemptedName").GetString() == bob);
         Assert.Equal(["ws_77"], attempt.GetProperty("violation").GetProperty("install").EnumerateArray().Select(r => r.GetProperty("id").GetString()));
         Assert.Equal(0, viewerRec.Count("PlayerModsReported"));
+        // ...and it is pushed live on the mods topic (M2-13), to the clients that may see players' mod lists only
+        var live = await editorRec.WaitAsync<UnboundRejectionDto>("UnboundRejectionReported", r => r.AttemptedName == bob);
+        Assert.Equal(["ws_77"], live.Violation!.Install.Select(r => r.Id));
+        Assert.Equal(attempt.GetProperty("keyId").GetString(), live.KeyId);
+        Assert.Equal(0, viewerRec.Count("UnboundRejectionReported"));
 
         // the mod list is visible to a Viewer once the setting allows it; reports then reach it too
         await SendAsync(admin, HttpMethod.Patch, "/api/v1/settings", new Dictionary<string, string> { ["Mods.ModListVisibility"] = "AdminsAndViewers" });

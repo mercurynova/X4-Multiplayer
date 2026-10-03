@@ -182,9 +182,7 @@ internal static partial class ModEndpoints
         }
 
         return Results.Json(
-            [.. views.Store.UnboundReports().Select(r => new UnboundRejectionDto(
-                Convert.ToHexStringLower(r.KeyHash ?? [])[..Math.Min(12, (r.KeyHash?.Length ?? 0) * 2)], r.AttemptedName ?? string.Empty, r.At, r.PolicyVersion,
-                r.Items.Count, ModViews.ViolationDto(r.Violation)))],
+            [.. views.Store.UnboundReports().Select(ModViews.UnboundRejection)],
             ApiJsonContext.Default.ListUnboundRejectionDto);
     }
 
