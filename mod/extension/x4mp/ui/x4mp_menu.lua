@@ -176,9 +176,27 @@ end
 ------------------------------------------------------------------------------
 local function text(t, tone) return { type = "text", text = t, tone = tone or "normal" } end
 
-local function buildMain(_, rows)
+--- The server of the last join attempt: the saved variable (survives a restart), else what this session knows (the join form's address,
+--- the server the status reports). Close-out A item 5: the saved variable alone left the line out in game although the Join form was
+--- pre-filled, so the line no longer depends on one source, and the log says which one it used.
+function S.lastServer()
 	local u = S.user()
-	if u.lastAddress and u.lastAddress ~= "" then rows[#rows + 1] = text(T(15, u.lastAddress), "inactive") end
+	if type(u.lastAddress) == "string" and u.lastAddress ~= "" then return u.lastAddress, "saved" end
+	local st = S.state
+	if st and type(st.address) == "string" and trim(st.address) ~= "" then return trim(st.address), "form" end
+	local status = B.status
+	if status and type(status.server) == "string" and status.server ~= "" then return status.server, "status" end
+	return nil, "none"
+end
+
+local function buildMain(_, rows)
+	local server, source = S.lastServer()
+	if source ~= S.lastServerLogged then
+		S.lastServerLogged = source
+		log("menu: main screen, last server line from '" .. source .. "'" .. (server and (" (" .. server .. ")") or ""))
+	end
+	-- normal tone, not "inactive": the grey line was easy to miss on the semi-transparent window
+	if server then rows[#rows + 1] = text(T(15, server), "normal") end
 	if S.connectionActive() then
 		rows[#rows + 1] = { type = "button", id = "status", text = T(11), active = true, onClick = function() S.go("status") end }
 		rows[#rows + 1] = { type = "button", id = "disconnect", text = T(9), active = true, onClick = function() S.disconnect() end }

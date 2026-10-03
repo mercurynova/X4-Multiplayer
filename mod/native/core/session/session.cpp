@@ -11,6 +11,7 @@
 #include "control_generated.h"
 #include "core/crypto/crypto.h"
 #include "core/log/log.h"
+#include "core/session/manifest_cleanup.h"
 #include "message_ids_generated.h"
 #include "session_generated.h"
 #include "x4mp/wire.h"
@@ -496,7 +497,13 @@ bool Session::download_save(const SaveInfo& info) {
   if (!Impl::file_matches(save_path, info.size, info.sha256)) {
     im.jobs.push_back(DownloadSpec{TransferKind::Save, info.sha256, info.size, save_path});
   }
-  if (info.manifest_sha256.size() == crypto::kSha256Size && info.manifest_size > 0) {
+  // Close-out A item 7: the manifests of earlier joins are of no use any more (one piled up per join); only this session save's is kept.
+  const bool has_manifest = info.manifest_sha256.size() == crypto::kSha256Size && info.manifest_size > 0;
+  const std::string keep_manifest = has_manifest ? Impl::manifest_name(info.manifest_sha256).string() : std::string{};
+  if (const auto removed = prune_old_manifests(im.opt.save_dir, keep_manifest); removed > 0) {
+    X4MP_LOGI("session: removed {} old session manifest(s) from the save folder", removed);
+  }
+  if (has_manifest) {
     const auto mpath = im.opt.save_dir / Impl::manifest_name(info.manifest_sha256);
     if (!Impl::file_matches(mpath, info.manifest_size, info.manifest_sha256)) {
       im.jobs.push_back(DownloadSpec{TransferKind::Manifest, info.manifest_sha256, info.manifest_size, mpath});

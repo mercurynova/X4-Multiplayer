@@ -103,6 +103,10 @@ bool MdCollector::add(std::string_view data) {
     ship_ = std::move(s);
     return true;
   }
+  if (kind == 'N') {
+    no_ship_ = true;
+    return true;
+  }
   return false;
 }
 
@@ -288,6 +292,7 @@ std::string AuthorityState::to_json() const {
   j["next_net_id"] = next_net_id;
   j["spawned"] = spawned;
   j["strings_sent"] = strings_sent;
+  j["string_count"] = string_count;
   j["checkpoints"] = checkpoints;
   j["loaded_sha"] = crypto::to_hex(std::span<const std::uint8_t>(loaded_sha));
   return j.dump();
@@ -301,6 +306,7 @@ AuthorityState AuthorityState::from_json(std::string_view text) {
   s.next_net_id = (u32 == 0 || u32 == 0xFFFFFFFFu) ? 1 : u32;
   s.spawned = doc.value("spawned", false);
   s.strings_sent = doc.value("strings_sent", false);
+  s.string_count = doc.value("string_count", std::uint32_t{0});
   s.checkpoints = doc.value("checkpoints", std::uint64_t{0});
   std::vector<std::uint8_t> sha;
   if (crypto::from_hex(doc.value("loaded_sha", std::string{}), sha) && sha.size() == 32) s.loaded_sha = std::move(sha);

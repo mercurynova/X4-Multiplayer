@@ -359,6 +359,42 @@ test("repeated identical status updates do not redraw the join form", function()
 	eq(#r.shown, n + 1, "redraw on a state change")
 end)
 
+test("the Multiplayer screen shows the last server from the saved variable (after a restart)", function()
+	_G.__X4MP_USER = { version = 1, lastAddress = "play.example.com:5000", lastName = "Alice" }
+	local S, _, r = setup()
+	S.open("main")
+	local first = r.last.rows[1]
+	eq(first.type, "text")
+	eq(first.text, "Last server: play.example.com:5000")
+	eq(first.tone, "normal")
+	-- and the Join form is pre-filled from the same place
+	eq(S.state.address, "play.example.com:5000")
+	eq(S.state.name, "Alice")
+	truthy(env.debugText():find("last server line from 'saved'", 1, true), "the log names the source")
+end)
+
+test("the Multiplayer screen still shows a last server when the saved variable has none (form / status fallback)", function()
+	local S, B, r = setup()
+	S.open("main")
+	eq(r.last.rows[1].type, "button", "nothing known yet: no line")
+	fillJoin(S, "  10.0.0.5:47780  ", "Bob", "")
+	S.go("main")
+	eq(r.last.rows[1].text, "Last server: 10.0.0.5:47780", "from the join form")
+	S.state.address = ""
+	B.status = { v = 1, state = "connecting", server = "game.example.com:47780" }
+	S.go("main")
+	eq(r.last.rows[1].text, "Last server: game.example.com:47780", "from the status")
+end)
+
+test("after a join the main screen shows the server just used", function()
+	local S, _, r = setup()
+	fillJoin(S, "play.example.com", "Alice", SECRET)
+	S.open("join")
+	S.submitJoin()
+	S.go("main")
+	eq(r.last.rows[1].text, "Last server: play.example.com:47780")
+end)
+
 test("T falls back to a visible placeholder for missing texts", function()
 	local S = setup()
 	eq(S.T(99999), "[92000,99999]")
