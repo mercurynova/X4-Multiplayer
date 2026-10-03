@@ -25,7 +25,13 @@ public sealed record AuthorityStatusDto(
 [TsContract]
 public sealed record PlayerLiveDto(
     long PlayerId, long? ConnectionId, string Name, string Roles, string Phase, bool Connected, string? RemoteAddress, double RttMs,
-    double Fps, long ConnectedSeconds, bool Muted, long? TeamId = null, string? TeamName = null);
+    double Fps, long ConnectedSeconds, bool Muted, long? TeamId = null, string? TeamName = null, NodeStatsDto? Stats = null);
+
+/// <summary>The latest <c>NodeStats</c> a node reported (every 2 s, M2-12). <c>NetMainMsP95</c> is the mod's own main-thread cost per frame (p95 over the last 2 s).</summary>
+[TsContract]
+public sealed record NodeStatsDto(
+    double Fps, double FrameMsP95, double GameTime, double RttMs, long RxBytesPerS, long TxBytesPerS, double NetMainMsP95, long MemoryMb,
+    DateTimeOffset ReceivedAt);
 
 /// <summary>
 /// Response of <c>GET /api/v1/dashboard</c> and the hub's 1 Hz <c>Dashboard</c> push (server-design 4.5). <c>TickP99Ms</c> is the p99 of the last ~2000 replication ticks (0 before the first tick,

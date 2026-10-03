@@ -23,7 +23,8 @@ public sealed record NodeStatsSnapshot(
     uint MemoryMb,
     FeatureState MdHookState,
     FeatureState TeamSetupState,
-    DateTimeOffset ReceivedAt);
+    DateTimeOffset ReceivedAt,
+    float NetMainMsP95 = 0);
 
 /// <summary>
 /// One player's slot in the session. Created at admission, kept while the node is attached or detached inside

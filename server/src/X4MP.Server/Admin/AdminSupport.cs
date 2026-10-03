@@ -146,7 +146,8 @@ internal static class AdminMapping
         var (teamId, teamName) = live.TeamOf(node.PlayerId);
         return new(
             node.PlayerId, node.ConnectionId, node.Name, node.Roles.ToString(), node.Phase.ToString(), node.Connected, node.RemoteAddress,
-            node.RttMs, node.Stats?.Fps ?? 0, (long)Math.Max(0, (now - node.JoinedAt).TotalSeconds), live.Muted.Contains(node.PlayerId), teamId, teamName);
+            node.RttMs, node.Stats?.Fps ?? 0, (long)Math.Max(0, (now - node.JoinedAt).TotalSeconds), live.Muted.Contains(node.PlayerId), teamId, teamName,
+            node.Stats is { } s ? new NodeStatsDto(s.Fps, s.FrameMsP95, s.GameTime, s.RttMs, s.RxBytesPerS, s.TxBytesPerS, s.NetMainMsP95, s.MemoryMb, s.ReceivedAt) : null);
     }
 
     public static AuthorityStatusDto? ToDto(AuthoritySnapshot authority) =>

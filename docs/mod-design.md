@@ -394,6 +394,16 @@ Values are merged in this order, last wins:
    launcher: `{ "server": "...", "name": "...", "password_ref": "prompt|inline", "save": "...", "expires": <unix> }`.
    The mod consumes it, deletes it and ignores it once expired. This replaces
    `X4MP_AUTO`.
+   **M2-12 as built** (`features/launch`): the launch feature, not `config::load`, consumes the
+   file. Schema: `{"server":"host[:port]","name":"...","password":"...","role":"client|authority",
+   "admin_password":"...","expires_utc":"2026-10-03T12:00:00Z"}`; `server` and `name` are required,
+   the rest optional (`expires_utc` is ISO 8601 UTC with a `Z`). The file is read and **deleted
+   immediately**, also when invalid or expired; if it cannot be deleted it is emptied. A valid
+   request is handed to the join flow as the same `x4mp.join` payload the Join screen sends
+   (`features/join/join_requests.h`), only while the join feature is idle: a resumed session
+   (reload) wins, and a request seen during a reload is deleted but not started. Secrets are never
+   logged (`describe()` prints `<redacted>`). The legacy `launch_file` handling in `core/config`
+   stays for its unit tests but the host no longer passes it.
 5. X4Native settings (`get_setting_*`), for the few user-facing toggles.
 6. Join dialog values passed at connect time through the bridge.
 
@@ -432,6 +442,10 @@ stash is in-process memory and dies with the game, which is the semantics we wan
   errors per hour. Repeats are collapsed into `(+N suppressed)`.
 - Categories: `net`, `sess`, `auth`, `client`, `ghost`, `md`, `save`, `ui`,
   `perf`. Each has its own level.
+- **M2-12 as built** (`features/stats`): `NodeStats` every 2 s of frame time while the node is
+  welcomed: `fps`, `frame_ms_p95` (frame interval), `game_time`, `rtt_ms`, `rx/tx_bytes_per_s`,
+  `tcp_send_queue_bytes`, `clock_offset_us` and the appended `net_main_ms_p95` (p95 of the mod's own
+  main-thread cost per frame, from the host frame budget); one `[perf] stats:` log line every 5 s.
 - `perf` metrics are logged once every 5 s **and** sent to the server in
   `NodeStats` (every 2 s): FPS, main-thread ms (p50/p95), job backlog, entities tracked,
   ghosts alive, in/out kB/s, queue depths, `md_dropped`, `inbox_overflow`,

@@ -77,6 +77,10 @@ function Notes({ detail, canEdit, onSaved }: { detail: PlayerDetailDto; canEdit:
   );
 }
 
+function formatRate(bytesPerS: number): string {
+  return bytesPerS >= 1024 ? `${(bytesPerS / 1024).toFixed(1)} kB/s` : `${bytesPerS} B/s`;
+}
+
 function Connection({ live, address }: { live: PlayerLiveDto | null; address: string | null }) {
   if (!live || !live.connected) return <p className="muted">Not connected. Last address: {address ?? 'unknown'}.</p>;
   return (
@@ -91,6 +95,20 @@ function Connection({ live, address }: { live: PlayerLiveDto | null; address: st
       <dd>{Math.round(live.rttMs)} ms</dd>
       <dt>FPS</dt>
       <dd>{Math.round(live.fps)}</dd>
+      {live.stats && (
+        <>
+          <dt>Frame time (p95)</dt>
+          <dd data-testid="stat-frame-ms">{live.stats.frameMsP95.toFixed(1)} ms</dd>
+          <dt>Mod main-thread cost (p95)</dt>
+          <dd data-testid="stat-net-ms">{live.stats.netMainMsP95.toFixed(2)} ms</dd>
+          <dt>Traffic in / out</dt>
+          <dd data-testid="stat-traffic">
+            {formatRate(live.stats.rxBytesPerS)} / {formatRate(live.stats.txBytesPerS)}
+          </dd>
+          <dt>Game time</dt>
+          <dd data-testid="stat-game-time">{formatDuration(live.stats.gameTime)}</dd>
+        </>
+      )}
       <dt>Connected for</dt>
       <dd>{formatDuration(live.connectedSeconds)}</dd>
     </dl>

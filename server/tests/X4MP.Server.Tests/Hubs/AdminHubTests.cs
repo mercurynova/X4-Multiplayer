@@ -238,6 +238,43 @@ public sealed class AdminHubTests
         Assert.Equal(0, rig.Subscriptions.Count(HubTopic.Dashboard));
     }
 
+    /// <summary>M2-12: a node's NodeStats reach the admin API (dashboard) and the hub (PlayerChanged), and a burst is throttled to one push.</summary>
+    [Fact]
+    public async Task NodeStatsAreStoredPerNodeAndPushedAtMostEveryTwoSeconds()
+    {
+        await using var rig = await HubRig.StartAsync();
+        var (admin, rec) = await rig.ConnectAsync();
+        using var http = rig.Server.Http(rig.Server.AdminToken());
+        await InvokeAsync<DashboardSnapshotDto>(admin, AdminHubMethods.SubscribeDashboard);
+        var (node, id) = await JoinAsync(rig, "StatsNode");
+        await using var joined = node;
+        await rec.WaitAsync<PlayerLiveDto>("PlayerChanged", p => p.PlayerId == id);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await node.SendAsync(MsgType.NodeStats, b => NodeStats.Pack(b, new NodeStatsT
+            {
+                Fps = 61.5f, FrameMsP95 = 22.25f, GameTime = 1234.5, RttMs = 12.5f, RxBytesPerS = 4096, TxBytesPerS = 512, NetMainMsP95 = 0.75f,
+            }));
+        }
+
+        var pushed = await rec.WaitAsync<PlayerLiveDto>("PlayerChanged", p => p.PlayerId == id && p.Stats is not null);
+        Assert.Equal(61.5, pushed.Stats!.Fps, 1);
+        Assert.Equal(22.25, pushed.Stats.FrameMsP95, 2);
+        Assert.Equal(0.75, pushed.Stats.NetMainMsP95, 2);
+        Assert.Equal(4096, pushed.Stats.RxBytesPerS);
+
+        // the admin API shows the same numbers per node
+        var dashboard = await http.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/v1/dashboard");
+        var live = dashboard.GetProperty("players").EnumerateArray().Single(p => p.GetProperty("playerId").GetInt64() == id);
+        var stats = live.GetProperty("stats");
+        Assert.Equal(1234.5, stats.GetProperty("gameTime").GetDouble(), 1);
+        Assert.Equal(512, stats.GetProperty("txBytesPerS").GetInt64());
+
+        // the burst of five arrived within a few milliseconds: one push carried stats, not five
+        Assert.Equal(1, rec.All<PlayerLiveDto>("PlayerChanged").Count(p => p.PlayerId == id && p.Stats is not null));
+    }
+
     private static void PublishNoise(IEventPublisher events, long playerId)
     {
         var now = DateTimeOffset.UtcNow;

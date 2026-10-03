@@ -329,6 +329,8 @@ class Runner {
     else if (cmd == "expect-log") cmd_expect_log(t, rest_from(1));
     else if (cmd == "expect-no-log") { need(t, 2, "expect-no-log <text>"); if (host_.log_contains(rest_from(1))) throw ScriptFail("the mod log contains '" + rest_from(1) + "'"); }
     else if (cmd == "expect-file") cmd_expect_file(t, rest_from(2));
+    else if (cmd == "write-file") cmd_write_file(t, rest_from(2));
+    else if (cmd == "expect-no-file") cmd_expect_no_file(t);
     else if (cmd == "expect-admin") cmd_expect_admin(t);
     else if (cmd == "expect-stash") cmd_expect_stash(t, rest_from(3));
     else if (cmd == "expect-state") cmd_expect_state(t);
@@ -572,6 +574,29 @@ class Runner {
       needle.erase(p);
     }
     if (!host_.wait_log(needle, scaled(timeout), false)) throw ScriptFail("the mod log never contained '" + needle + "' within " + std::to_string(scaled(timeout).count()) + " ms");
+  }
+
+  // write-file <path> <text...>: creates/overwrites a file (relative paths are under the work dir), e.g. the one-shot extension/launch.json
+  void cmd_write_file(const std::vector<std::string>& t, const std::string& text) {
+    need(t, 3, "write-file <path> <text>");
+    fs::path p = t[1];
+    if (p.is_relative()) p = work_ / p;
+    fs::create_directories(p.parent_path());
+    std::ofstream(p, std::ios::binary | std::ios::trunc) << text;
+  }
+
+  // expect-no-file <path>: the file must not exist (waits up to 3 s for it to disappear)
+  void cmd_expect_no_file(const std::vector<std::string>& t) {
+    need(t, 2, "expect-no-file <path>");
+    fs::path p = t[1];
+    if (p.is_relative()) p = work_ / p;
+    const auto deadline = Clock::now() + scaled(3000);
+    for (;;) {
+      std::error_code ec;
+      if (!fs::exists(p, ec)) return;
+      if (Clock::now() >= deadline) throw ScriptFail(p.string() + " still exists");
+      std::this_thread::sleep_for(100ms);
+    }
   }
 
   // expect-file <path> <text>: the file (relative to the work dir; the mod's file log is extension/logs/x4mp.log) holds the text.

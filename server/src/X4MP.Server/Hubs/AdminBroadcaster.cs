@@ -51,6 +51,7 @@ public sealed partial class AdminBroadcaster : BackgroundService
     private readonly ConcurrentDictionary<string, long> _built = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<long, bool> _dirtyPlayers = new(); // value true = the player left
     private readonly Channel<bool> _dirtySignal = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
+    private readonly ConcurrentDictionary<long, long> _statsPushedAt = new(); // player id -> timestamp of the last NodeStats-driven PlayerChanged (M2-12)
     private readonly Dictionary<uint, TransferProgressDto> _seenTransfers = [];
     private readonly Dictionary<ushort, (long Stamp, List<PersistentRecord> Items)> _persistentCache = [];
     private long _payloadsBuilt;
@@ -490,7 +491,11 @@ public sealed partial class AdminBroadcaster : BackgroundService
                 MarkPlayer(e.PlayerId, left: false);
                 break;
             case PlayerLeft e when _subs.Count(HubTopic.Dashboard) > 0:
+                _statsPushedAt.TryRemove(e.PlayerId, out _);
                 MarkPlayer(e.PlayerId, left: true);
+                break;
+            case NodeStatsReported e when _subs.Count(HubTopic.Dashboard) > 0 && AllowStatsPush(e.PlayerId):
+                MarkPlayer(e.PlayerId, left: false); // the PlayerChanged DTO carries the new NodeStats
                 break;
 
             case SessionStateChanged or AuthorityChanged when _subs.Count(HubTopic.Dashboard) > 0:
@@ -503,6 +508,19 @@ public sealed partial class AdminBroadcaster : BackgroundService
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>NodeStats arrive every 2 s per node; the hub pushes them at most about every 2 s per node (1.8 s guard so delivery jitter does not skip a push).</summary>
+    private bool AllowStatsPush(long playerId)
+    {
+        long now = _time.GetTimestamp();
+        if (_statsPushedAt.TryGetValue(playerId, out long last) && _time.GetElapsedTime(last, now) < TimeSpan.FromMilliseconds(1800))
+        {
+            return false;
+        }
+
+        _statsPushedAt[playerId] = now;
+        return true;
     }
 
     private void MarkPlayer(long playerId, bool left)
