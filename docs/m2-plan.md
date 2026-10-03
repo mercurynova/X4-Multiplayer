@@ -375,3 +375,16 @@ fallback source has never run against real gameoptions.lua.
 - Session code (M2-06) must call `features::diag_hub().set_connection(NodeRole::Client|Authority, connected)` on every state change (a pure client blocks saves; the saves feature pushes `x4mp.saves` on change) and `diag_hub().set_log_sender(fn)` with a function that queues a `LogForward` line (returns false when not allowed / rate limited); without them the self-test and the quicksave warning are only logged locally. `IPlatform` gained `subscribe_event` / `raise_lua` (default no-ops; `X4Platform` implements them, `FakePlatform` records them): use them for any new bridge verb instead of touching main.cpp.
 - M2-09: wrap the authority's own `SaveGame` in `X4MPSaves.allowSaves(fn)` if it ever runs while the block is on (authority nodes are not blocked by native today). M2-11: hand the captured options-menu config to `X4MPSaves.setMenuConfig(cfg)` so the Save row can be greyed without UIX. M2-13: `DiagHub::last_selftest()` holds the last table; the `SELFTEST ...` lines already arrive as `LogForward` once the sender exists.
 - Verified locally: md diff + `md/x4mp_saves.xml` against the unpacked `md.xsd` / `diff.xsd` (the diff applied to vanilla `notifications.xml` still validates). Lua tests run with LuaJIT through `lupa` when no interpreter is on PATH.
+
+**M2-06 → M2-07 / M2-09 / session 3:**
+- M2-07: a minimal resume exists (`join.state` stash key + Session intent saved in `on_shutdown`, `unload_for_reload()`;
+  `on_init` resumes when the stage was loading/ingame). Still needed: the epoch rule (new universe vs `/reloadui`), the
+  shutdown time budget, and the 20-reload hostsim test.
+- M2-09: `JoinRequest` already parses `role:"authority"` + `admin_password` (sent as `requested_roles=3`); hook an
+  AuthorityDriver into `JoinFeature::handle_session_event` and step it in `pump_session`.
+- Build check now: suffix → X4Native game version → X4Native release version (`900-611726`); a correct install is
+  Supported. Caveat: if the game updates but X4Native does not, only X4Native's own game-version detection catches it.
+- `join_flow_run.ps1` (hostsim + server + FakeNode, ports 47953–47955, ~30 s) is not in CI yet: M2-14 adds it.
+- No pause at universe ready (session-2 double-Esc finding).
+- Session 3 must confirm: start-menu restore on window close (`OpenMenu("OptionsMenu", nil, nil, true)`), `x4mp.*`
+  verbs via `raise_event`, LogForward reaching the server from a real client, loadSave from native.
