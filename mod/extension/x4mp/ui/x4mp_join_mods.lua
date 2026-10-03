@@ -1,0 +1,3 @@
+-- x4mp_join_mods.lua
+-- STUB created by M2-05 so ui.xml lists every planned M2 Lua file.
+-- Owner: M2-X3 (grouped mod refusal with links). Fill this file only.

@@ -1,0 +1,3 @@
+-- x4mp_hud.lua
+-- STUB created by M2-05 so ui.xml lists every planned M2 Lua file.
+-- Owner: M2-11 (connection status HUD on layer 3, or the notification fallback). Fill this file only.
