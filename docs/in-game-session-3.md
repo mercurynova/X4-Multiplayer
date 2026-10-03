@@ -1,8 +1,7 @@
 # In-game test session 3 (the real X4MP mod: join, reload, reconnect, authority, saves)
 
 > **Status (2026-10-03):** kit written by task M2-14 and dry-run **without X4** (`-WhatIf` on every script, and the hostsim
-> end-to-end scenarios the same flows come from: `tools/e2e.ps1`). Items marked **[pending M2-12]** describe what the plan says
-> the launch / stats features do; Claude reconciles them after M2-12 is merged and tells you.
+> end-to-end scenarios the same flows come from: `tools/e2e.ps1`). The launch / stats parts (B5, B11) match the as-built M2-12 features.
 
 Claude can't play X4, so you run these steps and send back one zip of logs plus your notes. Everything runs on **one PC** with
 **one copy** of X4; the X4MP server and FakeNode (a fake player program) run on the same PC. This session uses the **real product mod
@@ -133,8 +132,8 @@ Connected again within about 5 seconds **after the fake authority has reported "
 meanwhile (it may show the save download again after a restart: that is fine, write it down).
 
 **B5. 30 minutes connected (criterion 5).** Fly around normally for 30 minutes (a quiet sector; you can do the save-control checks below meanwhile).
-Look for: no disconnect (Logs: no `detached` for `Tester` after B4); Players page shows RTT and FPS for `Tester` **[pending M2-12]**;
-`x4mp.log` perf lines every 5 seconds with the main-thread network cost, 95th percentile below **0.2 ms** per frame **[pending M2-12]**.
+Look for: no disconnect (Logs: no `detached` for `Tester` after B4); Players page shows ping and FPS for `Tester`, and its detail page the frame time, mod main-thread cost, traffic in/out and game time (updated every 2 s);
+`x4mp.log` has a `[perf] stats: fps=... frame_p95=...ms mod_p95=...ms ...` line every 5 seconds; `mod_p95` (the mod's own main-thread cost per frame, 95th percentile) should be below **0.2 ms**.
 
 **B6. Save control, client half (criterion 12).** While connected:
 1. Press Esc: the **Save Game** row is greyed; hover it: "Saving is disabled while connected as a client".
@@ -180,9 +179,11 @@ folder, the installed extension folders and `out\session3\` (server logs and dat
 **HIT / NO HIT per file, never the password**. Expected: `RESULT: no hit`. Anything else: send the output.
 
 **B11. Remembered fields (criterion 15) and `launch.json` (criterion 16).** Start X4 again (server up, B0 command): open Multiplayer > Join: **Server address** and
-**Player name** are pre-filled with the last values; the **Password** is empty. For `launch.json` **[pending M2-12: file name/format as in the plan]**: with the
-server running, Claude gives you the exact content (a one-shot request next to `x4mp.json` in `Documents\Egosoft\X4\x4mp\`). Start X4: it connects
-**without any UI**, and the file is deleted (or renamed) afterwards. Then a request with an expired `expires` time is ignored and also removed.
+**Player name** are pre-filled with the last values; the **Password** is empty. For `launch.json`: create `Documents\Egosoft\X4\x4mp\launch.json` (next to `x4mp.json`) containing
+`{"server":"<host>:47780","name":"Tester","password":"<session password, optional>","expires_utc":"<now + 10 min, UTC, like 2026-10-03T12:00:00Z>"}`
+(optional: `"role":"authority"` with `"admin_password"`). With the
+server running, start X4: it connects
+**without any UI**, and the file is deleted immediately. Then a file whose `expires_utc` is in the past is ignored and also deleted (log line `launch.json expired`).
 
 ### If something does not work in Part B
 - No **Multiplayer** row on the start menu: note it; in game `/x4mp` opens the window. Look for the `[X4MP] ui: optionsmenu adapter ...` line.
