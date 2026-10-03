@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Registers the probe's Lua shim (same structure as x4mp_spike/ui.xml). Needs Protected UI mode OFF. -->
+<addon name="x4mp_probe">
+  <environment type="menus">
+    <file name="ui/x4mp_probe.lua" />
+  </environment>
+</addon>

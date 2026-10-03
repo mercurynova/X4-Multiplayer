@@ -18,6 +18,9 @@
   Configure and build only.
 .PARAMETER Filter
   Passed to ctest -R.
+.PARAMETER Spikes
+  Also build the throwaway in-game probe (x4mp_probe.dll + its tests, CMake option X4MP_SPIKES). Without the switch
+  the option is forced OFF, so a plain build is identical whether or not an earlier -Spikes build used the same directory.
 
 .EXAMPLE
   powershell -NoProfile -File mod/build.ps1
@@ -28,7 +31,8 @@ param(
   [ValidateSet('debug', 'release', 'relwithdebinfo')][string]$Config = 'relwithdebinfo',
   [switch]$Clean,
   [switch]$NoTest,
-  [string]$Filter
+  [string]$Filter,
+  [switch]$Spikes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -99,8 +103,13 @@ $env:VCPKG_DISABLE_METRICS = '1'
 Push-Location $cppDir
 try {
   if ($Clean) { Remove-Item -Recurse -Force (Join-Path $cppDir "build/$preset") -ErrorAction SilentlyContinue }
-  Invoke-Checked 'cmake configure' { cmake --preset $preset }
+  $spikesFlag = if ($Spikes) { '-DX4MP_SPIKES=ON' } else { '-DX4MP_SPIKES=OFF' }
+  Invoke-Checked 'cmake configure' { cmake --preset $preset $spikesFlag }
   Invoke-Checked 'cmake build' { cmake --build --preset $preset }
+  if ($Spikes) {
+    $probe = Get-ChildItem (Join-Path $cppDir "build/$preset") -Recurse -Filter x4mp_probe.dll | Select-Object -First 1
+    if ($probe) { Write-Host "x4mp_probe.dll: $($probe.FullName)" }
+  }
   if (-not $NoTest) {
     if ($Filter) { Invoke-Checked 'ctest' { ctest --preset $preset -R $Filter } }
     else { Invoke-Checked 'ctest' { ctest --preset $preset } }

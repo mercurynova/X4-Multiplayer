@@ -1,0 +1,9 @@
+{
+    "library": "native/x4mp_probe.dll",
+    "priority": 40,
+    "min_api_version": 1,
+    "autoreload": false,
+    "settings": [
+        { "id": "test_button", "name": "X4MP probe: test button", "type": "toggle", "default": false }
+    ]
+}
