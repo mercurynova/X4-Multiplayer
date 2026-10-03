@@ -15,6 +15,7 @@
 #include "features/authority/authority_flow.h"
 #include "features/diag/diag_hub.h"
 #include "features/join/join_messages.h"
+#include "features/join/join_mods_json.h"
 #include "host/build_check.h"
 #include "host/extension_roots.h"
 #include "host/status_json.h"
@@ -240,6 +241,8 @@ void JoinFeature::drain_inbox(host::HostContext& ctx) {
       stage_ = Stage::Idle;
       reject_.clear();
       detail_.clear();
+      mod_refusal_json_.clear();
+      mod_policy_json_.clear();
     } else if (verb == "ui_ready" || verb == "request_status") {
       force_status_ = true;
     } else if (verb == "extensions") {
@@ -327,6 +330,8 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
   stage_ = Stage::Joining;
   reject_.clear();
   detail_.clear();
+  mod_refusal_json_.clear();
+  mod_policy_json_.clear();
   last_net_error_.clear();
   roster_.clear();
   progress_ = 0.0f;
@@ -553,6 +558,8 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
                 static_cast<int>(session_->welcome().granted_roles), session_->welcome().resumed);
       last_net_error_.clear();
       welcomed_at_ = Clock::now();
+      mod_policy_json_ = join::mod_policy_json_from_welcome(std::span<const std::uint8_t>(e.payload));  // M2-X3
+      if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
       sync_authority(ctx);  // M2-09
       if (resumed_incarnation_ && !session_->welcome().resumed) {  // M2-07
         X4MP_CLOG(ctx.log, Cat::Sess, Level::Warn, "reload resume: the server did not resume the slot (fresh Welcome); joining from scratch");
@@ -565,6 +572,9 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
         reject_ = std::string(*token);
         detail_ = e.text;
         if (!e.expected.empty()) detail_ += (detail_.empty() ? "" : " ") + std::string("(") + e.expected + ")";
+        // M2-X3: the grouped install/enable/disable/update lists go to Lua before the "rejected" status that names them.
+        mod_refusal_json_ = join::mod_refusal_json(std::span<const std::uint8_t>(e.payload));
+        if (!mod_refusal_json_.empty()) raise_lua(ctx, "x4mp.mod_refusal", mod_refusal_json_);
       }
       break;
     }
@@ -591,6 +601,10 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       handle_save_ready(ctx);
       break;
     case K::Frame:
+      if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
+        mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
+        if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
+      }
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::RosterUpdate)) {
         flatbuffers::Verifier v(e.payload.data(), e.payload.size());
         if (v.VerifyBuffer<X4MP::Proto::RosterUpdate>(nullptr)) {
@@ -818,6 +832,10 @@ void JoinFeature::publish_status(host::HostContext& ctx, bool force) {
     const bool changed = status != last_status_;
     const auto since = now - last_status_at_;
     if (!(changed && since >= kStatusMinInterval) && !(since >= kStatusHeartbeat && stage_ != Stage::Idle)) return;
+  }
+  if (answer) {  // M2-X3: a Lua state that just (re)loaded asks for the status; give it the mod topics too
+    if (stage_ == Stage::Rejected && !mod_refusal_json_.empty()) raise_lua(ctx, "x4mp.mod_refusal", mod_refusal_json_);
+    if (stage_ != Stage::Idle && stage_ != Stage::Rejected && !mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
   }
   force_status_ = false;
   last_status_ = status;

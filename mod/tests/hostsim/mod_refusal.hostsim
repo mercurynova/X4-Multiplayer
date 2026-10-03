@@ -1,0 +1,40 @@
+# M2-X3: a client whose mods differ from the authority's in all four ways is refused with ExtensionsMismatch; the grouped lists reach
+# Lua as x4mp.mod_refusal before the "rejected" status (reject=mod). Run by mod/tests/hostsim/mod_refusal_run.ps1 (server + FakeNode authority
+# with mod_refusal_authority.json + an admin entry that gives sn_better_traders a Nexus URL). Var: tcp.
+#   client has: both DLCs, Fleet Doctrine 3.0 (needs 3.1: update), Quiet Docks switched off (enable), Extra Gadgets (not in the session: disable)
+#   client lacks: Warehouse Fleets (install, Workshop) and Better Traders (install, Nexus link)
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.extensions {"v":1,"source":"load","startmenu":true,"count":6,"list":[{"id":"ego_dlc_split","name":"Split Vendetta","version":"900","enabled":true,"egosoftextension":true},{"id":"ego_dlc_terran","name":"Cradle of Humanity","version":"900","enabled":true,"egosoftextension":true},{"id":"ws_3000000001","name":"Fleet Doctrine","version":"3.0","enabled":true,"isworkshop":true},{"id":"ws_3000000002","name":"Quiet Docks","version":"1.0","enabled":false,"isworkshop":true},{"id":"ws_9000000001","name":"Extra Gadgets","version":"1.0","enabled":true,"isworkshop":true},{"id":"sn_local_helper","name":"Local Helper","version":"0.1","enabled":false}]}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Modder","password":"","team":"auto"}
+frame 60Hz 240
+expect-lua x4mp.mod_refusal 5000 json $.install.length == 2
+expect-lua x4mp.status 3000 json $.reject == mod
+
+# the same data again, one assertion per request (every expect consumes its event)
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.install[1].id == ws_2458720435
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.install[1].workshop_id == 2458720435
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.install[0].nexus_url == https://www.nexusmods.com/x4foundations/mods/1234
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.enable[0].id == ws_3000000002
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.disable[0].id == ws_9000000001
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.update[0].id == ws_3000000001
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.update[0].have_version == 3.0
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.update[0].version == 3.1
+shutdown

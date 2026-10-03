@@ -80,3 +80,9 @@ JSON path: `$.a.b[0].c`, `list[name==Bob].state`, `.length` on arrays/objects/st
 authority of a session created from an uploaded save. `authority_flow.hostsim` plays the Lua/MD side (`lua-raw x4mp.auth_md ...`, `expect-lua x4mp.auth_save`,
 `exec authority_sim.ps1 -Mode save` writes the checkpoint file the game would write, `-Mode post` presses "Save now"); `authority_running_save.hostsim` is the
 "already runs the save" branch. `hostsim.authority_role` (ctest) checks the join role and password handling without a server.
+
+## M2-X3 mod refusal scenario (not in CI)
+`mod/tests/hostsim/mod_refusal_run.ps1` starts the published server, a FakeNode authority with `mod_refusal_authority.json` (two DLC and
+four mods), gives one mod a Nexus URL through `PUT /api/v1/mods/entries/{id}`, and runs `mod_refusal.hostsim`: the DLL reports a mod list
+that differs in all four ways (install 2, enable 1, disable 1, update 1) and the script checks `x4mp.mod_refusal` and `reject == mod`.
+Ports 47968-47970, about 10 s after the publish. It blocks on child output (`Get-Content -Wait` in a job), no sleeping.

@@ -1,0 +1,8 @@
+[
+  { "id": "ego_dlc_split", "name": "Split Vendetta", "version": "900", "source": "Dlc", "enabled": true, "egosoft": true, "classHint": "Dlc" },
+  { "id": "ego_dlc_terran", "name": "Cradle of Humanity", "version": "900", "source": "Dlc", "enabled": true, "egosoft": true, "classHint": "Dlc" },
+  { "id": "ws_2458720435", "name": "Warehouse Fleets", "version": "1.4", "source": "Workshop", "enabled": true, "workshopId": 2458720435, "classHint": "Sim" },
+  { "id": "sn_better_traders", "name": "Better Traders", "version": "2.0", "source": "Install", "enabled": true, "classHint": "Sim" },
+  { "id": "ws_3000000001", "name": "Fleet Doctrine", "version": "3.1", "source": "Workshop", "enabled": true, "workshopId": 3000000001, "classHint": "Sim" },
+  { "id": "ws_3000000002", "name": "Quiet Docks", "version": "1.0", "source": "Workshop", "enabled": true, "workshopId": 3000000002, "classHint": "Sim" }
+]

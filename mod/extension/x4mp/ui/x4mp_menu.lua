@@ -14,12 +14,13 @@
 --   { type = "text",    text, tone = "normal"|"error"|"warning"|"positive"|"inactive" }
 --   { type = "edit",    id, label, value, hidden = bool, maxChars, description, onChange = function(text) }
 --   { type = "button",  id, text, active = bool, onClick = function() }
+--   edit rows may carry readonly = true (a link to copy, onChange is a no-op) and fullWidth = true (no label column).
 -- The password lives only in X4MPScreens.state.password until the join is sent; it is cleared right after the send, when the
 -- window closes, and is never written to __X4MP_USER.
 --
 -- Entry points: chat "/x4mp [main|join|status]", Lua event "x4mp.open" {"screen":"join"}, X4MPScreens.open(screen).
 
--- luacheck: globals X4MPBridge X4MPScreens __X4MP_USER ReadText DebugError ExecuteDebugCommand
+-- luacheck: globals X4MPBridge X4MPScreens X4MPJoinMods __X4MP_USER ReadText DebugError ExecuteDebugCommand
 
 if X4MPScreens and X4MPScreens.loaded then return end
 
@@ -184,6 +185,8 @@ local function buildMain(_, rows)
 	else
 		rows[#rows + 1] = { type = "button", id = "join", text = T(2), active = true, onClick = function() S.go("join") end }
 	end
+	-- M2-X3: the session's mod list while connected (x4mp_join_mods.lua loads after this file)
+	if S.connectionActive() and X4MPJoinMods then X4MPJoinMods.policyRows(rows) end
 	rows[#rows + 1] = text(T(51), "inactive")
 end
 
@@ -237,6 +240,8 @@ local function buildStatus(st, rows)
 	end
 	local tone = (state == "ingame") and "positive" or ((state == "rejected" or state == "error") and "error" or "normal")
 	rows[#rows + 1] = text(label, tone)
+	-- M2-X3: a mod refusal lists what to install / enable / disable / update, with links (x4mp_join_mods.lua)
+	if state == "rejected" and status and status.reject == "mod" and X4MPJoinMods then X4MPJoinMods.refusalRows(rows) end
 	if status then
 		if status.server then rows[#rows + 1] = text(T(40, status.server)) end
 		if status.role then rows[#rows + 1] = text(T(41, status.role)) end
@@ -375,9 +380,13 @@ end
 ------------------------------------------------------------------------------
 -- Native sends status at up to 2 Hz. A redraw of the join form would steal the focus of an active edit box, so while the
 -- join screen is up it is only redrawn when the connection state changes.
-B.on("status", function(p)
+B.on("status", function(p, raw)
 	local changed = p.state ~= S.lastState
 	S.lastState = p.state
+	-- an identical status (the native heartbeat) is not redrawn: a redraw would drop the selection in a read-only link box (M2-X3)
+	local same = type(raw) == "string" and raw == S.lastStatusText
+	S.lastStatusText = raw
+	if same and not changed then return end
 	if changed or not S.state or S.state.screen ~= "join" then S.render() end
 end)
 B.on("error", function() S.render() end)
