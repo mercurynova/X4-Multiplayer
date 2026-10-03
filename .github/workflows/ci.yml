@@ -358,9 +358,9 @@ jobs:
       - name: Create vcpkg cache dir
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
-      - name: E2E (Publish, Headless, HostSim, JoinFlow, ReloadSurvival, AuthorityFlow, ModRefusal, UploadKill)
+      - name: E2E (Publish, Headless, HostSim, JoinFlow, ReloadSurvival, AuthorityFlow, ModRefusal, LaunchStats, UploadKill)
         shell: pwsh
-        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,UploadKill
+        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,LaunchStats,UploadKill
       - name: Upload E2E logs
         if: failure()
         uses: actions/upload-artifact@v4
