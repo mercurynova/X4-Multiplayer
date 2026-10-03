@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Throwaway native probe extension for X4MP in-game session 2 (M2-005). Not shipped. save="0": not needed to load a save. -->
+<content id="x4mp_probe" name="X4MP Probe (test)" description="Throwaway native test extension for X4MP session 2. Remove after use." author="X4MP" version="900" date="2026-10-02" save="0" enabled="1">
+  <dependency id="x4native" optional="false" version="900"/>
+  <text language="44" name="X4MP Probe (test)" description="Throwaway native test extension for X4MP session 2. Remove after use."/>
+</content>
