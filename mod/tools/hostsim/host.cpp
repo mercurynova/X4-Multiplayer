@@ -309,6 +309,30 @@ struct Thunks {
     const Obj* o = g_host->world.find(id);
     return o && o->wrecked;
   }
+  // Not in the SDK table (M3-11): resolved by name only. The factions the fake game lists: the NPC ones and x4mp_team_1..8.
+  static std::uint32_t GetNumAllFactions(bool) { return static_cast<std::uint32_t>(faction_names().size()); }
+  static std::uint32_t GetAllFactions(const char** out, std::uint32_t n, bool) {
+    const auto& names = faction_names();
+    std::uint32_t i = 0;
+    for (; i < n && i < names.size(); ++i) out[i] = names[i].c_str();
+    return i;
+  }
+  static std::uint32_t GetNumAllFactionShips(const char* faction) {
+    check_thread("GetNumAllFactionShips");
+    return static_cast<std::uint32_t>(g_host->world.ships_of(faction ? faction : "").size());
+  }
+  static std::uint32_t GetAllFactionShips(UniverseID* out, std::uint32_t n, const char* faction) {
+    check_thread("GetAllFactionShips");
+    const auto ids = g_host->world.ships_of(faction ? faction : "");
+    std::uint32_t i = 0;
+    for (; i < n && i < ids.size(); ++i) out[i] = ids[i];
+    return i;
+  }
+  static const std::vector<std::string>& faction_names() {
+    static const std::vector<std::string> names = {"player",      "argon",       "paranid",     "x4mp_team_1", "x4mp_team_2", "x4mp_team_3",
+                                                   "x4mp_team_4", "x4mp_team_5", "x4mp_team_6", "x4mp_team_7", "x4mp_team_8"};
+    return names;
+  }
   static bool IsPlayerOccupiedShipDocked() {
     check_thread("IsPlayerOccupiedShipDocked");
     return g_host->world.docked;
@@ -398,6 +422,10 @@ void Host::build_game() {
   X4HS_REG(GetComponentName);
   X4HS_REG(IsComponentWrecked);
   X4HS_REG(IsPlayerOccupiedShipDocked);
+  game_fns_["GetNumAllFactions"] = reinterpret_cast<void*>(&Thunks::GetNumAllFactions);
+  game_fns_["GetAllFactions"] = reinterpret_cast<void*>(&Thunks::GetAllFactions);
+  game_fns_["GetNumAllFactionShips"] = reinterpret_cast<void*>(&Thunks::GetNumAllFactionShips);
+  game_fns_["GetAllFactionShips"] = reinterpret_cast<void*>(&Thunks::GetAllFactionShips);
 #undef X4HS_REG
   offsets_ = std::make_unique<std::uint8_t[]>(sizeof(X4GameOffsets));
   std::memset(offsets_.get(), 0, sizeof(X4GameOffsets));

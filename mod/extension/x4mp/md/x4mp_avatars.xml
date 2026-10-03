@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP avatars, MD side (M3-11; docs/m3-plan.md 4.3, docs/research/starter-ships.md). Lua side: ui/x4mp_avatars.lua; native side: features/avatars.
+  The native mod spawns the avatar itself (SpawnObjectAtPos2 + ActivateObject, sitting-0 S13.1) and drives it every frame (SetObjectSectorPos);
+  MD does the three things only MD can do.
+
+  Lua -> MD  AddUITriggeredEvent("X4MP_Avatars", <control>, <list>)
+    safepos   { seq, sector, x, y, z, radius }       a safe spot for a ship near (x,y,z) of `sector`: a spawn 300 m from a docked ship landed INSIDE the
+                                                   station (session-4 S13.6), get_safe_pos moves it clear of stations, gates and other ships
+    dress     { seq, object, name, min_hull, loadout, basic }   name "[MP] <player>", minimum hull (the avatar cannot die before M5), forced radar,
+                                                   known, and the EARLY-GAME loadout instead of the spawn default (which is Mk2/Mk3 gear, user note):
+                                                   `loadout` = a vanilla loadout id (libraries/loadouts.xml) when the server setting names one,
+                                                   else (`basic` = 1) the basic start loadout of the Argon Elite (the vanilla intro start's gear with
+                                                   Mk1 engines: two engines, two lasers, one shield, thruster, flight software)
+    velocity  { n, object_1, vx_1, vy_1, vz_1, object_2, ... }   set_object_velocity hints at 5 Hz (spike S13.2 mode c: without them the target
+                                                   info shows 0 m/s and the motion looks worse)
+  MD -> Lua  raise_lua_event 'x4mp.md_avatars' <string>, forwarded unchanged to native (verb x4mp.avatars_md):
+    P;<seq>;<ok>;<x>;<y>;<z>      the safe position (ok = 0: none found, native uses the wanted spot)
+    D;<seq>;<ok>;<detail>         dressed; detail = loadout:<id> | loadout:basic | loadout:none | refused_player_ship | not_found
+
+  Safety: the player's ship, its container and its occupied ship are never named, hull-limited, re-equipped or moved here.
+  Not verified in game (sitting list): get_safe_pos result units/format in the string, apply_loadout on a ship made by SpawnObjectAtPos2, the
+  early-game loadout paths of the Elite (taken from the vanilla intro start: ../con_engine_01/02, ../con_primaryweapon_01/02, ../con_shield_01).
+-->
+<mdscript name="X4MP_Avatars" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Avatars_SafePos" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Avatars'" control="'safepos'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Seq" exact="@event.param3.{1}"/>
+        <set_value name="$Sector" exact="@event.param3.{2}"/>
+        <set_value name="$X" exact="@event.param3.{3}"/>
+        <set_value name="$Y" exact="@event.param3.{4}"/>
+        <set_value name="$Z" exact="@event.param3.{5}"/>
+        <set_value name="$Radius" exact="@event.param3.{6}"/>
+        <do_if value="@$Sector.exists and $Seq">
+          <get_safe_pos result="$Safe" sector="$Sector" x="$X" y="$Y" z="$Z" radius="$Radius"/>
+          <do_if value="$Safe?">
+            <debug_text text="'[X4MP] avatars: safe position seq=' + $Seq + ' wanted=' + $X + ',' + $Y + ',' + $Z + ' safe=' + $Safe.x + ',' + $Safe.y + ',' + $Safe.z" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp.md_avatars'" param="'P;' + $Seq + ';1;' + $Safe.x + ';' + $Safe.y + ';' + $Safe.z"/>
+          </do_if>
+          <do_else>
+            <raise_lua_event name="'x4mp.md_avatars'" param="'P;' + $Seq + ';0'"/>
+          </do_else>
+        </do_if>
+        <do_elseif value="$Seq">
+          <raise_lua_event name="'x4mp.md_avatars'" param="'P;' + $Seq + ';0'"/>
+        </do_elseif>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Avatars_Dress" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Avatars'" control="'dress'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Seq" exact="@event.param3.{1}"/>
+        <set_value name="$Obj" exact="@event.param3.{2}"/>
+        <set_value name="$Name" exact="@event.param3.{3}"/>
+        <set_value name="$MinHull" exact="@event.param3.{4}"/>
+        <set_value name="$LoadoutId" exact="@event.param3.{5}"/>
+        <set_value name="$Basic" exact="@event.param3.{6} == 1"/>
+        <do_if value="not @$Obj.exists">
+          <raise_lua_event name="'x4mp.md_avatars'" param="'D;' + $Seq + ';0;not_found'"/>
+        </do_if>
+        <do_elseif value="$Obj == player.ship or $Obj == player.occupiedship or $Obj == player.container">
+          <raise_lua_event name="'x4mp.md_avatars'" param="'D;' + $Seq + ';0;refused_player_ship'"/>
+        </do_elseif>
+        <do_else>
+          <set_object_name object="$Obj" name="$Name"/>
+          <set_object_min_hull object="$Obj" exact="$MinHull"/>
+          <set_object_forced_radar_visible object="$Obj" visible="true"/>
+          <set_known object="$Obj" known="true"/>
+
+          <set_value name="$Applied" exact="'none'"/>
+          <do_if value="$LoadoutId != ''">
+            <get_loadout loadout="$LoadoutId" macro="$Obj.macro" result="$Loadout"/>
+            <do_if value="$Loadout?">
+              <apply_loadout object="$Obj" loadout="$Loadout"/>
+              <set_value name="$Applied" exact="'id:' + $LoadoutId"/>
+            </do_if>
+          </do_if>
+          <do_if value="$Applied == 'none' and $Basic and $Obj.macro.id == 'ship_arg_s_fighter_01_a_macro'">
+            <create_loadout result="$Loadout">
+              <macros>
+                <engine macro="engine_arg_s_allround_01_mk1_macro" path="../con_engine_01"/>
+                <engine macro="engine_arg_s_allround_01_mk1_macro" path="../con_engine_02"/>
+                <weapon macro="weapon_gen_s_laser_01_mk1_macro" path="../con_primaryweapon_01"/>
+                <weapon macro="weapon_gen_s_laser_01_mk1_macro" path="../con_primaryweapon_02"/>
+                <shield macro="shield_arg_s_standard_01_mk1_macro" path="../con_shield_01"/>
+              </macros>
+              <software>
+                <software ware="software_flightassistmk1"/>
+                <software ware="software_scannerlongrangemk1"/>
+                <software ware="software_scannerobjectmk1"/>
+                <software ware="software_targetmk1"/>
+              </software>
+              <virtualmacros>
+                <thruster macro="thruster_gen_s_allround_01_mk1_macro"/>
+              </virtualmacros>
+            </create_loadout>
+            <apply_loadout object="$Obj" loadout="$Loadout"/>
+            <set_value name="$Applied" exact="'basic'"/>
+          </do_if>
+          <debug_text text="'[X4MP] avatars: dressed ' + $Obj.name + ' macro=' + $Obj.macro.id + ' owner=' + @$Obj.owner.id + ' loadout=' + $Applied + ' minhull=' + $MinHull + ' hull=' + $Obj.hullpercentage" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp.md_avatars'" param="'D;' + $Seq + ';1;loadout:' + $Applied"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Avatars_Velocity" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Avatars'" control="'velocity'"/>
+      </conditions>
+      <actions>
+        <set_value name="$P" exact="event.param3"/>
+        <do_if value="typeof $P == datatype.list and $P.count ge 5">
+          <set_value name="$N" exact="$P.{1}"/>
+          <do_if value="$P.count == 1 + $N * 4">
+            <do_all exact="$N" counter="$I">
+              <set_value name="$Base" exact="1 + ($I - 1) * 4"/>
+              <set_value name="$Obj" exact="$P.{$Base + 1}"/>
+              <do_if value="@$Obj.exists and $Obj != player.ship and $Obj != player.occupiedship and $Obj != player.container">
+                <set_object_velocity object="$Obj" constantvel="false">
+                  <linear x="$P.{$Base + 2}" y="$P.{$Base + 3}" z="$P.{$Base + 4}"/>
+                </set_object_velocity>
+              </do_if>
+            </do_all>
+          </do_if>
+        </do_if>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

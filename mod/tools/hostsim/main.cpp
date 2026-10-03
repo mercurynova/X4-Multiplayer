@@ -887,6 +887,8 @@ class Runner {
       need(t, 4, "world sector add <id>");
       if (t[2] != "add") throw UsageError("world sector add <id>");
       w.add_sector(static_cast<std::uint64_t>(std::strtoull(t[3].c_str(), nullptr, 10)));
+    } else if (t[1] == "renumber") {  // a save load changes every component id (session-4 S13.8)
+      host_.note("[hostsim]   renumbered " + std::to_string(w.renumber()) + " objects");
     } else if (t[1] == "spawn-fail") {
       need(t, 3, "world spawn-fail <count>");
       w.spawn_fail_budget = std::atoi(t[2].c_str());
@@ -901,7 +903,7 @@ class Runner {
     } else if (t[1] == "controlled-when-docked") {
       cmd_toggle({"x", t.size() > 2 ? t[2] : ""}, "world controlled-when-docked on|off", w.controlled_when_docked);
     } else if (t[1] == "object") {
-      need(t, 3, "world object add|wreck|unwreck|remove|owner|name ...");
+      need(t, 3, "world object add|wreck|unwreck|remove|owner|pos|name ...");
       if (t[2] == "add") {
         const auto a = kv_args(t, 3);
         if (!a.count("macro") || !a.count("sector")) throw UsageError("world object add macro=M sector=S [owner=O] [pos=x,y,z] [name=N] [yaw=deg] [class=station]");
@@ -924,6 +926,14 @@ class Runner {
         else if (t[2] == "unwreck") o->wrecked = false;
         else if (t[2] == "remove") { if (!w.remove(id)) throw ScriptFail("refused: the player ship and the station are never removed"); }
         else if (t[2] == "owner") { need(t, 5, "world object owner <selector> <faction>"); o->owner = t[4]; }
+        else if (t[2] == "pos") {  // world object pos <selector> x,y,z : something pushed the object
+          need(t, 5, "world object pos <selector> x,y,z");
+          const auto v = hostsim::parse_vec3(t[4]);
+          if (!v) throw UsageError("world object pos <selector> x,y,z");
+          o->pos.x = static_cast<float>(v->x);
+          o->pos.y = static_cast<float>(v->y);
+          o->pos.z = static_cast<float>(v->z);
+        }
         else if (t[2] == "name") { need(t, 5, "world object name <selector> <text>"); o->name = t[4]; for (std::size_t i = 5; i < t.size(); ++i) o->name += " " + t[i]; }
         else throw UsageError("world object add|wreck|unwreck|remove|owner|name ...");
       }
