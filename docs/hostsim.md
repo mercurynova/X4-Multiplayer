@@ -48,6 +48,20 @@ If no `init` line exists the DLL is initialised before the first command. `set` 
 | `expect-admin <path> [<jsonpath> [op value]] [timeout=<ms>]` | GET against the admin REST API (logs in, retries until the timeout). ops: `exists absent == != < <= > >= contains` |
 | `kill-server` / `start-server` | terminate `--server-pid` / the started one; relaunch from `--server-exe/--server-arg/--server-env`, waits for `/healthz` |
 | `print <text>`, `settle <ms>` | note / fixed pause (avoid; use expects) |
+| `exec <command line>` | runs the command through the shell and waits; a non-zero exit fails the script. For kit scripts that edit a config file while the DLL runs (the session-2 dry run). `${NAME}` is substituted like everywhere else |
+
+Option `--pre-init-wexport NAME=VALUE` (repeatable): calls the DLL export `void NAME(const wchar_t*)` after every load,
+before `x4native_init` (test-only seams of throwaway DLLs; the probe's `x4mp_probe_set_config_dir`).
+
+## Session-2 dry run (not in CI)
+`mod/tests/hostsim/probe_session2_dry_run.ps1` runs `x4mp_probe.dll` (built with `mod/build.ps1 -Spikes`) through
+`mod/tests/hostsim/probe_session2.hostsim` against the published server and a FakeNode authority started by the real
+`tools/session2/start-server.ps1`, on ports 47953-47955 and a temp tree (the kit scripts honour the test-only environment
+variables `X4MP_S2_DOCS_ROOT` and `X4MP_S2_OUT_DIR`, so the real Documents folder is never touched). It also runs
+`write-probe-config.ps1`, `run-block.ps1` and `collect-logs.ps1`. About 65 s; needs `tools/e2e.ps1 -Steps Publish` first:
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File mod\tests\hostsim\probe_session2_dry_run.ps1
+```
 
 JSON path: `$.a.b[0].c`, `list[name==Bob].state`, `.length` on arrays/objects/strings. Payloads of `lua` are not echoed
 (they may hold a password).
