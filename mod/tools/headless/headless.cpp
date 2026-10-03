@@ -5,6 +5,10 @@
 //                 [--key HEX64 | --key-file FILE] [--save-dir DIR] [--ping SECONDS] [--reload]
 //                 [--game-build B] [--mod-version V] [--ext id@version]... [--save-wait SECONDS] [--timeout SECONDS]
 //   x4mp-headless --from-env ...       reads X4MP_TEST_SERVER=host:port; exit 77 (ctest "skipped") if unset
+//   x4mp-headless --authority --save-file FILE [--roles N] [--work-dir DIR] [--step-timeout SECONDS] [--ping HOLD_SECONDS] ...
+//       (M2-08) joins as the authority (roles default Authority|Client), reports ready, answers RequestSave by uploading FILE
+//       (a gzip whose root element is <savegame>) plus an empty-station manifest, then sends one self-spawn EntitySpawn with a
+//       nonzero game_time and stays HOLD_SECONDS (--ping) before leaving. Survives a dropped connection: the upload resumes.
 //
 // --key-file reads the 32-byte player key as hex, or creates it (random) if the file does not exist.
 // --reload: after joining, unload_for_reload() (Disconnect ClientReload, intent -> in-memory stash), then a NEW Session is
@@ -23,6 +27,7 @@
 #include <vector>
 
 #include "core/crypto/crypto.h"
+#include "authority_driver.h"
 #include "core/session/session.h"
 
 namespace {
@@ -48,6 +53,11 @@ struct Args {
   int save_wait_seconds = 3;
   int timeout_seconds = 20;
   bool reload = false;
+  bool authority = false;
+  std::string save_file;
+  std::string work_dir;
+  int roles = 0;  // 0 = default for the mode (Client; Authority|Client with --authority)
+  int step_timeout_seconds = 60;
 };
 
 class StaticExtensions final : public session::IExtensionProvider {
@@ -108,6 +118,47 @@ void print_welcome(const session::WelcomeInfo& w) {
       static_cast<unsigned long long>(w.server_time_us));
 }
 
+// Prints one session event.
+void print_event(Session& s, const SessionEvent& e) {
+  switch (e.kind) {
+    case SessionEvent::Kind::StateChanged:
+      std::printf("state: %s -> %s\n", session::to_string(e.prev), session::to_string(e.state));
+      break;
+    case SessionEvent::Kind::ServerHello:
+      std::printf("ServerHello: %s (%s) protocol %u.%u auth=%u phase=%u required_game_build=%s\n", s.server().server_name.c_str(),
+                  s.server().server_version.c_str(), static_cast<unsigned>(s.server().protocol_major),
+                  static_cast<unsigned>(s.server().protocol_minor), static_cast<unsigned>(s.server().auth),
+                  static_cast<unsigned>(s.server().phase), s.server().required_game_build.c_str());
+      break;
+    case SessionEvent::Kind::Welcome: print_welcome(s.welcome()); break;
+    case SessionEvent::Kind::ServerDisconnect:
+      std::printf("server Disconnect: code=%u message='%s' expected='%s' retry_after_ms=%u\n", static_cast<unsigned>(e.code),
+                  e.text.c_str(), e.expected.c_str(), e.retry_after_ms);
+      break;
+    case SessionEvent::Kind::ControlReplayed:
+      std::printf("resume: replayed %llu queued Control frames\n", static_cast<unsigned long long>(e.count));
+      break;
+    case SessionEvent::Kind::ControlDropped:
+      std::printf("fresh join: dropped %llu queued Control frames\n", static_cast<unsigned long long>(e.count));
+      break;
+    case SessionEvent::Kind::SaveInfo:
+      std::printf("SaveInfo: %s size=%llu file=%s manifest=%llu bytes\n", e.save.display_name.c_str(),
+                  static_cast<unsigned long long>(e.save.size), e.save.local_file_name.c_str(),
+                  static_cast<unsigned long long>(e.save.manifest_size));
+      break;
+    case SessionEvent::Kind::SaveProgress:
+      std::printf("save: %llu/%llu bytes (%.0f%%)\n", static_cast<unsigned long long>(e.progress.bytes_done),
+                  static_cast<unsigned long long>(e.progress.size), 100.0 * e.progress.fraction());
+      break;
+    case SessionEvent::Kind::SaveReady: std::puts("save: verified, SaveReady sent"); break;
+    case SessionEvent::Kind::SaveFailed: std::printf("save: FAILED %s\n", e.text.c_str()); break;
+    case SessionEvent::Kind::NetDisconnected: std::printf("net: disconnected (%s)\n", e.text.c_str()); break;
+    case SessionEvent::Kind::Frame:
+      std::printf("frame type=0x%04X lane=%u (%zu bytes)\n", static_cast<unsigned>(e.type), static_cast<unsigned>(e.lane), e.payload.size());
+      break;
+  }
+}
+
 // Runs one Session until `done` returns true or the deadline passes. Prints events as they happen.
 template <class Done>
 bool pump(Session& s, std::vector<SessionEvent>& all, Clock::time_point deadline, Done&& done) {
@@ -115,49 +166,58 @@ bool pump(Session& s, std::vector<SessionEvent>& all, Clock::time_point deadline
     std::vector<SessionEvent> ev;
     s.poll(ev);
     for (auto& e : ev) {
-      switch (e.kind) {
-        case SessionEvent::Kind::StateChanged:
-          std::printf("state: %s -> %s\n", session::to_string(e.prev), session::to_string(e.state));
-          break;
-        case SessionEvent::Kind::ServerHello:
-          std::printf("ServerHello: %s (%s) protocol %u.%u auth=%u phase=%u required_game_build=%s\n", s.server().server_name.c_str(),
-                      s.server().server_version.c_str(), static_cast<unsigned>(s.server().protocol_major),
-                      static_cast<unsigned>(s.server().protocol_minor), static_cast<unsigned>(s.server().auth),
-                      static_cast<unsigned>(s.server().phase), s.server().required_game_build.c_str());
-          break;
-        case SessionEvent::Kind::Welcome: print_welcome(s.welcome()); break;
-        case SessionEvent::Kind::ServerDisconnect:
-          std::printf("server Disconnect: code=%u message='%s' expected='%s' retry_after_ms=%u\n", static_cast<unsigned>(e.code),
-                      e.text.c_str(), e.expected.c_str(), e.retry_after_ms);
-          break;
-        case SessionEvent::Kind::ControlReplayed:
-          std::printf("resume: replayed %llu queued Control frames\n", static_cast<unsigned long long>(e.count));
-          break;
-        case SessionEvent::Kind::ControlDropped:
-          std::printf("fresh join: dropped %llu queued Control frames\n", static_cast<unsigned long long>(e.count));
-          break;
-        case SessionEvent::Kind::SaveInfo:
-          std::printf("SaveInfo: %s size=%llu file=%s manifest=%llu bytes\n", e.save.display_name.c_str(),
-                      static_cast<unsigned long long>(e.save.size), e.save.local_file_name.c_str(),
-                      static_cast<unsigned long long>(e.save.manifest_size));
-          break;
-        case SessionEvent::Kind::SaveProgress:
-          std::printf("save: %llu/%llu bytes (%.0f%%)\n", static_cast<unsigned long long>(e.progress.bytes_done),
-                      static_cast<unsigned long long>(e.progress.size), 100.0 * e.progress.fraction());
-          break;
-        case SessionEvent::Kind::SaveReady: std::puts("save: verified, SaveReady sent"); break;
-        case SessionEvent::Kind::SaveFailed: std::printf("save: FAILED %s\n", e.text.c_str()); break;
-        case SessionEvent::Kind::NetDisconnected: std::printf("net: disconnected (%s)\n", e.text.c_str()); break;
-        case SessionEvent::Kind::Frame:
-          std::printf("frame type=0x%04X lane=%u (%zu bytes)\n", static_cast<unsigned>(e.type), static_cast<unsigned>(e.lane), e.payload.size());
-          break;
-      }
+      print_event(s, e);
       all.push_back(std::move(e));
     }
     if (done()) return true;
     std::this_thread::sleep_for(10ms);
   }
   return done();
+}
+
+// --authority: see the header comment of this file and headless/authority_driver.h.
+int run_authority(const session::SessionOptions& opt, const Args& a, Clock::time_point overall) {
+  if (a.save_file.empty()) {
+    std::fprintf(stderr, "--authority needs --save-file FILE\n");
+    return 2;
+  }
+  Session s(opt);
+  if (!s.start()) {
+    std::fprintf(stderr, "failed to start the session\n");
+    return 1;
+  }
+  headless::AuthorityDriverOptions dopt;
+  dopt.save_file = a.save_file;
+  dopt.work_dir = a.work_dir;
+  dopt.step_timeout = std::chrono::seconds(a.step_timeout_seconds);
+  dopt.log = [](std::string_view line) { std::printf("%.*s\n", static_cast<int>(line.size()), line.data()); };
+  dopt.on_event = [&s](const SessionEvent& e) { print_event(s, e); };
+  headless::AuthorityDriver drv(s, std::move(dopt));
+  while (Clock::now() < overall && !drv.done() && !drv.failed()) {
+    drv.step();
+    std::this_thread::sleep_for(10ms);
+  }
+  int rc = 0;
+  if (!drv.done()) {
+    std::fprintf(stderr, "authority: did not finish (%s)\n", drv.failed() ? drv.failure().c_str() : "timeout");
+    rc = 1;
+  } else {
+    const auto hold_end = std::min(overall, Clock::now() + std::chrono::seconds(a.ping_seconds));
+    while (Clock::now() < hold_end && !drv.failed()) {
+      drv.step();
+      std::this_thread::sleep_for(10ms);
+    }
+    if (drv.failed()) rc = 1;
+  }
+  const auto st = drv.upload_stats();
+  std::printf("authority: generations=%llu jobs=%llu cancelled=%llu resumed_jobs=%llu stored=%llu cross_generation_reads=%llu stale_writes_blocked=%llu\n",
+              static_cast<unsigned long long>(st.generations), static_cast<unsigned long long>(st.jobs_started),
+              static_cast<unsigned long long>(st.jobs_cancelled), static_cast<unsigned long long>(st.resumed_jobs),
+              static_cast<unsigned long long>(st.checkpoints_stored), static_cast<unsigned long long>(st.cross_generation_reads),
+              static_cast<unsigned long long>(st.stale_writes_blocked));
+  if (st.cross_generation_reads != 0 || st.stale_writes_blocked != 0) rc = 1;
+  s.stop();
+  return rc;
 }
 
 bool has(const std::vector<SessionEvent>& v, SessionEvent::Kind k) {
@@ -214,6 +274,11 @@ int main(int argc, char** argv) {
     else if (arg == "--save-wait") a.save_wait_seconds = std::atoi(next().c_str());
     else if (arg == "--timeout") a.timeout_seconds = std::atoi(next().c_str());
     else if (arg == "--reload") a.reload = true;
+    else if (arg == "--authority") a.authority = true;
+    else if (arg == "--save-file") a.save_file = next();
+    else if (arg == "--work-dir") a.work_dir = next();
+    else if (arg == "--roles") a.roles = std::atoi(next().c_str());
+    else if (arg == "--step-timeout") a.step_timeout_seconds = std::atoi(next().c_str());
     else {
       std::fprintf(stderr, "unknown argument %s (see the header of headless.cpp)\n", arg.c_str());
       return 2;
@@ -247,6 +312,12 @@ int main(int argc, char** argv) {
   opt.identity.mod_version = a.mod_version;
   opt.save_dir = a.save_dir;
   opt.net.backoff_first_ms = 500;
+  if (a.authority) {
+    opt.requested_roles = static_cast<std::uint8_t>(a.roles != 0 ? a.roles : 3);  // Authority | Client (ADR: mod hosts as both)
+    opt.auto_download = false;
+  } else if (a.roles != 0) {
+    opt.requested_roles = static_cast<std::uint8_t>(a.roles);
+  }
   if (!load_key(a, opt.player_key)) return 2;
   StaticExtensions exts(a.extensions);
   opt.extensions = &exts;
@@ -256,6 +327,12 @@ int main(int argc, char** argv) {
   std::printf("joining %s:%u as '%s' (player key %s...)\n", a.host.c_str(), static_cast<unsigned>(a.port), a.name.c_str(),
               crypto::to_hex(std::span<const std::uint8_t>(opt.player_key).first(4)).c_str());
   const auto overall = Clock::now() + std::chrono::seconds(a.timeout_seconds);
+
+  if (a.authority) {
+    const int arc = run_authority(opt, a, overall);
+    std::puts(arc == 0 ? "OK" : "FAILED");
+    return arc;
+  }
 
   std::vector<SessionEvent> events;
   int rc = 0;
