@@ -13,6 +13,9 @@ public sealed record FakeAuthoritySaveOptions
     /// <summary>Size of the generated save (bytes, approximately).</summary>
     public long SaveBytes { get; init; } = 4L * 1024 * 1024;
 
+    /// <summary>When set, upload this existing file verbatim as the save (real hash) with an empty-station manifest instead of generating one.</summary>
+    public string? ExistingSave { get; init; }
+
     /// <summary>Directory the fake saves and manifests are written to.</summary>
     public string Directory { get; init; } = Path.Combine(Path.GetTempPath(), "x4mp-fakenode");
 
@@ -211,9 +214,22 @@ public sealed class FakeAuthoritySaves
                     Hi = DetHash.Hash(_authority.World.Galaxy.Seed, 0x1D, (ulong)counter, _runNonce),
                 };
                 _lastCheckpoint = cp;
-                _lastSave = FakeSaveGenerator.CreateSave(_options.Directory, _authority.World.Galaxy.Seed, counter, _options.SaveBytes, flavor: _options.Flavor);
+                if (_options.ExistingSave is not null)
+                {
+                    if (!File.Exists(_options.ExistingSave))
+                    {
+                        throw new FileNotFoundException("the save file to upload does not exist", _options.ExistingSave);
+                    }
+
+                    _lastSave = FakeSaveGenerator.Describe(_options.ExistingSave);
+                }
+                else
+                {
+                    _lastSave = FakeSaveGenerator.CreateSave(_options.Directory, _authority.World.Galaxy.Seed, counter, _options.SaveBytes, flavor: _options.Flavor);
+                }
+
                 uint nextNetId = _authority.NetIds.NextNetId;
-                var manifest = FakeSaveGenerator.BuildManifest(_authority, cp, _lastGameTime, nextNetId);
+                var manifest = FakeSaveGenerator.BuildManifest(_authority, cp, _lastGameTime, nextNetId, emptyStations: _options.ExistingSave is not null);
                 _lastManifest = FakeSaveGenerator.WriteManifest(_options.Directory, $"fake-{_authority.World.Galaxy.Seed}-{counter}", manifest);
                 _log?.Invoke($"checkpoint {counter}: save {_lastSave.ShaHex[..12]} ({_lastSave.Size} bytes), manifest {_lastManifest.ShaHex[..12]} ({_lastManifest.Size} bytes), reason {reason}");
 
