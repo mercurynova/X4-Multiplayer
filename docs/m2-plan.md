@@ -307,3 +307,25 @@ V26 (a save copied from another machine); a download of the user's own save is c
 6. Not yet; the user can make the PHQ/research, early no-PHQ and docked-at-bar saves, and may find a mid-game save
    online. The session-2 kit must tolerate a third-party save: list its extensions/DLC on load and flag unknown
    mods instead of failing, and the user only installs mods they choose themselves.
+
+## 8. Handoff notes from merged tasks
+
+**M2-02 → M2-09 (in-game authority on a stored save):**
+- `SessionSaveInfo` for a start save has an empty `manifest_sha256`, size 0 and `checkpoint_id` 0: skip the manifest
+  download and `ManifestReport`.
+- Send `SaveReady{sha256}` (empty manifest sha), report Loading then Matching, then `NodeReady` with
+  `loaded_save_sha256`.
+- If the authority already runs the stored save, put its sha (32 bytes) in `ClientHello.loaded_save_sha256`; the
+  server then sends no info. No automated test covers this branch yet (FakeNode always sends empty): M2-09 adds one.
+- After `NodeReady` expect `RequestSave{SessionStart}` and upload the checkpoint (save + manifest,
+  `ghosts_cleaned=true`).
+- Not yet tested: a SessionStart checkpoint made by an authority that resumed mid-flow. M2-09 adds a hostsim case.
+- Known gap: `POST /sessions {saveId}` with a catalog row whose file is missing logs a warning and continues as if
+  no save was chosen (kept for an existing test).
+
+**M2-005 probe → session-2 script:** with `hooks:true` (default) the probe pins its DLL at shutdown, so B4's
+"was the DLL unloaded?" needs a separate run with `hooks:false` (kit integration adds this).
+
+**M2-002 → session-2 script:** run the `ui` block before C1 step 4 so the Save row can be greyed; `saves1_block` must
+be re-run after every save load (the Lua flag resets, the MD flag `global.$x4mp_noSave` is saved in the game);
+`saves2` calls `C.TriggerAutosave(true)`, so the probe should have `skip_autosave:true` for C2 or an autosave lands.
