@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- x4mp_probe MD shim: shows the on-screen notifications the native probe asks for (Lua -> AddUITriggeredEvent -> here).
+     event_ui_triggered: param = screen, param2 = control, param3 = value (see the x4mp_spike md header). -->
+<mdscript name="X4MP_Probe" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+    <cue name="X4MP_Probe_Notify" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Probe'" control="'notify'"/>
+      </conditions>
+      <actions>
+        <show_notification text="event.param3"/>
+      </actions>
+    </cue>
+  </cues>
+</mdscript>

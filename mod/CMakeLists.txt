@@ -164,3 +164,50 @@ if(X4MP_TESTS)
     message(WARNING "PowerShell not found: the guard.* tests are not registered")
   endif()
 endif()
+
+# =============================================================================================
+# X4MP_SPIKES begin (M2-005): throwaway native probe for in-game session 2. Default OFF: the normal build, CTest
+# list and CI are unchanged. Everything lives under spikes/x4mp_probe/ (sources in src/, tests in tests/, the
+# Lua/MD shim extension files at the folder root: content.xml, ui.xml, x4native.json, ui/, md/, t/).
+# =============================================================================================
+option(X4MP_SPIKES "Build the throwaway in-game spike DLLs (x4mp_probe)" OFF)
+if(X4MP_SPIKES)
+  set(X4MP_PROBE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/spikes/x4mp_probe")
+
+  add_library(x4mp_probe_lib STATIC
+    "${X4MP_PROBE_DIR}/src/probe.cpp"
+    "${X4MP_PROBE_DIR}/src/probe_config.cpp")
+  target_include_directories(x4mp_probe_lib SYSTEM PUBLIC "${X4N_SDK_DIR}")
+  target_compile_features(x4mp_probe_lib PUBLIC cxx_std_23)
+  target_link_libraries(x4mp_probe_lib PUBLIC x4mp_core PRIVATE nlohmann_json::nlohmann_json shell32 ole32)
+  set_target_properties(x4mp_probe_lib PROPERTIES CXX_EXTENSIONS OFF)
+  x4mp_set_warnings(x4mp_probe_lib)
+
+  add_library(x4mp_probe SHARED "${X4MP_PROBE_DIR}/src/dll_main.cpp")
+  target_link_libraries(x4mp_probe PRIVATE x4mp_probe_lib)
+  set_target_properties(x4mp_probe PROPERTIES PREFIX "" OUTPUT_NAME "x4mp_probe" CXX_EXTENSIONS OFF)
+  x4mp_set_warnings(x4mp_probe)
+  if(MSVC)
+    target_compile_options(x4mp_probe PRIVATE /guard:cf)
+    target_link_options(x4mp_probe PRIVATE /GUARD:CF)
+  endif()
+
+  if(X4MP_TESTS)
+    find_package(Catch2 3 CONFIG REQUIRED)
+    include(Catch)
+    add_executable(x4mp_probe_tests "${X4MP_PROBE_DIR}/tests/probe_tests.cpp")
+    target_include_directories(x4mp_probe_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_link_libraries(x4mp_probe_tests PRIVATE x4mp_probe_lib Catch2::Catch2WithMain ws2_32)
+    x4mp_set_warnings(x4mp_probe_tests)
+    catch_discover_tests(x4mp_probe_tests TEST_PREFIX "probe." PROPERTIES TIMEOUT 120)
+
+    add_executable(x4mp_probe_smoke "${X4MP_PROBE_DIR}/tests/smoke.cpp")
+    target_include_directories(x4mp_probe_smoke SYSTEM PRIVATE "${X4N_SDK_DIR}")
+    target_compile_features(x4mp_probe_smoke PRIVATE cxx_std_23)
+    x4mp_set_warnings(x4mp_probe_smoke)
+    add_dependencies(x4mp_probe_smoke x4mp_probe)
+    add_test(NAME probe.smoke COMMAND x4mp_probe_smoke "$<TARGET_FILE:x4mp_probe>")
+    set_tests_properties(probe.smoke PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION "SMOKE OK")
+  endif()
+endif()
+# X4MP_SPIKES end
