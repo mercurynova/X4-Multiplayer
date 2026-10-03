@@ -443,3 +443,17 @@ endif()
 # =============================================================================================
 # END M2-07 reload survival
 # =============================================================================================
+
+# =============================================================================================
+# BEGIN M2-12 launch.json + NodeStats (features/launch/*.cpp, features/stats/*.cpp are picked up by the M2-04 glob). Appended by M2-12.
+#   x4mp_host_tests += tests/test_launch_stats.cpp (launch parsing / expiry / redaction / consumption, stats percentiles + wire)
+#   hostsim.launch_expired = the real DLL: an expired launch.json is ignored and deleted; the connecting scenario needs the server and
+#   runs through tests/hostsim/launch_stats_run.ps1 (not CI: tools/e2e.ps1 is M2-14's)
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_launch_stats.cpp)
+  add_test(NAME hostsim.launch_expired
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/launch_expired.hostsim")
+  set_tests_properties(hostsim.launch_expired PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+endif()
+# END M2-12 launch.json + NodeStats

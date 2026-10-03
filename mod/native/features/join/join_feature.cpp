@@ -15,6 +15,7 @@
 #include "features/authority/authority_flow.h"
 #include "features/diag/diag_hub.h"
 #include "features/join/join_messages.h"
+#include "features/join/join_requests.h"
 #include "features/join/join_mods_json.h"
 #include "host/build_check.h"
 #include "host/extension_roots.h"
@@ -179,9 +180,12 @@ void JoinFeature::on_universe_ready(host::HostContext&) { universe_ready_flag_.s
 
 void JoinFeature::on_shutdown(host::HostContext& ctx) {
   if (inbox_) inbox_->close();
+  join::clear_join_payloads();
   diag_sender_ = false;
   diag_connected_ = false;
   diag_hub().set_log_sender({});
+  diag_hub().set_stats_link({});
+  diag_stats_link_ = false;
   diag_hub().set_connection(NodeRole::None, false);
   authority_.reset();  // M2-09: joins its upload worker before the session goes away
   if (session_) {
@@ -208,6 +212,15 @@ void JoinFeature::on_shutdown(host::HostContext& ctx) {
 void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
   mods::mark_frame_thread(true);  // core/mods refuses file I/O on this thread
   drain_inbox(ctx);
+  // M2-12: a join another feature asked for (launch.json) takes the same path as the UI verb, but never over a live or resumed session.
+  for (auto& payload : join::take_join_payloads()) {
+    if (stage_ == Stage::Idle) {
+      on_join(ctx, payload);
+    } else {
+      X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "launch request ignored: a session is already active or resuming (stage {})", static_cast<int>(stage_));
+    }
+    wipe(payload);
+  }
 
   if (game_loaded_flag_.exchange(false)) {
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "game loaded (stage {})", static_cast<int>(stage_));
@@ -446,6 +459,30 @@ void JoinFeature::update_diag(host::HostContext&) {
   } else if (!want_sender && diag_sender_) {
     diag_sender_ = false;
     hub.set_log_sender({});
+  }
+  // M2-12: the stats feature samples the net counters and sends NodeStats through this link while the node is welcomed.
+  if (connected && !diag_stats_link_) {
+    diag_stats_link_ = true;
+    StatsLink link;
+    link.sample = [this](NetSample& out) {
+      if (!session_ || !welcomed()) return false;
+      const auto ns = session_->net_status();
+      out.rtt_us = ns.rtt_us;
+      out.clock_offset_us = ns.clock_valid ? ns.clock_offset_us : 0;
+      out.bytes_in = ns.bytes_in;
+      out.bytes_out = ns.bytes_out;
+      out.write_buffer_bytes = ns.write_buffer_bytes;
+      return true;
+    };
+    link.send_control = [this](std::uint16_t type, std::vector<std::uint8_t> payload) {
+      if (!session_ || !welcomed()) return false;
+      send_control(type, payload);
+      return true;
+    };
+    hub.set_stats_link(std::move(link));
+  } else if (!connected && diag_stats_link_) {
+    diag_stats_link_ = false;
+    hub.set_stats_link({});
   }
 }
 

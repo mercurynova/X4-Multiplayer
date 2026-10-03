@@ -25,6 +25,20 @@ namespace x4mp::features {
 
 enum class NodeRole { None, Client, Authority };
 
+// What the stats feature (M2-12) needs from the live session: the net counters and a Control-lane send. Installed by the join feature
+// while the node is welcomed, cleared otherwise. Main thread only (the session is pumped there).
+struct NetSample {
+  std::int64_t rtt_us = 0;  // smoothed; 0 until the first Pong
+  std::int64_t clock_offset_us = 0;
+  std::uint64_t bytes_in = 0;   // cumulative since the connection start
+  std::uint64_t bytes_out = 0;
+  std::uint64_t write_buffer_bytes = 0;
+};
+struct StatsLink {
+  std::function<bool(NetSample&)> sample;
+  std::function<bool(std::uint16_t type, std::vector<std::uint8_t> payload)> send_control;
+};
+
 // What the Lua save wrappers report (verb x4mp.saves_status).
 struct SavesStatus {
   bool received = false;
@@ -57,6 +71,10 @@ class DiagHub {
   // Sends one LogForward line when a sender exists and accepts it. Returns whether it was handed to the sender.
   bool forward_log(log::Level level, std::string_view text);
 
+  void set_stats_link(StatsLink link);  // empty = none
+  [[nodiscard]] bool sample_net(NetSample& out) const;
+  bool send_control(std::uint16_t type, std::vector<std::uint8_t> payload) const;
+
   void set_saves_status(SavesStatus s);
   [[nodiscard]] SavesStatus saves_status() const;
 
@@ -71,6 +89,7 @@ class DiagHub {
   bool connected_ = false;
   std::uint64_t epoch_ = 0;
   LogSender sender_;
+  StatsLink stats_link_;
   SavesStatus saves_;
   std::vector<SelfTestRow> selftest_;
 };

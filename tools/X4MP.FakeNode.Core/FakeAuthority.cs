@@ -645,6 +645,7 @@ public sealed class FakeAuthority
             UdpActive = udpActive,
             UdpRxLossPct = udpRxLossPct,
             MemoryMb = (uint)(3000 + (int)(u * 400)),
+            NetMainMsP95 = (float)(0.2 + 0.3 * u),
             MdHookState = FeatureState.Ok,
             TeamSetupState = FeatureState.Ok,
         };

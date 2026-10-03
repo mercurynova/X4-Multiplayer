@@ -162,6 +162,7 @@ class JoinFeature final : public host::IFeature {
 
   // diag hub (M2-10): connection state + LogForward sender
   bool diag_connected_ = false;
+  bool diag_stats_link_ = false;  // M2-12: the stats link is installed in the diag hub
   bool diag_sender_ = false;
   Clock::time_point log_window_{};
   int log_in_window_ = 0;

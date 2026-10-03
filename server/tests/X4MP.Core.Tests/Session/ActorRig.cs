@@ -497,7 +497,7 @@ public static class Frames
     public static FlatBufferBuilder NodeStats(float fps, float rttMs, long clockOffsetUs, uint ghosts)
     {
         var fbb = new FlatBufferBuilder(128);
-        var t = new NodeStatsT { Fps = fps, FrameMsP95 = 18.5f, Ghosts = ghosts, RttMs = rttMs, ClockOffsetUs = clockOffsetUs, MemoryMb = 2048, UdpActive = false };
+        var t = new NodeStatsT { Fps = fps, FrameMsP95 = 18.5f, Ghosts = ghosts, RttMs = rttMs, ClockOffsetUs = clockOffsetUs, MemoryMb = 2048, UdpActive = false, NetMainMsP95 = 0.75f };
         fbb.Finish(X4MP.Proto.NodeStats.Pack(fbb, t).Value);
         return fbb;
     }

@@ -1251,7 +1251,7 @@
       "lane": 0,
       "payloadOffset": 8,
       "payloadLength": 120,
-      "fields": {"ClockOffsetUs":-1234,"Fps":59.5,"FrameMsP95":21.25,"GameTime":3600.25,"Ghosts":1500,"InterpDelayMs":150,"MdHookState":3,"MemoryMb":4096,"PendingMainThreadJobs":3,"RttMs":31.5,"RxBytesPerS":10000,"SuppressedLocal":800,"TcpSendQueueBytes":4096,"TeamSetupState":2,"TxBytesPerS":5000,"UdpActive":true,"UdpRxLossPct":0.5}
+      "fields": {"ClockOffsetUs":-1234,"Fps":59.5,"FrameMsP95":21.25,"GameTime":3600.25,"Ghosts":1500,"InterpDelayMs":150,"MdHookState":3,"MemoryMb":4096,"NetMainMsP95":0,"PendingMainThreadJobs":3,"RttMs":31.5,"RxBytesPerS":10000,"SuppressedLocal":800,"TcpSendQueueBytes":4096,"TeamSetupState":2,"TxBytesPerS":5000,"UdpActive":true,"UdpRxLossPct":0.5}
     },
     {
       "file": "0x0601_LogForward.bin",

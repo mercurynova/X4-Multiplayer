@@ -41,6 +41,8 @@ If no `init` line exists the DLL is initialised before the first command. `set` 
 | `drop-lua [topic]` | discard captured events |
 | `expect-log <text> [timeout=<ms>]` / `expect-no-log <text>` | text in the host-side log (what the mod passed to `api.log`) |
 | `expect-file <path> <text>` | text in a file (relative to the work dir), 3 s retry |
+| `write-file <path> <text>` | creates/overwrites a file (relative to the work dir; parent folders are created), e.g. `extension/launch.json` before `init` (M2-12) |
+| `expect-no-file <path>` | the file must not exist (3 s retry), e.g. a consumed `launch.json` |
 | `expect-state <name> <op> <value>` | `paused game_time reload_save_list_calls money_delta reloads frames stash_count hooks lua_pending last_shutdown_ms subs.<event>`; ops `== != < <= > >=` |
 | `expect-sub <event> [min]`, `expect-bridge <lua_event>` | the mod subscribed / bridged |
 | `expect-stash <key> present\|absent\|== <text>` | key is `<ns>/<key>` or just `<key>` (default namespace = ext id) |

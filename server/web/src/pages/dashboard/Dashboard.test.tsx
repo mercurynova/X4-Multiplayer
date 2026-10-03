@@ -34,6 +34,7 @@ const player = (id: number, over: Partial<PlayerLiveDto> = {}): PlayerLiveDto =>
   muted: false,
   teamId: null,
   teamName: null,
+  stats: null,
   ...over,
 });
 

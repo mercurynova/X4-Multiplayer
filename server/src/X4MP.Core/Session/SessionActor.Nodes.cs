@@ -82,7 +82,7 @@ public sealed partial class SessionActor
         var stats = new NodeStatsSnapshot(
             s.Fps, s.FrameMsP95, s.GameTime, s.Ghosts, s.SuppressedLocal, s.PendingMainThreadJobs, s.TcpSendQueueBytes,
             s.UdpRxLossPct, s.UdpActive, s.RxBytesPerS, s.TxBytesPerS, s.InterpDelayMs, s.ClockOffsetUs, s.RttMs, s.MemoryMb,
-            s.MdHookState, s.TeamSetupState, _time.GetUtcNow());
+            s.MdHookState, s.TeamSetupState, _time.GetUtcNow(), s.NetMainMsP95);
         slot.Stats = stats;
         Publish(new NodeStatsReported(_time.GetUtcNow(), SessionId, slot.PlayerId, slot.Name, slot.IsAuthority, s.Fps));
         foreach (var module in _modules)
