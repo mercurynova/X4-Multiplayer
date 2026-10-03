@@ -1,0 +1,33 @@
+# Close-out A item 2: after /reloadui X4Native replays on_game_loaded at once but never on_universe_ready (x4native.lua, "IsPlayerValid
+# (immediate)"). The host must open the universe-ready gate itself, so the self-test and the player guard work. A save load (frames run
+# first, then the real events) must NOT be treated that way. ctest hostsim.reload_universe_ready (--var SCRIPT_DIR=<this folder>); no server.
+init
+lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
+frame 60Hz 3
+
+# incarnation 1: a normal save load makes the universe ready
+load_save slot.xml.gz
+frame 60Hz 5
+expect-file extension/logs/x4mp.log universe ready (epoch 1
+
+# /reloadui: DLL re-init, then ONLY on_ui_reload + on_game_loaded (no on_universe_ready), before any frame
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${SCRIPT_DIR}/write_selftest_config.ps1" "${work}/extension/x4mp.json"
+reload
+fire on_ui_reload
+fire on_game_loaded
+frame 60Hz 10
+expect-file extension/logs/x4mp.log treating it as ready
+expect-file extension/logs/x4mp.log SELFTEST begin (trigger=config
+expect-file extension/logs/x4mp.log SELFTEST summary:
+expect-no-log SKIP  player.guard
+
+# a save load after a reload: frames run first, then the events: the host does not open the gate by itself
+reload
+frame 60Hz 5
+fire on_game_loaded
+frame 60Hz 3
+expect-file extension/logs/x4mp.log a load in progress; waiting for on_universe_ready
+fire on_universe_ready
+frame 60Hz 3
+expect-file extension/logs/x4mp.log universe ready (epoch 1,
+expect-no-secret never-written-password
