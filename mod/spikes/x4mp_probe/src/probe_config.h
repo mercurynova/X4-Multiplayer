@@ -13,6 +13,29 @@
 
 namespace x4mp_probe {
 
+// Session-4 sitting-0 spike (S13) parameters (M3-001). All optional; names in the JSON are the field names.
+struct S13Config {
+  std::string scratch_slot;                                      // save name the takeover/persist blocks require ("" = they refuse)
+  std::string ghost_macro_s = "ship_arg_s_fighter_01_a_macro";   // S ghost
+  std::string ghost_macro_m = "ship_arg_m_bomber_01_a_macro";    // M ghost
+  std::string ghost_faction = "x4mp_team_2";                     // owner of the ghosts when this faction exists
+  std::string ghost_fallback_faction = "ownerless";              // owner otherwise (never "player")
+  std::string takeover_macro = "ship_arg_s_fighter_01_a_macro";  // the player-owned ship of the takeover blocks
+  std::string xsector_name;                                     // target sector for ghost_xsector: substring of its name ("" = pick one: same cluster first)
+  int spawn_distance_m = 1000;                                   // ghost spawn distance ahead of the player's ship
+  int takeover_distance_m = 300;
+  int drift_seconds = 60;                                        // ghost_spawn drift sampling
+  int motion_seconds = 20;                                       // per path segment of ghost_motion
+  int sample_seconds = 120;                                      // sample
+  int sample_hz = 20;
+  int seat_seconds = 60;
+  int seta_seconds = 120;
+  int pause_wait_seconds = 60;                                   // pause_move: how long to wait for the user to pause
+  int xsector_hold_seconds = 20;
+  int pitch_sign = 1;                                            // 1 or -1: sign of pitch in the forward vector (convention check)
+  bool angles_in_radians = true;                                 // GetObjectPositionInSector angles are radians (x4n_math.h); SetObjectSectorPos wants degrees
+};
+
 struct Config {
   std::string server = "127.0.0.1:47780";  // "host:port" or "host"; empty = do not connect
   std::string name = "Tester";
@@ -33,6 +56,7 @@ struct Config {
   int reloadui_after_s = 0;                // > 0: ExecuteDebugCommand("reloadui") after N s, once; the probe then rewrites 0
   std::string save_test;                   // non-empty: SaveGame(<name>) via Lua with QPC timing (C4), on seq change
   bool money_test = false;                 // run the native money test on seq change
+  S13Config s13;                           // M3-001 blocks (ghost_spawn, ghost_motion, sample, ...)
 };
 
 struct ParseResult {

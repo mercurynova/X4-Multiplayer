@@ -242,6 +242,7 @@ if(X4MP_SPIKES)
 
   add_library(x4mp_probe_lib STATIC
     "${X4MP_PROBE_DIR}/src/probe.cpp"
+    "${X4MP_PROBE_DIR}/src/s13.cpp"
     "${X4MP_PROBE_DIR}/src/probe_config.cpp")
   target_include_directories(x4mp_probe_lib SYSTEM PUBLIC "${X4N_SDK_DIR}")
   target_compile_features(x4mp_probe_lib PUBLIC cxx_std_23)
@@ -261,7 +262,7 @@ if(X4MP_SPIKES)
   if(X4MP_TESTS)
     find_package(Catch2 3 CONFIG REQUIRED)
     include(Catch)
-    add_executable(x4mp_probe_tests "${X4MP_PROBE_DIR}/tests/probe_tests.cpp")
+    add_executable(x4mp_probe_tests "${X4MP_PROBE_DIR}/tests/probe_tests.cpp" "${X4MP_PROBE_DIR}/tests/s13_tests.cpp")
     target_include_directories(x4mp_probe_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     target_link_libraries(x4mp_probe_tests PRIVATE x4mp_probe_lib Catch2::Catch2WithMain ws2_32)
     x4mp_set_warnings(x4mp_probe_tests)

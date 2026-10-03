@@ -37,6 +37,7 @@
 #include "core/log/log.h"
 #include "core/session/session.h"
 #include "probe_config.h"
+#include "s13.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -720,6 +721,10 @@ void start_save_test(State& s, const std::string& name) {
 
 void run_block(State& s, const std::string& block) {
   plog("spike", "block={} (config watch)", block);
+  if (s13::handles(block)) {  // M3-001: the native S13 blocks (ghost_spawn, sample, takeover, ...); never forwarded to Lua
+    s13::start(s.cfg, block);
+    return;
+  }
   if (block == "reloadui") {
     s.reload_due = qpc() + static_cast<std::int64_t>(5.0 * static_cast<double>(qpc_freq()));
     plog("reloadui", "armed by run-block in 5 s");
@@ -840,6 +845,7 @@ void tick(bool ui_thread_ok) {
   step_autoload(s);
   step_pause(s);
   step_money(s);
+  s13::tick();
   periodic(s);
 }
 
@@ -865,6 +871,7 @@ void cb_native_frame(const X4NativeFrameUpdate*) {
   State* s = gp.load();
   if (!s) return;
   note(CB_NATIVE_FRAME);
+  s13::native_tick();
   if (!s->native_seen) {
     s->native_seen = true;
     plog("frame", "first on_native_frame_update ms_since_init={:.1f}", ms_between(s->init_qpc, qpc()));
@@ -993,6 +1000,12 @@ void init() {
     else plog("cfg", "no config file yet; waiting for it (re-read when it appears or its mtime changes)");
   }
   s.worker = std::thread(worker_loop, &s);
+  {
+    s13::Env env;
+    env.log = +[](int lvl, const std::string& body) { emit(lvl, "s13", body); };
+    env.dir = dir;
+    s13::set_env(env);
+  }
 
   gp = sp;
 
@@ -1061,6 +1074,7 @@ void shutdown() {
   const auto t0 = qpc();
   note(CB_SHUTDOWN);
   plog("shutdown", "x4native_shutdown begin ms_since_init={:.1f} dll_image_inits={}", ms_between(s.init_qpc, t0), g_image_inits.load());
+  s13::shutdown();  // abandons a running S13 block (logs it) before the callbacks go quiet
   gp = nullptr;  // callbacks stop doing work
 
   for (int id : s.subs) x4n::off(id);
