@@ -399,6 +399,7 @@ public static partial class LiveRunner
                 Fps = o.Fps,
                 TeamAssets = o.TeamAssets || o.Commander != CommanderMode.None || o.EffectiveTeams > 0 || o.TradesEnabled,
                 TeamIds = o.EffectiveTeams >= 2 ? [.. Enumerable.Range(1, o.EffectiveTeams).Select(i => (ushort)i)] : null,
+                Avatars = new FakeAvatarOptions { StarterShipMacro = o.AvatarMacro, SpawnOffsetMeters = o.AvatarOffset, HostName = o.HostName },
             });
         stats.Authority = authority;
         run.OnAuthority?.Invoke(authority);
@@ -473,6 +474,15 @@ public static partial class LiveRunner
             {
                 tradeFrames.Enqueue(frame);
             }
+            else if (frame.Type == MsgType.PlayerShip)
+            {
+                // M3-05: a client that stands in the host's ship asks for its avatar (the server stamped the player id)
+                authority.Avatars.OnPlayerShip(MessageRegistry.Default.Decode<PlayerShip>(frame).UnPack());
+            }
+            else if (frame.Type == MsgType.PlayerState)
+            {
+                authority.Avatars.OnPlayerState(MessageRegistry.Default.Decode<PlayerState>(frame).UnPack());
+            }
             else if (frame.Type == MsgType.WalletUpdate)
             {
                 reconciler.OnWalletUpdate(MessageRegistry.Default.Decode<WalletUpdate>(frame).UnPack());
@@ -486,6 +496,7 @@ public static partial class LiveRunner
                     inGamePlayers[p.PlayerId] = p.Phase == NodePhase.InGame && (p.Roles & Role.Client) != 0;
                 foreach (var removed in roster.Removed ?? [])
                     inGamePlayers.TryRemove(removed, out _);
+                authority.Avatars.NoteRoster(roster);
                 authority.Teams.Handle(frame);
                 saves?.Handle(frame);
             }
@@ -564,6 +575,12 @@ public static partial class LiveRunner
                 await link.Client.SendPayloadAsync(MsgType.IntentResult, MessageEncoder.EncodePayload(b => IntentResult.Pack(b, result), 96), ct).ConfigureAwait(false);
             }
 
+            foreach (var avatarMessage in authority.Avatars.Drain(Math.Max(0, lastTick) / (double)o.TickRate))
+            {
+                await link.Client.SendPayloadAsync(avatarMessage.Type, avatarMessage.Payload, ct).ConfigureAwait(false);
+                stats.CountAvatarMessage(avatarMessage.Type);
+            }
+
             while (tradeFrames.TryDequeue(out var tradeFrame))
             {
                 var replies = tradeFrame.Type == MsgType.AssetTransferOrder
@@ -637,6 +654,8 @@ public static partial class LiveRunner
     {
         var session = new FakeClientSession(new FakeWorld(galaxy), o.Verify) { HoldUnknownEntries = o.Udp };
         session.Teams.ApplyWelcome(link.Client.Welcome);
+        session.OwnPlayerId = link.PlayerId;
+        session.ChatEcho = o.ChatEcho;
         run.OnClientSession?.Invoke(session);
         stats.AttachSession(session);
         var handle = new FakeClientHandle(link, session, stats, name);
@@ -769,6 +788,14 @@ public static partial class LiveRunner
             await lines.WriteAsync($"[{name}] slow reader on: reading {slowReader.Slow} from now").ConfigureAwait(false);
         }
 
+        // M3-05, the takeover in miniature (m3-plan 4.3): "I stand in the host's ship" -> the authority answers with my avatar -> I fly as it. A wingman
+        // flies around the replicated ship of its target; every other bot flies its --behavior from the avatar's place.
+        IShipMotion motion = player;
+        if (o.AvatarsActive)
+        {
+            motion = await TakeOverAvatarAsync(link, o, galaxy, session, stats, run, lines, name, ordinal, player, ct).ConfigureAwait(false);
+        }
+
         int clientCount = o.Command == FakeNodeCommand.Swarm ? o.Clients : 1;
         double nextDisconnect = o.DisconnectEverySeconds > 0 ? FirstResumeAt(o.DisconnectEverySeconds, ordinal, clientCount) : double.MaxValue;
         double nextReload = o.ReloadEverySeconds > 0 ? FirstResumeAt(o.ReloadEverySeconds, ordinal + (clientCount / 2), clientCount) + 1.5 : double.MaxValue;
@@ -826,7 +853,8 @@ public static partial class LiveRunner
             if (tick > lastTick)
             {
                 lastTick = tick;
-                var state = player.Step(tick);
+                var state = motion.NextSample(tick);
+                session.SetOwnPose(motion.Sector, motion.Position);
                 await link.SendRealtimeAsync(MsgType.PlayerState, MessageEncoder.EncodePayload(b => PlayerState.Pack(b, state), 128), ct).ConfigureAwait(false);
             }
 
@@ -885,6 +913,56 @@ public static partial class LiveRunner
 
             await Task.Delay(8, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Sends <c>PlayerShip</c>, waits for the avatar the authority spawns for this node and returns what flies it: the bot's own <paramref name="player"/>
+    /// placed at the avatar, or a <see cref="FakeWingman"/> around the target's ship. Throws when no avatar arrives within
+    /// <see cref="LiveRunOptions.AvatarTimeout"/> (is an authority connected?).
+    /// </summary>
+    private static async Task<IShipMotion> TakeOverAvatarAsync(
+        NodeLink link, CliOptions o, FakeGalaxy galaxy, FakeClientSession session, LiveNodeStats stats, LiveRunOptions run, SynchronizedWriter lines,
+        string name, int ordinal, FakePlayer player, CancellationToken ct)
+    {
+        var request = FakeAvatarFlow.BuildRequest(o, galaxy, link.PlayerId);
+        var watch = Stopwatch.StartNew();
+        await link.Client.SendPayloadAsync(MsgType.PlayerShip, MessageEncoder.EncodePayload(b => PlayerShip.Pack(b, request), 256), ct).ConfigureAwait(false);
+        stats.SetAvatarState(1);
+        try
+        {
+            await session.OwnAvatarReady.WaitAsync(run.AvatarTimeout, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            stats.SetAvatarState(3);
+            throw new TimeoutException($"no avatar within {run.AvatarTimeout.TotalSeconds:F0} s of the PlayerShip request (is an authority connected?)");
+        }
+
+        var avatar = session.OwnAvatar!.Value;
+        stats.AvatarLatency = watch.Elapsed;
+        stats.SetAvatarState(2);
+        string? target = FakeAvatarFlow.WingmanTargetFor(o, name);
+        IShipMotion motion;
+        if (target is not null)
+        {
+            var wingman = new FakeWingman(() => session.FindPlayerPose(target), avatar.Sector, avatar.Position, ordinal, o.WingmanSpeed, o.WingmanRadius, o.WingmanMode);
+            stats.Wingman = wingman;
+            motion = wingman;
+        }
+        else
+        {
+            player.PlaceAt(avatar.Sector, avatar.Position);
+            motion = player;
+        }
+
+        motion.NetId = avatar.NetId;
+        session.SetOwnPose(motion.Sector, motion.Position);
+        string role = target is null
+            ? $"flying {o.Behavior}"
+            : string.Create(CultureInfo.InvariantCulture, $"wingman of {target} ({o.WingmanMode.ToString().ToLowerInvariant()}, {o.WingmanSpeed:F0} m/s, {o.WingmanRadius:F0} m)");
+        await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+            $"[{name}] avatar net_id={avatar.NetId} in sector {avatar.Sector} after {watch.ElapsedMilliseconds} ms, {role}")).ConfigureAwait(false);
+        return motion;
     }
 
     // ------------------------------------------------------------------ the summary

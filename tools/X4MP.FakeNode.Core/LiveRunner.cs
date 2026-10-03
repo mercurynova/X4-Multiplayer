@@ -69,6 +69,9 @@ public sealed record LiveRunOptions
     /// <summary>How long a client waits for the keyframes after a resume before it reports them missing.</summary>
     public TimeSpan ResumeKeyframeTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>How long a client with the avatar flow waits for the authority's answer to its <c>PlayerShip</c> (m3-plan 4.3).</summary>
+    public TimeSpan AvatarTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Test hook for <c>inspect</c>: receives the printed lines in addition to the output writer.</summary>
     public Action<string>? OnInspectLine { get; init; }
 }
@@ -120,6 +123,35 @@ public sealed class LiveNodeStats(string name, Role role)
     public long VerifyErrors => _session?.Errors ?? 0;
 
     internal void AttachSession(FakeClientSession session) => _session = session;
+
+    private long _avatarSpawnsSent;
+    private long _avatarChangesSent;
+    private int _avatarState;
+
+    /// <summary>authority: <c>EntitySpawn</c>s (avatars and the host ship, also re-sent ones) it sent for <c>PlayerShip</c> requests.</summary>
+    public long AvatarSpawnsSent => Interlocked.Read(ref _avatarSpawnsSent);
+
+    /// <summary>authority: <c>EntityChange</c>s (a player left: Controller 0) it sent for avatars.</summary>
+    public long AvatarChangesSent => Interlocked.Read(ref _avatarChangesSent);
+
+    internal void CountAvatarMessage(MsgType type)
+    {
+        if (type == MsgType.EntitySpawn)
+            Interlocked.Increment(ref _avatarSpawnsSent);
+        else if (type == MsgType.EntityChange)
+            Interlocked.Increment(ref _avatarChangesSent);
+    }
+
+    /// <summary>client with the avatar flow: 0 = not asked, 1 = <c>PlayerShip</c> sent and waiting, 2 = the avatar spawn arrived and the bot flies, 3 = no avatar within the timeout.</summary>
+    public int AvatarState => Volatile.Read(ref _avatarState);
+
+    internal void SetAvatarState(int state) => Volatile.Write(ref _avatarState, state);
+
+    /// <summary>How long the avatar took from the request to its spawn (client with the avatar flow).</summary>
+    public TimeSpan AvatarLatency { get; internal set; }
+
+    /// <summary>The wingman controller of this client (null otherwise).</summary>
+    public FakeWingman? Wingman { get; internal set; }
 
     /// <summary>The trading behaviour of a client started with <c>--trade</c> (null otherwise).</summary>
     public FakeTrader? Trader { get; internal set; }
@@ -362,7 +394,7 @@ public static partial class LiveRunner
 
         string saveRoot = run.SaveDirectory ?? Path.Combine(Path.GetTempPath(), "x4mp-fakenode", Guid.NewGuid().ToString("N")[..8]);
         var stats = plan.Select(p => new LiveNodeStats(p.Name, p.Role)).ToList();
-        var galaxy = new Lazy<FakeGalaxy>(() => FakeGalaxy.Generate(o.Seed, new GalaxyOptions { SectorCount = o.Sectors, ShipCount = o.Ships, MaxShipsPerSector = o.MaxShipsPerSector }), LazyThreadSafetyMode.ExecutionAndPublication);
+        var galaxy = new Lazy<FakeGalaxy>(o.BuildGalaxy, LazyThreadSafetyMode.ExecutionAndPublication);
         bool single = plan.Count == 1;
         var inspector = o.Command == FakeNodeCommand.Inspect
             ? new FrameInspector(o, line => { lines.WriteAsync(line); run.OnInspectLine?.Invoke(line); }, () => cts.Cancel())
@@ -408,6 +440,7 @@ public static partial class LiveRunner
         if (o.Commander != CommanderMode.None)
             await WriteCommanderSummaryAsync(o, stats, lines).ConfigureAwait(false);
         await WriteTradeSummaryAsync(stats, lines).ConfigureAwait(false);
+        await WriteAvatarSummaryAsync(o, stats, lines).ConfigureAwait(false);
         long economyErrors = await WriteEconomySummaryAsync(o, stats, lines).ConfigureAwait(false);
         long modErrors = await WriteModsSummaryAsync(stats, lines).ConfigureAwait(false);
         run.OnFinished?.Invoke(stats);
@@ -472,6 +505,53 @@ public static partial class LiveRunner
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    /// <summary>
+    /// The M3-05 results: what the authority provisioned (<c>avatars:</c>), per bot what it received about the player ships (<c>[sync]</c> lines, only for bots in
+    /// the avatar flow) with the lowest Near rate (<c>sync:</c>), and the chat traffic (<c>chat:</c>).
+    /// </summary>
+    private static async Task WriteAvatarSummaryAsync(CliOptions o, List<LiveNodeStats> stats, SynchronizedWriter lines)
+    {
+        foreach (var authority in stats.Where(s => s.Authority is not null))
+        {
+            var a = authority.Authority!.Avatars;
+            if (a.Provisioned == 0 && a.Reissued == 0 && a.Host is null)
+                continue;
+            await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                $"avatars: provisioned={a.Provisioned} reissued={a.Reissued} parked={a.Leaves} host={(a.Host is { } h ? $"net_id={h.NetId} sector={h.Sector} name={h.Name}" : "none")} " +
+                $"spawns-sent={authority.AvatarSpawnsSent} changes-sent={authority.AvatarChangesSent}")).ConfigureAwait(false);
+        }
+
+        var flyers = stats.Where(s => s.Role == Role.Client && s.AvatarState != 0).ToList();
+        if (flyers.Count > 0)
+        {
+            double latency = flyers.Where(s => s.AvatarState == 2).Select(s => s.AvatarLatency.TotalMilliseconds).DefaultIfEmpty(0).Average();
+            await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                $"avatar-flow: bots={flyers.Count} with-avatar={flyers.Count(s => s.AvatarState == 2)} without={flyers.Count(s => s.AvatarState == 3)} avg-latency={latency:F0} ms " +
+                $"wingmen={flyers.Count(s => s.Wingman is not null)} followed-samples={flyers.Sum(s => s.Wingman?.FollowedSamples ?? 0)} follow-jumps={flyers.Sum(s => s.Wingman?.SectorChanges ?? 0)}")).ConfigureAwait(false);
+            double minNear = double.MaxValue;
+            int ships = 0;
+            foreach (var s in flyers.Where(s => s.Session is not null))
+            {
+                foreach (var summary in s.Session!.SyncSummaries().Where(x => x.Entries > 1))
+                {
+                    ships++;
+                    await lines.WriteAsync(summary.ToLine(s.Name)).ConfigureAwait(false);
+                    if (summary.NearEntries > 20)
+                        minNear = Math.Min(minNear, summary.NearRateHz);
+                }
+            }
+
+            await lines.WriteAsync(string.Create(CultureInfo.InvariantCulture,
+                $"sync: bots={flyers.Count} ships-tracked={ships} min-near-rate-hz={(minNear == double.MaxValue ? 0 : minNear):F1}")).ConfigureAwait(false);
+        }
+
+        var chatters = stats.Where(s => s.Session is { ChatReceived: > 0 }).ToList();
+        if (chatters.Count > 0 || o.ChatEcho)
+        {
+            await lines.WriteAsync($"chat: bots={chatters.Count} received={chatters.Sum(s => s.Session!.ChatReceived)} echoed={chatters.Sum(s => s.Session!.ChatEchoed)}").ConfigureAwait(false);
         }
     }
 

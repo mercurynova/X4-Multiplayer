@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../../tools/X4MP.FakeNode.Core/X4MP.FakeNode.Core.csproj" />
     <ProjectReference Include="../../src/X4MP.Protocol/X4MP.Protocol.csproj" />
   </ItemGroup>

@@ -44,7 +44,74 @@ public sealed class FakeClientSession
 
         /// <summary>Server tick of the newest frame that carried an entry of this ghost (an entry of an older frame arrived late and is ignored).</summary>
         public uint LastTick;
+
+        // --- player ships only (M3-05): what a wingman needs to follow the ship, and the arrival statistics
+        public bool IsPlayerShip;
+        public string Name = string.Empty;
+        public ushort ControllerPlayer;
+        public Vec3 Pos;
+        public Vec3 Vel;
+        public double Yaw;
+        public double Pitch;
+        public ushort StateFlags;
+        public double PoseAt;
+        public bool HasPose;
+        public FakeSyncStats? Sync;
     }
+
+    /// <summary>The newest replicated pose of a player ship, as a wingman or a test reads it.</summary>
+    public sealed record PlayerPose(uint NetId, string Name, ushort ControllerPlayer, ushort Sector, Vec3 Pos, Vec3 Vel, double Yaw, double Pitch, double AgeSeconds);
+
+    /// <summary>The distance within which a player ship counts as Near for <see cref="FakeSyncStats"/> (m3-plan 4.5).</summary>
+    public const double NearMetres = 15_000;
+
+    private volatile OwnPose _own = new(0, default);
+
+    private sealed record OwnPose(ushort Sector, Vec3 Pos);
+
+    /// <summary>Where this client's own ship is (set by the runner every tick): decides whether an entry of another ship counts as Near.</summary>
+    public void SetOwnPose(ushort sector, Vec3 position) => _own = new OwnPose(sector, position);
+
+    /// <summary>The player id the server gave this node (needed to recognise its own avatar and its own chat messages); 0 = unknown.</summary>
+    public int OwnPlayerId { get; set; }
+
+    /// <summary>The avatar the authority spawned for this node (<c>EntitySpawn</c> with this node as controller), once it arrived.</summary>
+    public (uint NetId, ushort Sector, Vec3 Position)? OwnAvatar { get; private set; }
+
+    private bool _ownGhostExcluded;
+    private uint _ownAvatarId;
+    private readonly TaskCompletionSource _ownAvatarArrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completes when the spawn of this node's own avatar arrived (<see cref="OwnAvatar"/> is set then).</summary>
+    public Task OwnAvatarReady => _ownAvatarArrived.Task;
+
+    /// <summary>
+    /// True once the server was found to leave this node's own ship out of its ghost set (<c>InterestChecksum</c> only matches without it): the avatar
+    /// answer is then no ghost. m3-plan M3-01 makes the server do this; before that the own avatar is a ghost like any other player ship.
+    /// </summary>
+    public bool OwnShipExcludedByServer => _ownGhostExcluded;
+
+    /// <summary>Messages received on the chat channels (newest last, capped at 200).</summary>
+    public IReadOnlyList<ChatLine> ChatLog
+    {
+        get
+        {
+            lock (_chatLog)
+                return [.. _chatLog];
+        }
+    }
+
+    private readonly List<ChatLine> _chatLog = [];
+
+    /// <summary>Answer every chat message of another player with <c>echo: &lt;text&gt;</c> on the same channel (<c>--chat-echo</c>).</summary>
+    public bool ChatEcho { get; set; }
+
+    public long ChatReceived { get; private set; }
+
+    public long ChatEchoed { get; private set; }
+
+    /// <summary>The prefix an echo starts with; a message that has it is never echoed again (two echo bots would answer each other for ever).</summary>
+    public const string EchoPrefix = "echo: ";
 
     /// <summary>An entry that arrived before its spawn (UDP Realtime overtakes the Control lane): held up to <see cref="HoldSeconds"/>.</summary>
     private readonly record struct HeldEntry(ReplicationEntry Entry, double GameTime, uint Tick, double At);
@@ -251,6 +318,8 @@ public sealed class FakeClientSession
                 break;
             case MsgType.InterestChecksum:
                 return CheckChecksum(MessageRegistry.Default.Decode<InterestChecksum>(frame));
+            case MsgType.ChatMessage:
+                return OnChat(MessageRegistry.Default.Decode<ChatMessage>(frame));
             case MsgType.TeamTable or MsgType.TeamRelations or MsgType.SessionSettings or MsgType.TeamMemberChanged
                 or MsgType.RelationProposal or MsgType.TeamRequestResult or MsgType.ReassignPlayerAssets:
                 return Teams.Handle(frame);
@@ -263,6 +332,12 @@ public sealed class FakeClientSession
     public static bool IsPersistent(EntityKind kind) => kind is
         EntityKind.Station or EntityKind.Gate or EntityKind.Accelerator or EntityKind.HighwayEntry
         or EntityKind.Satellite or EntityKind.NavBeacon or EntityKind.ResourceProbe or EntityKind.Mine or EntityKind.LaserTower;
+
+    /// <summary><c>EntityChange{Controller}</c> applied to a ghost (an avatar whose player left is parked: controller 0).</summary>
+    public long ControllerChanges { get; private set; }
+
+    /// <summary>The controller player (0 = none) a tracked player ship has now; null when it is no player ship ghost.</summary>
+    public int? ControllerOf(uint netId) => _ghosts.TryGetValue(netId, out var g) && g.IsPlayerShip ? g.ControllerPlayer : null;
 
     /// <summary>Ownership changes (<c>EntityChange</c> with an owner bit) applied to ghosts (M1-F3: a moved player's assets change team).</summary>
     public long OwnerChanges { get; private set; }
@@ -279,6 +354,14 @@ public sealed class FakeClientSession
 
         if ((change.Fields & ChangeField.OwnerPlayer) != 0)
             ghost.OwnerPlayer = change.OwnerPlayer;
+        if ((change.Fields & ChangeField.Controller) != 0)
+        {
+            ghost.ControllerPlayer = change.ControllerPlayer;
+            ControllerChanges++;
+        }
+
+        if ((change.Fields & ChangeField.Name) != 0)
+            ghost.Name = change.Name ?? string.Empty;
     }
 
     /// <summary>The net_ids of the ghosts this client believes are owned by <paramref name="player"/> in <paramref name="team"/>, in net_id order.</summary>
@@ -312,6 +395,21 @@ public sealed class FakeClientSession
             uint id = record.NetId;
             _tombstones.Remove(id);
             ushort sector = record.State?.Sector ?? 0;
+            bool playerShip = record.Origin == EntityOrigin.PlayerShip || record.ControllerPlayer != 0;
+            bool own = playerShip && OwnPlayerId != 0 && (record.ControllerPlayer == OwnPlayerId || (record.Origin == EntityOrigin.PlayerShip && record.OwnerPlayer == OwnPlayerId));
+            if (own)
+            {
+                _ownAvatarId = id;
+                var s = record.State;
+                OwnAvatar = (id, sector, s is null ? default : new Vec3(Quantize.PositionToMetres(s.Value.Px), Quantize.PositionToMetres(s.Value.Py), Quantize.PositionToMetres(s.Value.Pz)));
+                _ownAvatarArrived.TrySetResult();
+                if (_ownGhostExcluded)
+                {
+                    SpawnsApplied++;
+                    continue; // the server does not count this ship in the ghost set
+                }
+            }
+
             if (_ghosts.TryGetValue(id, out var existing))
             {
                 existing.OwnerTeam = record.OwnerTeam;
@@ -319,16 +417,99 @@ public sealed class FakeClientSession
                 existing.Sector = sector; // a refresh (resync)
                 existing.LastEntryAt = now;
                 existing.GotFull = false;
+                if (playerShip)
+                    NotePlayerRecord(existing, record);
             }
             else
             {
-                _ghosts[id] = new Ghost { Sector = sector, OwnerTeam = record.OwnerTeam, OwnerPlayer = record.OwnerPlayer, LastEntryAt = now };
+                var ghost = new Ghost { Sector = sector, OwnerTeam = record.OwnerTeam, OwnerPlayer = record.OwnerPlayer, LastEntryAt = now };
+                if (playerShip)
+                    NotePlayerRecord(ghost, record);
+                _ghosts[id] = ghost;
             }
 
             SpawnsApplied++;
             if (_held.Remove(id, out var held))
                 ReplayHeld(id, held);
         }
+    }
+
+    /// <summary>A player ship (avatar, host ship) is tracked: name, controller, the pose of its spawn record and a place for the arrival statistics.</summary>
+    private static void NotePlayerRecord(Ghost ghost, EntityRecord record)
+    {
+        ghost.IsPlayerShip = true;
+        ghost.Name = record.Name ?? string.Empty;
+        ghost.ControllerPlayer = record.ControllerPlayer;
+        ghost.Sync ??= new FakeSyncStats();
+        if (record.State is { } s)
+        {
+            ghost.Pos = new Vec3(Quantize.PositionToMetres(s.Px), Quantize.PositionToMetres(s.Py), Quantize.PositionToMetres(s.Pz));
+            ghost.Yaw = Quantize.RotationToRadians(s.Yaw);
+            ghost.Pitch = Quantize.RotationToRadians(s.Pitch);
+            ghost.Vel = default;
+            ghost.HasPose = true;
+        }
+    }
+
+    /// <summary>The newest replicated pose of the player ship whose name is <paramref name="playerName"/> (<c>[MP] Alice</c>, <c>[MP] Alice (offline)</c> and <c>Alice</c> all match); null when it is not known.</summary>
+    public PlayerPose? FindPlayerPose(string playerName)
+    {
+        string wanted = StripName(playerName);
+        double now = _clock();
+        foreach (var (id, g) in _ghosts.ToArray())
+        {
+            if (g.IsPlayerShip && g.HasPose && string.Equals(StripName(g.Name), wanted, StringComparison.OrdinalIgnoreCase))
+                return new PlayerPose(id, g.Name, g.ControllerPlayer, g.Sector, g.Pos, g.Vel, g.Yaw, g.Pitch, Math.Max(0, now - g.PoseAt));
+        }
+
+        return null;
+    }
+
+    /// <summary>Every player ship this client tracks, with what arrived for it so far (net_id order).</summary>
+    public IReadOnlyList<SyncSummary> SyncSummaries() =>
+        [.. _ghosts.ToArray().Where(g => g.Value.IsPlayerShip && g.Value.Sync is not null).OrderBy(g => g.Key).Select(g => g.Value.Sync!.Summarize(g.Key, g.Value.Name))];
+
+    /// <summary>Net_ids of the player ships this client currently sees as ghosts.</summary>
+    public IReadOnlyList<uint> PlayerShipIds => [.. _ghosts.ToArray().Where(g => g.Value.IsPlayerShip).Select(g => g.Key).Order()];
+
+    private static string StripName(string name)
+    {
+        string n = name.Trim();
+        if (n.StartsWith("[MP]", StringComparison.Ordinal))
+            n = n[4..].TrimStart();
+        const string offline = "(offline)";
+        if (n.EndsWith(offline, StringComparison.OrdinalIgnoreCase))
+            n = n[..^offline.Length].TrimEnd();
+        return n;
+    }
+
+    private IReadOnlyList<OutMessage> OnChat(ChatMessage message)
+    {
+        string text = message.Text ?? string.Empty;
+        var line = new ChatLine(message.FromPlayer, message.FromName ?? string.Empty, message.Channel, text);
+        lock (_chatLog)
+        {
+            _chatLog.Add(line);
+            if (_chatLog.Count > 200)
+                _chatLog.RemoveAt(0);
+        }
+
+        ChatReceived++;
+        if (!ChatEcho || message.FromPlayer == 0 || message.FromPlayer == OwnPlayerId || text.StartsWith(EchoPrefix, StringComparison.Ordinal)
+            || message.Channel is not (ChatChannel.All or ChatChannel.Team or ChatChannel.Whisper))
+            return [];
+
+        string reply = EchoPrefix + text;
+        if (reply.Length > 250)
+            reply = reply[..250];
+        var send = new ChatSendT
+        {
+            Channel = message.Channel,
+            ToPlayer = message.Channel == ChatChannel.Whisper ? message.FromPlayer : (ushort)0,
+            Text = reply,
+        };
+        ChatEchoed++;
+        return [new OutMessage(MsgType.ChatSend, MessageEncoder.EncodePayload(b => ChatSend.Pack(b, send), 320))];
     }
 
     private void ReplayHeld(uint id, List<HeldEntry> held)
@@ -466,8 +647,36 @@ public sealed class FakeClientSession
         ghost.LastTick = tick;
         if ((entry.Mask & ReplicationMask.Sector) != 0)
             ghost.Sector = entry.Sector;
+        if (ghost.IsPlayerShip)
+            TrackPose(ghost, entry, now);
         accepted.Add(entry);
         return true;
+    }
+
+    /// <summary>Merges one entry into the pose of a tracked player ship and records its arrival for the statistics.</summary>
+    private void TrackPose(Ghost ghost, in ReplicationEntry entry, double now)
+    {
+        if ((entry.Mask & ReplicationMask.Pos) != 0)
+            ghost.Pos = new Vec3(Quantize.PositionToMetres(entry.PosX), Quantize.PositionToMetres(entry.PosY), Quantize.PositionToMetres(entry.PosZ));
+        if ((entry.Mask & ReplicationMask.Rot) != 0)
+        {
+            ghost.Yaw = Quantize.RotationToRadians(entry.Yaw);
+            ghost.Pitch = Quantize.RotationToRadians(entry.Pitch);
+        }
+
+        if ((entry.Mask & ReplicationMask.Flags) != 0)
+            ghost.StateFlags = entry.StateFlags;
+        if ((entry.Mask & ReplicationMask.Vel) != 0)
+        {
+            bool coarse = (ghost.StateFlags & (ushort)StateFlags.VelCoarse) != 0;
+            ghost.Vel = new Vec3(Quantize.VelocityToMps(entry.VelX, coarse), Quantize.VelocityToMps(entry.VelY, coarse), Quantize.VelocityToMps(entry.VelZ, coarse));
+        }
+
+        ghost.HasPose = true;
+        ghost.PoseAt = now;
+        var own = _own;
+        bool near = own.Sector != 0 && ghost.Sector == own.Sector && (ghost.Pos - own.Pos).Length <= NearMetres;
+        ghost.Sync?.Record(now, near, ghost.Vel.Length);
     }
 
     private IReadOnlyList<OutMessage> CheckChecksum(InterestChecksum checksum)
@@ -477,6 +686,16 @@ public sealed class FakeClientSession
             hash ^= InterestHash.Mix(id);
         uint count = (uint)(_ghosts.Count + ChecksumCountSkew);
         ChecksumCountSkew = 0;
+
+        // The server may keep this node's own ship out of its ghost set (M3-01). When the checksum only matches without it, stop counting it.
+        if (_ownAvatarId != 0 && !_ownGhostExcluded && (checksum.Count != count || checksum.XorHash != hash)
+            && _ghosts.ContainsKey(_ownAvatarId) && checksum.Count == count - 1 && checksum.XorHash == (hash ^ InterestHash.Mix(_ownAvatarId)))
+        {
+            _ghosts.TryRemove(_ownAvatarId, out _);
+            _ownGhostExcluded = true;
+            hash ^= InterestHash.Mix(_ownAvatarId);
+            count--;
+        }
 
         if (checksum.Count == count && checksum.XorHash == hash)
         {
@@ -517,6 +736,8 @@ public sealed class FakeClientSession
 
         foreach (var (id, ghost) in snapshot)
         {
+            if (id == _ownAvatarId && _ownAvatarId != 0)
+                continue; // the server never replicates a node's own ship to it (it stays in the interest set, so it is a ghost without entries)
             if (now - ghost.LastEntryAt > StaleSeconds)
             {
                 Fail("stale-ghost", id, string.Create(CultureInfo.InvariantCulture, $"no entry for {now - ghost.LastEntryAt:F0} s"));
@@ -525,3 +746,6 @@ public sealed class FakeClientSession
         }
     }
 }
+
+/// <summary>One chat message a fake client received.</summary>
+public sealed record ChatLine(ushort FromPlayer, string FromName, ChatChannel Channel, string Text);

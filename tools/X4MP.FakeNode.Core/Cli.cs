@@ -256,6 +256,55 @@ public sealed record CliOptions
     /// <summary>inspect: only connect and listen; do not walk the join path.</summary>
     public bool NoJoin { get; init; }
 
+    /// <summary>
+    /// Use the sectors and gate links of this galaxy dump (the sitting-0 <c>galaxy_dump</c> JSON, see <see cref="GalaxyDump"/>) instead of generating them: the
+    /// <c>GalaxyMetadata</c> then carries real sector macros (M3-05). <c>--sectors</c> is ignored.
+    /// </summary>
+    public string? GalaxyFile { get; init; }
+
+    /// <summary>client/swarm: send <c>PlayerShip</c> after joining (the request every real client sends: "I stand in the host's ship, give me my avatar"), wait for the avatar and fly as it. Implied by <see cref="Wingman"/>.</summary>
+    public bool Avatars { get; init; }
+
+    /// <summary>client/swarm: fly in formation or orbit around the replicated ship of this player (<c>--wingman NAME</c>); the player's own bot never follows itself. Implies <see cref="Avatars"/>.</summary>
+    public string? Wingman { get; init; }
+
+    /// <summary>Wingman top speed in m/s (default 350, a little above the 250 m/s cruise of <see cref="FakePlayer"/>).</summary>
+    public double WingmanSpeed { get; init; } = 350;
+
+    /// <summary>Wingman distance from the target in metres (default 400).</summary>
+    public double WingmanRadius { get; init; } = 400;
+
+    /// <summary>Wingman station: <c>orbit</c> (default) or <c>formation</c>.</summary>
+    public WingmanMode WingmanMode { get; init; } = WingmanMode.Orbit;
+
+    /// <summary>client/swarm: answer every chat message of another player with <c>echo: text</c> on the same channel.</summary>
+    public bool ChatEcho { get; init; }
+
+    /// <summary>authority: the ship macro of every avatar (default the Argon Elite, <see cref="FakeAvatarOptions.DefaultStarterMacro"/>).</summary>
+    public string AvatarMacro { get; init; } = FakeAvatarOptions.DefaultStarterMacro;
+
+    /// <summary>authority: how far from the host ship a new avatar appears, metres (default 450, spread +-150).</summary>
+    public double AvatarOffset { get; init; } = 450;
+
+    /// <summary>authority: the host ship is named <c>[MP] &lt;name&gt;</c> (default <c>Host</c>).</summary>
+    public string HostName { get; init; } = "Host";
+
+    /// <summary>client/swarm: the ship macro a client says it stands in with its <c>PlayerShip</c> request (the save's player ship; default the Elite).</summary>
+    public string HostShipMacro { get; init; } = FakeAvatarOptions.DefaultStarterMacro;
+
+    /// <summary>True when clients take part in the avatar flow (<c>--avatars</c> or <c>--wingman</c>).</summary>
+    public bool AvatarsActive => Avatars || Wingman is not null;
+
+    /// <summary>The fake galaxy these options describe: generated from the seed, or built from <see cref="GalaxyFile"/> (real sector macros and links).</summary>
+    public FakeGalaxy BuildGalaxy()
+    {
+        var shape = new GalaxyOptions { SectorCount = Sectors, ShipCount = Ships, MaxShipsPerSector = MaxShipsPerSector };
+        if (GalaxyFile is null)
+            return FakeGalaxy.Generate(Seed, shape);
+        var (dump, error) = GalaxyDump.Load(GalaxyFile);
+        return dump is null ? throw new InvalidOperationException(error) : FakeGalaxy.FromDump(Seed, shape, dump);
+    }
+
     /// <summary>The injection that changes how the TCP stream behaves (latency, slow reader) is on.</summary>
     public bool InjectsStreamFaults => LatencyMs > 0 || JitterMs > 0 || SlowReader is not null;
 
@@ -330,6 +379,13 @@ public static class CliParser
           --expect-session-save   authority: the session starts from a stored save: download and verify the SessionSaveInfo save, "load" it, then upload the SessionStart checkpoint (fails when no SessionSaveInfo arrives)
           --save-mb N          authority: size of the fake save it uploads (default 4)
           --save-file PATH     authority: upload this real .xml.gz save verbatim (real SHA-256, empty-station manifest) instead of a generated one
+          --galaxy-file FILE   use the sectors and gate links of this galaxy dump (the sitting-0 galaxy_dump JSON) for GalaxyMetadata instead of generating them
+          --avatars            client/swarm: after joining send PlayerShip, wait for the avatar the authority spawns (next to the host ship) and fly as it
+          --wingman NAME       client/swarm: fly near the replicated ship of player NAME (implies --avatars); the bot named NAME itself flies its --behavior
+          --wingman-speed M    wingman top speed in m/s (default 350); --wingman-radius M (default 400); --wingman-mode orbit|formation
+          --chat-echo          client/swarm: answer chat messages of other players with "echo: <text>" on the same channel
+          --avatar-macro MACRO authority: ship macro of every avatar (default the Argon Elite ship_arg_s_fighter_01_a_macro); --avatar-offset M (default 450); --host-name NAME (default Host)
+          --host-ship-macro MACRO   clients: the macro of the ship they say they stand in (the host's ship, default the Elite)
           --trade              clients propose ship-for-credits trades to each other and accept incoming ones (implies --team-assets)
           --trade-fail PCT     authority: fail PCT percent of the AssetTransferOrders (the server must refund and unlock)
           --trade-timeout PCT  authority: withhold the confirm of PCT percent of the orders; a third of those never answer a TradeQuery either (InDoubt)
@@ -388,7 +444,8 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "expect-session-save" or "trade" or "no-join" or "rotate-ip" or "dupe-attack" or "loan-default" or "selftest";
+            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "expect-session-save" or "trade" or "no-join" or "rotate-ip" or "dupe-attack" or "loan-default" or "selftest"
+                or "avatars" or "chat-echo";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -406,6 +463,8 @@ public static class CliParser
                     "dupe-attack" => o with { DupeAttack = on },
                     "selftest" => o with { SelfTest = on },
                     "loan-default" => o with { LoanDefault = on },
+                    "avatars" => o with { Avatars = on },
+                    "chat-echo" => o with { ChatEcho = on },
                     _ => o with { Udp = on },
                 };
                 continue;
@@ -457,6 +516,8 @@ public static class CliParser
                 return Fail($"--save-file: file not found: {o.SaveFile}");
         }
 
+        if ((o.Avatars || o.Wingman is not null || o.ChatEcho) && !economyCommand)
+            return Fail("--avatars, --wingman and --chat-echo are client/swarm options");
         if (o.Relations != RelationsPreset.None && command != FakeNodeCommand.Swarm)
             return Fail("--relations is a swarm option");
         return new CliParseResult(o, null);
@@ -498,6 +559,30 @@ public static class CliParser
                 return PositiveInt(o, key, value, v => v > 4096 ? null : o with { SaveMb = v });
             case "save-file":
                 return (o with { SaveFile = Path.GetFullPath(value) }, null);
+            case "galaxy-file":
+                string galaxyPath = Path.GetFullPath(value);
+                var (galaxyDump, galaxyError) = GalaxyDump.Load(galaxyPath);
+                return galaxyDump is null ? (o, $"--galaxy-file: {galaxyError}") : (o with { GalaxyFile = galaxyPath }, null);
+            case "wingman":
+                return value.Length is >= 1 and <= 32 ? (o with { Wingman = value }, null) : (o, $"--wingman must be a player name of 1-32 characters (got '{value}')");
+            case "wingman-speed":
+                return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double wingSpeed) && wingSpeed is >= 1 and <= 5000
+                    ? (o with { WingmanSpeed = wingSpeed }, null) : (o, $"--wingman-speed must be 1 to 5000 m/s (got '{value}')");
+            case "wingman-radius":
+                return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double wingRadius) && wingRadius is >= 10 and <= 14000
+                    ? (o with { WingmanRadius = wingRadius }, null) : (o, $"--wingman-radius must be 10 to 14000 m (got '{value}')");
+            case "wingman-mode":
+                return Enum.TryParse<WingmanMode>(value, ignoreCase: true, out var wm) && Enum.IsDefined(wm)
+                    ? (o with { WingmanMode = wm }, null) : (o, $"--wingman-mode must be orbit|formation (got '{value}')");
+            case "avatar-macro":
+                return value.Length is >= 3 and <= 100 ? (o with { AvatarMacro = value }, null) : (o, $"--avatar-macro must be a ship macro id (got '{value}')");
+            case "host-ship-macro":
+                return value.Length is >= 3 and <= 100 ? (o with { HostShipMacro = value }, null) : (o, $"--host-ship-macro must be a ship macro id (got '{value}')");
+            case "avatar-offset":
+                return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double avatarOffset) && avatarOffset is >= 0 and <= 10000
+                    ? (o with { AvatarOffset = avatarOffset }, null) : (o, $"--avatar-offset must be 0 to 10000 m (got '{value}')");
+            case "host-name":
+                return value.Length is >= 1 and <= 24 ? (o with { HostName = value }, null) : (o, $"--host-name must be 1-24 characters (got '{value}')");
             case "loss":
                 string number = value.TrimEnd('%');
                 return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double loss) && loss is >= 0 and <= 100

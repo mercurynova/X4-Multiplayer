@@ -16,8 +16,8 @@ switch (options.Command)
         return 0;
 
     case FakeNodeCommand.Galaxy:
-        var galaxy = FakeGalaxy.Generate(options.Seed, new GalaxyOptions { SectorCount = options.Sectors, ShipCount = options.Ships, MaxShipsPerSector = options.MaxShipsPerSector });
-        Console.WriteLine($"seed={options.Seed} {GalaxyStats.Of(galaxy)}");
+        var galaxy = options.BuildGalaxy();
+        Console.WriteLine($"seed={options.Seed} {GalaxyStats.Of(galaxy)}" + (options.GalaxyFile is null ? string.Empty : $" galaxy-file={Path.GetFileName(options.GalaxyFile)} ignored-gate-targets={galaxy.IgnoredGateTargets}"));
         return 0;
 
     default:

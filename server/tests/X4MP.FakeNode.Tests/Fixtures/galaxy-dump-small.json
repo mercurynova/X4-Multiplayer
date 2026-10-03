@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "generator": "synthetic FakeNode test fixture (not a game dump)",
+  "sector_count": 7,
+  "md_reported_count": 7,
+  "sectors": [
+    {"macro": "cluster_02_sector002_macro", "cluster": "cluster_02_macro", "gates": ["cluster_02_sector001_macro", "cluster_03_sector001_macro", "cluster_99_sector001_macro"]},
+    {"macro": "cluster_01_sector001_macro", "cluster": "cluster_01_macro", "gates": ["cluster_01_sector002_macro", "cluster_02_sector001_macro"]},
+    {"macro": "cluster_09_sector001_macro", "cluster": "cluster_09_macro", "gates": []},
+    {"macro": "cluster_01_sector003_macro", "cluster": "cluster_01_macro", "gates": ["cluster_01_sector002_macro"]},
+    {"macro": "cluster_01_sector002_macro", "cluster": "cluster_01_macro", "gates": ["cluster_01_sector001_macro", "cluster_01_sector003_macro"]},
+    {"macro": "cluster_03_sector001_macro", "cluster": "cluster_03_macro", "gates": ["cluster_02_sector002_macro"]},
+    {"macro": "cluster_02_sector001_macro", "cluster": "cluster_02_macro", "gates": ["cluster_01_sector001_macro", "cluster_02_sector002_macro"]}
+  ]
+}

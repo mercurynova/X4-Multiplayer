@@ -60,6 +60,13 @@ public sealed class FakeClientHandle
         }
     }
 
+    /// <summary>Sends a chat message (<c>ChatSend</c>) as this client: all, team, or a whisper to <paramref name="toPlayer"/> (m3-plan 4.11).</summary>
+    public async Task SendChatAsync(ChatChannel channel, string text, ushort toPlayer = 0, CancellationToken ct = default)
+    {
+        var chat = new ChatSendT { Channel = channel, ToPlayer = toPlayer, Text = text };
+        await _link.Client.SendPayloadAsync(MsgType.ChatSend, MessageEncoder.EncodePayload(b => ChatSend.Pack(b, chat), 320), ct).ConfigureAwait(false);
+    }
+
     /// <summary>Called by the client's frame handler for every <c>IntentResult</c>.</summary>
     internal void OnIntentResult(ulong key, IntentStatus status, RejectReason reason)
     {
