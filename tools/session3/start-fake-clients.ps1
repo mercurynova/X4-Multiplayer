@@ -52,6 +52,8 @@ $null = Ensure-Published -Force:$Rebuild
 $server = Start-S3Server $serverExe @{ X4MP__Net__AdminPassword = $NodeAdminPassword; X4MP__Mods__Enforcement = $(if ($Strict) { 'Strict' } else { 'Warn' }) }
 try {
     $s = Initialize-AdminSession
+    Set-S3NexusEntry
+    Set-S3Enforcement -Strict:$Strict
     Write-Host "Server is up. Admin GUI: $guiUrl"
     if ($SaveName) {
         & (Join-Path $PSScriptRoot 'upload-save.ps1') -SaveName $SaveName -UserId $UserId -HttpPort $Ports.Http

@@ -1,0 +1,8 @@
+# Session-3 dry run: an expired launch.json written by tools/session3/write-launch.ps1 -Expired is ignored and deleted (criterion 16).
+init
+frame 60Hz 120
+expect-no-file extension/launch.json
+expect-file extension/logs/x4mp.log launch.json expired
+expect-no-log joining
+expect-no-secret ${pw}
+shutdown

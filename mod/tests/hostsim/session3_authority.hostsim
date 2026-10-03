@@ -1,0 +1,54 @@
+# Session-3 dry run, topology 2 (mod/tests/hostsim/session3_dry_run.ps1): the real x4mp.dll is the AUTHORITY of the session that
+# tools/session3/start-fake-clients.ps1 created from an uploaded save; that script then starts 3 FakeNode clients (it waits for Running).
+# Vars: tcp, apw (the in-game admin password the script printed), sim (authority_sim.ps1), admin_url, admin_pw, ckpt_src, ckpt_src2, clients_log.
+init
+set game_time 4000
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Host","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-lua loadSave 3000 contains x4mp_
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+reload
+frame 60Hz 240
+load_save x4mp_s3_authority
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+expect-lua x4mp.status 3000 json $.role == authority
+expect-file extension/logs/x4mp.log Welcome: player_id=
+
+# RequestSave{SessionStart}
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;2"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_02_sector001_macro|ship_s|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log authority: SaveGame requested as x4mp_ckpt_
+expect-file extension/logs/x4mp.log authority: checkpoint x4mp_ckpt_
+expect-file extension/logs/x4mp.log self-spawn sent net_id=1 game_time=4242.500
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+
+# the script now starts the FakeNode clients: stay connected while they download the checkpoint
+frame 60Hz 1500
+
+# "Save now" (the GUI button "Request save now" calls this API): a second checkpoint
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode post -Url "${admin_url}" -Password "${admin_pw}" -Path "/api/v1/sessions/{current}/request-save"
+frame 60Hz 60
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;1"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_01_sector001_macro|ship_s|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src2}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4300.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log SaveStarted sent (game_time 4300.000
+expect-no-log self-spawn sent net_id=2
+frame 60Hz 60
+shutdown
