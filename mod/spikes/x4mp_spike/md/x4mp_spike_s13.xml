@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  x4mp_spike_s13 : MD side of the session-4 sitting-0 spike blocks (M3-002, spikes S13.1, S13.2c, S13.7, S13.8, S13.9, S13.11).
+  Lua side: ui/x4mp_spike_s13.lua (which also owns S13.12, the chat block, with no MD part).
+  Procedures: docs/m3-plan.md section 5; user script: docs/in-game-session-4.md sitting 0.
+
+  Convention (mod/spikes/README.md): Lua -> MD is AddUITriggeredEvent("X4MP_Spike2", control, value)
+    -> <event_ui_triggered screen="'X4MP_Spike2'" control="'<control>'"/>, value = event.param3.
+  A Lua table is passed as an MD list (proven in session 1, step S3: sendMD("s3_destroy_list", luaIds)); a component
+  travels as ConvertStringToLuaID(id), which MD sees as the component itself.
+
+  Controls handled here (the Lua file sends them; nothing runs by itself):
+    s13_dress     [obj, name, minhull]          S13.1 : set_object_name, set_object_min_hull, forced radar, known; remembers
+                                                        the object in md.$X4MP_S13_Persist (table keyed by the component, S13.8)
+    s13_velocity  [obj, vx, vy, vz, constvel]   S13.2c: set_object_velocity (linear, m/s)
+    s13_seta_off  [mode]                        S13.9 : toggle_timewarp / set_timewarp_factor only while player.timewarp.active
+    s13_teams     [minhull]                     S13.7 : teams 1 and 2: unlock, activate, relations, lock; two inert ships
+    s13_teams_end []                            S13.7 : removes the two test ships (never anything else)
+    s13_persist   []                            S13.8 : reads md.$X4MP_S13_Persist back (does the table keyed by a component survive a reload?)
+    s13_galaxy    []                            S13.11: all sectors and gate destinations -> Lua events 'x4mp_spike.s13_galaxy'
+  MD -> Lua events: 'x4mp_spike.s13_teams_ship_tag' (param "<team number>") immediately followed by 'x4mp_spike.s13_teams_ship' (param = the ship; the Lua side converts it with ConvertStringTo64Bit, as the on-foot spike does for actors), 'x4mp_spike.s13_galaxy' (param "R;<records>" / "E;<count>").
+  Log lines: '[X4MP-SPIKE] S13.<n> <PASS|FAIL|INFO> what=... k=v'.
+
+  Syntax sources (x4-unpacked/libraries/common.xsd): set_object_name 34513, set_object_min_hull 34474, set_object_forced_radar_visible
+  33925, set_known 20401, set_object_velocity 34829 (linear x/y/z), set_object_active 33743, toggle_timewarp 38975,
+  set_timewarp_factor 39187, set_faction_active 20324, set_faction_relation 35318, set_faction_relation_locked 35358, create_ship 25029.
+  Properties (scriptproperties.xml): player.timewarp.active/available/factor 2550-2552, object hullpercentage 174, speed 62, velocity 61.
+  Galaxy recipe: find_sector multiple + find_gate per sector, as mod/extension/x4mp/md/x4mp_galaxy.xml (proven in session 2, S7).
+
+  Safety: the player's ship, its container and its occupied ship are never named, hull-limited, moved or removed.
+-->
+<mdscript name="X4MP_SpikeS13" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <!-- ===================================== S13.1: dress an object the native probe spawned ===================================== -->
+    <cue name="S13_Dress" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s13_dress'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Obj" exact="@event.param3.{1}"/>
+        <set_value name="$Name" exact="@event.param3.{2}"/>
+        <set_value name="$MinHull" exact="@event.param3.{3}"/>
+        <do_if value="not @$Obj.exists">
+          <debug_text text="'[X4MP-SPIKE] S13.1 FAIL what=dress result=object_not_found obj=' + $Obj + ' name=' + $Name" filter="general" context="false"/>
+        </do_if>
+        <do_elseif value="$Obj == player.ship or $Obj == player.occupiedship or $Obj == player.container">
+          <debug_text text="'[X4MP-SPIKE] S13.1 FAIL what=dress result=refused_player_ship obj=' + $Obj" filter="general" context="false"/>
+        </do_elseif>
+        <do_else>
+          <set_object_name object="$Obj" name="$Name"/>
+          <set_object_min_hull object="$Obj" exact="$MinHull"/>
+          <set_object_forced_radar_visible object="$Obj" visible="true"/>
+          <set_known object="$Obj" known="true"/>
+          <do_if value="not @md.$X4MP_S13_Persist">
+            <set_value name="md.$X4MP_S13_Persist" exact="table[]"/>
+          </do_if>
+          <set_value name="md.$X4MP_S13_Persist.{$Obj}" exact="table[$idcode = $Obj.idcode, $name = $Name, $macro = $Obj.macro.id, $sector = @$Obj.sector.macro.id]"/>
+          <debug_text text="'[X4MP-SPIKE] S13.1 PASS what=dress obj=' + $Obj + ' name_now=' + $Obj.name + ' name_wanted=' + $Name + ' owner=' + @$Obj.owner.id + ' macro=' + $Obj.macro.id + ' idcode=' + $Obj.idcode + ' known=' + $Obj.isknown + ' radarvisible=' + $Obj.isradarvisible + ' hullpct=' + $Obj.hullpercentage + ' minhull_set=' + $MinHull + ' active=' + $Obj.isactive + ' pilot=' + (@$Obj.pilot != null) + ' relation_to_player=' + @$Obj.relationto.{faction.player} + ' dist_to_player_m=' + (player.ship.distanceto.{$Obj} / 1m)" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- ===================================== S13.2c: velocity assist ===================================== -->
+    <cue name="S13_Velocity" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s13_velocity'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Obj" exact="@event.param3.{1}"/>
+        <set_value name="$Vx" exact="@event.param3.{2}"/>
+        <set_value name="$Vy" exact="@event.param3.{3}"/>
+        <set_value name="$Vz" exact="@event.param3.{4}"/>
+        <set_value name="$Const" exact="@event.param3.{5} == 1"/>
+        <do_if value="not @$Obj.exists">
+          <debug_text text="'[X4MP-SPIKE] S13.2 FAIL what=velocity result=object_not_found obj=' + $Obj" filter="general" context="false"/>
+        </do_if>
+        <do_elseif value="$Obj == player.ship or $Obj == player.occupiedship or $Obj == player.container">
+          <debug_text text="'[X4MP-SPIKE] S13.2 FAIL what=velocity result=refused_player_ship obj=' + $Obj" filter="general" context="false"/>
+        </do_elseif>
+        <do_else>
+          <set_object_velocity object="$Obj" constantvel="$Const">
+            <linear x="$Vx" y="$Vy" z="$Vz"/>
+          </set_object_velocity>
+          <debug_text text="'[X4MP-SPIKE] S13.2 PASS what=velocity_set obj=' + $Obj + ' wanted=' + $Vx + ',' + $Vy + ',' + $Vz + ' constvel=' + $Const + ' speed_now_mps=' + $Obj.speed + ' velocity_now=' + $Obj.velocity.x + ',' + $Obj.velocity.y + ',' + $Obj.velocity.z + ' active=' + $Obj.isactive + ' (a speed of 0 means the action does nothing on an inactive object)'" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- ===================================== S13.9: SETA off ===================================== -->
+    <cue name="S13_SetaOff" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s13_seta_off'"/>
+      </conditions>
+      <actions>
+        <set_value name="md.$X4MP_S13_SetaMode" exact="if @event.param3 then event.param3 else 'toggle'"/>
+        <set_value name="$Mode" exact="md.$X4MP_S13_SetaMode"/>
+        <debug_text text="'[X4MP-SPIKE] S13.9 INFO what=seta_md_before mode=' + $Mode + ' timewarp_active=' + player.timewarp.active + ' available=' + player.timewarp.available + ' factor=' + player.timewarp.factor" filter="general" context="false"/>
+        <do_if value="player.timewarp.active">
+          <do_if value="$Mode == 'factor'">
+            <set_timewarp_factor/>
+          </do_if>
+          <do_else>
+            <toggle_timewarp/>
+          </do_else>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP-SPIKE] S13.9 INFO what=seta_md_not_active (turn SETA on first; nothing was toggled)'" filter="general" context="false"/>
+        </do_else>
+      </actions>
+      <cues>
+        <cue name="S13_SetaOff_Check">
+          <delay exact="500ms"/>
+          <actions>
+            <do_if value="player.timewarp.active and md.$X4MP_S13_SetaMode != 'factor'">
+              <!-- the toggle did not switch it off: try the factor reset as the second documented action -->
+              <set_timewarp_factor/>
+              <debug_text text="'[X4MP-SPIKE] S13.9 INFO what=seta_md_second_try action=set_timewarp_factor_reset'" filter="general" context="false"/>
+            </do_if>
+          </actions>
+          <cues>
+            <cue name="S13_SetaOff_Result">
+              <delay exact="500ms"/>
+              <actions>
+                <debug_text text="'[X4MP-SPIKE] S13.9 ' + (if player.timewarp.active then 'FAIL' else 'PASS') + ' what=seta_md_after timewarp_active=' + player.timewarp.active + ' factor=' + player.timewarp.factor + ' mode=' + md.$X4MP_S13_SetaMode" filter="general" context="false"/>
+              </actions>
+            </cue>
+          </cues>
+        </cue>
+      </cues>
+    </cue>
+
+    <!-- ===================================== S13.7: team factions, relations, colours, min hull ===================================== -->
+    <!-- The product (M3-08) has no libraries/factions.xml yet, so this uses the spike's own x4mp_team_1..8 library diffs
+         (libraries/factions.xml, colors.xml), modelled on ADR-016 / m3-plan 4.9. M3-08 owns the product version. -->
+    <cue name="S13_Teams" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s13_teams'"/>
+      </conditions>
+      <actions>
+        <set_value name="$MinHull" exact="if @event.param3 then event.param3 else 50"/>
+        <set_value name="$Teams" exact="[faction.x4mp_team_1, faction.x4mp_team_2]"/>
+        <do_for_each name="$T" in="$Teams" counter="$K">
+          <!-- ADR-016 with the 2026-10-01 correction: unlock, set, relock; only the team factions are locked, never player -->
+          <set_faction_relation_locked faction="$T" locked="false"/>
+          <set_faction_active faction="$T" active="true"/>
+          <set_faction_known faction="$T" known="true"/>
+        </do_for_each>
+        <!-- team 1 allied (+0.75, ADR-016), team 2 hostile (-1.0), both directions -->
+        <set_faction_relation faction="faction.x4mp_team_1" otherfaction="faction.player" value="0.75"/>
+        <set_faction_relation faction="faction.player" otherfaction="faction.x4mp_team_1" value="0.75"/>
+        <set_faction_relation faction="faction.x4mp_team_2" otherfaction="faction.player" value="-1.0"/>
+        <set_faction_relation faction="faction.player" otherfaction="faction.x4mp_team_2" value="-1.0"/>
+        <do_for_each name="$T" in="$Teams">
+          <set_faction_relation_locked faction="$T" locked="true"/>
+        </do_for_each>
+        <debug_text text="'[X4MP-SPIKE] S13.7 INFO what=teams_state team1_active=' + faction.x4mp_team_1.isactive + ' team2_active=' + faction.x4mp_team_2.isactive + ' t1_to_player=' + faction.x4mp_team_1.relationto.{faction.player} + ' player_to_t1=' + faction.player.relationto.{faction.x4mp_team_1} + ' t2_to_player=' + faction.x4mp_team_2.relationto.{faction.player} + ' player_to_t2=' + faction.player.relationto.{faction.x4mp_team_2} + ' t1_locked=' + faction.x4mp_team_1.isrelationlocked + ' t2_locked=' + faction.x4mp_team_2.isrelationlocked + ' player_locked=' + faction.player.isrelationlocked + ' (player_locked must be 0)'" filter="general" context="false"/>
+
+        <!-- two inert Argon fighters 1.5 km from the player ship, one per team (the probe's native ghost_spawn makes its own under team 2) -->
+        <do_if value="not @md.$X4MP_S13_TeamShips">
+          <set_value name="md.$X4MP_S13_TeamShips" exact="[null, null]"/>
+        </do_if>
+        <do_all exact="2" counter="$K">
+          <set_value name="$Sx" exact="if $K == 1 then -250 else 250"/>
+          <create_ship name="$Ship" macro="macro.ship_arg_s_fighter_01_a_macro" sector="player.sector">
+            <owner exact="$Teams.{$K}"/>
+            <loadout>
+              <level exact="0.5"/>
+            </loadout>
+            <safepos object="player.ship" x="$Sx * 1m" y="0m" z="1500m"/>
+          </create_ship>
+          <do_if value="$Ship">
+            <set_object_active object="$Ship" activate="false"/>
+            <set_object_name object="$Ship" name="'MP Team ' + $K + ' (test)'"/>
+            <set_object_min_hull object="$Ship" exact="$MinHull"/>
+            <set_object_forced_radar_visible object="$Ship" visible="true"/>
+            <set_known object="$Ship" known="true"/>
+            <set_value name="md.$X4MP_S13_TeamShips.{$K}" exact="$Ship"/>
+            <raise_lua_event name="'x4mp_spike.s13_teams_ship_tag'" param="'' + $K"/>
+            <raise_lua_event name="'x4mp_spike.s13_teams_ship'" param="$Ship"/>
+            <debug_text text="'[X4MP-SPIKE] S13.7 PASS what=team_ship team=' + $K + ' ship=' + $Ship + ' owner=' + $Ship.owner.id + ' relation_to_player=' + $Ship.relationto.{faction.player} + ' minhull_set=' + $MinHull + ' active=' + $Ship.isactive + ' pilot=' + (@$Ship.pilot != null)" filter="general" context="false"/>
+          </do_if>
+          <do_else>
+            <debug_text text="'[X4MP-SPIKE] S13.7 FAIL what=team_ship team=' + $K + ' result=create_ship_null'" filter="general" context="false"/>
+          </do_else>
+        </do_all>
+      </actions>
+    </cue>
+
+    <cue name="S13_TeamsEnd" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s13_teams_end'"/>
+      </conditions>
+      <actions>
+        <do_all exact="2" counter="$K">
+          <set_value name="$Ship" exact="@md.$X4MP_S13_TeamShips.{$K}"/>
+          <do_if value="@$Ship.exists and $Ship != player.ship and $Ship != player.occupiedship">
+            <debug_text text="'[X4MP-SPIKE] S13.7 INFO what=team_ship_state team=' + $K + ' hullpct=' + $Ship.hullpercentage + ' exists=true (hull must not be below the minimum set)'" filter="general" context="false"/>
+            <destroy_object object="$Ship" explosion="false"/>
+          </do_if>
+          <do_else>
+            <debug_text text="'[X4MP-SPIKE] S13.7 INFO what=team_ship_state team=' + $K + ' exists=false (destroyed or never created)'" filter="general" context="false"/>
+          </do_else>
+        </do_all>
+        <set_value name="md.$X4MP_S13_TeamShips" exact="[null, null]"/>
+      </actions>
+    </cue>
+
+    <!-- ===================================== S13.8: an MD table keyed by a component, after save + reload ===================================== -->
+    <cue name="S13_Persist" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s13_persist'"/>
+      </conditions>
+      <actions>
+        <do_if value="not @md.$X4MP_S13_Persist">
+          <debug_text text="'[X4MP-SPIKE] S13.8 FAIL what=md_table result=table_missing (never dressed an object, or the table did not survive the save)'" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <set_value name="$Keys" exact="md.$X4MP_S13_Persist.keys.list"/>
+          <do_if value="$Keys.count == 0">
+            <debug_text text="'[X4MP-SPIKE] S13.8 FAIL what=md_table result=table_empty'" filter="general" context="false"/>
+          </do_if>
+          <do_for_each name="$Key" in="$Keys">
+            <set_value name="$Row" exact="md.$X4MP_S13_Persist.{$Key}"/>
+            <debug_text text="'[X4MP-SPIKE] S13.8 ' + (if @$Key.exists then 'PASS' else 'FAIL') + ' what=md_table_entry key=' + $Key + ' key_exists=' + (@$Key.exists == true) + ' idcode_saved=' + $Row.$idcode + ' idcode_now=' + @$Key.idcode + ' sector_saved=' + $Row.$sector + ' sector_now=' + @$Key.sector.macro.id + ' name_saved=' + $Row.$name + ' name_now=' + @$Key.name" filter="general" context="false"/>
+          </do_for_each>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- ===================================== S13.11: galaxy dump ===================================== -->
+    <cue name="S13_Galaxy" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Spike2'" control="'s13_galaxy'"/>
+      </conditions>
+      <actions>
+        <find_sector name="$Sectors" multiple="true"/>
+        <set_value name="$Chunk" exact="''"/>
+        <set_value name="$InChunk" exact="0"/>
+        <do_for_each name="$Sec" in="$Sectors">
+          <set_value name="$Gates" exact="''"/>
+          <find_gate name="$GateObjs" space="$Sec" multiple="true"/>
+          <do_for_each name="$Gate" in="$GateObjs">
+            <set_value name="$Dest" exact="@$Gate.destination.sector.macro.id"/>
+            <do_if value="$Dest != null">
+              <do_if value="$Gates != ''">
+                <set_value name="$Gates" exact="$Gates + ','"/>
+              </do_if>
+              <set_value name="$Gates" exact="$Gates + $Dest"/>
+            </do_if>
+          </do_for_each>
+          <set_value name="$ClusterId" exact="@$Sec.cluster.macro.id"/>
+          <do_if value="$ClusterId == null">
+            <set_value name="$ClusterId" exact="''"/>
+          </do_if>
+          <do_if value="$Chunk != ''">
+            <set_value name="$Chunk" exact="$Chunk + ';'"/>
+          </do_if>
+          <set_value name="$Chunk" exact="$Chunk + $Sec.macro.id + '|' + $ClusterId + '|' + $Gates"/>
+          <set_value name="$InChunk" exact="$InChunk + 1"/>
+          <do_if value="$InChunk ge 30">
+            <raise_lua_event name="'x4mp_spike.s13_galaxy'" param="'R;' + $Chunk"/>
+            <set_value name="$Chunk" exact="''"/>
+            <set_value name="$InChunk" exact="0"/>
+          </do_if>
+        </do_for_each>
+        <do_if value="$Chunk != ''">
+          <raise_lua_event name="'x4mp_spike.s13_galaxy'" param="'R;' + $Chunk"/>
+        </do_if>
+        <raise_lua_event name="'x4mp_spike.s13_galaxy'" param="'E;' + $Sectors.count"/>
+        <debug_text text="'[X4MP-SPIKE] S13.11 INFO what=md_galaxy_sent sectors=' + $Sectors.count" filter="general" context="false"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

@@ -490,3 +490,10 @@ Log keys (step `S10.n`; `S10.JAN` = janitor, `S10.CTL` = run control, `S10.MD` =
 
 Not implemented: S10.10 (two-player smoke test; needs the M3 build and two PCs). The L/XL bridge repeat of S10.3 is done by hand: stand on the bridge and run `/x4mpspike onfoot1 step=3`.
 Deviation from the research table: S10.11 gets the corridor door from `get_room_definition ... doors=` for the entertainment corridor group (seeded; contains `room_arg_corridor_04_macro`) instead of naming a fixed corridor macro, because a door name is only available through that action.
+
+## Session 4 (sitting 0) blocks: `ui/x4mp_spike_s13.lua` + `md/x4mp_spike_s13.xml` (M3-002)
+
+`dress`, `velocity`, `seta_off`, `seta_watch`, `teams_product` (+ `teams_report`, `teams_end`), `md_table`, `galaxy_dump`, `chat`. The native probe raises
+`x4mp.spike_dress` / `x4mp.spike_velocity` / `x4mp.spike_seta_off`; the Lua file turns them into MD calls (`X4MP_Spike2` controls `s13_*`). Header of the
+Lua file lists every argument. Test without X4: `luajit mod/spikes/tests/spike_s13_test.lua <temp folder>` (stub game). XML check against the unpacked XSDs:
+`python tools/validate-x4-xml.py --x4-unpacked <x4-unpacked> --check-properties mod/spikes/x4mp_spike`. User script: `docs/in-game-session-4.md` Sitting 0.
