@@ -4,6 +4,9 @@
     <AssemblyName>x4mp-server</AssemblyName>
     <RootNamespace>X4MP.Server</RootNamespace>
     <Version>0.1.0</Version>
+    <!-- Declared so the lock file always carries the win-x64 and linux-x64 runtime entries: publishing with a runtime id or a publish profile
+         then never rewrites packages.lock.json (task M2-14; a publish-modified copy broke a locked restore twice). -->
+    <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
     <WebDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', 'web'))</WebDir>
   </PropertyGroup>
