@@ -477,3 +477,10 @@ What M3-10 / M3-11 need to know:
 - **expect-ghost** is parsed and validated but only evaluates when samples exist (`ghost-sample <player> <m>`); without samples it prints `STUB ... not evaluated`. **M3-10 must add the measurement** (feed `World::ghost_errors` from the ghost feature's test hook, or compare against the other process's truth) and can then make the no-samples case a failure.
 - **Pair runner**: `mod/tests/hostsim/pair_run.ps1` (ports 47940-47942, ~20 s) starts the server, a FakeNode authority with a dummy save and two hostsim processes (Pia, Pax) running `pair_scenario.hostsim`; the two processes synchronise through `write-file`/`expect-file` in a shared `${sync}` folder (the tail of the scenario) and through `expect-admin` on the other player. CI: step `HostSimPair` in `tools/e2e.ps1` and in the `e2e-headless` job. Copy `pair_scenario.hostsim` (pass `-Scenario`) for ghost, avatar and own-ship scenarios; the runner provides `tcp`, `name`, `other`, `sync`.
 - Existing tests that counted exports (`test_game_api.cpp`: 15/14) were updated to 28/27.
+
+**Sitting-0 live facts so far (2026-10-03, lead):** S13.5 seat: `GetPlayerOccupiedShipID` 0->ship at sit-down, ship->0 at stand-up; while standing,
+`GetPlayerContainerID`/`GetPlayerObjectID` = the ship (so the ship is known before the player sits). S13.6: takeover from standing works
+(seated 11 ms after `TeleportPlayerTo(force)`, guard 90 ms), docked works too (107 ms / 623 ms); vacated original removed, no Game Over.
+**`CanTeleportPlayerTo` returns `"granted"` when allowed** (not `""`: fix the hostsim fake and any wrapper). **A spawn 300 m ahead of a docked ship
+landed inside the station** (clipping until the player flew out): avatar/ghost spawn positions need a clearance check (MD `get_safe_pos` or
+the station's undock point) - M3-11 brief. `SpawnObjectAtPos2` default equipment is high-end (see user note at the top).
