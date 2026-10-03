@@ -27,7 +27,9 @@ param(
     [switch]$Rebuild,
     [int]$TcpPort = 0,
     [int]$UdpPort = 0,
-    [int]$HttpPort = 0
+    [int]$HttpPort = 0,
+    [string]$X4Dir,
+    [string]$ClientExtensions
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -40,14 +42,29 @@ $serverExe = Join-Path $Repo 'out\win-x64\x4mp-server.exe'
 $fakeNodeExe = Join-Path $Repo 'out\fakenode\X4MP.FakeNode.exe'
 $guiUrl = "http://127.0.0.1:$($Ports.Http)"
 $clientsLog = Join-Path $OutDir 'fakenode-clients.log'
+# Session 3 (live): the bots must report the same DLCs as the real authority, or the server refuses them (a DLC difference always refuses).
+$swarmArgs = @('swarm', '--server', "127.0.0.1:$($Ports.Tcp)", '--clients', $Clients, '--duration', 600)
+$dlcFile = $null
+$dlcList = @()
+if ($ClientExtensions) { $swarmArgs += @('--extensions', $ClientExtensions) }
+else {
+    $x4 = Resolve-X4Dir $X4Dir -AllowMissing
+    $dlcList = @(Get-LocalDlcExtensions $x4 (Resolve-X4UserDir $UserId -AllowMissing))
+    if ($dlcList.Count -gt 0) {
+        $dlcFile = Join-Path $OutDir 'client-extensions.json'
+        $swarmArgs += @('--extensions', $dlcFile)
+    }
+    else { Write-Warning 'No enabled DLC found in the X4 install: the bots report none (with a DLC-owning authority they are refused). Pass -X4Dir or -ClientExtensions.' }
+}
 Write-Host "Server  : $serverExe (TCP $($Ports.Tcp) / UDP $($Ports.Udp) on 127.0.0.1, HTTP $($Ports.Http)); mods enforcement: $(if ($Strict) { 'Strict' } else { 'Warn' })"
 Write-Host "In-game admin password (type it into the Join dialog when hosting): $NodeAdminPassword"
 Write-Host "GUI     : $guiUrl  (log in as 'admin'; password file $(Join-Path $OutDir 'admin-password.txt'), never printed)"
 Write-Host "Session : $(if ($SaveName) { "uploaded from $SaveName" } else { 'none yet: run upload-save.ps1 in a second window, or create one in the GUI' })"
-Write-Host "Clients : $Clients FakeNode clients once the session is Running (output also in $clientsLog)"
+Write-Host "Clients : $Clients FakeNode clients once the session is Running (output also in $clientsLog); extensions: $(if ($ClientExtensions) { $ClientExtensions } elseif ($dlcList.Count) { 'your DLCs: ' + (($dlcList | ForEach-Object { $_.id + '@' + $_.version }) -join ', ') } else { 'none' })"
 if (-not $PSCmdlet.ShouldProcess($OutDir, 'Publish, start the server, wait for the real authority, start FakeNode clients')) { return }
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
+if ($dlcFile) { ConvertTo-Json -InputObject @($dlcList) -Depth 4 | Set-Content -Path $dlcFile -Encoding ascii }
 $null = Ensure-Published -Force:$Rebuild
 $server = Start-S3Server $serverExe @{ X4MP__Net__AdminPassword = $NodeAdminPassword; X4MP__Mods__Enforcement = $(if ($Strict) { 'Strict' } else { 'Warn' }) }
 try {
@@ -77,7 +94,7 @@ try {
         }
     }
     Write-Host 'Session is Running: the real authority stored its checkpoint. Starting the FakeNode clients.'
-    & $fakeNodeExe swarm --server "127.0.0.1:$($Ports.Tcp)" --clients $Clients --duration 600 2>&1 | Tee-Object -FilePath $clientsLog
+    & $fakeNodeExe @swarmArgs 2>&1 | Tee-Object -FilePath $clientsLog
     Write-Host "FakeNode clients exited with $LASTEXITCODE (each client prints 'joined with the save after ...' once it has downloaded and SHA-256-verified the checkpoint). The server keeps running: use the GUI, Ctrl+C to stop."
     Wait-Process -Id $server.Id
 }
