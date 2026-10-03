@@ -40,6 +40,12 @@ Write down each file name (for example `save_012`).
 | **B** | Part E (S12) | An **early** save without a Player HQ |
 | **F** | Part F (S10) | **Docked** at a large NPC station that has a trader corner, ideally a bar; you own at least one S or M ship (an L/XL ship is a bonus) |
 
+**Status (2026-10-02):** the user has prepared saves T and A as **one save in slot 1** (mid-game, with a Player HQ;
+it serves both Parts B–D and Part E) and save B in **slot 2**. Copy each into a new slot before testing, as A2 says, so
+the originals stay untouched. Save F is still open: no vanilla station with a bar has turned up yet. Part F (S10) is
+sitting 3 and does not block M2. Prefer a vanilla bar; a room-generating mod is acceptable as a last resort, but then
+S10 results must be marked "modded rooms" because the mod may change the room layout we are probing.
+
 All of these saves must have been made **without** the test extensions installed. Throw them away after the
 session (they will contain test objects).
 
