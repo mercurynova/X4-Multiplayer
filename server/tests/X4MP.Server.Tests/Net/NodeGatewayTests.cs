@@ -291,8 +291,9 @@ public class NodeGatewayTests
         Assert.Equal(32, server.ExtensionsHash.Count);
         var d = TestNode.AsDisconnect(reply);
         Assert.Equal(DisconnectCode.ExtensionsMismatch, d.Code);
-        Assert.Contains("missing: [x4mp@0.1.0]", d.Expected);
-        Assert.Contains("extra: [other_mod@3]", d.Expected);
+        Assert.Contains("disable: other_mod@3", d.Expected);
+        Assert.DoesNotContain("x4mp", d.Expected, StringComparison.Ordinal); // never the mod itself; no raw missing/extra diff
+        Assert.DoesNotContain("missing:", d.Expected, StringComparison.Ordinal);
     }
 
     [Fact]

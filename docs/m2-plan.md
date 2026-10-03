@@ -423,3 +423,14 @@ needs another look.
 **Known intermittent (2026-10-03):** `TeamSwarmLiveTests.MovingAPlayerMakesTheFakeAuthorityReassignItsAssetsAndOrdersFollowTheNewTeam`
 timed out once on ubuntu CI ("mover's client to learn the new owner"); passed on re-run and 3/3 locally. Watch it; if it
 recurs, find the race (FakeNode owner-update vs the 30 s wait on a slow runner).
+
+**Close-out B (2026-10-03, session-3 open items 4 and 8):**
+- Item 4 (refusal screen): the server's Disconnect `expected` for ExtensionsMismatch is now `ModPolicyEvaluator.DescribeDetailed(violation)`
+  (policy-aware and version-normalised: `install: id@ver; update: id have -> want; ...`; never x4mp/x4native, tolerated libraries or DLCs that match
+  after normalisation), replacing the raw authority/node set diff (`DescribeExtensionDiff`, removed). The mod shows one headline ("Your mods do not match
+  this session.", text 400) plus the groups; for a grouped refusal the generic text 71 and the server text are no longer on screen. The raw text is
+  logged only (`x4mp.log`: `Disconnect message/expected` natively and `mod refusal detail (not shown)` in Lua). Refusals without groups (protocol or
+  mod version mismatch) keep text 71 with the server detail. The GUI Recent rejections already render the stored violation lists, so they match.
+- Item 8 (Steam Cloud): `tools/session3/start-fake-authority.ps1` warns when `steam_autocloud.vdf` exists and/or the download name `x4mp_<sha12>.xml.gz`
+  is already in the save folder; `-FreshDownload` serves a copy with a changed gzip header MTIME (same decompressed save, new hash/name, valid for server
+  and mod because both hash the file bytes and gzip readers ignore MTIME). Covered by `session3_dry_run.ps1`.

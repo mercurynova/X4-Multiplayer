@@ -11,7 +11,7 @@ probe). It checks the M2 exit criteria 1-5, 7-9 and 11-16 from [m2-plan.md](m2-p
 
 ## START HERE (10 lines)
 
-1. Back up `Documents\Egosoft\X4\<id>\save\` (OneDrive: pause sync while testing). Never use slots 1 and 2; your working copy is slot 4, scratch slot 7. **Delete the session-2 leftovers `x4mp_*.xml.gz`** there (the join test needs the download to be missing).
+1. Back up `Documents\Egosoft\X4\<id>\save\` (OneDrive: pause sync while testing; **Steam Cloud also syncs it**, see A1). Never use slots 1 and 2; your working copy is slot 4, scratch slot 7. Delete the session-2 leftovers `x4mp_*.xml.gz` there if you can, but do not rely on it: pass `-FreshDownload` to `start-fake-authority.ps1` so the download name is new (A1).
 2. Steam > X4 > Properties > Launch options: `-debug all -logfile x4mp_s3.log` (replaces the session-2 `x4mp_s2.log`). Turn Steam auto-update for X4 off.
 3. Open two PowerShell windows in the repo folder (window 1 = server, window 2 = helpers). Always `powershell -ExecutionPolicy Bypass -File <script>`.
 4. Window 2: `mod\build.ps1`, then `tools\session3\install.ps1 -RemoveTestExtensions` (answer `yes` twice: it removes the session-2 probe and spike).
@@ -54,9 +54,13 @@ start. (The X4MP mod log is different: it is **appended** to, with a banner line
 
 ## Part A. Setup
 
-**A1. Back up** `Documents\Egosoft\X4\<id>\save\` (OneDrive on this PC). Pause OneDrive sync while testing.
-Then delete every `x4mp_*.xml.gz` in that folder (session-2 leftovers such as `x4mp_<12 hex>.xml.gz` and `x4mp_s2test_1.xml.gz`; `uninstall.ps1 -WhatIf` lists them). The
-session-2 download is a copy of the save the server will offer again: if it is still there, B1 does not prove the download (criterion 1). Slots 1 to 7 are never touched.
+**A1. Back up** `Documents\Egosoft\X4\<id>\save\`. Two things sync that folder: OneDrive (pause it while testing) and **Steam Cloud**
+(`steam_autocloud.vdf` is in the folder). Lesson of session 3: **Steam Cloud restores files you delete** (`x4mp_*.xml.gz` leftovers) at the next X4 start, so deleting them
+does not stick. The download is named `x4mp_<first 12 hex of the save's SHA-256>.xml.gz`; if that file exists, B1 is a cache hit and does not prove the download
+(criterion 1). `start-fake-authority.ps1` now checks this and warns ("CACHE HIT" / "Steam Cloud manages your save folder"). The fix that does not depend on deleting anything:
+add **`-FreshDownload`** (the served copy gets a different gzip header timestamp: same save content, new hash and name, never seen by the cloud; your saves are
+not touched), or serve a save that was never served before (`-SaveName`, slot 7 worked). Note: after a run the new `x4mp_*` file stays and syncs, so use `-FreshDownload` again next time.
+Still delete old leftovers (`uninstall.ps1 -WhatIf` lists them) to keep the folder tidy. Slots 1 to 7 are never touched.
 
 **A2. Steam launch options** (Library > X4 > Properties): `-debug all -logfile x4mp_s3.log`. The game log is then `Documents\Egosoft\X4\<id>\x4mp_s3.log`;
 our Lua lines in it start with `[X4MP]`. Also: Steam automatic updates for X4 **off** (the mod only accepts build 611726). Write down the version line on the start menu.
@@ -85,7 +89,7 @@ extensions gone. (Your saves keep working; settings files of the probe in `Docum
 **B0. Start the server and the fake authority** (window 1):
 
 ```
-powershell -ExecutionPolicy Bypass -File tools\session3\start-fake-authority.ps1 -SaveName save_004 -JoinPassword Testpw-314159
+powershell -ExecutionPolicy Bypass -File tools\session3\start-fake-authority.ps1 -SaveName save_004 -JoinPassword Testpw-314159 -FreshDownload
 ```
 
 (`-List` shows your saves; `-WhatIf` prints the plan.) First run: it builds the web GUI and publishes the server (a few minutes, once). It copies slot 4 to
@@ -101,6 +105,7 @@ warns that no DLC was found, pass `-X4Dir "<folder with X4.exe>"`. `-AuthorityEx
 
 **B1. Join from the start menu (criteria 1, 2).** The point: the mod downloads the save itself (slot 4 is only the source of the copy the fake authority serves).
 
+0. Check the window-1 output: it must **not** say `CACHE HIT`. The status screen must show `Downloading the session save: NN%` (on loopback it can flash by; the server log then shows the save being fetched), not jump straight to Loading.
 1. Start X4 and stay on the **start menu**. The main list has a row **Multiplayer** (hover: "Join or manage an X4MP multiplayer session"). If it is missing:
    note it, see "If something does not work".
 2. Click **Multiplayer**: a window titled **Multiplayer** opens (it shows "Last server: ..." after the first try). Click **Join a server**. Fill in **Server address**
