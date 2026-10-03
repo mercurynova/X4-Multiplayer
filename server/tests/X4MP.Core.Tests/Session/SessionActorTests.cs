@@ -267,6 +267,7 @@ public class SessionActorTests
         Assert.Equal(812u, stats.Ghosts);
         Assert.Equal(-300, stats.ClockOffsetUs);
         Assert.Equal(2048u, stats.MemoryMb);
+        Assert.Equal(0.75f, stats.NetMainMsP95);
         var reported = Assert.Single(rig.Events.OfType<NodeStatsReported>());
         Assert.Equal(59.5, reported.Fps, 1);
         Assert.False(reported.IsAuthority);

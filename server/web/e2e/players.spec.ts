@@ -75,6 +75,18 @@ test.describe('players', () => {
     await expect(row(page, 'Victim').getByText(/Online/)).toBeVisible();
   });
 
+  test('shows the live NodeStats of a node (M2-12): FPS column and the detail panel', async ({ page }) => {
+    // The fake authority sends NodeStats every 2 s; the hub pushes them (at most every 2 s per node) and the page shows them.
+    await page.goto('/players');
+    const authorityRow = page.getByRole('row').filter({ hasText: 'Authority' }).first();
+    await expect(authorityRow.getByTestId('player-fps')).toHaveText(/^\d+$/, { timeout: 15_000 });
+    await authorityRow.getByRole('link').first().click();
+    await expect(page.getByTestId('stat-frame-ms')).toHaveText(/^\d+\.\d ms$/, { timeout: 15_000 });
+    await expect(page.getByTestId('stat-net-ms')).toHaveText(/^\d+\.\d\d ms$/);
+    await expect(page.getByTestId('stat-traffic')).toContainText('/');
+    await expect(page.getByTestId('stat-game-time')).toBeVisible();
+  });
+
   test('detail page: notes persist; kick without a reason is refused', async ({ page, bots }) => {
     const bot = bots.start({ command: 'client', name: 'Noted', duration: 60 });
     await bot.waitForLine(IN_GAME);

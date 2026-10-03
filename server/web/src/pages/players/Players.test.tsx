@@ -52,6 +52,7 @@ const live = (playerId: number, name: string): PlayerLiveDto => ({
   muted: false,
   teamId: null,
   teamName: null,
+  stats: null,
 });
 
 let calls: Call[];

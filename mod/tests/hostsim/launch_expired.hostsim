@@ -1,0 +1,22 @@
+# M2-12 (ctest hostsim.launch_expired): an expired launch.json is ignored and deleted, an invalid one too, and no connection is started.
+# The secret in the file never reaches a log, a Lua event, the stash or a file.
+write-file extension/launch.json {"server":"127.0.0.1:1","name":"Late","password":"expired-launch-secret","expires_utc":"2020-01-01T00:00:00Z"}
+init
+frame 60Hz 30
+expect-no-file extension/launch.json
+expect-file extension/logs/x4mp.log launch.json expired
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 10
+expect-lua x4mp.status 3000 json $.state == disconnected
+expect-no-secret expired-launch-secret
+
+# an invalid file: deleted, ignored; a reload does not resurrect anything
+write-file extension/launch.json {"server": broken
+reload
+frame 60Hz 20
+expect-no-file extension/launch.json
+expect-file extension/logs/x4mp.log launch.json invalid
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 10
+expect-lua x4mp.status 3000 json $.state == disconnected
+shutdown

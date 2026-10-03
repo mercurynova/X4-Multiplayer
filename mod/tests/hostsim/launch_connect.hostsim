@@ -1,0 +1,23 @@
+# M2-12 acceptance (mod/tests/hostsim/launch_stats_run.ps1; needs the server + a FakeNode authority; vars: tcp, expires):
+# a launch.json connects without any UI, is deleted, the node shows up on the server and its NodeStats arrive (admin API).
+write-file extension/launch.json {"server":"127.0.0.1:${tcp}","name":"Launcher","password":"launch-secret-pw-1","expires_utc":"${expires}"}
+init
+frame 60Hz 120
+expect-no-file extension/launch.json
+expect-file extension/logs/x4mp.log launch.json consumed
+expect-file extension/logs/x4mp.log joining 127.0.0.1:${tcp}
+expect-admin /api/v1/players $[name==Launcher].online == true
+
+# NodeStats go out every 2 s of frame time: about 6 s of frames
+frame 60Hz 420
+expect-file extension/logs/x4mp.log stats: fps=
+expect-admin /api/v1/dashboard $.players[name==Launcher].stats.fps > 1
+expect-admin /api/v1/dashboard $.players[name==Launcher].stats.netMainMsP95 >= 0
+expect-admin /api/v1/dashboard $.players[name==Launcher].stats.rttMs >= 0
+expect-admin /api/v1/dashboard $.players[name==Launcher].stats.txBytesPerS exists
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 60
+expect-no-file extension/launch.json
+expect-no-secret launch-secret-pw-1
+shutdown
