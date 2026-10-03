@@ -12,16 +12,15 @@
   X4 starts, so quit X4 and start it again after changing it.
 .PARAMETER Pin
   Writes pin_module=true (B6b only; also read when X4 starts).
-.PARAMETER AutoLoad
-  Pass 0 or 1 (powershell -File passes $false as text, which a [bool] parameter rejects).
-  $false: the probe downloads the save but does not load it by itself (Part D8 restarts).
+.PARAMETER NoAutoLoad
+  (A switch, because powershell -File cannot pass a [bool].) the probe downloads the save but does not load it by itself (Part D8 restarts).
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$Server,
     [string]$Name,
     [string]$Password,
-    [bool]$AutoLoad = $true,
+    [switch]$NoAutoLoad,
     [switch]$NoHooks,
     [switch]$Pin
 )
@@ -43,7 +42,7 @@ $cfg = Read-ProbeConfig
 $cfg['server'] = $Server
 $cfg['name'] = $Name
 if ($Password) { $cfg['password'] = $Password } else { $cfg.Remove('password') }
-$cfg['auto_load'] = $AutoLoad
+$cfg['auto_load'] = -not $NoAutoLoad
 $cfg['hooks'] = (-not $NoHooks)
 $cfg['pin_module'] = [bool]$Pin
 $cfg['skip_autosave'] = $false

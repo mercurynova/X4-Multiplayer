@@ -28,7 +28,7 @@ Each sitting starts with Part A steps A6–A9 (start the server and X4) and ends
 |---|---|---|---|
 | **Run 1** (B-run) | `-NoHooks` (hooks off) | A5–A9, then B1–B6. Hooks off is what makes B4 ("was our DLL unloaded on a save load?") readable | quit X4, `collect-logs.ps1 -Label b` |
 | **Run 2** (main run) | normal (hooks on) | B1–B3 again (quick, nothing new to note), then Part C, then Part D (D1–D7) | quit X4, `collect-logs.ps1 -Label main` |
-| **Run 3** (optional, D8) | normal, `-AutoLoad 0` | SirNukes / UIX enabled, one X4 start per combination | quit X4, `collect-logs.ps1 -Label d8-<combination>`, **disable them again** |
+| **Run 3** (optional, D8) | normal, `-NoAutoLoad` | SirNukes / UIX enabled, one X4 start per combination | quit X4, `collect-logs.ps1 -Label d8-<combination>`, **disable them again** |
 
 Third-party mods: **SirNukes Mod Support APIs and kuertee UI Extensions are installed but disabled on your PC. Runs 1 and 2
 (and sittings 2 and 3) need them disabled** so the baseline is vanilla. Only D8 (R3, R4, R5, R6) needs them enabled; D8 comes
@@ -123,7 +123,7 @@ writes `Documents\Egosoft\X4\x4mp\x4mp_probe.json` (no password; the mod reads i
 environment variables) and prints every key. **`-NoHooks` is read only when X4 starts**: if X4 is already running, quit it
 and start it again.
 - `write-probe-config.ps1` with **no switch** = hooks **on** (normal). Run it at the start of Run 2.
-- `-Pin` (only B6b) sets `pin_module`; `-AutoLoad 0` (only D8) stops the probe from loading the downloaded save itself.
+- `-Pin` (only B6b) sets `pin_module`; `-NoAutoLoad` (only D8) stops the probe from loading the downloaded save itself.
 
 **A8. Open the admin GUI** in a browser at `http://127.0.0.1:47790` and log in. Keep the **Players** page and the **Logs**
 page at hand (Logs shows the server log live; type `Tester` into its search box to filter).
@@ -344,7 +344,7 @@ Do this **last**, after the Run 2 zip exists. What each library tests:
 **Enable / disable (each change needs an X4 restart):** quit X4 to the desktop, start it, Settings → **Extensions**, switch the
 extension (**SirNukes Mod Support APIs**, **UI Extensions and HUD**) to enabled (X4 asks to restart; confirm), quit and start
 X4 again. For each combination you want (SirNukes only, UIX only, both; each combination is one X4 start):
-1. `write-probe-config.ps1 -AutoLoad 0 -Server 127.0.0.1:47780 -Name Tester` (the probe still connects and downloads
+1. `write-probe-config.ps1 -NoAutoLoad -Server 127.0.0.1:47780 -Name Tester` (the probe still connects and downloads
    but does not load by itself), start X4, stay in the start menu.
 2. D1–D3 (`run-block.ps1 ui`, look at the row, `ui_standalone`, X4Native toggle).
 3. Load the working copy of T yourself, then R5 (chat `/x4mpspike ping`, a SirNukes command), then B6 (`/reloadui`; after
