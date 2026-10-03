@@ -1,0 +1,18 @@
+# Smoke test of the real x4mp.dll against hostsim, no server (ctest hostsim.real_dll).
+# Implicit init (no `init` line), 600 frames at 60 Hz (10 s), a reload (shutdown + FreeLibrary + LoadLibrary + init,
+# stash kept), more frames, shutdown at the end. Contract: the header comment of mod/native/host/mod_host.h.
+expect-file extension/logs/x4mp.log hello
+expect-file extension/logs/x4mp.log build check: supported
+expect-sub on_frame_update
+expect-sub on_game_loaded
+expect-sub on_universe_ready
+expect-sub on_ui_reload
+frame 60Hz 600
+load_save slot.xml.gz
+ui_reload
+reload
+expect-state reloads == 1
+expect-state subs.on_frame_update == 1
+expect-stash host.state present
+frame fast 120
+expect-no-secret never-written-password

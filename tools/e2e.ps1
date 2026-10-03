@@ -15,6 +15,10 @@
                 (the suite's global setup starts it on its own ports and temp data dir).
     Headless    (Windows) x4mp-headless against a fresh server with a FakeNode `authority`: handshake, heartbeat,
                 ClientReload + resume, in-band save download. Builds the mod first unless -SkipModBuild.
+    HostSim     (Windows) x4mp-hostsim (a fake X4Native host, M2-01) loads the real x4mp.dll and runs
+                mod/tests/hostsim/server_smoke.hostsim against a fresh server on ports 47950-47954: 600 frames, a
+                reload with the stash kept, admin API checks, server kill + restart. Builds the mod first unless
+                -SkipModBuild. Scenario language: docs/hostsim.md.
 
   Every step runs even if an earlier one failed; the exit code is non-zero if any step failed. Logs, the summary and
   Playwright traces end up in -ArtifactDir (default out/e2e) for upload. Ports are non-default (base 47960) so a
@@ -26,7 +30,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless')][string[]]$Steps,
+  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless', 'HostSim')][string[]]$Steps,
   [int]$Clients = 6,
   [int]$SwarmSeconds = 45,
   [int]$PortBase = 47960,
@@ -36,7 +40,10 @@ param(
   [switch]$SkipNpmInstall,
   [int]$PlaywrightRetries = $(if ($env:CI) { 1 } else { 0 }),   # the economy specs are timing sensitive; CI gets one retry
   [string[]]$PlaywrightArgs, # extra arguments for `npm run e2e --`, e.g. economy
-  [string]$HeadlessExe       # override the x4mp-headless path
+  [string]$HeadlessExe,      # override the x4mp-headless path
+  [string]$HostSimExe,       # override the x4mp-hostsim path
+  [string]$HostSimDll,       # override the x4mp.dll hostsim loads
+  [string]$HostSimScript     # override the hostsim script (default mod/tests/hostsim/server_smoke.hostsim)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +52,7 @@ $isWin = [System.Environment]::OSVersion.Platform -eq 'Win32NT'
 $exeExt = if ($isWin) { '.exe' } else { '' }
 $rid = if ($isWin) { 'win-x64' } else { 'linux-x64' }
 if (-not $ArtifactDir) { $ArtifactDir = Join-Path $repo 'out/e2e' }
-if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless' } }
+if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless', 'HostSim' } }
 if ($SkipPublish) { $Steps = $Steps | Where-Object { $_ -ne 'Publish' } }
 
 $serverExe = Join-Path $repo "out/$rid/x4mp-server$exeExt"
@@ -95,8 +102,9 @@ function Wait-Until([string]$what, [scriptblock]$probe, [int]$timeoutSec = 30) {
 }
 
 # Starts the published server on a fresh data dir and ports tcp/udp/http; returns @{ Proc; Data; Http; Tcp }.
-function Start-Server([string]$name, [int]$slot, [string[]]$extraArgs = @(), [hashtable]$moreEnv = @{}) {
+function Start-Server([string]$name, [int]$slot, [string[]]$extraArgs = @(), [hashtable]$moreEnv = @{}, [int[]]$ports = @()) {
   $tcp = $PortBase + 2 * $slot; $udp = $tcp + 1; $http = $PortBase + 10 + $slot
+  if ($ports.Count -eq 3) { $tcp, $udp, $http = $ports }   # explicit tcp, udp, http (the HostSim step uses 47950-47952)
   $data = Join-Path $work "$name-data"
   New-Item -ItemType Directory -Force $data | Out-Null
   $envVars = @{
@@ -106,13 +114,14 @@ function Start-Server([string]$name, [int]$slot, [string[]]$extraArgs = @(), [ha
     X4MP__Net__UdpPort             = "$udp"
   }
   foreach ($k in $moreEnv.Keys) { $envVars[$k] = $moreEnv[$k] }
-  $proc = Start-Proc "$name-server" $serverExe (@('--data-dir', $data, '--port', "$http") + $extraArgs) $envVars
+  $serverArgs = @('--data-dir', $data, '--port', "$http") + $extraArgs
+  $proc = Start-Proc "$name-server" $serverExe $serverArgs $envVars
   $url = "http://127.0.0.1:$http"
   Wait-Until "the server to answer /healthz" {
     if ($proc.HasExited) { throw "server exited with $($proc.ExitCode); see $logDir/$name-server.err.log" }
     (Invoke-WebRequest -UseBasicParsing "$url/healthz" -TimeoutSec 3).StatusCode -eq 200
   } 40
-  return @{ Proc = $proc; Data = $data; Http = $http; Url = $url; Tcp = $tcp }
+  return @{ Proc = $proc; Data = $data; Http = $http; Url = $url; Tcp = $tcp; Args = $serverArgs; Env = $envVars }
 }
 
 # Bootstrap admin: sign in with initial-admin-password.txt, do the forced password change, sign in again.
@@ -236,6 +245,38 @@ if ($Steps -contains 'Headless') {
     if ($p.ExitCode -ne 0) { throw "x4mp-headless exited with $($p.ExitCode)" }
     if ($text -notmatch 'SaveInfo') { throw 'the server offered no save (no SaveInfo in the output)' }
     if ($text -notmatch 'save: verified') { throw 'the save download was not verified' }
+  }
+}
+
+if ($Steps -contains 'HostSim') {
+  Invoke-Step 'HostSim (real x4mp.dll in a fake X4Native host, real server)' {
+    if (-not $isWin) { throw 'x4mp-hostsim is Windows-only' }
+    $buildTree = Join-Path $repo 'mod/build/msvc-x64-relwithdebinfo'
+    if (-not $HostSimExe -or -not $HostSimDll) {
+      if (-not $SkipModBuild) { Invoke-Native 'mod build' { & powershell -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest } }
+    }
+    $hostSim = $HostSimExe
+    if (-not $hostSim) { $hostSim = (Get-ChildItem -Path $buildTree -Recurse -Filter 'x4mp-hostsim.exe' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
+    $dll = $HostSimDll
+    if (-not $dll) { $dll = (Get-ChildItem -Path $buildTree -Recurse -Filter 'x4mp.dll' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
+    if (-not $hostSim -or -not (Test-Path $hostSim)) { throw 'x4mp-hostsim.exe not found (build the mod first)' }
+    if (-not $dll -or -not (Test-Path $dll)) { throw 'x4mp.dll not found (build the mod first)' }
+    $script = $HostSimScript
+    if (-not $script) { $script = Join-Path $repo 'mod/tests/hostsim/server_smoke.hostsim' }
+    # Ports 47950-47954: tcp 47950, udp 47951, http 47952 (47953/47954 are reserved for the scenarios M2-06+ add).
+    $srv = Start-Server 'hostsim' 0 @() @{ X4MP__Net__ModBuildStrict = 'false' } @(47950, 47951, 47952)
+    Set-AdminPassword $srv
+    $hsArgs = @('--dll', $dll, '--script', $script, '--work-dir', (Join-Path $work 'hostsim-work'),
+      '--admin-url', $srv.Url, '--admin-user', 'admin', '--admin-password', $adminPassword,
+      '--server-pid', "$($srv.Proc.Id)", '--server-exe', $serverExe, '--server-log', (Join-Path $logDir 'hostsim-server-restarted.log'),
+      '--stash-dump', (Join-Path $logDir 'hostsim-stash.json'), '--max-seconds', '100')
+    foreach ($a in $srv.Args) { $hsArgs += @('--server-arg', $a) }
+    foreach ($k in $srv.Env.Keys) { $hsArgs += @('--server-env', "$k=$($srv.Env[$k])") }
+    $p = Start-Proc 'hostsim' $hostSim $hsArgs
+    if (-not $p.WaitForExit(110000)) { Stop-Tree $p; throw 'x4mp-hostsim did not finish within 110 s' }
+    $p.WaitForExit()
+    Get-Content (Join-Path $logDir 'hostsim.log') -Tail 40 | ForEach-Object { Write-Host "  $_" }
+    if ($p.ExitCode -ne 0) { throw "x4mp-hostsim exited with $($p.ExitCode) (see hostsim.log)" }
   }
 }
 
