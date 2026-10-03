@@ -28,6 +28,8 @@ table PlayerInfo {
   ship_net_id:uint;              // 0 = no ship (dead, observer, loading)
   sector:ushort;
   ping_ms:ushort;
+  // Appended M3-01: false while the node is detached (socket gone, inside the resume grace). Its avatar stays parked.
+  online:bool = true;
 }
 
 /// S->N. full=true replaces the roster; otherwise upsert players, delete removed.

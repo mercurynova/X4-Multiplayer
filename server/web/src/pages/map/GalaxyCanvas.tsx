@@ -224,6 +224,7 @@ export function GalaxyCanvas({ layout, frames, layers, hoverSector, onHover, onO
           if (x < -40 || y < -40 || x > w + 40 || y > h + 40) continue;
           const col = playerColor(p.id);
           const a = (p.headingDeg * Math.PI) / 180;
+          ctx.globalAlpha = p.online ? 1 : 0.45; // a parked avatar of an offline player is dimmed
           ctx.fillStyle = col;
           ctx.strokeStyle = theme.bg;
           ctx.lineWidth = 2;
@@ -238,7 +239,8 @@ export function GalaxyCanvas({ layout, frames, layers, hoverSector, onHover, onO
           ctx.lineTo(x + Math.sin(a) * 11, y - Math.cos(a) * 11);
           ctx.stroke();
           ctx.fillStyle = theme.text;
-          ctx.fillText(p.name, x + 9, y - 8);
+          ctx.fillText(p.online ? p.name : `${p.name} (offline)`, x + 9, y - 8);
+          ctx.globalAlpha = 1;
         }
       }
       canvas.dataset['sectors'] = String(l.sectors.length);

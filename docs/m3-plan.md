@@ -484,3 +484,43 @@ What M3-10 / M3-11 need to know:
 **`CanTeleportPlayerTo` returns `"granted"` when allowed** (not `""`: fix the hostsim fake and any wrapper). **A spawn 300 m ahead of a docked ship
 landed inside the station** (clipping until the player flew out): avatar/ghost spawn positions need a clearance check (MD `get_safe_pos` or
 the station's undock point) - M3-11 brief. `SpawnObjectAtPos2` default equipment is high-end (see user note at the top).
+**M3-01 -> wave 2 (protocol deltas + server gaps, as built):**
+- **Schema (append-only, protocol stays 0.1).** `StateFlags.Hidden` (bit 10, `0x0400`, D1); `ManifestEntry.origin:EntityOrigin` and
+  `ManifestEntry.controller_player:ushort` (D2); one more append the plan did not list: `PlayerInfo.online:bool = true`. The C++ FlatBuffers
+  code is **not committed** (flatc generates it at build time), so nothing to regenerate there; the golden vectors were regenerated
+  (`0x0101_RosterUpdate`, `0x0300_PlayerState`, `dgram_mixed`, `index.json`) and `protocol/cpp/build.ps1` passes.
+- **Settings (D4).** `Avatars.StarterShipMacro` (default `ship_arg_s_fighter_01_a_macro`) and `Avatars.SpawnOffsetMeters` (default 300, 50..5000)
+  are Live, `PushToNodes`, so they reach every node as `ServerSettingsUpdate` entries (text values), right after `Welcome` and on every
+  change. They are **not** fields of the `SessionSettings` table. `AvatarOptions.ResolveStarterShipMacro(teamId, race)` is the single
+  server-side place the ship macro comes from (Q5: later per faction/race); the mod should keep one equivalent function that reads the pushed value.
+  **`Avatars.StarterLoadout`** (user note: early-game equipment only, never the `SpawnObjectAtPos2` default Mk2/Mk3 parts; vanilla loadout id, empty = the mod picks a basic
+  early-game loadout) is carried the same way and resolved by `AvatarOptions.ResolveStarterLoadout(teamId, race)`, next to the macro.
+  The authority spreads avatar slots between the offset and twice the offset (the server only carries the number).
+- **Parked avatars (Q6).** The server never removes an avatar on leave. The authority sends `EntityChange{fields=Controller, controller_player=0}`;
+  the mirror keeps the entity, `IsPlayerShip` stays true because **`origin` must be `PlayerShip`**, so it stays replicated galaxy-wide to everybody
+  except its owner. Authority requirements: avatars carry `origin=PlayerShip`, `owner_player=<player>` and `name` = the player's name
+  (the roster entry is removed when the player leaves, so offline ghosts must be labelled from `EntityRecord.name`, not from the roster).
+  The node of a leaving player is gone, the roster shows `removed`; the client derives "(offline)" from `controller_player == 0`.
+  On rejoin answer `PlayerShip` with a refreshing `EntitySpawn` (same net_id) or with `EntityChange{Controller=<player>}`: both bind
+  `PlayerInfo.ship_net_id` again. `WorldMirror.ParkedAvatars` / `AvatarCount` list them (GUI map shows them dimmed, "(parked, offline)").
+- **Own ship never in `Replication`.** Rule (`ReplicationMath.IsOwnShip`): `controller_player == me`, or `controller_player == 0 && origin == PlayerShip
+  && owner_player == me` (the rejoin window before the authority re-sets the controller). The client still gets the `EntitySpawn` of its own avatar
+  (that is how it learns its id), just no state entries. Tests: `ReplicationModuleTests` (parked, piloted, foreign).
+- **Held `PlayerShip` requests.** Real bug fixed: a *resumed* authority never got the held requests because `ResumeSlot` restores the InGame phase before the
+  node is attached, so `Authority` was still null at the phase callback. `RelayModule.OnNodeAttached` now forwards them (also those that may have been lost
+  with the old socket). Requests are re-sent after every authority resume until the avatar spawn arrives, so **the authority must be idempotent**:
+  same `player_id` returns the existing avatar. Tests: `RelayAvatarTests`.
+- **Roster `online`.** `PlayerInfo.online=false` is broadcast when a node loses its socket and waits in the resume grace, and `true` again on resume.
+  A planned `ClientReload` stays invisible (every join does one). `online` is not about avatars: a left player is `removed`.
+- **Admin removal on kick/ban.** `POST /players/{id}/kick` takes `removeAvatar`, `POST /bans` takes `removeAvatar` (GUI: checkbox in both dialogs; kick also
+  works for an offline player when the box is set). `IAvatarControl.RemoveAvatarsAsync(playerId)` drops every `PlayerShip` entity owned or piloted by the player
+  from the mirror (nodes holding it get `EntityDespawn{Removed}` from the interest manager) and sends the **authority** `EntityDespawn{entries=[{net_id, reason=Removed}]}`
+  for each one. This is a new direction for an existing message: **M3-11 must handle an inbound `EntityDespawn` on the authority** by removing the avatar
+  from its `AvatarRegistry` through `SafeRemove` (never the player's own ship). In-game `AdminCommand` Kick/Ban are not implemented on the server at all
+  (M5/M6), so `KickCmd`/`BanCmd` did not get the field.
+- **GUI.** `PlayerLiveDto` gained `sectorId`, `sectorName` (galaxy metadata, null until it arrived), `position` (metres in the sector) and `shipNetId`
+  (Players list column "Sector", detail page "Sector"); `GalaxyPlayerDto.online` (false for a detached node and for parked avatars, which are now listed on the map).
+  `NodeSnapshot` and `SessionNode` carry the pose of the last `PlayerState` (`PosX/Y/Z` in 1/64 m).
+- **For FakeNode (M3-05).** Answer `PlayerShip` with `origin=PlayerShip`, `owner_player`, `owner_team`, `controller_player` and `name`; on leave send the
+  `Controller=0` change; handle the server's `EntityDespawn` order. `Avatars.*` arrive in `ServerSettingsUpdate`.
+

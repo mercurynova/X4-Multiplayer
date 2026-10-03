@@ -226,7 +226,7 @@ public static class SampleMessages
             Players =
             [
                 new PlayerInfoT { PlayerId = 1, Name = "Alice", Roles = Role.Authority | Role.Client, Phase = NodePhase.InGame, TeamId = 1, TeamRole = TeamRole.Leader, ShipNetId = 1001, Sector = 12, PingMs = 23 },
-                new PlayerInfoT { PlayerId = 2, Name = "Bob", Roles = Role.Client, Phase = NodePhase.Loading, TeamId = 2, TeamRole = TeamRole.Member, ShipNetId = 0, Sector = 0, PingMs = 80 },
+                new PlayerInfoT { PlayerId = 2, Name = "Bob", Roles = Role.Client, Phase = NodePhase.Loading, TeamId = 2, TeamRole = TeamRole.Member, ShipNetId = 0, Sector = 0, PingMs = 80, Online = false },
             ],
         }),
         S(Settings()),
@@ -307,7 +307,7 @@ public static class SampleMessages
         // ---- player ----
         S(new PlayerStateT
         {
-            Seq = 100, SampleTimeUs = 5_000_000, NetId = 1001, Sector = 12, Flags = (ushort)StateFlags.TravelDrive, Px = 6400, Py = -6400, Pz = 12800,
+            Seq = 100, SampleTimeUs = 5_000_000, NetId = 1001, Sector = 12, Flags = (ushort)(StateFlags.TravelDrive | StateFlags.Hidden), Px = 6400, Py = -6400, Pz = 12800,
             Yaw = 1000, Pitch = -1000, Roll = 500, Hull = 250, Shield = 10, TargetNetId = 1002,
         }),
         S(new PlayerShipT

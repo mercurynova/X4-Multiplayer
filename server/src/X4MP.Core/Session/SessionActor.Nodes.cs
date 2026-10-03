@@ -252,6 +252,14 @@ public sealed partial class SessionActor
         slot.DetachedAt = _time.GetUtcNow();
         slot.DetachReason = reason;
         slot.DetachDeadline = After(now, graceSeconds);
+        if (slot.Announced && reason != DetachReason.ClientReload)
+        {
+            // M3-01: a lost socket shows in the roster as online=false while the slot waits in its resume grace. A planned reload
+            // (every join does one) stays invisible to the others, as before.
+            slot.AnnouncedOffline = true;
+            BroadcastRosterUpsert(slot);
+        }
+
         if (closeWith is { } code)
         {
             attached.Connection.Close(code, reason.ToString());
@@ -399,6 +407,7 @@ public sealed partial class SessionActor
         ShipNetId = slot.ShipNetId,
         Sector = slot.Sector,
         PingMs = (ushort)Math.Clamp(Math.Round(slot.Clock.SmoothedRttMs), 0, ushort.MaxValue),
+        Online = slot.IsAttached,
     };
 
     private void SendRoster(SessionNode to)

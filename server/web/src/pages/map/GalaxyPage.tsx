@@ -89,6 +89,7 @@ export function GalaxyPage() {
                       </button>
                       <span className="map-pos">
                         {layout.byId.get(p.sectorId)?.name ?? `sector ${p.sectorId}`} ({(p.pos.x / 1000).toFixed(1)}, {(p.pos.z / 1000).toFixed(1)} km)
+                        {!p.online && ' (parked, offline)'}
                       </span>
                     </li>
                   ))}

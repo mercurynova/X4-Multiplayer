@@ -46,6 +46,7 @@ public sealed partial class WorldMirror : ISessionModule
     private readonly Dictionary<uint, MirrorEntity> _entities;
     private readonly Dictionary<ushort, SectorBucket> _buckets = [];
     private readonly Dictionary<int, PlayerShipState> _players = [];
+    private readonly HashSet<uint> _avatars = [];
     private readonly Stack<MirrorEntity> _pool = new();
     private IWorldObserver[] _observers = [];
     private int _persistentCount;
@@ -175,6 +176,39 @@ public sealed partial class WorldMirror : ISessionModule
     }
 
     public IEnumerable<PlayerShipState> PlayerShips => _players.Values;
+
+    /// <summary>
+    /// The player avatars (<see cref="EntityOrigin.PlayerShip"/>) nobody pilots right now: the authority cleared <c>controller_player</c>
+    /// when the player left (M3 plan Q6). They stay in the mirror and keep being replicated, as parked ships. Do not change the mirror while enumerating.
+    /// </summary>
+    public IEnumerable<MirrorEntity> ParkedAvatars
+    {
+        get
+        {
+            foreach (uint id in _avatars)
+            {
+                if (_entities.TryGetValue(id, out var entity) && entity.ControllerPlayer == 0)
+                {
+                    yield return entity;
+                }
+            }
+        }
+    }
+
+    /// <summary>Number of avatars in the mirror (piloted and parked).</summary>
+    public int AvatarCount => _avatars.Count;
+
+    private void TrackAvatar(MirrorEntity entity)
+    {
+        if (entity.Origin == EntityOrigin.PlayerShip)
+        {
+            _avatars.Add(entity.NetId);
+        }
+        else
+        {
+            _avatars.Remove(entity.NetId);
+        }
+    }
 
     /// <summary>The latest per-sector summary the authority sent (<c>GalaxySummary</c>), for the GUI map.</summary>
     public IReadOnlyDictionary<ushort, SectorSummaryCounts> Summary => _summary;
@@ -361,6 +395,7 @@ public sealed partial class WorldMirror : ISessionModule
         entity.OwnerPlayer = record.OwnerPlayer;
         entity.ParentNetId = record.ParentNetId;
         entity.ControllerPlayer = record.ControllerPlayer;
+        TrackAvatar(entity);
         entity.Name = record.Name;
         entity.IdCode = record.Idcode;
         entity.Hull = record.Hull;
@@ -889,6 +924,7 @@ public sealed partial class WorldMirror : ISessionModule
         _entities.Clear();
         _buckets.Clear();
         _players.Clear();
+        _avatars.Clear();
         _summary.Clear();
         _persistentCount = _transientCount = 0;
         HasWorldUpdate = false;
@@ -927,6 +963,7 @@ public sealed partial class WorldMirror : ISessionModule
     {
         Unbucket(entity);
         _entities.Remove(entity.NetId);
+        _avatars.Remove(entity.NetId);
         if (entity.IsPersistent)
         {
             _persistentCount--;

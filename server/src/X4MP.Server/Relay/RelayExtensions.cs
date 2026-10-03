@@ -57,6 +57,7 @@ public static class RelayExtensions
         });
         services.AddSingleton<ISessionModule>(sp => sp.GetRequiredService<RelayModule>());
         services.AddSingleton<IChatControl>(sp => sp.GetRequiredService<RelayModule>());
+        services.AddSingleton<IAvatarControl>(sp => sp.GetRequiredService<RelayModule>());
         return services;
     }
 }

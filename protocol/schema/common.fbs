@@ -103,7 +103,8 @@ enum StateFlags : ushort (bit_flags) {
   Keyframe,            // periodic refresh, not triggered by change detection
   PlayerControlled,
   Dying,               // destruction in progress; EntityDespawn(Destroyed) follows
-  BoardingExempt       // boarding in progress on some node; do not suppress
+  BoardingExempt,      // boarding in progress on some node; do not suppress
+  Hidden               // 1<<10 (M3 D1): a ghost must not be shown (on foot, docked inside, superhighway transit, not in the avatar)
 }
 
 /// Authority capture state: 32 bytes, 4-byte aligned. Used in WorldUpdate (A->S).

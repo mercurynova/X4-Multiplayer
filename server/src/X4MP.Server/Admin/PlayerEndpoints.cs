@@ -116,7 +116,7 @@ internal static class PlayerEndpoints
     }
 
     private static async Task<IResult> KickAsync(
-        long id, KickRequest? body, HttpContext context, AdminSessions sessions, SqliteAdminQueries queries, AdminStore audit)
+        long id, KickRequest? body, HttpContext context, AdminSessions sessions, SqliteAdminQueries queries, AdminStore audit, IAvatarControl avatars)
     {
         var errors = new Dictionary<string, string[]>();
         string? reason = AdminApi.CheckReason(body?.Reason, errors);
@@ -130,12 +130,20 @@ internal static class PlayerEndpoints
             return Problems.NotFound("The player");
         }
 
-        if (!await sessions.Actor.RemoveNodeAsync((int)id, DisconnectCode.Kicked, reason!))
+        bool removeAvatar = body?.RemoveAvatar == true;
+        bool kicked = await sessions.Actor.RemoveNodeAsync((int)id, DisconnectCode.Kicked, reason!);
+        if (!kicked && !removeAvatar)
         {
             return Problems.Conflict("PlayerNotOnline", "The player is not in the session.");
         }
 
-        AdminApi.Audit(context, audit, "player.kick", id.ToString(CultureInfo.InvariantCulture), reason);
+        // "Remove their ships" also works for a player who is already offline: that is the parked avatar of Q6.
+        int removed = removeAvatar ? (await avatars.RemoveAvatarsAsync((int)id)).Count : 0;
+        AdminApi.Audit(context, audit, "player.kick", id.ToString(CultureInfo.InvariantCulture), reason, new()
+        {
+            ["kicked"] = kicked ? "true" : "false",
+            ["avatarsRemoved"] = removeAvatar ? removed.ToString(CultureInfo.InvariantCulture) : null,
+        });
         return Results.Accepted();
     }
 
@@ -243,7 +251,7 @@ internal static class PlayerEndpoints
     }
 
     private static async Task<IResult> CreateBanAsync(
-        CreateBanRequest? body, HttpContext context, AdminSessions sessions, SqliteAdminQueries queries, AdminStore audit)
+        CreateBanRequest? body, HttpContext context, AdminSessions sessions, SqliteAdminQueries queries, AdminStore audit, IAvatarControl avatars)
     {
         var errors = new Dictionary<string, string[]>();
         string? reason = AdminApi.CheckReason(body?.Reason, errors);
@@ -347,12 +355,29 @@ internal static class PlayerEndpoints
             await sessions.Actor.RemoveNodeAsync(playerToKick, DisconnectCode.Banned, reason!);
         }
 
+        // Optional: also remove the banned players' avatars from the universe (the ban target even when it is offline).
+        int avatarsRemoved = 0;
+        if (body.RemoveAvatar == true)
+        {
+            var victims = new HashSet<int>(toKick);
+            if (player is not null && player.Id <= int.MaxValue)
+            {
+                victims.Add((int)player.Id);
+            }
+
+            foreach (int victim in victims)
+            {
+                avatarsRemoved += (await avatars.RemoveAvatarsAsync(victim)).Count;
+            }
+        }
+
         AdminApi.Audit(context, audit, "ban.create", id.ToString(CultureInfo.InvariantCulture), reason, new()
         {
             ["playerId"] = player?.Id.ToString(CultureInfo.InvariantCulture),
             ["ipCidr"] = cidr,
             ["expiresAt"] = expires?.ToString("O", CultureInfo.InvariantCulture),
             ["kicked"] = toKick.Count.ToString(CultureInfo.InvariantCulture),
+            ["avatarsRemoved"] = body.RemoveAvatar == true ? avatarsRemoved.ToString(CultureInfo.InvariantCulture) : null,
         });
         return Results.Json(AdminMapping.ToDto(queries.FindBan(id)!, now), ApiJsonContext.Default.BanDto, statusCode: StatusCodes.Status201Created);
     }

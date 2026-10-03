@@ -35,7 +35,7 @@ namespace X4MP.Core.Relay;
 /// <see cref="PlayerFlow"/> (its own estimator and feed) without touching the other paths.
 /// </para>
 /// </summary>
-public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IWorldObserver, IChatControl
+public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IWorldObserver, IChatControl, IAvatarControl
 {
     private readonly Func<RelayOptions> _options;
     private readonly TimeProvider _time;
@@ -137,6 +137,13 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
         if (resumed && _flows.TryGetValue(node.PlayerId, out var flow))
         {
             flow.Estimator.Reset(); // the sample clock restarts with the new connection
+        }
+
+        // A resumed authority is back in game without a phase change after its connection exists (the phase is restored before the node is
+        // attached, when Authority still finds nobody): the avatar requests that waited for it, or were lost with the old socket, go out now.
+        if (resumed && node.IsAuthority && node.Phase == NodePhase.InGame)
+        {
+            ForwardHeldAvatarRequests();
         }
     }
 

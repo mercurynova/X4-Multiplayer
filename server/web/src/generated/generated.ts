@@ -230,6 +230,7 @@ export interface CreateBanRequest {
   ipCidr: string | null;
   reason: string | null;
   durationMinutes: number | null;
+  removeAvatar: boolean | null;
 }
 
 export interface CreateSessionRequest {
@@ -424,6 +425,7 @@ export interface GalaxyPlayerDto {
   sectorId: number;
   pos: Vec3Dto;
   headingDeg: number;
+  online: boolean;
 }
 
 export interface GateLinkDto {
@@ -451,6 +453,7 @@ export interface InterestEntryDto {
 
 export interface KickRequest {
   reason: string | null;
+  removeAvatar: boolean | null;
 }
 
 export interface LaneStatsDto {
@@ -776,6 +779,10 @@ export interface PlayerLiveDto {
   teamId: number | null;
   teamName: string | null;
   stats: NodeStatsDto | null;
+  sectorId: number | null;
+  sectorName: string | null;
+  position: Vec3Dto | null;
+  shipNetId: number | null;
 }
 
 export interface PlayerModStatusDto {

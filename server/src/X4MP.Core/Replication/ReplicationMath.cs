@@ -75,6 +75,15 @@ public struct Baseline
 /// </summary>
 public static class ReplicationMath
 {
+    /// <summary>
+    /// True when <paramref name="entity"/> is the ship <paramref name="playerId"/> pilots, or that player's own avatar while nobody pilots it
+    /// (the authority has not set <c>controller_player</c> again after a rejoin). A client simulates its own ship: it never gets it in
+    /// <c>Replication</c> (M3 plan 4.1). Other players' parked avatars are ordinary player ships and are replicated.
+    /// </summary>
+    public static bool IsOwnShip(MirrorEntity entity, int playerId) =>
+        entity.ControllerPlayer == playerId
+        || (entity.ControllerPlayer == 0 && entity.Origin == EntityOrigin.PlayerShip && entity.OwnerPlayer == playerId);
+
     /// <summary>Every state field plus TIME: a keyframe or the first entry of a ghost (37 bytes).</summary>
     public const ReplicationMask FullMask =
         ReplicationMask.Sector | ReplicationMask.Pos | ReplicationMask.Rot | ReplicationMask.Vel

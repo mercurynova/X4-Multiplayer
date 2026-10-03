@@ -15,7 +15,7 @@ const galaxy: GalaxyDto = {
   links: [{ fromSector: 1, toSector: 2, kind: 'Gate' }],
 };
 
-const player = (id: number, sectorId: number): GalaxyPlayerDto => ({ id, name: `Pilot${id}`, sectorId, pos: { x: 100, y: 0, z: 200 }, headingDeg: 90 });
+const player = (id: number, sectorId: number): GalaxyPlayerDto => ({ id, name: `Pilot${id}`, sectorId, pos: { x: 100, y: 0, z: 200 }, headingDeg: 90, online: true });
 const gframe = (players: GalaxyPlayerDto[], interest: GalaxyFrameDto['interest'] = []): GalaxyFrameDto => ({
   at: '2026-01-01T00:00:00Z',
   players,
@@ -55,6 +55,15 @@ describe('galaxy page', () => {
     act(() => hub.push('GalaxyFrame', gframe([player(1, 1), player(2, 3)])));
     expect(screen.getByRole('button', { name: 'Follow Pilot1' })).toBeInTheDocument();
     expect(screen.getByText(/Sector 3 \(0\.1, 0\.2 km\)/)).toBeInTheDocument();
+  });
+
+  it('marks a parked avatar of an offline player', async () => {
+    const hub = setup('/map');
+    act(() => hub.push('$snapshot', galaxy, 'galaxy'));
+    await screen.findByTestId('galaxy-canvas');
+    act(() => hub.push('GalaxyFrame', gframe([player(1, 1), { ...player(2, 3), online: false }])));
+    expect(screen.getByTestId('galaxy-player-Pilot2')).toHaveTextContent('(parked, offline)');
+    expect(screen.getByTestId('galaxy-player-Pilot1')).not.toHaveTextContent('offline');
   });
 });
 

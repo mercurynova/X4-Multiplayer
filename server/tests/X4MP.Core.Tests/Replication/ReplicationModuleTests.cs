@@ -531,6 +531,68 @@ public sealed class ReplicationModuleTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task AParkedAvatarStaysReplicatedToOthersAfterItsPlayerLeftButNeverToItsOwnPlayer()
+    {
+        var (rig, alice) = await SetupAsync();
+        await using var _ = rig;
+        var bob = await rig.AddClientAsync("Bob", verify: false);
+        // Alice's avatar was parked when she left (controller_player cleared, M3 plan Q6); the authority still names her as the owner.
+        await rig.OnActorAsync(() => rig.Mirror.Spawn(Rec(910, EntityKind.ShipM, 2, px: 640, ownerTeam: 1, ownerPlayer: (ushort)alice.PlayerId, controller: (ushort)alice.PlayerId, origin: EntityOrigin.PlayerShip)));
+        await rig.PlaceAsync(bob, 2);
+        await rig.RunAsync(4);
+        await rig.CompleteCapturedAsync();
+        await rig.PumpAsync();
+        await rig.RunAsync(4);
+        Assert.True(bob.Session.IsGhost(910), "Bob holds the avatar");
+
+        // The authority clears the controller when the player leaves; the avatar must not vanish from anybody's view.
+        await rig.OnActorAsync(() => rig.Mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, X4MP.Core.Tests.World.MessageEncoderHelper.Change(910, ChangeField.Controller, 0))));
+        Assert.Single(await rig.OnActorAsync(() => rig.Mirror.ParkedAvatars.Select(e => e.NetId).ToList()), 910u);
+        await rig.RunAsync(8);
+        Assert.True(bob.Session.IsGhost(910), "still held after the controller was cleared");
+
+        // It is later nudged by the authority (a parked ship is replicated like any player ship): Bob gets entries, Alice never does.
+        int mark = rig.Net.RealtimeLog.Count;
+        for (int step = 0; step < 40; step++)
+        {
+            await MoveAsync(rig, 910, 2, 640 + (step * 64));
+            await rig.StepAsync();
+        }
+
+        Assert.Contains(Entries(rig, bob.PlayerId, mark), e => e.NetId == 910);
+        Assert.DoesNotContain(Entries(rig, Alice, mark), e => e.NetId == 910);
+        Assert.Equal(0, bob.Session.Errors);
+    }
+
+    [Fact]
+    public async Task APlayersOwnShipIsNeverInItsReplicationWhetherPilotedOrParked()
+    {
+        var (rig, alice) = await SetupAsync();
+        await using var _ = rig;
+        await rig.OnActorAsync(() =>
+        {
+            rig.Mirror.Spawn(Rec(920, EntityKind.ShipS, 2, px: 640, ownerPlayer: (ushort)alice.PlayerId, controller: (ushort)alice.PlayerId, origin: EntityOrigin.PlayerShip));
+            rig.Mirror.Spawn(Rec(921, EntityKind.ShipS, 2, px: 1280, ownerPlayer: (ushort)alice.PlayerId, controller: 0, origin: EntityOrigin.PlayerShip));
+            rig.Mirror.Spawn(Rec(922, EntityKind.ShipS, 2, px: 1920, ownerPlayer: 9, controller: 9, origin: EntityOrigin.PlayerShip)); // somebody else's
+        });
+        await rig.RunAsync(4);
+        await rig.CompleteCapturedAsync();
+        await rig.PumpAsync();
+        int mark = rig.Net.RealtimeLog.Count;
+        for (int step = 0; step < 40; step++)
+        {
+            await rig.OnActorAsync(() => rig.Mirror.IngestWorldUpdate(UpdatePayload((uint)rig.Tick, rig.GameTime,
+                [State(920, 2, 640 + (step * 64)), State(921, 2, 1280 + (step * 64)), State(922, 2, 1920 + (step * 64))])));
+            await rig.StepAsync();
+        }
+
+        var ids = Entries(rig, Alice, mark).Select(e => e.NetId).ToHashSet();
+        Assert.DoesNotContain(920u, ids);   // piloted by Alice
+        Assert.DoesNotContain(921u, ids);   // Alice's avatar, nobody pilots it yet
+        Assert.Contains(922u, ids);         // another player's ship is replicated
+    }
+
+    [Fact]
     public async Task APlayerShipInAFarSectorStillReachesEveryoneAtAtLeastTwoHertz()
     {
         var (rig, alice) = await SetupAsync();

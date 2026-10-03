@@ -52,6 +52,7 @@ public static class SettingsExtensions
         services.AddSettingsSection<X4MP.Core.Interest.InterestOptions>();
         services.AddSettingsSection<X4MP.Core.Saves.SaveOptions>();
         services.AddSettingsSection<X4MP.Core.Relay.RelayOptions>();
+        services.AddSettingsSection<AvatarOptions>();
     }
 
     /// <summary>

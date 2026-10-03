@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useAlerts } from '../../alerts/AlertsProvider';
 import { useAuth } from '../../auth/AuthContext';
 import { BanDialog } from './ActionDialogs';
-import { formatAgo, formatDuration } from './format';
+import { formatAgo, formatDuration, formatWhere } from './format';
 import { PlayerActions } from './PlayerActions';
 import { usePlayers } from './usePlayers';
 import './players.css';
@@ -70,6 +70,7 @@ export function PlayersPage() {
                 <th scope="col">Status</th>
                 <th scope="col">Team</th>
                 <th scope="col">Role</th>
+                <th scope="col">Sector</th>
                 <th scope="col">FPS</th>
                 <th scope="col">Address</th>
                 <th scope="col">Playtime</th>
@@ -91,6 +92,7 @@ export function PlayersPage() {
                   </td>
                   <td>{live?.teamName ?? player.teamName ?? ''}</td>
                   <td>{online && live ? live.roles : ''}</td>
+                  <td data-testid="player-sector">{online && live ? formatWhere(live) : ''}</td>
                   <td data-testid="player-fps">{online && live && live.stats ? Math.round(live.stats.fps) : ''}</td>
                   <td>{live?.remoteAddress ?? player.lastIp ?? ''}</td>
                   <td>{formatDuration(player.totalPlaytimeSeconds)}</td>

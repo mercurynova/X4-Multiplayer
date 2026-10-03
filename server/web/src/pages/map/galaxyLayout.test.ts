@@ -22,7 +22,7 @@ const galaxy: GalaxyDto = {
   ],
 };
 
-const player = (sectorId: number, x: number, z: number): GalaxyPlayerDto => ({ id: 1, name: 'A', sectorId, pos: { x, y: 0, z }, headingDeg: 0 });
+const player = (sectorId: number, x: number, z: number): GalaxyPlayerDto => ({ id: 1, name: 'A', sectorId, pos: { x, y: 0, z }, headingDeg: 0, online: true });
 
 describe('galaxy layout', () => {
   const l = buildGalaxyLayout(galaxy);
