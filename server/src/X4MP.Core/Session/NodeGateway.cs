@@ -308,7 +308,7 @@ public sealed partial class NodeGateway
             await RecordRefusedModReportAsync(hello, playerKey, modEvaluation, modPolicyVersion, ct).ConfigureAwait(false);
             return Fail(
                 DisconnectCode.ExtensionsMismatch, "your mods do not match this session: " + ModPolicyEvaluator.Describe(violation),
-                DescribeExtensionDiff(authority?.ExtensionList, ExtensionReports.FromHello(hello)), modViolation: violation);
+                ModPolicyEvaluator.DescribeDetailed(violation), modViolation: violation);
         }
 
         if (modEvaluation.Verdict == ModVerdict.AdmitWithWarning)
@@ -610,17 +610,6 @@ public sealed partial class NodeGateway
         {
             LogReportFailed(playerId, ex);
         }
-    }
-
-    private static string DescribeExtensionDiff(IReadOnlyList<ExtensionInfoT>? authority, IReadOnlyList<ExtensionInfoT> node)
-    {
-        static IEnumerable<string> Lines(IReadOnlyList<ExtensionInfoT>? list) =>
-            (list ?? []).Where(e => e.Enabled).Select(e => e.Id + "@" + e.Version);
-        var mine = new HashSet<string>(Lines(node), StringComparer.Ordinal);
-        var theirs = new HashSet<string>(Lines(authority), StringComparer.Ordinal);
-        var missing = theirs.Except(mine).Order(StringComparer.Ordinal);
-        var extra = mine.Except(theirs).Order(StringComparer.Ordinal);
-        return $"missing: [{string.Join(", ", missing)}] extra: [{string.Join(", ", extra)}]";
     }
 
     private WelcomeT BuildWelcome(INodeConnection connection, ClientHelloT hello, Role granted, int playerId)

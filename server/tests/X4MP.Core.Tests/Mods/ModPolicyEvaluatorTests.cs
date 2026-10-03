@@ -246,6 +246,24 @@ public class ModPolicyEvaluatorTests
         Assert.Equal("install: Alpha; disable: Beta", ModPolicyEvaluator.Describe(result.Violation!));
     }
 
+    [Fact]
+    public void DescribeDetailedIsNormalisedAndPolicyAware()
+    {
+        // Live session 3: the old text listed split@900 missing AND @9.00 extra, plus libraries and x4mp. The detail now mirrors the groups only.
+        var authority = new[] { Ext("ego_dlc_split", "9.00"), Ext("x4mp", "9.00"), Ext("x4native", "9.00"), Ext("kuerteeUIExtensionsAndHUD", "7.5.1") };
+        var player = new[] { Ext("ego_dlc_split", "900"), Ext("x4mp", "1.0"), Ext("x4native", "2.0"), Ext("ws_5", "1.3") };
+        var policy = Policy(entries: [Entry("sn_better_traders", version: "2.0"), Entry("ws_5", version: "1.4")]);
+        var result = ModPolicyEvaluator.Evaluate(player, policy, authority);
+        Assert.Equal(ModVerdict.Reject, result.Verdict);
+        string text = ModPolicyEvaluator.DescribeDetailed(result.Violation!);
+        Assert.Equal("install: sn_better_traders@2.0; update: ws_5 1.3 -> 1.4", text);
+        Assert.DoesNotContain("x4mp", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("x4native", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("kuertee", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("split", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("900", text, StringComparison.Ordinal);
+    }
+
     // ------------------------------------------------------------------ classification, hash, versions, links
 
     [Fact]

@@ -184,6 +184,42 @@ public static class ModPolicyEvaluator
         return string.Join("; ", parts);
     }
 
+    /// <summary>
+    /// The technical detail for the Disconnect <c>expected</c> field and the logs: only what the policy actually blocks or warns about (the same
+    /// lists as the groups the player sees), with ids and version-normalised versions, e.g.
+    /// <c>install: sn_better_traders@2.0; update: some_mod 1.3 -> 1.4; disable: other_mod@1.0</c>. Never lists x4mp, x4native or tolerated libraries.
+    /// </summary>
+    public static string DescribeDetailed(ModPolicyViolationT v)
+    {
+        static string Ver(string? s) => string.IsNullOrWhiteSpace(s) ? string.Empty : NormalizeVersion(s);
+        static string One(ModRefT r, bool update)
+        {
+            string want = Ver(r.Version), have = Ver(r.HaveVersion);
+            if (update)
+            {
+                return $"{r.Id} {(have.Length > 0 ? have : "?")} -> {(want.Length > 0 ? want : "?")}";
+            }
+
+            string ver = want.Length > 0 ? want : have;
+            return ver.Length > 0 ? $"{r.Id}@{ver}" : r.Id;
+        }
+
+        var parts = new List<string>();
+        void Add(string label, List<ModRefT>? list, bool update = false)
+        {
+            if (list is { Count: > 0 })
+            {
+                parts.Add($"{label}: {string.Join(", ", list.Select(r => One(r, update)))}");
+            }
+        }
+
+        Add("install", v.Install);
+        Add("enable", v.Enable);
+        Add("disable", v.Disable);
+        Add("update", v.Update, update: true);
+        return string.Join("; ", parts);
+    }
+
     private static List<Rule> BuildRules(ModPolicyT policy, IReadOnlyList<ExtensionInfoT>? authority)
     {
         var rules = new List<Rule>();

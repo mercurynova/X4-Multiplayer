@@ -241,9 +241,15 @@ local function buildStatus(st, rows)
 		label = T(STATE_TEXT[state] or 39, "")
 	end
 	local tone = (state == "ingame") and "positive" or ((state == "rejected" or state == "error") and "error" or "normal")
-	rows[#rows + 1] = text(label, tone)
-	-- M2-X3: a mod refusal lists what to install / enable / disable / update, with links (x4mp_join_mods.lua)
-	if state == "rejected" and status and status.reject == "mod" and X4MPJoinMods then X4MPJoinMods.refusalRows(rows) end
+	-- M2-X3: a mod refusal lists what to install / enable / disable / update, with links (x4mp_join_mods.lua). Its own single headline
+	-- replaces the generic one and the server's raw text (that goes to x4mp.log only; close-out B item 4).
+	local grouped = false
+	if state == "rejected" and status and status.reject == "mod" and X4MPJoinMods then
+		local probe = {}
+		grouped = X4MPJoinMods.refusalRows(probe)
+		if grouped then for _, row in ipairs(probe) do rows[#rows + 1] = row end end
+	end
+	if not grouped then rows[#rows + 1] = text(label, tone) end
 	-- Re-joined in game and the session now has a different save: nothing is loaded unless the player asks (a load replaces the running game).
 	if state == "save_changed" then
 		rows[#rows + 1] = text(T(47), "warning")

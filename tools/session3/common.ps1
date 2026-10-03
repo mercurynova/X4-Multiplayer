@@ -183,3 +183,32 @@ function Get-LocalDlcExtensions([string]$X4Dir, [string]$UserDir) {
     }
     return $result.ToArray()
 }
+
+# ---- Steam Cloud and the download name (session 3, close-out B item 8) ------------------------------------------------------------
+# X4 saves are synced by Steam Cloud (steam_autocloud.vdf in the save folder): a file the player deletes comes back at the next X4 start,
+# so an old x4mp_<sha12>.xml.gz silently turns the "download the session save" test into a cache hit.
+
+# True when the save folder is managed by Steam Cloud.
+function Test-SteamCloudSaveFolder([string]$SaveDir) { return (Test-Path (Join-Path $SaveDir 'steam_autocloud.vdf')) }
+
+# The local file name the mod and the server give a downloaded session save: x4mp_<first 12 hex of the SHA-256 of the file bytes>.xml.gz
+# (server SaveFileStore.LocalFileName, mod session.cpp local_file_name).
+function Get-SaveDownloadName([string]$Path) {
+    # .NET, not Get-FileHash: under -WhatIf (which the caller's preference passes on) Get-FileHash returns nothing.
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $sha = ([BitConverter]::ToString($sha256.ComputeHash([IO.File]::ReadAllBytes($Path))) -replace '-', '').ToLowerInvariant() }
+    finally { $sha256.Dispose() }
+    return 'x4mp_' + $sha.Substring(0, 12) + '.xml.gz'
+}
+
+# Writes a copy of a .xml.gz that decompresses to the identical save but has different bytes (so a different hash and download name): only the
+# 4-byte MTIME field of the gzip header (bytes 4-7, not covered by the CRC, ignored by every reader) is replaced. The source is never touched.
+function New-FreshDownloadCopy([string]$Source, [string]$Destination) {
+    $bytes = [IO.File]::ReadAllBytes($Source)
+    if ($bytes.Length -lt 18 -or $bytes[0] -ne 0x1f -or $bytes[1] -ne 0x8b) { throw "Not a gzip file: $Source" }
+    $old = $bytes[4..7]
+    $new = New-Object byte[] 4
+    do { (New-Object Random).NextBytes($new) } while ((($new -join ',') -eq ($old -join ',')) -or (($new -join ',') -eq '0,0,0,0'))
+    [Array]::Copy($new, 0, $bytes, 4, 4)
+    [IO.File]::WriteAllBytes($Destination, $bytes)
+}

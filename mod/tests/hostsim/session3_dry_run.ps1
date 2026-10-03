@@ -145,6 +145,57 @@ try {
         if (Test-Path $cfgDir) { throw 'a -WhatIf run wrote into the config folder' }
     }
 
+    Step 'Steam Cloud / cache-hit warning of start-fake-authority.ps1 (-WhatIf) and -FreshDownload' {
+        $wi = @('-SaveName', 'save_004', '-WhatIf', '-X4Dir', ('"' + $fakeX4 + '"')) + $portArgs
+        $vdf = Join-Path $saveDir 'steam_autocloud.vdf'
+        $src = Join-Path $saveDir 'save_004.xml.gz'
+        $hex = (Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash.ToLowerInvariant().Substring(0, 12)
+        $leftover = Join-Path $saveDir "x4mp_$hex.xml.gz"
+        try {
+            # no Steam Cloud, nothing served before: silent
+            $r = Run-Kit 'start-fake-authority.ps1' $wi
+            Expect-Kit $r 'plain -WhatIf'
+            if ($r.Text -match 'CACHE HIT|Steam Cloud') { throw "unexpected cache/cloud warning without a cloud marker or a leftover`n$($r.Text)" }
+            # Steam Cloud present, name not there: the generic cloud note
+            Set-Content $vdf '"steam_autocloud" {}'
+            Expect-Kit (Run-Kit 'start-fake-authority.ps1' $wi) 'cloud note' 0 @('Steam Cloud manages your save folder', "x4mp_$hex\.xml\.gz", '-FreshDownload')
+            # the name the mod would give the download already exists (restored by the cloud): the cache-hit warning
+            Copy-Item $src $leftover
+            $r = Run-Kit 'start-fake-authority.ps1' $wi
+            Expect-Kit $r 'cache-hit warning' 0 @("x4mp_$hex\.xml\.gz already exists", 'CACHE HIT', 'Steam Cloud restores deleted files', '-FreshDownload', '-SaveName')
+            # -FreshDownload: no cache-hit warning, the plan says what differs
+            $r = Run-Kit 'start-fake-authority.ps1' ($wi + @('-FreshDownload'))
+            Expect-Kit $r '-FreshDownload -WhatIf' 0 @('FreshDownload: gzip header timestamp changed', 'Steam Cloud detected')
+            if ($r.Text -match 'CACHE HIT') { throw "-FreshDownload still warns about a cache hit`n$($r.Text)" }
+            # the helpers (in a child process, so the kit's functions do not leak into this script): a fresh copy has another hash and name
+            # but the identical decompressed save; the source is untouched
+            $chk = Join-Path $tmp 'fresh_check.ps1'
+            Set-Content $chk @"
+`$ErrorActionPreference = 'Stop'
+. '$(Join-Path $s3 'common.ps1')'
+`$src = '$src'; `$copy = '$(Join-Path $tmp 'fresh_copy.xml.gz')'
+`$before = (Get-FileHash -Algorithm SHA256 -LiteralPath `$src).Hash
+New-FreshDownloadCopy `$src `$copy
+if ((Get-SaveDownloadName `$copy) -eq (Get-SaveDownloadName `$src)) { throw 'the fresh copy has the same download name' }
+if ((Get-SaveDownloadName `$src) -ne 'x4mp_$hex.xml.gz') { throw 'Get-SaveDownloadName disagrees with the SHA-256 prefix' }
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath `$src).Hash -ne `$before) { throw 'the source save was modified' }
+function Read-Gz([string]`$f) {
+    `$in = [IO.File]::OpenRead(`$f); `$g = New-Object IO.Compression.GZipStream(`$in, [IO.Compression.CompressionMode]::Decompress)
+    `$ms = New-Object IO.MemoryStream; `$g.CopyTo(`$ms); `$g.Dispose(); `$in.Dispose()
+    return (Get-FileHash -InputStream (New-Object IO.MemoryStream (, `$ms.ToArray())) -Algorithm SHA256).Hash
+}
+if ((Read-Gz `$copy) -ne (Read-Gz `$src)) { throw 'the fresh copy decompresses to different content' }
+'fresh copy ' + (Get-SaveDownloadName `$copy) + ' vs ' + (Get-SaveDownloadName `$src) + ': same content, source untouched'
+"@
+            $o = Join-Path $tmp 'fresh_check.txt'
+            $p = Start-Process $powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$chk`"") -PassThru -Wait -NoNewWindow -RedirectStandardOutput $o -RedirectStandardError ($o + '.err')
+            $null = $p.Handle
+            if ($p.ExitCode -ne 0) { throw "fresh-copy check failed: $(Get-Content $o -Raw)$(Get-Content ($o + '.err') -Raw)" }
+            Write-Host ('  ' + (Get-Content $o -Raw).Trim())
+        }
+        finally { Remove-Item $vdf, $leftover -ErrorAction SilentlyContinue }
+    }
+
     Step 'install: refuses, then removes the session-2 extensions and deploys' {
         Expect-Kit (Run-Kit 'install.ps1' $x4a) 'install without -RemoveTestExtensions' 1 @('Refusing')
         Expect-Kit (Run-Kit 'install.ps1' (@('-RemoveTestExtensions', '-Force') + $x4a)) 'install -RemoveTestExtensions -Force' 0 @('Removed', 'Deployed')
@@ -315,8 +366,12 @@ while (`$true) {
     # ---------------------------------------------------------------- topology 2
     Remove-Item -Recurse -Force (Join-Path $outDir 'data'), (Join-Path $outDir 'admin-password.txt') -ErrorAction SilentlyContinue
     Step 'topology 2: start-fake-clients.ps1 uploads the save, the real DLL hosts as the authority' {
+        # the bots report the DLCs of the X4 install they find; the hostsim authority reports none, so give them a DLC-less install (a dev PC's real DLCs would be refused)
+        $noDlcX4 = Join-Path $tmp 'X4 NoDlc'
+        New-Item -ItemType Directory -Force (Join-Path $noDlcX4 'extensions') | Out-Null
+        New-Item -ItemType File -Force (Join-Path $noDlcX4 'X4.exe') | Out-Null
         New-GzSave (Join-Path $tmp 'ckpt1.xml.gz') 11; New-GzSave (Join-Path $tmp 'ckpt2.xml.gz') 12
-        $fc = Start-P $powershell (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $s3 'start-fake-clients.ps1'), '-SaveName', 'save_004') + ($portArgs | ForEach-Object { "$_" })) (Join-Path $tmp 'fc.out.txt')
+        $fc = Start-P $powershell (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $s3 'start-fake-clients.ps1'), '-SaveName', 'save_004', '-X4Dir', $noDlcX4) + ($portArgs | ForEach-Object { "$_" })) (Join-Path $tmp 'fc.out.txt')
         Wait-File 'the script to wait for the authority' (Join-Path $tmp 'fc.out.txt') 'Waiting up to' $fc 300
         $out = Get-Content (Join-Path $tmp 'fc.out.txt') -Raw
         foreach ($m in 'x4mp-host-test', 'Uploaded', "created from the upload and started") { if ($out -notmatch $m) { throw "start-fake-clients output lacks '$m'`n$out" } }
