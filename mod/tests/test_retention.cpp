@@ -83,7 +83,14 @@ TEST_CASE("retention: Control frames queued while down are replayed in order aft
     REQUIRE(got.has_value());
     CHECK(*got == 0xC0 + i);
   }
-  const auto st = b.client.status();
+  // The net thread writes the replayed frames inside the same loop iteration that handled the Welcome and publishes
+  // status only at the end of it, so the server can have read all six frames while the published snapshot still shows
+  // the pre-replay counters. Wait for the snapshot to catch up, then assert on that one snapshot.
+  NetStatus st{};
+  REQUIRE(wait_until([&] {
+    st = b.client.status();
+    return st.control_replayed == 6 && st.control_retained_frames == 0;
+  }));
   CHECK(st.control_replayed == 6);
   CHECK(st.control_discarded_fresh == 0);
   CHECK(st.control_retained_frames == 0);
@@ -135,6 +142,13 @@ TEST_CASE("retention: without the gate behaviour is unchanged (queued frames are
   Conn second = b.server.accept();
   REQUIRE(second.valid());
   second.send(welcome(1, 1, 1, true));
+  // Ungated, a frame queued before the net thread has finished connecting is (by design) dropped as belonging to a
+  // dead handshake, and accept() on the server side only proves the TCP handshake, not that the client reached
+  // Connected. The Welcome being processed (second inbound frame overall) proves it did.
+  REQUIRE(wait_until([&] {
+    const auto s = b.client.status();
+    return s.state == ConnState::Connected && s.frames_in >= 2;
+  }));
   REQUIRE(b.client.send(Lane::Control, kChat, payload_of(8)) == SendResult::Ok);
   CHECK(next_chat(second) == 0xC8);  // the first chat frame on the new connection is the new one
   b.client.stop();
