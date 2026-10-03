@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP team factions, MD side (M3-08; docs/mod-design.md 11.5/11.6, ADR-016 with the 2026-10-01 correction). Lua side: ui/x4mp_teams.lua; native side:
+  features/teams (team_plan.* builds the plan and the call order, team_hub.* the apply state machine). Based on the sitting-0 spike S13.7 (PASS).
+
+  Lua -> MD  AddUITriggeredEvent("X4MP_Teams", "apply", <list>)   the whole plan as one flat list of numbers (a Lua array becomes an MD list, 1-based):
+               { seq, nSlots, nRel, slot_1 .. slot_nSlots, a_1, b_1, v_1, a_2, b_2, v_2, ... }
+             a and b are faction codes: 0 = player, 1..8 = x4mp_team_<n>; v is the relation (+1.0 own team, +0.75 allied, 0 neutral, -1.0 hostile).
+             Every team faction of the session is listed in the slots (the factions are inactive in the library; this activates them).
+  MD -> Lua  raise_lua_event 'x4mp.md_teams' <string>, forwarded unchanged to native (verb x4mp.teams_md):
+               R;<seq>;<active>;<mismatches>;<player_locked>;<nSlots>;<nRel>    the plan was applied and READ BACK:
+                   active = team factions of the plan that report isactive, mismatches = relations whose read-back differs from the wanted value
+                   by more than 0.001 (both directions of every pair), player_locked = 1 when faction.player reports a locked relation (must be 0)
+               E;<seq>;<reason>                                                    the payload was not usable (bad_payload)
+
+  Order of the calls (native build_calls() lists the same order; ADR-016 unlock-set-relock): 1. unlock every team faction of the plan,
+  2. activate it and mark it known, 3. set every relation in both directions, 4. lock every team faction again.
+  `player` is never locked or unlocked here: locking it would freeze all of the player's NPC relations (faction-wide lock, ADR-016 correction).
+  The same plan can be applied any number of times (idempotent): a matrix change in the GUI simply sends the new plan, within one frame.
+  Team <-> NPC relations are the library defaults (libraries/factions.xml <relations>); copying the player's standing is M6 (reputation sync).
+-->
+<mdscript name="X4MP_Teams" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Teams_Apply" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Teams'" control="'apply'"/>
+      </conditions>
+      <actions>
+        <set_value name="$P" exact="event.param3"/>
+        <set_value name="$Seq" exact="0"/>
+        <do_if value="typeof $P == datatype.list and $P.count ge 3">
+          <set_value name="$Seq" exact="$P.{1}"/>
+          <set_value name="$NSlots" exact="$P.{2}"/>
+          <set_value name="$NRel" exact="$P.{3}"/>
+          <do_if value="$P.count != 3 + $NSlots + $NRel * 3 or $NSlots gt 8 or $NSlots lt 0 or $NRel lt 0">
+            <set_value name="$Seq" exact="0 - $Seq"/>  <!-- marks the payload as unusable below -->
+          </do_if>
+        </do_if>
+
+        <do_if value="$Seq le 0">
+          <raise_lua_event name="'x4mp.md_teams'" param="'E;' + @event.param3.{1} + ';bad_payload'"/>
+          <debug_text text="'[X4MP] teams: unusable apply payload'" filter="general" context="false"/>
+        </do_if>
+        <do_else>
+          <!-- code -> faction: index = code + 1 (0 = player) -->
+          <set_value name="$Facs" exact="[faction.player, faction.x4mp_team_1, faction.x4mp_team_2, faction.x4mp_team_3, faction.x4mp_team_4, faction.x4mp_team_5, faction.x4mp_team_6, faction.x4mp_team_7, faction.x4mp_team_8]"/>
+
+          <!-- 1. unlock the team factions of the plan (never player) -->
+          <do_all exact="$NSlots" counter="$I">
+            <set_value name="$Code" exact="$P.{3 + $I}"/>
+            <set_value name="$Fac" exact="$Facs.{$Code + 1}"/>
+            <set_faction_relation_locked faction="$Fac" locked="false"/>
+          </do_all>
+          <!-- 2. activate + known -->
+          <do_all exact="$NSlots" counter="$I">
+            <set_value name="$Code" exact="$P.{3 + $I}"/>
+            <set_value name="$Fac" exact="$Facs.{$Code + 1}"/>
+            <set_faction_active faction="$Fac" active="true"/>
+            <set_faction_known faction="$Fac" known="true"/>
+          </do_all>
+          <!-- 3. relations, both directions -->
+          <do_all exact="$NRel" counter="$J">
+            <set_value name="$Base" exact="3 + $NSlots + ($J - 1) * 3"/>
+            <set_value name="$FacA" exact="$Facs.{$P.{$Base + 1} + 1}"/>
+            <set_value name="$FacB" exact="$Facs.{$P.{$Base + 2} + 1}"/>
+            <set_value name="$Value" exact="$P.{$Base + 3}"/>
+            <set_faction_relation faction="$FacA" otherfaction="$FacB" value="$Value"/>
+            <set_faction_relation faction="$FacB" otherfaction="$FacA" value="$Value"/>
+          </do_all>
+          <!-- 4. lock the team factions again -->
+          <do_all exact="$NSlots" counter="$I">
+            <set_value name="$Code" exact="$P.{3 + $I}"/>
+            <set_value name="$Fac" exact="$Facs.{$Code + 1}"/>
+            <set_faction_relation_locked faction="$Fac" locked="true"/>
+          </do_all>
+
+          <!-- read back -->
+          <set_value name="$Active" exact="0"/>
+          <do_all exact="$NSlots" counter="$I">
+            <set_value name="$Code" exact="$P.{3 + $I}"/>
+            <do_if value="$Facs.{$Code + 1}.isactive">
+              <set_value name="$Active" operation="add"/>
+            </do_if>
+          </do_all>
+          <set_value name="$Mismatch" exact="0"/>
+          <do_all exact="$NRel" counter="$J">
+            <set_value name="$Base" exact="3 + $NSlots + ($J - 1) * 3"/>
+            <set_value name="$FacA" exact="$Facs.{$P.{$Base + 1} + 1}"/>
+            <set_value name="$FacB" exact="$Facs.{$P.{$Base + 2} + 1}"/>
+            <set_value name="$Value" exact="$P.{$Base + 3}"/>
+            <set_value name="$GotAB" exact="$FacA.relationto.{$FacB}"/>
+            <set_value name="$GotBA" exact="$FacB.relationto.{$FacA}"/>
+            <do_if value="$GotAB - $Value gt 0.001 or $GotAB - $Value lt -0.001">
+              <set_value name="$Mismatch" operation="add"/>
+            </do_if>
+            <do_if value="$GotBA - $Value gt 0.001 or $GotBA - $Value lt -0.001">
+              <set_value name="$Mismatch" operation="add"/>
+            </do_if>
+          </do_all>
+          <set_value name="$PlayerLocked" exact="0"/>
+          <do_if value="faction.player.isrelationlocked">
+            <set_value name="$PlayerLocked" exact="1"/>
+          </do_if>
+
+          <debug_text text="'[X4MP] teams: applied seq=' + $Seq + ' slots=' + $NSlots + ' relations=' + $NRel + ' active=' + $Active + ' mismatches=' + $Mismatch + ' player_locked=' + $PlayerLocked" filter="general" context="false"/>
+          <raise_lua_event name="'x4mp.md_teams'" param="'R;' + $Seq + ';' + $Active + ';' + $Mismatch + ';' + $PlayerLocked + ';' + $NSlots + ';' + $NRel"/>
+        </do_else>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

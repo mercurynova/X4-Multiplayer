@@ -2,6 +2,7 @@
 
 #include "features/diag/diag_hub.h"
 #include "features/stats/stats_message.h"
+#include "features/teams/team_hub.h"
 
 namespace x4mp::features {
 
@@ -25,6 +26,7 @@ void StatsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
       s.frame_ms_p95 = w.frame_ms_p95;
       s.game_time = info.game_time.value_or(0.0);
       s.net_main_ms_p95 = w.mod_ms_p95;
+      s.team_setup_state = static_cast<std::uint8_t>(teams::team_hub().state());
       s.rtt_ms = static_cast<float>(net.rtt_us) / 1000.0f;
       s.clock_offset_us = net.clock_offset_us;
       s.tcp_send_queue_bytes = static_cast<std::uint32_t>(net.write_buffer_bytes > 0xFFFFFFFFull ? 0xFFFFFFFFull : net.write_buffer_bytes);

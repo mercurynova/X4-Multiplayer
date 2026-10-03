@@ -15,6 +15,7 @@
 #include "core/version/version.h"
 #include "features/authority/authority_flow.h"
 #include "features/chat/chat_json.h"
+#include "features/teams/team_hub.h"
 #include "features/diag/diag_hub.h"
 #include "features/join/join_messages.h"
 #include "features/join/join_requests.h"
@@ -480,6 +481,7 @@ void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
   }
   universe_pending_ = false;
   chat::chat_hub().session_ended();  // M3-06: roster and chat history belong to the session
+  teams::team_hub().session_ended();  // M3-08: the team model belongs to the session
 }
 
 bool JoinFeature::welcomed() const {
@@ -662,6 +664,7 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
                 static_cast<int>(session_->welcome().granted_roles), session_->welcome().resumed);
       last_net_error_.clear();
       welcomed_at_ = Clock::now();
+      teams::team_hub().on_welcome(std::span<const std::uint8_t>(e.payload));  // M3-08: team table + relation matrix for the faction setup
       mod_policy_json_ = join::mod_policy_json_from_welcome(std::span<const std::uint8_t>(e.payload));  // M2-X3
       if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
       sync_authority(ctx);  // M2-09
@@ -717,6 +720,7 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
     case K::Frame:
       // M3-06: ChatMessage and RosterUpdate go to the chat feature (features/chat), which shows them in the chat window and the player table.
       chat::chat_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
+      teams::team_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);  // M3-08
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);

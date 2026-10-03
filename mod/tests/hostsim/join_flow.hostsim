@@ -27,6 +27,19 @@ expect-lua x4mp.status 3000 json $.state == ingame
 expect-admin /api/v1/players $[name==Alice].online == true
 expect-admin /api/v1/players $[name==Alice].id exists
 
+# M3-08: the team factions. At universe ready the mod sends the plan of the session (one team = slot 1, own team +1.0 for player) to Lua as
+# x4mp.teams_apply; the MD answer is simulated (no MD in hostsim) with the verb x4mp.teams_md; the report turns the state to ok and the self-test
+# line team.factions passes. A stale report (old seq) is ignored.
+expect-lua x4mp.teams_apply 3000 contains [[0,1,1.0]]
+expect-file extension/logs/x4mp.log teams: apply seq=1 reason=universe_ready slots=[1] relations=1 own_slot=1
+lua-raw x4mp.teams_md {"v":1,"data":"R;9;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;1;1;0;0;1;1"}
+frame 60Hz 10
+expect-file extension/logs/x4mp.log teams: MD report 'R;1;1;0;0;1;1' -> ok
+lua-raw x4mp.selftest {"v":1}
+frame 60Hz 10
+expect-file extension/logs/x4mp.log SELFTEST PASS  team.factions
+
 # M3-06: the player table (authority + Alice) and a chat round trip through the real server: the sender gets its own line back
 # (all and team), the line reaches Lua as x4mp.chat with the author and the sender flag, and the text never lands in the mod log at Info.
 expect-lua x4mp.players 3000 json $.players[name==Alice].online == true
