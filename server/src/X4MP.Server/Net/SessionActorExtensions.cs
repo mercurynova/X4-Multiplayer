@@ -30,6 +30,7 @@ public static class SessionActorExtensions
         }
 
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<X4MP.Core.Diagnostics.NodeDiagnosticsStore>();
         services.TryAddSingleton(sp => GatewayState.FromOptions(sp.GetRequiredService<NetOptions>()));
         services.TryAddSingleton<ISessionStore>(sp => new SqliteSessionStore(sp.GetRequiredService<SqliteConnectionFactory>(), sp.GetRequiredService<PersistenceWriter>()));
         services.TryAddSingleton(sp =>
@@ -47,6 +48,7 @@ public static class SessionActorExtensions
             {
                 ModPolicy = sp.GetService<X4MP.Core.Mods.IModPolicyProvider>(),
                 ModStore = sp.GetService<X4MP.Core.Mods.IModStore>(),
+                Diagnostics = sp.GetService<X4MP.Core.Diagnostics.NodeDiagnosticsStore>(),
             };
         });
         services.RemoveAll<IAdmissionHandler>();
