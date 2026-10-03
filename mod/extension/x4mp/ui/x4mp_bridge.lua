@@ -15,6 +15,8 @@
 --   x4mp.request_status {"v":1}                          native answers with topic x4mp.status
 --   x4mp.load_session   {"v":1}                          the player agrees to load the session save that differs from the running
 --                                                        game (status state save_changed); native never loads it by itself then
+--   x4mp.chat_send      {"v":1,"channel":"all|team|whisper","to":<player id, whisper only>,"text":"..."}   (M3-06, x4mp_chat.lua)
+--                       a chat line for the session; the server answers with a ChatMessage to everybody it is meant for, the sender included
 --   x4mp.extensions     {"v":1,"source":"load"|"gfx_ok"|"show","startmenu":bool,"modified_ui_files":"...",
 --                        "count":N,"list":[{"id","name","version","date","enabled","enabledbydefault","egosoftextension",
 --                        "isworkshop","personal","sync","error","warning"}, ...]}   (fields present only when the game gives them)
@@ -40,6 +42,13 @@
 --                   "enforcement":"strict|warn","entries":[{"id","name","rule":"required|allowed|blocked","enabled","version_rule",
 --                   "version","nexus_url","workshop_id","notes"}],"entries_more":N}   the session mod list after Welcome and on edits
 --
+--   x4mp.chat      (M3-06, handled by x4mp_chat.lua through B.on) {"v":1,"replay":bool,"messages":[{"from":id,"name":"..","team":N,
+--                   "channel":"all|team|whisper|admin|system","text":"..","t":<server us>,"self":bool,"code":"not_connected|no_recipient|
+--                   bad_request"}]}   one batch per frame at most; replay=true re-sends the recent history to a fresh Lua state (after ui_ready)
+--   x4mp.players   (M3-06, x4mp_players.lua) {"v":1,"self":id,"players":[{"id","name","team","team_role","roles","phase","in_game","online",
+--                   "ping","sector","ship"}],"events":[{"kind":"join|leave","id","name"}]}   the whole roster on every change (at most 2 Hz);
+--                   "events" only on the push that announces a join or leave
+--
 -- JSON subset: objects, arrays, strings (full escapes, \uXXXX incl. surrogate pairs), numbers, true/false/null.
 -- decode(): null inside an object is dropped (field absent), null inside an array is json.null.
 -- encode(): object keys are sorted (stable output); empty tables encode as {} unless made with json.array().
@@ -51,7 +60,7 @@ if X4MPBridge and X4MPBridge.loaded then return end
 local B = { loaded = true, version = 1, handlers = {}, pending = {} }
 X4MPBridge = B
 
-B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true }
+B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true }
 B.TOPICS = { "status", "notify", "error", "load_save", "open" }
 local queueable = { ui_ready = true, request_status = true, extensions = true }
 

@@ -565,3 +565,37 @@ connection up), udp_off. Verified: `mod/build.ps1` 305 ctest green; `e2e.ps1 -St
 
 **CI (not done here, M3-04 owns `tools/e2e.ps1` and `ci.yml`):** add an e2e step `UdpLane` that runs `mod/tests/hostsim/udp_lane_run.ps1` next to
 HostSim (same pattern as `Invoke-HostSimScript`, ~1 min, Windows only). The Catch2 tests need nothing (they are in `x4mp_core_tests` / `x4mp_udp_alloc_tests`).
+
+### M3-06 chat + player list (`ui/x4mp_chat.lua`, `ui/x4mp_players.lua`, `mod/native/features/chat/**`)
+
+What is built (contract rows in docs/mod-design.md section 7.1):
+- **Native `features/chat`** (`chat_json.*` SDK-free, `chat_feature.*`): verb `x4mp.chat_send` -> `ChatSend` (Control lane, through `diag_hub().send_control`, so it only
+  works while welcomed; otherwise a local "not connected" system line). Inbound `ChatMessage` / `RosterUpdate` reach the feature through **one hook in
+  `join_feature.cpp`** (`chat::chat_hub().on_frame_message(...)` in the `K::Frame` case, `session_ended()` in `stop_session`); the chat feature, registered after
+  join, raises `x4mp.chat` (one batch per frame) and `x4mp.players` (changes at most 2 Hz, a join/leave at once). `ui_ready` re-sends the last 50 messages (`replay:true`) and the
+  table, so `/reloadui` loses nothing. `RosterTracker` produces join/leave events (not for the own id, not for the baseline roster, `online` flips count). Other M3 tasks that
+  want roster data (ghosts, avatars) can read `chat::chat_hub().roster()` instead of parsing `RosterUpdate` again.
+- **Lua `x4mp_chat.lua`**: wraps `OnlineGetChatMessages` (previous result + our ring, merged by time), `OnlineSendChatMessage` (plain line, userid 0/nil -> session; a Ventures
+  private tab, userid > 0, passes through) and `ExecuteDebugCommand` (`/t text` = team, `/w name text` = whisper; **every other command passes untouched**). The vanilla window sends
+  `/cmd rest` as `ExecuteDebugCommand("cmd", "rest")`, which is why `/t` and `/w` live there. Wrappers are only in place while the status is `ingame`/`save_changed`, are re-checked on
+  `gfx_ok`, `show` and every status/chat/players topic (a replaced or re-wrapped global gets a new wrapper on top; a re-entrancy guard keeps a double wrap from duplicating lines or
+  sends), and `uninstall` restores the previous function only where ours is on top (otherwise the wrapper stays, inert). Author = team-colour escape + name; own lines carry the
+  `OnlineGetUserName` user id; `isprivate` is always false (the window's private tabs expect Ventures groups). Chat refresh = `ChatWindow.onChatMessageReceived()` when the menu is shown;
+  with the window closed an incoming line from another player raises one HUD toast (`X4MPChat.toast = false` turns it off).
+- **Lua `x4mp_players.lua`**: the table (`X4MPPlayers.rows(rows)`, one line per player: team-colour name, team, online/offline/joining, ping, sector) is added to the Multiplayer
+  screen by **one line in `x4mp_menu.lua` `buildMain`** (while connected) and redrawn on a change when the main screen is open (never the join form). Join/leave = HUD notify cue + a system
+  line in the chat window. Team colour: `Color.faction_x4mp_team_<n>` when M3-08 provides it, else a fixed palette. Sector: `X4MPPlayers.sectorResolver(index)` hook (M3-09/10 can set it
+  once `GalaxyMetadata` maps sector index -> macro/name); until then "sector <index>". Texts: page 92000 ids 500-529 (inserted after id 60 in `t/0001-l044.xml`).
+- Tests: Catch2 `host.chat:*` (7), Lua `test_chat.lua` (23) and `test_players.lua` (10) with vanilla-shaped and SirNukes-shaped globals (replace-wholesale, wrap-on-top, unwrap only if ours,
+  `/` passthrough, replay after /reloadui), hostsim `join_flow.hostsim` (player table, chat all/team/whisper-to-nobody round trip through the real server, ui_ready replay).
+  No local Lua here: `python mod/tests/lua/run_lupa.py` (pip install lupa) runs the same suite on Lua 5.1; CI still uses `lua5.1`.
+
+Things the next tasks / the in-game test should know:
+- **Not verified in game** (V23 rest): that the vanilla window shows our lines outside Ventures, that the embedded colour escape in the author really colours the name (the spike S13.12 result is
+  not recorded in this repo; `x4mp_chat.lua` builds on the spike's approach), and that `menu.shown` is true while the window is faded. Fallback if it fails: a chat panel in the Multiplayer window.
+- Clicking another player's name in the chat window opens the vanilla context menu (contact / report) that targets Ventures users; our `authorid` is negative so it never matches a real user. Untested live.
+- `ChatMessage.from_player` has no team; the sender's team comes from the roster (0 until the first roster arrives). The server echoes a sent line to the sender, so there is no local echo; a server
+  refusal (mute, rate limit, "not on a team", "not online") arrives as a `system` line from "server".
+- Chat text is user content: Info log lines carry channel and byte count only (`chat: sent channel=all bytes=N`), Debug a 40 character cut. FakeNode `--chat-echo` (M3-05) was not on main
+  when this was built: the round trip is covered by the sender receiving its own line from the real server.
+- `x4mp.players.sector` is the raw `PlayerInfo.sector` index (ushort); `ship` is `ship_net_id`.

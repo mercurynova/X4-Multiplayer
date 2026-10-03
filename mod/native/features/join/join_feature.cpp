@@ -13,6 +13,7 @@
 #include "core/crypto/crypto.h"
 #include "core/version/version.h"
 #include "features/authority/authority_flow.h"
+#include "features/chat/chat_json.h"
 #include "features/diag/diag_hub.h"
 #include "features/join/join_messages.h"
 #include "features/join/join_requests.h"
@@ -451,6 +452,7 @@ void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
     stash_->erase(kStateKey);
   }
   universe_pending_ = false;
+  chat::chat_hub().session_ended();  // M3-06: roster and chat history belong to the session
 }
 
 bool JoinFeature::welcomed() const {
@@ -686,6 +688,8 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       handle_save_ready(ctx);
       break;
     case K::Frame:
+      // M3-06: ChatMessage and RosterUpdate go to the chat feature (features/chat), which shows them in the chat window and the player table.
+      chat::chat_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);

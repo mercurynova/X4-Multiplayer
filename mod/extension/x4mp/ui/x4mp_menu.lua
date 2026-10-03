@@ -20,7 +20,7 @@
 --
 -- Entry points: chat "/x4mp [main|join|status]", Lua event "x4mp.open" {"screen":"join"}, X4MPScreens.open(screen).
 
--- luacheck: globals X4MPBridge X4MPScreens X4MPJoinMods __X4MP_USER ReadText DebugError ExecuteDebugCommand
+-- luacheck: globals X4MPBridge X4MPScreens X4MPJoinMods X4MPPlayers __X4MP_USER ReadText DebugError ExecuteDebugCommand
 
 if X4MPScreens and X4MPScreens.loaded then return end
 
@@ -205,6 +205,7 @@ local function buildMain(_, rows)
 	end
 	-- M2-X3: the session's mod list while connected (x4mp_join_mods.lua loads after this file)
 	if S.connectionActive() and X4MPJoinMods then X4MPJoinMods.policyRows(rows) end
+	if S.connectionActive() and X4MPPlayers then X4MPPlayers.rows(rows) end -- M3-06: the player table
 	rows[#rows + 1] = text(T(51), "inactive")
 end
 

@@ -27,6 +27,27 @@ expect-lua x4mp.status 3000 json $.state == ingame
 expect-admin /api/v1/players $[name==Alice].online == true
 expect-admin /api/v1/players $[name==Alice].id exists
 
+# M3-06: the player table (authority + Alice) and a chat round trip through the real server: the sender gets its own line back
+# (all and team), the line reaches Lua as x4mp.chat with the author and the sender flag, and the text never lands in the mod log at Info.
+expect-lua x4mp.players 3000 json $.players[name==Alice].online == true
+expect-lua x4mp.players 3000 json $.players.length >= 2
+lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from hostsim"}
+frame 60Hz 120
+expect-lua x4mp.chat 3000 json $.messages[0].name == Alice
+lua-raw x4mp.chat_send {"v":1,"channel":"team","text":"team line from hostsim"}
+frame 60Hz 120
+expect-lua x4mp.chat 3000 contains team line from hostsim
+lua-raw x4mp.chat_send {"v":1,"channel":"whisper","to":999,"text":"whisper to nobody"}
+frame 60Hz 120
+expect-lua x4mp.chat 3000 contains not online
+expect-file extension/logs/x4mp.log chat: sent channel=all
+# a fresh Lua state (/reloadui) announces itself with ui_ready: the recent chat history and the player table come again
+drop-lua x4mp.players
+lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
+frame 60Hz 60
+expect-lua x4mp.chat 3000 json $.replay == true
+expect-lua x4mp.players 3000 json $.players[name==Alice].online == true
+
 lua-raw x4mp.disconnect {"v":1}
 frame 60Hz 60
 expect-no-secret never-written-password
