@@ -336,3 +336,18 @@ is found, the host starts with a WARN (`Unverified`) rather than refusing. Sessi
 `GetGameVersion`/`GetBuildVersionSuffix` values (kit integration: probe logs them at init); then decide whether
 "unknown build" should refuse. New `x4mp.json` keys: `frame_budget_us` (100..50000, default 1500) and
 `log_categories`. Features register in `mod/native/host/feature_list.cpp` (one include + one `registry.add` line).
+
+**M2-08 → M2-09 (in-game authority upload):** use `CheckpointUploader` (`mod/native/core/authority/upload_job.h`);
+`mod/tools/headless/authority_driver.cpp` is the complete reference flow. On `Welcome` → `new_connection(resumed)`, on
+disconnect → `connection_lost()`, route `SaveUploadAccept`/`SaveChunkAck`/`SaveStored` to `on_frame`, `pump()` every
+frame. Two real protocol findings, keep them: (1) send `SaveUploadEnd` only after the server acks the final offset
+(Bulk is sent only when Control is idle, so End could overtake the last chunks); (2) ignore `SaveStored` whose
+`upload_id` is neither 0 nor the current upload's (a stale Aborted from the dropped connection). `SaveStarted` is
+sent once, never repeated on resume. Self-spawn uses `EntitySpawnBuilder(game_time)` with the same `player.age` as
+`SaveStarted`, after both files are stored. Live kill test: `x4mp_authority_live` (needs
+`X4MP_LIVE_SERVER_EXE`, ports 47980–47983, ~100 s); M2-14 adds it to the `e2e-headless` job.
+
+**M2-05 → M2-06/M2-11:** bridge contract in `docs/mod-design.md` §7 "M2 bridge contract" and the
+`x4mp_bridge.lua` header. Lua cannot raise vanilla `loadSave`, so `x4mp.load_save` calls `LoadGame(name)` after
+0.1 s; M2-06 may replace that handler after session 2 (B2). Renderers register with `X4MPScreens.setRenderer`; the
+embedded options-menu entry (M2-11) is a second renderer.
