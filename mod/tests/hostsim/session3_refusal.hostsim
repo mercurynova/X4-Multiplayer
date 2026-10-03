@@ -1,0 +1,14 @@
+# Session-3 dry run (B7): the kit's start-fake-authority.ps1 -Strict -AuthorityExtensions modded refuses a client that has only the two DLCs;
+# the refusal lists the Workshop mod and the Nexus mod to install, and the Nexus mod carries the address the script gave it. Var: tcp.
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.extensions {"v":1,"source":"load","startmenu":true,"count":2,"list":[{"id":"ego_dlc_split","name":"Split Vendetta","version":"900","enabled":true,"egosoftextension":true},{"id":"ego_dlc_terran","name":"Cradle of Humanity","version":"900","enabled":true,"egosoftextension":true}]}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Modder","password":"","team":"auto"}
+frame 60Hz 240
+expect-lua x4mp.mod_refusal 5000 json $.install[id==sn_better_traders].nexus_url == https://www.nexusmods.com/x4foundations/mods/1234
+expect-lua x4mp.status 3000 json $.reject == mod
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 20
+expect-lua x4mp.mod_refusal 3000 json $.install[id==ws_2458720435].workshop_id == 2458720435
+shutdown

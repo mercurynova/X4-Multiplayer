@@ -1,0 +1,13 @@
+# Session-3 dry run: launch.json written by tools/session3/write-launch.ps1 (already in the work dir's extension folder before init).
+# Vars: tcp, pw (the join password written into launch.json). The file is read once, deleted, and the DLL connects without any UI (criterion 16).
+init
+frame 60Hz 120
+expect-no-file extension/launch.json
+expect-file extension/logs/x4mp.log launch.json consumed
+expect-file extension/logs/x4mp.log joining 127.0.0.1:${tcp}
+expect-admin /api/v1/players $[name==Launcher].online == true
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 60
+expect-no-file extension/launch.json
+expect-no-secret ${pw}
+shutdown

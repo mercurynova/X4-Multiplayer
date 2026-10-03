@@ -83,6 +83,13 @@ authority of a session created from an uploaded save. `authority_flow.hostsim` p
 `exec authority_sim.ps1 -Mode save` writes the checkpoint file the game would write, `-Mode post` presses "Save now"); `authority_running_save.hostsim` is the
 "already runs the save" branch. `hostsim.authority_role` (ctest) checks the join role and password handling without a server.
 
+## Session-3 kit dry run (not in CI)
+`mod/tests/hostsim/session3_dry_run.ps1` (ports 47974-47976, about 3 minutes plus the one-time web build; needs `mod/build.ps1`; it publishes through the kit's own `Ensure-Published`) runs **every**
+`tools/session3` script against a temp Documents folder (`X4MP_S2_DOCS_ROOT`), a temp `out\session3` (`X4MP_S3_OUT_DIR`) and a fake X4 install (`-X4Dir`), with the real `x4mp.dll` in hostsim:
+`session3_client.hostsim` (join with a password against `start-fake-authority.ps1`, reload, self-test from the `write-config.ps1` file, server restart with the same command),
+`session3_launch.hostsim` / `session3_launch_expired.hostsim` (files from `write-launch.ps1`), `session3_authority.hostsim` (real DLL as authority behind `start-fake-clients.ps1`, 3 FakeNode clients, "Request save now").
+It also checks `find-password.ps1` (clean, planted UTF-16 and URL-quoted) and the contents of the `collect-logs.ps1` zip.
+
 ## M2-X3 mod refusal scenario (not in CI)
 `mod/tests/hostsim/mod_refusal_run.ps1` starts the published server, a FakeNode authority with `mod_refusal_authority.json` (two DLC and
 four mods), gives one mod a Nexus URL through `PUT /api/v1/mods/entries/{id}`, and runs `mod_refusal.hostsim`: the DLL reports a mod list

@@ -38,9 +38,22 @@ function Invoke-Native([string]$what, [scriptblock]$cmd) {
 function Ensure-Published([switch]$Force) {
     $serverExe = Join-Path $Repo 'out\win-x64\x4mp-server.exe'
     $fakeNodeExe = Join-Path $Repo 'out\fakenode\X4MP.FakeNode.exe'
-    if ($Force -or -not (Test-Path $serverExe) -or -not (Test-Path $fakeNodeExe)) {
+    # The web GUI is built first (npm ci + npm run build in server\web) when server\web\dist is missing: a server published without it
+    # only shows a "GUI not built" page, and every dashboard check of the session needs the GUI.
+    $webDir = Join-Path $Repo 'server\web'
+    $needWeb = -not (Test-Path (Join-Path $webDir 'dist\index.html'))
+    if ($Force -or $needWeb -or -not (Test-Path $serverExe) -or -not (Test-Path $fakeNodeExe)) {
         if (-not (Test-Path (Join-Path $Repo 'tools\flatc\bin\flatc.exe'))) {
             Invoke-Native 'fetch-flatc' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $Repo 'tools\flatc\fetch-flatc.ps1') }
+        }
+        if ($needWeb) {
+            Write-Host 'Building the web GUI once (npm ci + npm run build; a few minutes the first time)...'
+            Push-Location $webDir
+            try {
+                Invoke-Native 'npm ci' { npm ci --no-audit --no-fund }
+                Invoke-Native 'npm run build' { npm run build }
+            }
+            finally { Pop-Location }
         }
         Invoke-Native 'dotnet publish (server)' { dotnet publish (Join-Path $Repo 'server\src\X4MP.Server') -c Release '-p:PublishProfile=win-x64' -p:SkipWebBuild=true -nologo -v:m }
         Invoke-Native 'dotnet build (FakeNode)' { dotnet build (Join-Path $Repo 'tools\X4MP.FakeNode') -c Release -o (Join-Path $Repo 'out\fakenode') -nologo -v:m }
@@ -74,12 +87,49 @@ function Start-S3Server([string]$ServerExe, [hashtable]$Env = @{}) {
         if ((Get-Date) -gt $deadline) { throw "The server did not answer $url/healthz within 40 s" }
         Wait-Process -Id $p.Id -Timeout 1 -ErrorAction SilentlyContinue
     }
+    try {
+        if ((Invoke-WebRequest -UseBasicParsing "$url/" -TimeoutSec 5).Content -match 'GUI not built') {
+            Write-Warning "This server was published WITHOUT the web GUI ($url shows 'GUI not built'). Stop it (Ctrl+C) and run the script again with -Rebuild."
+        }
+    } catch { }
     return $p
 }
 
 # Signs in as admin. The password lives in out\session3\admin-password.txt (local test server, loopback only): when it does not
 # exist yet and the server wrote initial-admin-password.txt, the forced first change is done here with a generated password.
 # Returns a WebRequestSession; $Admin.Url / $Admin.PasswordFile are set. Never prints the password.
+# The server keeps the mod policy in its database once an admin edit (also the Nexus entry below) stored it, and then ignores the
+# X4MP__Mods__Enforcement start-up setting (found by the session-3 dry run: a -Strict run made the next "normal" run strict too). So the
+# start scripts set the enforcement mode explicitly through the admin API after sign-in.
+function Set-S3Enforcement([switch]$Strict) {
+    $want = if ($Strict) { 'Strict' } else { 'Warn' }
+    try {
+        $null = Invoke-RestMethod -Method Patch -Uri "$($Admin.Url)/api/v1/mods/policy" -Headers $Admin.Headers -WebSession $Admin.Session -ContentType 'application/json' -Body (@{ enforcement = $want } | ConvertTo-Json)
+        Write-Host "Mod enforcement: $want"
+    }
+    catch { Write-Warning "Could not set the mod enforcement to ${want}: $($_.Exception.Message)" }
+}
+
+# The "modded" fake authority has a Nexus-installed mod (sn_better_traders). For the mod-refusal screen to show its Nexus address, an admin
+# entry gives it the link (what an admin would type on the GUI Mods page). It is added for -AuthorityExtensions modded and removed again
+# otherwise, so a normal run is not influenced by it. Failures are only warnings.
+function Set-S3NexusEntry([switch]$Present) {
+    $uri = "$($Admin.Url)/api/v1/mods/entries/sn_better_traders"
+    try {
+        if ($Present) {
+            $body = @{ name = 'Better Traders'; rule = 'Required'; enabled = $true; versionRule = 'Exact'; version = '2.0'
+                nexusUrl = 'https://www.nexusmods.com/x4foundations/mods/1234'; notes = '' } | ConvertTo-Json
+            $null = Invoke-RestMethod -Method Put -Uri $uri -Headers $Admin.Headers -WebSession $Admin.Session -ContentType 'application/json' -Body $body
+            Write-Host 'Mod list: added the Nexus link for the fake mod "Better Traders" (https://www.nexusmods.com/x4foundations/mods/1234).'
+        }
+        else {
+            try { $null = Invoke-RestMethod -Method Delete -Uri $uri -Headers $Admin.Headers -WebSession $Admin.Session }
+            catch { if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { return }; throw }
+        }
+    }
+    catch { Write-Warning "Could not $(if ($Present) { 'add' } else { 'remove' }) the Nexus mod entry: $($_.Exception.Message)" }
+}
+
 function Initialize-AdminSession {
     $url = "http://127.0.0.1:$($Ports.Http)"
     $pwFile = Join-Path $OutDir 'admin-password.txt'
