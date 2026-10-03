@@ -306,3 +306,43 @@ by vanilla Lua; MD actions and conditions are checked against `libraries/md.xsd`
 - Lua is the only place that can be timed in milliseconds. MD times are game seconds or whole wall-clock seconds.
 - The colour of a team is set in `factions.xml` (`<color r g b>`, allowed by `factions.xsd`) and mapped in `colors.xml`.
   Delete `libraries/colors.xml` from the extension if it causes any warning, the test still works.
+
+---
+
+# Blocks `saves1`, `saves1_block`, `saves2`, `saves4`, `clock`, `money`, `v12`, `s9gate` (task M2-002)
+
+Files: `ui/x4mp_spike_saves.lua`, `md/x4mp_spike_saves.xml`, `md/notifications.xml` (a `<diff>` that adds one sibling branch in
+front of the vanilla `player.autosave.available` branch of cue `AutoSave_Attempt`: with `global.$x4mp_noSave` true the
+autosave request is dropped and logged; otherwise inert). Blocking has two flags: Lua `S.saves.blocking` (resets on a
+Lua reload) and MD `global.$x4mp_noSave` (saved in the game; logged at every load as `SAVE INFO what=md_loaded`).
+
+| Block | Does |
+|---|---|
+| `saves1` | wraps `SaveGame` and `IsSavingPossible` (chain safe, idempotent), logs every call and its caller (`debug.traceback` if a debug library is reachable); hooks the options menu Save row and tooltip if the menu internals can be reached. Notification "saves1: wrapper installed (logging only)" |
+| `saves1_block [off=1]` | blocking ON (OFF with `off=1`): `SaveGame` swallowed, `IsSavingPossible` returns false, MD flag set. "saves1: blocking ON" |
+| `saves2 [native=0]` | blocking ON, `C.TriggerAutosave(true)` (so the probe's hook logs it), then MD signals the vanilla autosave request cue. "saves2: done" |
+| `saves4` | blocking OFF, calls `X4MP_Probe.markSaveBegin(name)` if present, `SaveGame("x4mp_s2test_1", ...)`, waits for the MD save event (60 s). "saves4: done" |
+| `clock` | 240 s, one sample per second on both sides, "clock: save now" at 120 s, resumes after a load through MD (`clock;resume=1;n=;dur=`), "clock: done" |
+| `money` | logs `GetPlayerMoney` before and 3 s later plus MD `player.money`; never changes money (the probe does the native +-100) |
+| `v12` | MD: sets `$x4mp_netid` (4242), `$x4mp_big` (4000000000), `$x4mp_str` on the player ship and `$x4mp_netid` (7) on a station; references stored in `md.$X4MP_S2_V12*`; 15 s after every load the verify cue logs PASS/FAIL |
+| `s9gate` | MD: `find_gate active=false`, prefers a gate in a known sector, `set_object_active`, ref stored in `md.$X4MP_S2_Gate`; verify 15 s after every load |
+
+Log keys (step in front, `k=v` pairs):
+
+| Line | Meaning |
+|---|---|
+| `SAVE INFO what=wrappers SaveGame= IsSavingPossible= debug_traceback=` | wrapper install result (`wrapped`, `already_installed`, `missing_global`) |
+| `SAVE INFO what=SaveGame_called n= filename= name= blocked= t= caller=` / `SaveGame_swallowed` | every `SaveGame` Lua call, caller as a `\|`-joined traceback |
+| `SAVE INFO what=IsSavingPossible_called total= arg1= real= returned= calls_since_last_line= caller=` | rate limited: new key or every 2 s |
+| `SAVE INFO what=menu_hook tooltip= save_row= config_source=` | whether the Save row and tooltip were hooked (`hooked`, `already`, `no_config`...) |
+| `SAVE INFO what=blocking value=` / `md_noSave_flag value=` | flag changes (Lua / MD) |
+| `SAVE INFO what=md_event_game_saved success= age= noSave_flag=` and Lua `game_saved_event param= seconds_since_last_wrapper_call= plausibly_via_wrapper=` | every game save of any origin; C3: a quicksave with `plausibly_via_wrapper=false` bypassed Lua |
+| `SAVE INFO what=autosave_suppressed_by_md_diff age=` | the diff dropped a vanilla autosave (C2 PASS) |
+| `SAVE INFO what=md_signal_vanilla_AutoSave_Request ...` | saves2 poked the vanilla request cue |
+| `SAVE INFO/FAIL what=TriggerAutosave_called ok= err=` | native call result |
+| `SAVE INFO what=saves4_before`, `SaveGame_returned call_ms=`, `SAVE MEASURE what=saves4_timing to_game_saved_event_ms= returned_before_event=`, `saves4_file ...` | C4 |
+| `CLOCK MEASURE side=lua n= game_time= real= frame=` and `CLOCK MEASURE side=md n= age=` | C5, join on `n` |
+| `CLOCK INFO what=clock_start / md_resume_clock / clock_done` | lifecycle |
+| `MONEY INFO what=lua_GetPlayerMoney stage= value= delta=` and `what=md_player_money stage= player_money= credits=` | C6 Lua and MD views |
+| `V12 INFO what=set_on_ship / set_on_station ... *_readback=`; `V12 PASS/FAIL what=verify_ship_via_md_global_ref / verify_ship_found_by_search / verify_station` | V12 |
+| `S9 MEASURE what=gate_retest inactive_gates=`; `S9 INFO what=gate_before ...`; `S9 PASS/INFO what=gate_after_set_object_active`; `S9 PASS/FAIL what=gate_active_survived_reload` | S9 gate |
