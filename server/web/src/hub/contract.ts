@@ -37,7 +37,7 @@ export const groups = {
     subscribe: M.SubscribeDashboard,
     unsubscribe: M.UnsubscribeDashboard,
     args: [],
-    events: [E.Dashboard, E.PlayerChanged, E.PlayerRemoved, E.SessionChanged, E.SaveTransfer],
+    events: [E.Dashboard, E.PlayerChanged, E.PlayerRemoved, E.SessionChanged, E.SaveTransfer, E.NodeDiagnosticsChanged],
   },
   galaxy: {
     key: 'galaxy',
@@ -88,6 +88,6 @@ export const groups = {
     subscribe: M.SubscribeMods,
     unsubscribe: M.UnsubscribeMods,
     args: [],
-    events: [E.ModPolicyChanged, E.PlayerModsReported],
+    events: [E.ModPolicyChanged, E.PlayerModsReported, E.UnboundRejectionReported],
   },
 } as const satisfies Record<string, GroupSpec | ((...a: never[]) => GroupSpec)>;

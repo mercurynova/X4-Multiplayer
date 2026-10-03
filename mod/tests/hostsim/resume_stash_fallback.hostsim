@@ -1,0 +1,48 @@
+# M2-07 (ctest hostsim.resume_stash_fallback): a missing or corrupt stash after an extension reload falls back to a clean fresh
+# join (no crash, one clear log line); a stray join.state without a session intent is dropped. No server needed: the saved address
+# is a closed port, so the node just stays "connecting".
+init
+frame 60Hz 10
+
+# 1. intent present, join.state corrupt
+stash-set join.session.intent {"connect":true,"host":"127.0.0.1","port":1,"name":"Tester","roles":2,"resume_token":"00000000000000000000000000000000","session_id":"00000000000000000000000000000000"}
+stash-set join.state {not json at all
+reload
+frame 60Hz 30
+expect-file extension/logs/x4mp.log reload resume: join.state is corrupt; clean fresh join
+expect-file extension/logs/x4mp.log joining 127.0.0.1:1
+expect-stash join.state absent
+
+# 2. intent present, join.state missing
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 10
+stash-set join.session.intent {"connect":true,"host":"127.0.0.1","port":1,"name":"Tester","roles":2,"resume_token":"00000000000000000000000000000000","session_id":"00000000000000000000000000000000"}
+stash-remove join.state
+reload
+frame 60Hz 30
+expect-file extension/logs/x4mp.log reload resume: join.state is missing; clean fresh join
+
+# 3. join.state without an intent: dropped, nothing starts
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 10
+stash-remove join.session.intent
+stash-set join.state {"stage":"ingame","name":"x4mp_whatever"}
+reload
+frame 60Hz 30
+expect-file extension/logs/x4mp.log reload resume: join.state without a session intent; dropped
+expect-stash join.state absent
+drop-lua x4mp.status
+lua-raw x4mp.request_status {"v":1}
+frame 60Hz 10
+expect-lua x4mp.status 3000 json $.state == disconnected
+
+# 4. a stage that cannot be continued (stale, e.g. rejected) also starts clean
+stash-set join.session.intent {"connect":true,"host":"127.0.0.1","port":1,"name":"Tester","roles":2,"resume_token":"00000000000000000000000000000000","session_id":"00000000000000000000000000000000"}
+stash-set join.state {"stage":"other"}
+reload
+frame 60Hz 30
+expect-file extension/logs/x4mp.log nothing to resume in stage 'other'
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 10
+shutdown

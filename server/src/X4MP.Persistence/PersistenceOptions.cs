@@ -23,6 +23,9 @@ public sealed class PersistenceOptions
     /// <summary>...or after this long since the first queued item of the batch.</summary>
     public TimeSpan FlushInterval { get; set; } = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>How long <see cref="PersistenceWriter.DisposeAsync"/> waits for the queue to drain before it gives up (and warns).</summary>
+    public TimeSpan DisposeTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Bounded queue capacity; producers wait (or <c>TryEnqueue</c> fails) when full.</summary>
     public int QueueCapacity { get; set; } = 100_000;
 }

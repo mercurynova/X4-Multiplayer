@@ -5,8 +5,6 @@ import { E, ERROR_EVENT, groups, SNAPSHOT_EVENT } from '../../hub/contract';
 import { useHubGroup } from '../../hub/HubProvider';
 import { modsApi } from './modsApi';
 
-const REJECTIONS_REFRESH_MS = 5000;
-
 const messageOf = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not reach the server.');
 
 /** A PlayerModsReported push into the state (replace by player id, add when new). */
@@ -82,7 +80,13 @@ export function useMods() {
     };
   }, [reload]);
 
+  // A refusal bound to no player (an unknown key) arrives as UnboundRejectionReported; it reloads the by-key list.
+  const [rejTick, setRejTick] = useState(0);
   useHubGroup(groups.mods, (event, payload) => {
+    if (event === E.UnboundRejectionReported) {
+      setRejTick((n) => n + 1);
+      return;
+    }
     if (event === ERROR_EVENT) {
       setError(messageOf(payload));
       return;
@@ -96,12 +100,6 @@ export function useMods() {
   });
 
   const catalog = useLoaded<ModCatalogEntryDto[]>(modsApi.catalog, tick);
-  // A refusal bound to no player yet (an unknown key) is not pushed by the hub (API gap), so the rejection list also refreshes itself now and then.
-  const [rejTick, setRejTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setRejTick((n) => n + 1), REJECTIONS_REFRESH_MS);
-    return () => clearInterval(t);
-  }, []);
   const rejections = useLoaded<UnboundRejectionDto[]>(modsApi.rejections, tick + rejTick);
   const refreshAll = useCallback(() => {
     void reload();

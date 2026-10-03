@@ -46,6 +46,8 @@ internal sealed class HubRecorder
         connection.On<X4MP.Server.Api.TeamMemberDto>("PlayerAwaitingTeam", p => recorder.Add("PlayerAwaitingTeam", p));
         connection.On<X4MP.Server.Api.ModPolicyDto>("ModPolicyChanged", p => recorder.Add("ModPolicyChanged", p));
         connection.On<X4MP.Server.Api.PlayerModStatusDto>("PlayerModsReported", p => recorder.Add("PlayerModsReported", p));
+        connection.On<X4MP.Server.Api.UnboundRejectionDto>("UnboundRejectionReported", p => recorder.Add("UnboundRejectionReported", p));
+        connection.On<X4MP.Server.Api.NodeDiagnosticsDto>("NodeDiagnosticsChanged", p => recorder.Add("NodeDiagnosticsChanged", p));
         return recorder;
     }
 

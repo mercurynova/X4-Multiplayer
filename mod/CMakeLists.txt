@@ -428,3 +428,18 @@ if(X4MP_TESTS)
   set_tests_properties(hostsim.authority_role PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
 endif()
 # END M2-09 authority in game
+# BEGIN M2-07 reload survival. Appended by M2-07.
+#   features/resume/*.cpp is picked up by the M2-04 features glob.
+#   x4mp_host_tests += tests/test_resume_state.cpp (epoch rule, state round trip)
+#   hostsim         += resume_stash_fallback (missing/corrupt stash -> clean fresh join); the 20-reload server run is
+#                      tests/hostsim/reload_survival_run.ps1 (not CI: tools/e2e.ps1 is M2-14's)
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_resume_state.cpp)
+  add_test(NAME hostsim.resume_stash_fallback
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/resume_stash_fallback.hostsim")
+  set_tests_properties(hostsim.resume_stash_fallback PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+endif()
+# =============================================================================================
+# END M2-07 reload survival
+# =============================================================================================

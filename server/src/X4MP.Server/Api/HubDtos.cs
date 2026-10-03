@@ -116,4 +116,6 @@ public static class AdminHubEvents
     public const string PlayerAwaitingTeam = nameof(PlayerAwaitingTeam);
     public const string ModPolicyChanged = nameof(ModPolicyChanged);
     public const string PlayerModsReported = nameof(PlayerModsReported);
+    public const string UnboundRejectionReported = nameof(UnboundRejectionReported);
+    public const string NodeDiagnosticsChanged = nameof(NodeDiagnosticsChanged);
 }

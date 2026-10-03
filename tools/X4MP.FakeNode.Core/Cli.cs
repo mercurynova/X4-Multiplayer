@@ -193,6 +193,9 @@ public sealed record CliOptions
     /// <summary>client/swarm: replay request keys, reuse them with other payloads and race identical requests; all of it must be rejected or idempotent. Implies at least <c>--economy casual</c>.</summary>
     public bool DupeAttack { get; init; }
 
+    /// <summary>authority/client/swarm (<c>--selftest</c>): every node sends a self-test table and a couple of log lines as <c>LogForward</c> once in game (see <see cref="FakeSelfTest"/>).</summary>
+    public bool SelfTest { get; init; }
+
     /// <summary>client/swarm: borrowers never repay and loans fall due after a few seconds, so they go overdue. Implies at least <c>--economy casual</c>.</summary>
     public bool LoanDefault { get; init; }
 
@@ -332,6 +335,7 @@ public static class CliParser
           --trade-timeout PCT  authority: withhold the confirm of PCT percent of the orders; a third of those never answer a TradeQuery either (InDoubt)
           --economy idle|casual|heavy   clients: a realistic mix of transfers, donations, pool deposits/withdrawals, loan offers/accepts/repays and trades
                                (casual ~1 action per 8 s, heavy ~1 per 3 s; the server allows 5 requests per 10 s); idle only reconciles. casual and heavy imply --trade
+          --selftest           authority/client/swarm: once in game, send a self-test table (SELFTEST <RESULT> <check> <detail> lines, docs/mod-design.md 8.5.1) and two log lines as LogForward
           --dupe-attack        clients replay request keys, reuse keys with other payloads and race identical requests (all must be rejected or idempotent); implies --economy casual
           --loan-default       borrowers never repay and loans fall due after ~5 s, so they go overdue; implies --economy casual
           --income-rate R      authority: R CreditDelta{seq} per second and player (income, some spend); clients book R/4 of their own; every node reconciles its wallet against WalletUpdate/acked_delta_seq
@@ -384,7 +388,7 @@ public static class CliParser
                 key = key[..eq];
             }
 
-            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "expect-session-save" or "trade" or "no-join" or "rotate-ip" or "dupe-attack" or "loan-default";
+            bool isFlag = key is "verify" or "udp" or "with-authority" or "team-assets" or "expect-session-save" or "trade" or "no-join" or "rotate-ip" or "dupe-attack" or "loan-default" or "selftest";
             if (isFlag)
             {
                 bool on = value is null || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -400,6 +404,7 @@ public static class CliParser
                     "no-join" => o with { NoJoin = on },
                     "rotate-ip" => o with { RotateIp = on },
                     "dupe-attack" => o with { DupeAttack = on },
+                    "selftest" => o with { SelfTest = on },
                     "loan-default" => o with { LoanDefault = on },
                     _ => o with { Udp = on },
                 };

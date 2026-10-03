@@ -66,7 +66,10 @@ public static partial class ServerHost
         builder.Services.AddSingleton(persistenceOptions);
         builder.Services.AddSingleton<SqliteConnectionFactory>();
         builder.Services.AddSingleton<MigrationRunner>(sp => new MigrationRunner(sp.GetRequiredService<SqliteConnectionFactory>()));
-        builder.Services.AddSingleton<PersistenceWriter>();
+        builder.Services.AddSingleton(sp => new PersistenceWriter(sp.GetRequiredService<SqliteConnectionFactory>(), sp.GetRequiredService<PersistenceOptions>())
+        {
+            OnWarning = message => PersistenceWarnings.Log(sp.GetRequiredService<ILoggerFactory>().CreateLogger("X4MP.Persistence"), message),
+        });
         builder.Services.AddSingleton(new ServerInfo());
         builder.Services.AddSingleton(new DataDirInfo(dataDir));
         builder.Services.AddHostedService<DatabaseStartup>();
@@ -95,6 +98,7 @@ public static partial class ServerHost
         builder.Services.AddAdminHub(); // after the admin API (it shares AdminSessions), the settings and the saves
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
+        builder.Services.TimeHostedServiceStops(); // last: wraps every hosted service registered above
         var app = builder.Build();
         app.UseApiProblems(); // before auth: it also shapes the 401/403 the authorization layer produces
         app.UseAdminAuth();
@@ -194,6 +198,13 @@ public static partial class ServerHost
             await stream.CopyToAsync(context.Response.Body, context.RequestAborted);
         });
     }
+}
+
+/// <summary>Logs the one-line warnings of the persistence writer (its shutdown flush giving up).</summary>
+internal static partial class PersistenceWarnings
+{
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]
+    public static partial void Log(Microsoft.Extensions.Logging.ILogger logger, string message);
 }
 
 /// <summary>The resolved data directory, available through DI.</summary>

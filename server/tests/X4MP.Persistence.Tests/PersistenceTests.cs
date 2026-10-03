@@ -191,4 +191,33 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(1, failures);
         Assert.Equal(2, Scalar<long>(factory, "SELECT COUNT(*) FROM audit_log"));
     }
+
+    [Fact]
+    public async Task DisposeGivesUpAfterTheTimeoutWhenTheLoopIsStuckAndWarns()
+    {
+        var options = Options(o =>
+        {
+            o.FlushInterval = TimeSpan.FromMilliseconds(10);
+            o.DisposeTimeout = TimeSpan.FromMilliseconds(300);
+        });
+        var factory = CreateEventsDb(options);
+        var release = new ManualResetEventSlim();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var warnings = new List<string>();
+        var writer = new PersistenceWriter(factory, options) { OnWarning = warnings.Add };
+        writer.TryEnqueue((_, _) =>
+        {
+            started.SetResult();
+            release.Wait(); // a write that never returns (a hung disk)
+        });
+        await started.Task;
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        await writer.DisposeAsync();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"dispose took {watch.Elapsed}");
+        Assert.Single(warnings);
+        Assert.Contains("did not finish", warnings[0], StringComparison.Ordinal);
+        release.Set(); // let the loop end so the test leaves nothing behind
+    }
 }
