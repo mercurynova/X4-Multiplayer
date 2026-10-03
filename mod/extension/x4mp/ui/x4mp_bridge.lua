@@ -30,6 +30,13 @@
 --                   load started (B.loadingSave), so the start menu is not restored over the loading screen. If no reload
 --                   happens within 15 s native sends it again WITH "fallback":true and Lua calls LoadGame(name) 0.1 s later.
 --   x4mp.open      {"v":1,"screen":"main|join|status"}                 open the X4MP screen (also: chat "/x4mp [screen]")
+--   x4mp.mod_refusal  (M2-X3, handled by x4mp_join_mods.lua through B.on) {"v":1,"policy_version":N,"install":[ref],"enable":[ref],
+--                   "disable":[ref],"update":[ref],"<group>_more":N}  ref = {"id","name","version","have_version","nexus_url",
+--                   "workshop_id","notes"}. Raised once when the join is refused with ExtensionsMismatch, before the "rejected"
+--                   status (reject "mod"); lists capped at 100 entries, strings at 256 bytes; re-sent after ui_ready/request_status.
+--   x4mp.mod_policy   (M2-X3) {"v":1,"version":N,"source_mode":"authority|admin","unknown_default":"client_only|block|allow_all",
+--                   "enforcement":"strict|warn","entries":[{"id","name","rule":"required|allowed|blocked","enabled","version_rule",
+--                   "version","nexus_url","workshop_id","notes"}],"entries_more":N}   the session mod list after Welcome and on edits
 --
 -- JSON subset: objects, arrays, strings (full escapes, \uXXXX incl. surrogate pairs), numbers, true/false/null.
 -- decode(): null inside an object is dropped (field absent), null inside an array is json.null.
