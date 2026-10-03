@@ -21,6 +21,7 @@ param(
     [int]$HttpPort = 47955
 )
 $ErrorActionPreference = 'Stop'
+function Get-Sha256Hex([string]$Path) { $s = [IO.File]::OpenRead($Path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($h.ComputeHash($s)) -replace '-', '').ToLowerInvariant() } finally { $h.Dispose() } } finally { $s.Dispose() } }  # not Get-FileHash: a 5.1 child of pwsh 7 cannot autoload Microsoft.PowerShell.Utility
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $s2 = Join-Path $repo 'tools\session2'
 $build = Join-Path $repo "mod\build\msvc-x64-$Config"
@@ -47,7 +48,7 @@ $fs = [IO.File]::Create($dummy)
 $gz = New-Object IO.Compression.GZipStream($fs, [IO.Compression.CompressionMode]::Compress)
 $head = [Text.Encoding]::UTF8.GetBytes('<?xml version="1.0" encoding="utf-8"?><savegame><info><game id="x4mp-dry-run"/></info></savegame>')
 $gz.Write($head, 0, $head.Length); $gz.Write($rnd, 0, $rnd.Length); $gz.Dispose(); $fs.Dispose()
-$dummySha = (Get-FileHash $dummy -Algorithm SHA256).Hash.ToLowerInvariant()
+$dummySha = Get-Sha256Hex $dummy
 Write-Host ("Dummy save: {0:N1} MB sha256 {1}" -f ((Get-Item $dummy).Length / 1MB), $dummySha)
 
 # The kit scripts only look at these two variables (test-only overrides, see tools\session2\common.ps1).
@@ -58,7 +59,7 @@ $exit = 1
 $sw = [Diagnostics.Stopwatch]::StartNew()
 try {
     # 1. Probe config exactly as the user would write it for the B4 run (hooks off), plus a short pause for the test.
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $s2 'write-probe-config.ps1') -Server "127.0.0.1:$TcpPort" -Name Tester -NoHooks
+    & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $s2 'write-probe-config.ps1') -Server "127.0.0.1:$TcpPort" -Name Tester -NoHooks
     if ($LASTEXITCODE -ne 0) { throw 'write-probe-config.ps1 failed' }
     $cfgFile = Join-Path $cfgDir 'x4mp_probe.json'
     $j = Get-Content $cfgFile -Raw | ConvertFrom-Json
@@ -66,7 +67,7 @@ try {
     ($j | ConvertTo-Json) | Set-Content $cfgFile -Encoding UTF8
 
     # 2. start-server.ps1 (real script, test ports) in its own window-less process.
-    $server = Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$(Join-Path $s2 'start-server.ps1')`"",
+    $server = Start-Process (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$(Join-Path $s2 'start-server.ps1')`"",
         '-SaveName', 'save_001', '-TcpPort', $TcpPort, '-UdpPort', $UdpPort, '-HttpPort', $HttpPort) -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $tmp 'start-server.out.txt') -RedirectStandardError (Join-Path $tmp 'start-server.err.txt')
     $fakeLog = Join-Path $outDir 'fakenode.log'
@@ -93,7 +94,7 @@ try {
     # 4. What the server and the file system saw.
     $dl = Get-ChildItem (Join-Path $work 'saves') -Filter 'x4mp_*.xml.gz' | Select-Object -First 1
     if (-not $dl) { throw 'no x4mp_*.xml.gz in the fake save folder' }
-    $dlSha = (Get-FileHash $dl.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $dlSha = Get-Sha256Hex $dl.FullName
     if ($dlSha -ne $dummySha) { throw "downloaded save differs ($dlSha)" }
     Write-Host "Downloaded save $($dl.Name): same sha256 as the source."
     $serverLog = Get-ChildItem (Join-Path $outDir 'data\logs') -Filter 'server-*.log' | Select-Object -First 1
@@ -109,8 +110,8 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $userDir 'x4native') | Out-Null
     Copy-Item $hsOut (Join-Path $userDir 'x4mp_s2.log')
     Copy-Item $hsOut (Join-Path $userDir 'x4native\x4mp_probe.log')
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $s2 'collect-logs.ps1') -Label dry -WhatIf | Out-Host
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $s2 'collect-logs.ps1') -Label dry | Out-Host
+    & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $s2 'collect-logs.ps1') -Label dry -WhatIf | Out-Host
+    & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $s2 'collect-logs.ps1') -Label dry | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'collect-logs.ps1 failed' }
     $zip = Get-ChildItem $outDir -Filter 'logs-dry-*.zip' | Select-Object -First 1
     if (-not $zip) { throw 'no logs-dry-*.zip' }

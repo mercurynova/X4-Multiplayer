@@ -7,6 +7,7 @@
 #>
 param([switch]$Force)
 $ErrorActionPreference = 'Stop'
+function Get-Sha256Hex([string]$Path) { $s = [IO.File]::OpenRead($Path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($h.ComputeHash($s)) -replace '-', '').ToLowerInvariant() } finally { $h.Dispose() } } finally { $s.Dispose() } }  # not Get-FileHash: a 5.1 child of pwsh 7 cannot autoload Microsoft.PowerShell.Utility
 $here = $PSScriptRoot
 $lock = Get-Content (Join-Path $here 'flatc.lock.json') -Raw | ConvertFrom-Json
 $isWin = ($env:OS -eq 'Windows_NT')
@@ -27,7 +28,7 @@ Write-Host "Downloading $url"
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
 
-$actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+$actual = Get-Sha256Hex $zip
 if ($actual -ne $plat.sha256.ToLowerInvariant()) {
     Remove-Item $zip -Force
     Write-Error "SHA-256 mismatch for $($plat.asset): expected $($plat.sha256), got $actual"
