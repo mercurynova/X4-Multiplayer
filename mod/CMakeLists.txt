@@ -414,3 +414,17 @@ endif()
 # =============================================================================================
 # END M2-06 join feature
 # =============================================================================================
+
+# =============================================================================================
+# BEGIN M2-09 authority in game (features/authority/*.cpp is picked up by the M2-04 glob). Appended by M2-09.
+#   x4mp_host_tests += tests/test_authority_flow.cpp (MD collector, plan, save file watcher, ledger/janitor, stash state, join seam)
+#   hostsim.authority_role = the real DLL: the join dialog's authority role + password handling, no server
+#   the server scenarios run through tests/hostsim/authority_flow_run.ps1 (not CI: tools/e2e.ps1 is M2-14's)
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_authority_flow.cpp)
+  add_test(NAME hostsim.authority_role
+    COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/authority_role.hostsim")
+  set_tests_properties(hostsim.authority_role PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+endif()
+# END M2-09 authority in game

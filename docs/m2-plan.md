@@ -388,3 +388,23 @@ fallback source has never run against real gameoptions.lua.
 - No pause at universe ready (session-2 double-Esc finding).
 - Session 3 must confirm: start-menu restore on window close (`OpenMenu("OptionsMenu", nil, nil, true)`), `x4mp.*`
   verbs via `raise_event`, LogForward reaching the server from a real client, loadSave from native.
+
+**M2-09 -> M2-10 / M2-14 / session 3 (authority in game, branch `worktree-agent-afd02183eaed5dc0e`):**
+- Code: `mod/native/features/authority/` (`AuthorityFlow` owned by `JoinFeature`, pure helpers in `authority_data.*`), `md/x4mp_galaxy.xml`,
+  `ui/x4mp_authority.lua` (one added line in `ui.xml`), host option + admin password in `x4mp_menu.lua`, texts 16-19, 25, 26. Bridge verbs and topics:
+  `docs/mod-design.md` section 7 table. `JoinFeature` hook points are marked `M2-09` (`sync_authority`, `step_authority_ready`, frame routing at the top
+  of `handle_session_event`, the Welcome case, `pump_session`).
+- Flow per `RequestSave`: MD galaxy collect, `StringTableAdd` (once per session), Lua `SaveGame(x4mp_ckpt_<16 hex>)`, `SaveStarted(game_time)`,
+  wait until the `.xml.gz` is stable (1.5 s) and openable, hash on a worker + empty-station manifest, `GalaxyMetadata`, `CheckpointUploader`,
+  one self-spawn (`EntitySpawnBuilder(game_time)`, same time as `SaveStarted`), `record_and_trim` (keeps the last 2 of the saves listed in
+  `<config dir>uthority-saves.json`; never touches other saves). Not covered: a DLL reload in the middle of a checkpoint (the server re-requests).
+- Real finding fixed in `JoinFeature` (M2-06 code): **NodeReady is phase-gated server-side** (`MessagePolicy`: Matching/CatchingUp/InGame) and the node's
+  phase is published asynchronously, so NodeReady sent in the same frame as the Matching report got `PhaseDenied`. It now waits (max 3 s) until the
+  RosterUpdate shows our node in Matching (`finish_ready`). M2-07 touches the same area: keep that wait.
+- An authority whose universe is ready and that receives no `SessionSaveInfo` within 2.5 s of the Welcome reports Loading, Matching, NodeReady itself
+  (`authority: no session save to load`). "Already runs the start save": ClientHello carries the sha from the stash key `join.authority`
+  (set after a loaded session save and after each stored checkpoint, cleared by a game load we did not cause); test seam `loaded_save_sha256` in the join payload.
+- Server: `WorldMirror.ApplySpawn` logs spawns of 1-4 entities with their `game_time` (criterion 11 evidence in the server log).
+- Tests: Catch2 `tests/test_authority_flow.cpp`, Lua `tests/lua/test_authority.lua`, ctest `hostsim.authority_role`, e2e (not CI, ports 47956-47958, ~80 s)
+  `mod/tests/hostsim/authority_flow_run.ps1`. Only the game can confirm: MD syntax/properties of `x4mp_galaxy.xml` (schema-valid, never run), that
+  `SaveGame` from the Lua event writes `x4mp_ckpt_*.xml.gz` into the save folder, `player.occupiedship` data, whether X4 keeps the file locked until done.

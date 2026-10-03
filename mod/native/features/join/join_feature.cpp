@@ -12,6 +12,7 @@
 
 #include "core/crypto/crypto.h"
 #include "core/version/version.h"
+#include "features/authority/authority_flow.h"
 #include "features/diag/diag_hub.h"
 #include "features/join/join_messages.h"
 #include "host/build_check.h"
@@ -104,6 +105,8 @@ void JoinFeature::on_init(host::HostContext& ctx) {
   extensions_ = std::make_unique<mods::ExtensionProvider>(std::move(po));
   extensions_->start();
 
+  auth_inbox_ = auth::subscribe_authority_verbs(ctx.platform);  // M2-09: x4mp.auth_md / x4mp.auth_saved (drained by the AuthorityFlow)
+
   // Verbs: the handlers only copy the text; on_frame does the work.
   for (const char* verb : kVerbs) {
     const std::string event = std::string("x4mp.") + verb;
@@ -153,6 +156,7 @@ void JoinFeature::on_shutdown(host::HostContext& ctx) {
   diag_connected_ = false;
   diag_hub().set_log_sender({});
   diag_hub().set_connection(NodeRole::None, false);
+  authority_.reset();  // M2-09: joins its upload worker before the session goes away
   if (session_) {
     // M2-07 refines this (shutdown budget, epoch rule): a planned unload keeps the server slot for the resume grace.
     persist_state(stage_ == Stage::InGame ? "ingame" : (stage_ == Stage::Loading ? "loading" : "other"));
@@ -172,6 +176,8 @@ void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo&) {
 
   if (game_loaded_flag_.exchange(false)) {
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "game loaded (stage {})", static_cast<int>(stage_));
+    // M2-09: a game load we did not cause (the player loaded another save) means the remembered "this game runs save X" is stale.
+    if (stage_ != Stage::Loading && stash_) auth::AuthorityFlow::forget_loaded_sha(*stash_);
   }
   if (universe_ready_flag_.exchange(false)) {
     if (stage_ == Stage::Loading) {
@@ -296,6 +302,9 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
   }
   fallback_sent_ = false;
   universe_pending_ = false;
+  authority_ready_step_ = 0;  // M2-09
+  my_phase_ = -1;
+  ready_pending_ = false;
 
   const auto fail = [&](const char* detail) {
     stage_ = Stage::Failed;
@@ -323,6 +332,12 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
       ctx.log.redactor().add_secret(request.admin_password);
     }
   }
+  want_authority_ = (o.requested_roles & 1) != 0;  // M2-09
+  if (want_authority_ && stash_) {
+    // "this game already runs the session's start save": the server then sends no SessionSaveInfo (M2-02). Seam: the join payload may carry it.
+    o.loaded_save_sha256 = (resume == nullptr && !request.loaded_save_sha256.empty()) ? request.loaded_save_sha256
+                                                                                         : auth::AuthorityFlow::stored_loaded_sha(*stash_);
+  }
   server_text_ = endpoint_text(o.endpoint.host, o.endpoint.port);
   o.identity = make_identity(ctx);
   if (!load_player_key(ctx, o.player_key)) return fail("no random source for the player key");
@@ -343,6 +358,7 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
 }
 
 void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
+  authority_.reset();  // M2-09
   if (session_) {
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "leaving the session ({})", why);
     session_->stop();  // Disconnect(ClientQuit), intent cleared
@@ -424,6 +440,11 @@ void JoinFeature::pump_session(host::HostContext& ctx) {
     return;
   }
 
+  // M2-09: the authority's checkpoint flow and its "nothing to load" ready path.
+  if (authority_) authority_->step(ctx);
+  step_authority_ready(ctx);
+  finish_ready(ctx);
+
   switch (stage_) {
     case Stage::Preparing: step_preparing(ctx); break;
     case Stage::Loading: step_loading(ctx); break;
@@ -434,6 +455,9 @@ void JoinFeature::pump_session(host::HostContext& ctx) {
 
 void JoinFeature::handle_session_event(host::HostContext& ctx, const session::SessionEvent& e) {
   using K = session::SessionEvent::Kind;
+  // M2-09 hook: RequestSave and the upload frames belong to the authority flow.
+  if (e.kind == K::Frame && authority_ && authority_->on_frame(ctx, e.type, std::span<const std::uint8_t>(e.payload))) return;
+  if (e.kind == K::NetDisconnected && authority_) authority_->on_net_disconnected();
   switch (e.kind) {
     case K::StateChanged:
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "session {} -> {}", session::to_string(e.prev), session::to_string(e.state));
@@ -446,6 +470,8 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "Welcome: player_id={} roles={} resumed={}", session_->welcome().player_id,
                 static_cast<int>(session_->welcome().granted_roles), session_->welcome().resumed);
       last_net_error_.clear();
+      welcomed_at_ = Clock::now();
+      sync_authority(ctx);  // M2-09
       break;
     case K::ServerDisconnect: {
       X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "server Disconnect code={} message='{}' expected='{}'", e.code, e.text, e.expected);
@@ -485,7 +511,10 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
           const auto* roster = flatbuffers::GetRoot<X4MP::Proto::RosterUpdate>(e.payload.data());
           if (roster->full()) roster_.clear();
           if (roster->players() != nullptr) {
-            for (const auto* p : *roster->players()) roster_.insert(p->player_id());
+            for (const auto* p : *roster->players()) {
+              roster_.insert(p->player_id());
+              if (session_ && p->player_id() == session_->welcome().player_id) my_phase_ = static_cast<int>(p->phase());
+            }
           }
           if (roster->removed() != nullptr) {
             for (const auto id : *roster->removed()) roster_.erase(id);
@@ -556,7 +585,7 @@ void JoinFeature::step_loading(host::HostContext& ctx) {
   raise_lua(ctx, "x4mp.load_save", host::make_load_save_json(save_name_, true));
 }
 
-void JoinFeature::complete_universe(host::HostContext& ctx) {
+void JoinFeature::complete_universe(host::HostContext&) {
   universe_pending_ = false;
   std::array<std::uint8_t, 8> rnd{};
   std::uint64_t epoch = 0;
@@ -571,12 +600,70 @@ void JoinFeature::complete_universe(host::HostContext& ctx) {
     const auto ms = static_cast<std::uint32_t>(std::chrono::duration_cast<milliseconds>(Clock::now() - t0).count());
     send_control(join::msg_manifest_report(), join::encode_manifest_report_counts(checkpoint_, 0, 0, ms));
   }
+  ready_pending_ = true;  // NodeReady follows in finish_ready()
+  matching_sent_at_ = Clock::now();
+  pending_epoch_ = epoch;
+}
+
+void JoinFeature::finish_ready(host::HostContext& ctx) {
+  if (!ready_pending_ || !session_) return;
+  // The server only accepts NodeReady in Matching/CatchingUp/InGame and learns the phase from the LoadStatus asynchronously: a NodeReady
+  // sent in the same frame as the Matching report can overtake it (PhaseDenied). Wait for the roster to show us in Matching (max 3 s).
+  if (my_phase_ < 5 && Clock::now() - matching_sent_at_ < std::chrono::seconds(3)) return;
+  ready_pending_ = false;
+  const std::uint64_t epoch = pending_epoch_;
+  // M2-09: remember which save this game runs (the authority's next fresh join tells the server in ClientHello).
+  if (want_authority_ && stash_ && save_sha_.size() == 32) {
+    if (authority_) {
+      authority_->note_loaded_save(save_sha_);
+    } else {
+      auto st = auth::AuthorityState::from_json(stash_->get(auth::kStashKey).value_or(""));
+      st.loaded_sha = save_sha_;
+      stash_->put(auth::kStashKey, st.to_json());
+    }
+  }
   send_control(join::msg_node_ready(), join::encode_node_ready(epoch, save_sha_));
   session_->mark_in_session();
   stage_ = Stage::InGame;
   persist_state("ingame");
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready: NodeReady sent (epoch {:016x}, manifest report {})", epoch,
             has_manifest_ ? "counts only" : "skipped");
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// M2-09: authority hooks
+// ---------------------------------------------------------------------------------------------------------------------
+// After every Welcome: the flow lives exactly while the server granted the authority role (bit 0).
+void JoinFeature::sync_authority(host::HostContext& ctx) {
+  const bool granted = session_ && (session_->welcome().granted_roles & 1) != 0;
+  if (want_authority_ && !granted) {
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Warn, "the authority role was requested but not granted (roles {})", session_ ? static_cast<int>(session_->welcome().granted_roles) : 0);
+  }
+  if (!granted) {
+    authority_.reset();
+    return;
+  }
+  if (!authority_ && stash_) authority_ = std::make_unique<auth::AuthorityFlow>(ctx, *session_, *stash_, auth_inbox_);
+  if (authority_) authority_->on_welcome(ctx, session_->welcome().resumed);
+}
+
+// An authority whose game is already loaded and that is NOT sent a SessionSaveInfo (no start save, or it already runs it) reports
+// Loading, Matching and NodeReady itself, 2.5 s after the Welcome (the server sends the info right after it).
+void JoinFeature::step_authority_ready(host::HostContext& ctx) {
+  if (!authority_ || stage_ != Stage::Joining || ready_pending_ || !welcomed() || !ctx.gates.universe_ready) return;
+  const auto now = Clock::now();
+  if (authority_ready_step_ == 0) {
+    if (now - welcomed_at_ < std::chrono::milliseconds(2500)) return;
+    send_control(join::msg_load_status(), join::encode_load_status(join::JoinPhase::Loading, 1.0f));
+    authority_ready_step_ = 1;
+    authority_ready_at_ = now;
+    return;
+  }
+  if (now - authority_ready_at_ < std::chrono::milliseconds(300)) return;
+  save_sha_ = authority_->state().loaded_sha;
+  X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "authority: no session save to load, reporting ready with the running game");
+  universe_pending_ = false;
+  complete_universe(ctx);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

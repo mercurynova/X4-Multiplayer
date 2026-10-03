@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP galaxy metadata for the authority, MD side (M2-09). Lua side: ui/x4mp_authority.lua; consumer: native features/authority.
+
+  Lua -> MD  AddUITriggeredEvent("X4MP_Authority", "collect", "1")   the authority is about to answer a RequestSave: send the galaxy
+  MD -> Lua  raise_lua_event 'x4mp.md_galaxy' <string>, forwarded unchanged to native (verb x4mp.auth_md). Messages:
+               G;<sector>;<sector>;...   at most 40 sectors per message, each  macro|cluster_macro|name|owner_faction|x|y|z|gate,gate
+               E;<count>                  all sectors were sent: <count> is the total
+               P;macro|name|idcode|sector_macro|class|owner       the ship the player is in (absent when the player is on foot)
+  Recipe: find_sector multiple (every normal sector of the galaxy), find_gate per sector with the gate's destination sector, as
+  proven by the session-2 spike (S7). x/y/z are the cluster position (galaxy map); a field MD cannot answer is sent empty / 0.
+  Names with '|' or ';' cannot be escaped in MD: native drops a record with the wrong field count.
+-->
+<mdscript name="X4MP_Galaxy" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Galaxy_Collect" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Authority'" control="'collect'"/>
+      </conditions>
+      <actions>
+        <find_sector name="$Sectors" multiple="true"/>
+        <set_value name="$Chunk" exact="''"/>
+        <set_value name="$InChunk" exact="0"/>
+        <do_for_each name="$Sec" in="$Sectors">
+          <set_value name="$Gates" exact="''"/>
+          <find_gate name="$GateObjs" space="$Sec" multiple="true"/>
+          <do_for_each name="$Gate" in="$GateObjs">
+            <set_value name="$Dest" exact="@$Gate.destination.sector.macro.id"/>
+            <do_if value="$Dest != null">
+              <do_if value="$Gates != ''">
+                <set_value name="$Gates" exact="$Gates + ','"/>
+              </do_if>
+              <set_value name="$Gates" exact="$Gates + $Dest"/>
+            </do_if>
+          </do_for_each>
+          <set_value name="$Owner" exact="@$Sec.owner.id"/>
+          <do_if value="$Owner == null">
+            <set_value name="$Owner" exact="''"/>
+          </do_if>
+          <set_value name="$SecName" exact="@$Sec.name"/>
+          <do_if value="$SecName == null">
+            <set_value name="$SecName" exact="''"/>
+          </do_if>
+          <set_value name="$ClusterId" exact="@$Sec.cluster.macro.id"/>
+          <do_if value="$ClusterId == null">
+            <set_value name="$ClusterId" exact="''"/>
+          </do_if>
+          <set_value name="$PosX" exact="@$Sec.cluster.position.x"/>
+          <set_value name="$PosY" exact="@$Sec.cluster.position.y"/>
+          <set_value name="$PosZ" exact="@$Sec.cluster.position.z"/>
+          <do_if value="$PosX == null">
+            <set_value name="$PosX" exact="0"/>
+          </do_if>
+          <do_if value="$PosY == null">
+            <set_value name="$PosY" exact="0"/>
+          </do_if>
+          <do_if value="$PosZ == null">
+            <set_value name="$PosZ" exact="0"/>
+          </do_if>
+          <do_if value="$Chunk != ''">
+            <set_value name="$Chunk" exact="$Chunk + ';'"/>
+          </do_if>
+          <set_value name="$Chunk" exact="$Chunk + $Sec.macro.id + '|' + $ClusterId + '|' + $SecName + '|' + $Owner + '|' + $PosX + '|' + $PosY + '|' + $PosZ + '|' + $Gates"/>
+          <set_value name="$InChunk" exact="$InChunk + 1"/>
+          <do_if value="$InChunk ge 40">
+            <raise_lua_event name="'x4mp.md_galaxy'" param="'G;' + $Chunk"/>
+            <set_value name="$Chunk" exact="''"/>
+            <set_value name="$InChunk" exact="0"/>
+          </do_if>
+        </do_for_each>
+        <do_if value="$Chunk != ''">
+          <raise_lua_event name="'x4mp.md_galaxy'" param="'G;' + $Chunk"/>
+        </do_if>
+        <raise_lua_event name="'x4mp.md_galaxy'" param="'E;' + $Sectors.count"/>
+
+        <!-- the player's ship: occupied ship first (on foot: none) -->
+        <set_value name="$Ship" exact="player.occupiedship"/>
+        <do_if value="$Ship and $Ship.exists">
+          <set_value name="$Cls" exact="''"/>
+          <do_if value="$Ship.isclass.ship_xs">
+            <set_value name="$Cls" exact="'ship_xs'"/>
+          </do_if>
+          <do_elseif value="$Ship.isclass.ship_s">
+            <set_value name="$Cls" exact="'ship_s'"/>
+          </do_elseif>
+          <do_elseif value="$Ship.isclass.ship_m">
+            <set_value name="$Cls" exact="'ship_m'"/>
+          </do_elseif>
+          <do_elseif value="$Ship.isclass.ship_l">
+            <set_value name="$Cls" exact="'ship_l'"/>
+          </do_elseif>
+          <do_elseif value="$Ship.isclass.ship_xl">
+            <set_value name="$Cls" exact="'ship_xl'"/>
+          </do_elseif>
+          <set_value name="$ShipSector" exact="@$Ship.sector.macro.id"/>
+          <do_if value="$ShipSector == null">
+            <set_value name="$ShipSector" exact="''"/>
+          </do_if>
+          <set_value name="$ShipName" exact="@$Ship.name"/>
+          <do_if value="$ShipName == null">
+            <set_value name="$ShipName" exact="''"/>
+          </do_if>
+          <set_value name="$ShipCode" exact="@$Ship.idcode"/>
+          <do_if value="$ShipCode == null">
+            <set_value name="$ShipCode" exact="''"/>
+          </do_if>
+          <set_value name="$ShipOwner" exact="@$Ship.owner.id"/>
+          <do_if value="$ShipOwner == null">
+            <set_value name="$ShipOwner" exact="'player'"/>
+          </do_if>
+          <raise_lua_event name="'x4mp.md_galaxy'" param="'P;' + $Ship.macro.id + '|' + $ShipName + '|' + $ShipCode + '|' + $ShipSector + '|' + $Cls + '|' + $ShipOwner"/>
+        </do_if>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>
