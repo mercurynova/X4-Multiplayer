@@ -91,6 +91,10 @@ export class BotLauncher {
     return bot;
   }
 
+  get all(): readonly Bot[] {
+    return this.bots;
+  }
+
   stopAll() {
     for (const b of this.bots) b.stop();
   }
@@ -131,12 +135,18 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
     },
     { scope: 'worker' },
   ],
-  bots: async ({}, use) => {
+  bots: async ({}, use, testInfo) => {
     const launcher = new BotLauncher();
     try {
       await use(launcher);
     } finally {
       launcher.stopAll();
+      // A failed test that only polled the server (not a bot's output) otherwise says nothing about what the bots did.
+      if (testInfo.status !== testInfo.expectedStatus) {
+        launcher.all.forEach((b, i) => {
+          void testInfo.attach(`bot-${i}-${b.label}.log`, { body: b.output.slice(-20_000), contentType: 'text/plain' });
+        });
+      }
     }
   },
   api: async ({}, use) => {

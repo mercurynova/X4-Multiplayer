@@ -20,6 +20,7 @@ param(
   [string]$X4NativeDir
 )
 $ErrorActionPreference = 'Stop'
+function Get-Sha256Hex([string]$Path) { $s = [IO.File]::OpenRead($Path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($h.ComputeHash($s)) -replace '-', '').ToLowerInvariant() } finally { $h.Dispose() } } finally { $s.Dispose() } }  # not Get-FileHash: a 5.1 child of pwsh 7 cannot autoload Microsoft.PowerShell.Utility
 if (-not $ModDir) { $ModDir = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..' }
 $ModDir = (Resolve-Path $ModDir).Path
 if (-not $X4NativeDir) { $X4NativeDir = Join-Path $ModDir "third_party\x4native\$Tag" }
@@ -70,7 +71,7 @@ if (Test-Path $versionFile) {
   foreach ($rel in $recorded.Keys) {
     $p = Join-Path $X4NativeDir ($rel.Replace('/', '\'))
     if (-not (Test-Path $p)) { Fail "VERSION lists a file that is missing: $rel"; continue }
-    if ((Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant() -ne $recorded[$rel].Hash) { Fail "SHA-256 mismatch: $rel" }
+    if ((Get-Sha256Hex $p) -ne $recorded[$rel].Hash) { Fail "SHA-256 mismatch: $rel" }
   }
   foreach ($f in Get-ChildItem $X4NativeDir -Recurse -File) {
     $rel = $f.FullName.Substring($X4NativeDir.Length + 1).Replace('\', '/')

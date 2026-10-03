@@ -76,6 +76,9 @@ $work = Join-Path $ArtifactDir 'work'
 Remove-Item -Recurse -Force $logDir, $work -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $logDir, $work | Out-Null
 
+# Child scripts run in the same PowerShell that runs this one (CI: pwsh 7). A Windows PowerShell 5.1 child of pwsh 7 inherits its
+# PSModulePath and cannot autoload Microsoft.PowerShell.Utility (Get-FileHash was 'not recognized').
+$psHost = (Get-Process -Id $PID).Path
 $adminPassword = 'E2e-ci-only-password-12345'
 $results = New-Object System.Collections.Generic.List[object]
 $started = New-Object System.Collections.Generic.List[object]
@@ -172,7 +175,7 @@ $script:modBuilt = $false
 function Ensure-ModBuild {
   $tree = Join-Path $repo 'mod/build/msvc-x64-relwithdebinfo'
   if (-not $SkipModBuild -and -not $script:modBuilt) {
-    Invoke-Native 'mod build' { & powershell -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest }
+    Invoke-Native 'mod build' { & $psHost -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest }
     $script:modBuilt = $true
   }
   return $tree
@@ -187,7 +190,7 @@ function Find-Built([string]$tree, [string]$file) {
 function Invoke-HostSimScript([string]$name, [string]$scriptFile, [int]$timeoutSec) {
   if (-not $isWin) { throw "$name is Windows-only" }
   $null = Ensure-ModBuild
-  $p = Start-Proc $name 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repo $scriptFile))
+  $p = Start-Proc $name $psHost @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repo $scriptFile))
   if (-not $p.WaitForExit($timeoutSec * 1000)) { Stop-Tree $p; throw "$name did not finish within $timeoutSec s" }
   $p.WaitForExit()
   $text = Get-Content (Join-Path $logDir "$name.log") -Raw
@@ -210,7 +213,7 @@ function Invoke-HostSimScript([string]$name, [string]$scriptFile, [int]$timeoutS
 if ($Steps -contains 'Publish') {
   Invoke-Step 'Publish server + FakeNode' {
     if (-not (Test-Path (Join-Path $repo "tools/flatc/bin/flatc$exeExt"))) {
-      if ($isWin) { Invoke-Native 'fetch-flatc' { & powershell -NoProfile -File (Join-Path $repo 'tools/flatc/fetch-flatc.ps1') } }
+      if ($isWin) { Invoke-Native 'fetch-flatc' { & $psHost -NoProfile -File (Join-Path $repo 'tools/flatc/fetch-flatc.ps1') } }
       else { Invoke-Native 'fetch-flatc' { & bash (Join-Path $repo 'tools/flatc/fetch-flatc.sh') } }
     }
     Invoke-Native 'dotnet publish' { dotnet publish (Join-Path $repo 'server/src/X4MP.Server') -c Release "-p:PublishProfile=$rid" -p:SkipWebBuild=true -nologo -v:m }

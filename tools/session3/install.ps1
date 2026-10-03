@@ -57,7 +57,7 @@ if ($dry) {
     if (-not (Test-Path (Join-Path $Repo "mod\build\msvc-x64-$Config\x4mp.dll"))) { Write-Warning 'x4mp.dll is not built yet (mod\build.ps1); a real run would stop here.' }
     return
 }
-& powershell -NoProfile -ExecutionPolicy Bypass -File $deploy @dArgs
+& (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File $deploy @dArgs
 if ($LASTEXITCODE -ne 0) { throw "deploy.ps1 failed (exit $LASTEXITCODE)" }
 Write-Host ''
 Write-Host 'Next: in X4 > Settings > Extensions: Protected UI Mode OFF; x4native and x4mp enabled; the X4MP test extensions (x4mp_probe, x4mp_spike) gone or disabled.'
