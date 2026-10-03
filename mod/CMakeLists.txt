@@ -288,9 +288,10 @@ if(X4MP_TESTS)
   add_executable(x4mp-hostsim
     tools/hostsim/main.cpp
     tools/hostsim/host.cpp
+    tools/hostsim/world.cpp
     tools/hostsim/admin_client.cpp)
   target_include_directories(x4mp-hostsim SYSTEM PRIVATE "${X4N_SDK_DIR}")
-  target_include_directories(x4mp-hostsim PRIVATE tools/hostsim)
+  target_include_directories(x4mp-hostsim PRIVATE tools/hostsim "${CMAKE_CURRENT_SOURCE_DIR}/native")  # native: game/game_api.h (PosRotPod layout check)
   target_compile_features(x4mp-hostsim PRIVATE cxx_std_23)
   target_link_libraries(x4mp-hostsim PRIVATE nlohmann_json::nlohmann_json ws2_32)
   set_target_properties(x4mp-hostsim PROPERTIES CXX_EXTENSIONS OFF)
@@ -319,6 +320,19 @@ if(X4MP_TESTS)
             -DSCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/fail.hostsim
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/expect_fail.cmake")
   set_tests_properties(hostsim.failure_exit_code PROPERTIES TIMEOUT 60)
+
+  # M3-04: the fake universe (tools/hostsim/world.*) and its commands, against the stub extension (DLL-free: no x4mp.dll, no server).
+  foreach(hs_world world_objects world_ship)
+    add_test(NAME hostsim.${hs_world}
+      COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp_hostsim_stub>" --ext-id x4mp_hostsim_stub
+              --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/${hs_world}.hostsim")
+    set_tests_properties(hostsim.${hs_world} PROPERTIES TIMEOUT 90 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
+  endforeach()
+  add_test(NAME hostsim.world_failure_exit_code
+    COMMAND ${CMAKE_COMMAND} -DHOSTSIM=$<TARGET_FILE:x4mp-hostsim> -DDLL=$<TARGET_FILE:x4mp_hostsim_stub>
+            -DSCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/world_fail.hostsim
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/expect_fail.cmake")
+  set_tests_properties(hostsim.world_failure_exit_code PROPERTIES TIMEOUT 60)
 endif()
 # X4MP_HOSTSIM end
 

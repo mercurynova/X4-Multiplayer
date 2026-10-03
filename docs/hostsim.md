@@ -19,7 +19,7 @@ stash in host memory (survives shutdown, FreeLibrary and reload; `restart` clear
 `_ext_log_fn`; the mod's own file log lands in `<work>/extension/logs/x4mp.log`, an empty `x4mp.portable` is written
 there), `get_game_function` + a zeroed `X4GameFunctions` with fakes for `GetCurrentGameTime`, `GetSaveFolderPath`
 (`<work>/saves/`), `IsSaveListLoadingComplete`, `IsSaveValid`, `IsGamePaused`, `ReloadSaveList`, `GetGameVersion`
-(from `game_version`, default 9.00), `GetBuildVersionSuffix` (default `611726`), `GetPlayerID`, `AddPlayerMoney`. Every
+(from `game_version`, default 9.00), `GetBuildVersionSuffix` (default `611726`), `GetPlayerID`, `AddPlayerMoney` and, since M3-04, the fake-universe exports (below). Every
 other game function is NULL. Game functions called off the script thread, or a subscriber that throws, fail the run.
 "Main thread" = the thread that runs the script.
 
@@ -52,6 +52,53 @@ If no `init` line exists the DLL is initialised before the first command. `set` 
 | `stash-set <key> <text>` / `stash-remove <key>` | write / drop one stash key (default namespace = ext id); for corrupt-stash scenarios (M2-07) |
 | `print <text>`, `settle <ms>` | note / fixed pause (avoid; use expects) |
 | `exec <command line>` | runs the command through the shell and waits; a non-zero exit fails the script. For kit scripts that edit a config file while the DLL runs (the session-2 dry run). `${NAME}` is substituted like everywhere else |
+
+### Fake universe commands (M3-04; `mod/tools/hostsim/world.*`)
+Behind the M3 game exports hostsim keeps a tiny universe: objects (macro, owner, sector, pose, active, forced radar, wrecked,
+name, id code), sectors (`100001`, `100002` exist), the dock station (300001), the player ship (200001) with seat / docked / SETA
+state, and the counters `expect-state` reads. The mod's calls (`SpawnObjectAtPos2`, `SetObjectSectorPos`,
+`GetObjectPositionInSector`, `ActivateObject`, `SetComponentOwner`, `SetObjectForcedRadarVisible`, `IsComponentWrecked`,
+`GetObjectIDCode`, `GetComponentName`, `TeleportPlayerTo`, `CanTeleportPlayerTo`, `IsSetaActive`,
+`IsPlayerOccupiedShipDocked`, `GetPlayerOccupiedShipID`, `GetPlayerControlledShipID`, `GetPlayerObjectID`,
+`GetPlayerContainerID`, `GetContextByClass`, `IsValidComponent`) change or read it. Nothing moves by itself except the scripted
+player-ship path during `frame` (game time, paused when `set paused 1`). Objects the mod spawns get ids from 400001.
+Selectors: `<id>`, `last` (newest object, spawned by the mod or by `world object add`), `player` (the player ship), `station`,
+`macro=<m>`, `owner=<o>`, `name=<n>` (newest match; values have no spaces).
+
+| Command | Meaning |
+|---|---|
+| `seat on\|off` | the player sits in / leaves the pilot seat (`GetPlayerOccupiedShipID`/`ControlledShipID` are 0 when off) |
+| `dock [on\|off]`, `undock` | `IsPlayerOccupiedShipDocked`; docking stops the path and moves the ship to the station's sector |
+| `seta on\|off` | `IsSetaActive` (it does not change `speed`: combine with `set speed 5`) |
+| `ship path circle radius=R speed=S [center=x,y,z] [sector=ID]` | the player ship flies a circle in the x-z plane (m, m/s); heading = tangent in degrees (0 = +z, 90 = +x) |
+| `ship path line from=x,y,z to=x,y,z speed=S [sector=ID] [loop]` | straight line; stops at `to` (restarts with `loop`) |
+| `ship path gate from=.. to=.. speed=S sector=A to_sector=B [exit=x,y,z]` | line, then the ship appears in sector B at `exit` (default `to`); counts `gate_jumps` |
+| `ship path stop`, `ship place sector=ID pos=x,y,z [yaw=deg]` | stop the path / put the ship somewhere at once |
+| `world sector add <id>` | a new sector id |
+| `world object add macro=M sector=S [owner=O] [pos=x,y,z] [name=N] [yaw=deg] [class=station]` | scripted placement (not counted as a mod spawn; prints the id) |
+| `world object wreck\|unwreck\|remove <sel>`, `world object owner <sel> <faction>`, `world object name <sel> <text>` | edit; the player ship and the station cannot be removed |
+| `world spawn-fail <n>` | the next n `SpawnObjectAtPos2` calls return 0 |
+| `world teleport allow\|deny [reason]`, `world controlled-when-docked on\|off` | behaviour switches (assumptions: m3-plan section 8, M3-04) |
+| `expect-object <sel> exists\|absent` | the object exists / does not |
+| `expect-object <sel> <field> <op> <value>` | fields `id cls macro owner name idcode sector x y z yaw pitch roll active radar wrecked`; ops as `expect-admin` (`== != < <= > >= contains`); bools compare as `true` / `false` |
+| `expect-object count <op> <n> [macro=M] [owner=O] [sector=S] [name=N]` | number of objects (the player ship and station included) matching the filters |
+| `expect-ghost <player> err_p50\|err_p95\|err_max\|samples <op> <value>` | **stub until M3-10**: parsed and validated; evaluated only when ghost error samples (metres) exist for the player, otherwise prints `STUB ... not evaluated` and passes (`samples` is always evaluated) |
+| `ghost-sample <player> <metres>` | add one ghost error sample (the ghost feature's test hook and the DLL-free smoke use it) |
+
+`expect-state` also reads `objects spawns set_pos_calls teleports owner_calls activate_calls radar_calls removed seat docked seta
+path_active gate_jumps`. Checks run on the script thread right where they stand, so `frame` first (the mod acts on frames).
+The DLL-free smoke is ctest `hostsim.world_objects`, `hostsim.world_ship` (the stub extension drives the fake through the real
+SDK function table) and `hostsim.world_failure_exit_code`.
+
+### Pair runs (M3-04, CI step `HostSimPair`)
+`mod/tests/hostsim/pair_run.ps1` starts the published server, a FakeNode authority serving a dummy save and **two** hostsim
+processes at once, each with its own work dir and its own `x4mp.dll` instance, running `pair_scenario.hostsim` (variables
+`tcp`, `name`, `other`, `sync`; players Pia and Pax). Ports 47940-47942 (pair range 47940-47949), about 20 s after the publish:
+```
+./tools/e2e.ps1 -Steps Publish,HostSimPair      (PowerShell; or pair_run.ps1 -Scenario my_pair.hostsim directly)
+```
+The processes synchronise with `write-file ${sync}/<name>.done` + `expect-file ${sync}/<other>.done ok` and see each other
+through `expect-admin /api/v1/players $[name==${other}].online == true`. They run with `--timeout-scale 5`.
 
 Option `--pre-init-wexport NAME=VALUE` (repeatable): calls the DLL export `void NAME(const wchar_t*)` after every load,
 before `x4native_init` (test-only seams of throwaway DLLs; the probe's `x4mp_probe_set_config_dir`).

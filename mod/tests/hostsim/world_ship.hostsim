@@ -1,0 +1,76 @@
+# M3-04 DLL-free smoke (ctest hostsim.world_ship): the player ship, seat / dock / SETA state and the scripted flight paths.
+init
+world sector add 100003
+
+# seat off: no occupied ship, the ship itself exists
+lua x4stub.world player
+expect-lua x4stub.world_result 3000 json $.occupied == 0
+expect-state seat == 0
+expect-object player macro contains fighter
+
+# ship path line: 100 m/s for 1 s of game time
+ship place sector=100001 pos=0,0,0
+ship path line from=0,0,0 to=0,0,1000 speed=100 sector=100001
+expect-state path_active == 1
+frame fast 60
+expect-object player z > 99
+expect-object player z < 101
+expect-object player yaw == 0
+expect-object player sector == 100001
+lua x4stub.world player
+expect-lua x4stub.world_result 3000 json $.z > 99
+
+# the path does not advance while the game is paused
+set paused 1
+frame fast 30
+expect-object player z < 101
+set paused 0
+
+# seat on / SETA / dock
+seat on
+seta on
+lua x4stub.world player
+expect-lua x4stub.world_result 3000 json $.occupied == 200001
+dock
+expect-state docked == 1
+expect-state path_active == 0
+lua x4stub.world player
+expect-lua x4stub.world_result 3000 json $.docked == true
+expect-state seta == 1
+undock
+expect-state docked == 0
+seta off
+expect-state seta == 0
+lua x4stub.world player
+expect-lua x4stub.world_result 3000 json $.seta == false
+seat off
+expect-state seat == 0
+
+# a line that ends: the ship stops at the end point
+ship path line from=0,0,0 to=0,0,10 speed=100
+frame fast 60
+expect-object player z == 10
+expect-state path_active == 0
+
+# circle: radius 100, 100 m/s for 1 s = 1 rad; the start is (100,0,0), heading follows the tangent
+ship path circle radius=100 speed=100 center=0,0,0 sector=100001
+expect-object player x == 100
+frame fast 60
+expect-object player x > 53
+expect-object player x < 55
+expect-object player z > 84
+expect-object player z < 84.3
+expect-object player yaw < -57
+expect-object player yaw > -58
+expect-state path_active == 1
+ship path stop
+expect-state path_active == 0
+
+# gate: fly into the gate, appear in the other sector at the exit pose
+ship path gate from=0,0,-500 to=0,0,0 speed=500 sector=100001 to_sector=100002 exit=0,0,50
+expect-object player sector == 100001
+frame fast 70
+expect-object player sector == 100002
+expect-object player z == 50
+expect-state gate_jumps == 1
+expect-state path_active == 0

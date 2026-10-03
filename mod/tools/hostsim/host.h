@@ -20,6 +20,8 @@
 #include <x4_game_func_table.h>
 #include <x4native_extension.h>
 
+#include "world.h"
+
 namespace hostsim {
 
 struct LuaEvent {
@@ -49,6 +51,9 @@ class Host {
   std::atomic<double> game_time{1.0};
   double speed = 1.0;
   std::map<std::string, std::string> settings;  // key -> text (typed on read)
+
+  // The fake universe behind the M3 exports (objects, sectors, the player ship, seat / docked / SETA; world.h). Script thread only.
+  World world;
 
   // ---- counters the scripts can assert on -------------------------------------------------------------------
   std::atomic<int> reload_save_list_calls{0};
@@ -104,6 +109,7 @@ class Host {
 
   std::filesystem::path work_dir_;
   std::string ext_id_, ext_name_, ext_path_, save_dir_str_;
+  std::string str_buf_;  // return buffer of the fake string exports (GetObjectIDCode ...), shared like the game's
   std::unique_ptr<X4GameFunctions> game_;
   std::unique_ptr<std::uint8_t[]> offsets_;
   std::map<std::string, void*> game_fns_;

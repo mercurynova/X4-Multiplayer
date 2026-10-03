@@ -39,6 +39,32 @@ UniverseId fk_context(UniverseId id, const char* cls, bool) {
 }
 bool fk_valid(UniverseId id) { return id != 666; }
 
+// M3 fakes
+PosRotPod g_set_pos;
+UniverseId g_set_sector = 0;
+UniverseId fk_spawn(const char* macro, UniverseId sector, PosRotPod pos, const char* owner) {
+  g_set_pos = pos;
+  g_set_sector = sector;
+  return std::string(macro) == "bad" || std::string(owner) == "nobody" ? 0 : 9001;
+}
+bool g_active = true, g_radar = false, g_seta = true, g_docked = true;
+void fk_activate(UniverseId, bool a) { g_active = a; }
+void fk_setpos(UniverseId, UniverseId sector, PosRotPod pos) {
+  g_set_sector = sector;
+  g_set_pos = pos;
+}
+PosRotPod fk_getpos(UniverseId) { return g_set_pos; }
+bool fk_teleport(UniverseId id, bool, bool, bool) { return id == 9001; }
+const char* fk_canteleport(UniverseId id, bool, bool) { return id == 9001 ? "" : "no such ship"; }
+std::string g_owner;
+void fk_setowner(UniverseId, const char* f) { g_owner = f; }
+void fk_radar(UniverseId, bool v) { g_radar = v; }
+bool fk_seta() { return g_seta; }
+const char* fk_idcode(UniverseId) { return "ABC-123"; }
+const char* fk_cname(UniverseId) { return nullptr; }
+bool fk_wrecked(UniverseId id) { return id == 13; }
+bool fk_docked() { return g_docked; }
+
 void* lookup_all(const char* name) {
   const std::string n = name;
   if (n == "GetCurrentGameTime") return reinterpret_cast<void*>(&fk_time);
@@ -56,6 +82,19 @@ void* lookup_all(const char* name) {
   if (n == "GetPlayerContainerID") return reinterpret_cast<void*>(&fk_container);
   if (n == "GetContextByClass") return reinterpret_cast<void*>(&fk_context);
   if (n == "IsValidComponent") return reinterpret_cast<void*>(&fk_valid);
+  if (n == "SpawnObjectAtPos2") return reinterpret_cast<void*>(&fk_spawn);
+  if (n == "ActivateObject") return reinterpret_cast<void*>(&fk_activate);
+  if (n == "SetObjectSectorPos") return reinterpret_cast<void*>(&fk_setpos);
+  if (n == "GetObjectPositionInSector") return reinterpret_cast<void*>(&fk_getpos);
+  if (n == "TeleportPlayerTo") return reinterpret_cast<void*>(&fk_teleport);
+  if (n == "CanTeleportPlayerTo") return reinterpret_cast<void*>(&fk_canteleport);
+  if (n == "SetComponentOwner") return reinterpret_cast<void*>(&fk_setowner);
+  if (n == "SetObjectForcedRadarVisible") return reinterpret_cast<void*>(&fk_radar);
+  if (n == "IsSetaActive") return reinterpret_cast<void*>(&fk_seta);
+  if (n == "GetObjectIDCode") return reinterpret_cast<void*>(&fk_idcode);
+  if (n == "GetComponentName") return reinterpret_cast<void*>(&fk_cname);
+  if (n == "IsComponentWrecked") return reinterpret_cast<void*>(&fk_wrecked);
+  if (n == "IsPlayerOccupiedShipDocked") return reinterpret_cast<void*>(&fk_docked);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -98,7 +137,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 15);
+  CHECK(missing_exports(api.fns()).size() == 28);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -115,7 +154,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 15);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 28);
 }
 
 TEST_CASE("partially available exports resolve individually", "[game][api]") {
@@ -125,7 +164,66 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 14);
+  CHECK(missing_exports(api.fns()).size() == 27);
+}
+
+TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {
+  ResetMainThread guard;
+  GameApi api(resolve_game_fns(lookup_all), GameInfo{});
+  const PosRotPod p{1, 2, 3, 10, 20, 30};
+  CHECK(api.spawn_object("ship_arg_s_fighter_01_a_macro", 77, p, "x4mp_team_1") == 9001);
+  CHECK(g_set_sector == 77);
+  CHECK(g_set_pos.z == 3.0f);
+  CHECK(api.spawn_object("bad", 77, p, "x") == 0);
+  CHECK(api.spawn_object("ok", 0, p, "x") == 0);  // no sector: refused before the call
+  CHECK(api.spawn_object("", 77, p, "x") == 0);
+  CHECK(api.activate_object(9001, false));
+  CHECK_FALSE(g_active);
+  CHECK_FALSE(api.activate_object(0, true));
+  CHECK(api.set_object_sector_pos(9001, 78, PosRotPod{4, 5, 6, 0, 0, 0}));
+  CHECK(g_set_sector == 78);
+  const auto got = api.object_position(9001);
+  REQUIRE(got);
+  CHECK(got->x == 4.0f);
+  CHECK_FALSE(api.object_position(0));
+  CHECK(api.teleport_player_to(9001, true, true, true));
+  CHECK_FALSE(api.teleport_player_to(5, true, true, true));
+  CHECK(api.can_teleport_player_to(9001, true, false) == std::string());
+  CHECK(api.can_teleport_player_to(5, true, false) == std::string("no such ship"));
+  CHECK(api.set_component_owner(9001, "x4mp_team_2"));
+  CHECK(g_owner == "x4mp_team_2");
+  CHECK_FALSE(api.set_component_owner(9001, nullptr));
+  CHECK(api.set_object_forced_radar_visible(9001, true));
+  CHECK(g_radar);
+  g_seta = true;
+  CHECK(api.seta_active());
+  CHECK(api.object_id_code(9001) == "ABC-123");
+  CHECK(api.component_name(9001) == std::string());  // null from the game becomes ""
+  CHECK(api.component_wrecked(13));
+  CHECK_FALSE(api.component_wrecked(14));
+  g_docked = true;
+  CHECK(api.player_ship_docked());
+
+  GameApi none(resolve_game_fns(lookup_none), GameInfo{});
+  CHECK(none.spawn_object("m", 1, p, "o") == 0);
+  CHECK_FALSE(none.activate_object(1, true));
+  CHECK_FALSE(none.set_object_sector_pos(1, 1, p));
+  CHECK_FALSE(none.object_position(1));
+  CHECK_FALSE(none.teleport_player_to(1, true, true, true));
+  CHECK_FALSE(none.can_teleport_player_to(1, true, true));
+  CHECK_FALSE(none.set_component_owner(1, "f"));
+  CHECK_FALSE(none.set_object_forced_radar_visible(1, true));
+  CHECK_FALSE(none.seta_active());
+  CHECK_FALSE(none.object_id_code(1));
+  CHECK_FALSE(none.component_name(1));
+  CHECK_FALSE(none.component_wrecked(1));
+  CHECK_FALSE(none.player_ship_docked());
+
+  // off the main thread every wrapper refuses
+  main_thread().capture_frame();
+  bool refused = false;
+  std::thread([&] { refused = api.spawn_object("m", 1, p, "o") == 0 && !api.activate_object(1, true) && !api.object_position(1); }).join();
+  CHECK(refused);
 }
 
 TEST_CASE("assert_main_thread: the first frame thread becomes main", "[game][thread]") {

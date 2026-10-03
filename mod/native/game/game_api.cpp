@@ -28,6 +28,19 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "GetPlayerContainerID", f.GetPlayerContainerID);
   bind(get, "GetContextByClass", f.GetContextByClass);
   bind(get, "IsValidComponent", f.IsValidComponent);
+  bind(get, "SpawnObjectAtPos2", f.SpawnObjectAtPos2);
+  bind(get, "ActivateObject", f.ActivateObject);
+  bind(get, "SetObjectSectorPos", f.SetObjectSectorPos);
+  bind(get, "GetObjectPositionInSector", f.GetObjectPositionInSector);
+  bind(get, "TeleportPlayerTo", f.TeleportPlayerTo);
+  bind(get, "CanTeleportPlayerTo", f.CanTeleportPlayerTo);
+  bind(get, "SetComponentOwner", f.SetComponentOwner);
+  bind(get, "SetObjectForcedRadarVisible", f.SetObjectForcedRadarVisible);
+  bind(get, "IsSetaActive", f.IsSetaActive);
+  bind(get, "GetObjectIDCode", f.GetObjectIDCode);
+  bind(get, "GetComponentName", f.GetComponentName);
+  bind(get, "IsComponentWrecked", f.IsComponentWrecked);
+  bind(get, "IsPlayerOccupiedShipDocked", f.IsPlayerOccupiedShipDocked);
   return f;
 }
 
@@ -51,6 +64,19 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.GetPlayerContainerID), "GetPlayerContainerID");
   check(reinterpret_cast<const void*>(f.GetContextByClass), "GetContextByClass");
   check(reinterpret_cast<const void*>(f.IsValidComponent), "IsValidComponent");
+  check(reinterpret_cast<const void*>(f.SpawnObjectAtPos2), "SpawnObjectAtPos2");
+  check(reinterpret_cast<const void*>(f.ActivateObject), "ActivateObject");
+  check(reinterpret_cast<const void*>(f.SetObjectSectorPos), "SetObjectSectorPos");
+  check(reinterpret_cast<const void*>(f.GetObjectPositionInSector), "GetObjectPositionInSector");
+  check(reinterpret_cast<const void*>(f.TeleportPlayerTo), "TeleportPlayerTo");
+  check(reinterpret_cast<const void*>(f.CanTeleportPlayerTo), "CanTeleportPlayerTo");
+  check(reinterpret_cast<const void*>(f.SetComponentOwner), "SetComponentOwner");
+  check(reinterpret_cast<const void*>(f.SetObjectForcedRadarVisible), "SetObjectForcedRadarVisible");
+  check(reinterpret_cast<const void*>(f.IsSetaActive), "IsSetaActive");
+  check(reinterpret_cast<const void*>(f.GetObjectIDCode), "GetObjectIDCode");
+  check(reinterpret_cast<const void*>(f.GetComponentName), "GetComponentName");
+  check(reinterpret_cast<const void*>(f.IsComponentWrecked), "IsComponentWrecked");
+  check(reinterpret_cast<const void*>(f.IsPlayerOccupiedShipDocked), "IsPlayerOccupiedShipDocked");
   return out;
 }
 
@@ -127,6 +153,64 @@ bool GameApi::is_valid_component(UniverseId id) const noexcept {
   if (!fns_.IsValidComponent) return true;
   if (!assert_main_thread("IsValidComponent")) return false;
   return fns_.IsValidComponent(id);
+}
+
+// ---- M3 exports ----
+UniverseId GameApi::spawn_object(const char* macro, UniverseId sector, const PosRotPod& pos, const char* owner) const noexcept {
+  if (!fns_.SpawnObjectAtPos2 || !macro || !*macro || sector == 0 || !assert_main_thread("SpawnObjectAtPos2")) return 0;
+  return fns_.SpawnObjectAtPos2(macro, sector, pos, owner ? owner : "");
+}
+bool GameApi::activate_object(UniverseId id, bool active) const noexcept {
+  if (id == 0 || !fns_.ActivateObject || !assert_main_thread("ActivateObject")) return false;
+  fns_.ActivateObject(id, active);
+  return true;
+}
+bool GameApi::set_object_sector_pos(UniverseId id, UniverseId sector, const PosRotPod& pos) const noexcept {
+  if (id == 0 || sector == 0 || !fns_.SetObjectSectorPos || !assert_main_thread("SetObjectSectorPos")) return false;
+  fns_.SetObjectSectorPos(id, sector, pos);
+  return true;
+}
+std::optional<PosRotPod> GameApi::object_position(UniverseId id) const noexcept {
+  if (id == 0 || !fns_.GetObjectPositionInSector || !assert_main_thread("GetObjectPositionInSector")) return std::nullopt;
+  return fns_.GetObjectPositionInSector(id);
+}
+bool GameApi::teleport_player_to(UniverseId id, bool allow_controlling, bool instant, bool force) const noexcept {
+  if (id == 0 || !fns_.TeleportPlayerTo || !assert_main_thread("TeleportPlayerTo")) return false;
+  return fns_.TeleportPlayerTo(id, allow_controlling, instant, force);
+}
+std::optional<std::string> GameApi::can_teleport_player_to(UniverseId id, bool allow_controlling, bool force) const {
+  if (id == 0 || !fns_.CanTeleportPlayerTo || !assert_main_thread("CanTeleportPlayerTo")) return std::nullopt;
+  const char* p = fns_.CanTeleportPlayerTo(id, allow_controlling, force);
+  return std::string(p ? p : "");
+}
+bool GameApi::set_component_owner(UniverseId id, const char* faction) const noexcept {
+  if (id == 0 || !faction || !fns_.SetComponentOwner || !assert_main_thread("SetComponentOwner")) return false;
+  fns_.SetComponentOwner(id, faction);
+  return true;
+}
+bool GameApi::set_object_forced_radar_visible(UniverseId id, bool value) const noexcept {
+  if (id == 0 || !fns_.SetObjectForcedRadarVisible || !assert_main_thread("SetObjectForcedRadarVisible")) return false;
+  fns_.SetObjectForcedRadarVisible(id, value);
+  return true;
+}
+bool GameApi::seta_active() const noexcept {
+  return fns_.IsSetaActive && assert_main_thread("IsSetaActive") && fns_.IsSetaActive();
+}
+std::optional<std::string> GameApi::object_id_code(UniverseId id) const {
+  if (id == 0 || !fns_.GetObjectIDCode || !assert_main_thread("GetObjectIDCode")) return std::nullopt;
+  const char* p = fns_.GetObjectIDCode(id);
+  return std::string(p ? p : "");
+}
+std::optional<std::string> GameApi::component_name(UniverseId id) const {
+  if (id == 0 || !fns_.GetComponentName || !assert_main_thread("GetComponentName")) return std::nullopt;
+  const char* p = fns_.GetComponentName(id);
+  return std::string(p ? p : "");
+}
+bool GameApi::component_wrecked(UniverseId id) const noexcept {
+  return id != 0 && fns_.IsComponentWrecked && assert_main_thread("IsComponentWrecked") && fns_.IsComponentWrecked(id);
+}
+bool GameApi::player_ship_docked() const noexcept {
+  return fns_.IsPlayerOccupiedShipDocked && assert_main_thread("IsPlayerOccupiedShipDocked") && fns_.IsPlayerOccupiedShipDocked();
 }
 
 }  // namespace x4mp::game

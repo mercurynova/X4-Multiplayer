@@ -1,0 +1,37 @@
+# M3-04 pair scenario: one of TWO hostsim processes (two real x4mp.dll instances) that share one server. Run by pair_run.ps1.
+# vars: tcp, name (this player), other (the other player), sync (a folder both processes can write).
+# Trivial on purpose (the DLL has no M3 features yet): join, resume after the reload, InGame, see each other online, sit in the
+# seat and fly a circle in the fake universe, then leave only after the other player also got this far. Wave-2 tasks (M3-09/10/11)
+# copy this file and add `expect-object` / `expect-ghost` lines.
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"${name}","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 5000 contains x4mp_
+
+# X4 reloads the DLL (stash kept): the session resumes
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+
+load_save x4mp_pair_e2e
+frame 60Hz 180
+expect-lua x4mp.status 5000 json $.state == ingame
+expect-admin /api/v1/players $[name==${name}].online == true
+
+# fake universe: sit down, fly a circle for 2 s of game time (the DLL ignores it today; ghosts/self-ship will not)
+seat on
+ship path circle radius=2000 speed=250 center=0,0,0 sector=100001
+frame 60Hz 120
+expect-object player sector == 100001
+expect-state seat == 1
+expect-state path_active == 1
+
+# both players in game at the same time
+expect-admin /api/v1/players $[name==${other}].online == true timeout=30000
+write-file ${sync}/${name}.done ok
+expect-file ${sync}/${other}.done ok
+
+expect-no-secret never-written-password
+shutdown
