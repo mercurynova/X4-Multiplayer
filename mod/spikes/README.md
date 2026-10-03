@@ -420,3 +420,73 @@ Log keys (step `S11` or `S12`, `what=` first; MD lines are written by `debug_tex
 | `what=hq8_before`, `PASS/FAIL what=hq8_after_reveal`, `what=hq8_reverted` | S12.8 |
 
 Greps: `[X4MP-SPIKE] S11`, `[X4MP-SPIKE] S12`, `[X4MP-SPIKE] S1[12] FAIL`.
+
+# Blocks `onfoot1`, `onfoot2` (S10, task M2-003)
+
+Files: `ui/x4mp_spike_onfoot.lua` (orchestration, 2 Hz state sampler, FFI position reads, mirror controller, test menu) and
+`md/x4mp_spike_onfoot.xml` (actor and interior services, listeners, janitor). Procedures: [docs/research/on-foot-presence.md](../../docs/research/on-foot-presence.md) section 6.
+Logging only. Save F should be a **vanilla** station with a bar; if a room-generating mod ("More Ship Rooms" style) is installed, label every S10
+result "modded rooms" and note which room types the game generated in `dynamicroom` slots (S10.9 and S10.2 log `dynamic_types=` / `roomtype=` for exactly that).
+
+| Block | Steps (in this order) |
+|---|---|
+| `onfoot1` | S10.1 state sampler, S10.3 character spawn, S10.4 movement modes, S10.11 lounge creation, S10.12 enter/leave, S10.14 lounge save safety, S10.7 conversation, S10.8 cost and save hygiene |
+| `onfoot2` | S10.2 room keys, S10.5 facing and emotes, S10.6 transitions and teardown, S10.9 interior catalogue, S10.13 lounge slots, S10.15 lounge with actors |
+
+Arguments (chat `/x4mpspike onfoot1 k=v`, or `;`-separated in a run event): `step=N[,M]` run only those steps (either block accepts any step: 1-9, 11-15);
+`next=1` end the current wait early; `stop=1` abort the run; `cleanup=1` remove every test actor and lounge and switch listeners off;
+`dur=<s>` step duration; `mode=A|B|C` (S10.4 and S10.15 mirror mode); `phase=1|2` (S10.8); `go=1` / `leave=1` / `x= y= z=` (S10.12); `variant=bar|office|venturer`;
+`label=` (S10.2); `count=` (S10.9); `body=object` (use `GetPlayerObjectID` as the body transform); `keep=1` (S10.3: keep the actors); `force=1`.
+A second launch while a run is active is refused (logged `S10.CTL FAIL what=already_running`).
+
+**What changes game state** (nothing else is touched; no ship, no station, no vanilla interior or NPC is ever removed):
+
+* test actors: cue actors of `md.X4MP_SpikeOnFoot.Actors`, names `Spike Alice`, `Spike Bob`, `Spike Mirror`, `Spike Face`, `Spike Follower`, `Spike Carol`, `Spike NPC 1..8`,
+  `Spike Seat 1/2`, `Spike Walker`; owner `x4mp_team_1`; title "X4MP spike"; at most 8 at a time; each step removes its own at its end;
+* up to one private dynamic interior "Multiplayer Lounge" (plus the three short-lived ones of S10.11) on the station you are docked at, `persistent=false`;
+* the player's own entity is moved into the lounge and back (S10.12, S10.14, S10.15) by `add_actor_to_room`; the return room and position are remembered before the move;
+* S10.14 and S10.8 ask you to make saves (they contain the markers on purpose, see the janitor).
+
+**Markers and janitor.** Every actor has: the name prefix `Spike `, the title override, the entity variables `$x4mp_spike` and `$x4mp_tag`, an entry in the saved list
+`md.$X4MP_OF_Actors` and the table `md.$X4MP_OF_ByTag`. Every lounge has an entry `[station, interior, room]` in `md.$X4MP_OF_Lounges`. The janitor
+(cues `OF_Janitor`, 5 s after every game load, and `OF_JanitorLounge`, 6 s after) works **only from these two lists**, logs what it found (proof that it ran) and removes it.
+A lounge the player is standing in is not removed: it is deferred (`lounge_player_inside_deferred`) and removed on the player's next room change after leaving.
+Entities that lost their variables are still found through the list; an actor that did not survive the save shows up as `stale` (that is the answer for `set_entity_traits temporary`).
+A load with the extension disabled leaves the actors and the lounge in the save (S10.14 run 3); the next load with the extension removes them.
+
+Log keys (step `S10.n`; `S10.JAN` = janitor, `S10.CTL` = run control, `S10.MD` = MD to Lua bookkeeping):
+
+| Line | Meaning |
+|---|---|
+| `S10.JAN INFO what=lua_loaded file= markers= janitor=` | file loaded (also after `/reloadui`) |
+| `S10.JAN INFO what=root_cue_started actors_listed= lounges_listed=` | MD root cue (owner of the actors) started; on a fresh save both are 0 |
+| `S10.JAN INFO what=load_sweep_found_actor tag= name= marker_var= temporary_flag= room=` and `S10.JAN PASS/INFO what=load_sweep_done listed_before= removed= stale= listed_now=` | **janitor proof**, 5 s after every load. `PASS` = nothing was left over. `marker_var=nil` means entity variables do not survive a save (V12 retest, on actors) |
+| `S10.JAN PASS/INFO what=lounge_sweep reason=load listed= removed= deferred_player_inside= stale=` and `lounge_player_inside_deferred` | lounge janitor |
+| `S10.CTL INFO what=run_start block= steps=`, `run_done`, `next_requested`; `S10.CTL FAIL what=already_running` / `unknown_step` | run control |
+| `S10.n INFO what=step_begin block= title=` and `what=step_end_marker` | step boundaries; `S10.n FAIL what=step_error err=` = Lua error in the step |
+| `S10.MD INFO what=actor_id_received tag= raw= id= position_readable=` / `FAIL what=actor_id_conversion_failed` | the actor id arrived in Lua (needed for S10.4 mode C and S10.5 read-backs) |
+| `S10.1 MEASURE n= side=lua t= frame= container= env_object= occupied_ship= lua_room= player_x/y/z/yaw= object_x/y/z/yaw= camera_yaw= speed_player_mps=` | 2 Hz Lua sample (`GetPlayerContainerID`, `GetEnvironmentObject`, `GetPlayerRoom`, `GetPositionalOffset` of `GetPlayerID` and `GetPlayerObjectID`, camera) |
+| `S10.1 MEASURE side=md n= room_type= room_macro= room_dynamic= walkablemodule= platform= entity_x/y/z= entity_yaw_deg=` | MD sample with the same `n` |
+| `S10.1 MEASURE what=pos_compare n= still= err_player_cm= err_object_cm= yawdiff_*=` | native vs MD room-local position; `still=true` samples decide the 1 cm criterion |
+| `S10.1 INFO what=lua_room_change_detected frame=` and `what=md_event_changed_room` / `md_event_received_in_lua kind= frames_since_lua_room_change=` | change detection per frame vs the MD `changed_room` event (criterion: within 1 frame); also `transport_finished`, `started_control`, `stopped_control` |
+| `S10.1 PASS/FAIL what=summary ... best_body_source= best_still_err_max_cm= max_walk_speed_mps=` | verdict; `best_body_source` says whether `GetPlayerID` or `GetPlayerObjectID` is the body (a later S10.4 in the same Lua session uses it) |
+| `S10.2 INFO what=room_key label= container= container_seed= owner= room_macro= roomtype= kind= dynamic_name= walkablemodule= anchor_x/y/z= chain=` | one line per room (whole station at the start, and each room you enter); compare the sets across revisit / reload |
+| `S10.2 INFO what=keyset_begin / keyset_end label= rooms=` | bracket one catalogue |
+| `S10.3 PASS/FAIL what=actor_spawned tag= requested= used= name= macro= placed= room_type= same_room_as_player= marker_var_readback=` | spawn result (`requested=player used=crew` = the player's macro did not work as an NPC) |
+| `S10.3 MEASURE what=actor_status tag= exists= room_type= x/y/z= moved_from_spawn_m= iswalking= dist_to_player_m=` | survival and drift while you stay in the room (also used by S10.4/.5/.6) |
+| `S10.4 INFO/PASS what=mirror_phase mode= error_samples= err_p50_m= err_p95_m= err_max_m= frame_ms_avg= commands_sent=` | one line per mode (A teleport 5 Hz, B walk 2 Hz and 4 Hz, C `SetPositionalOffset`); error is the actor's real position (FFI) vs the commanded track point 3 s late |
+| `S10.4 FAIL what=SetPositionalOffset_error / mode_C_no_actor_id` | mode C could not run |
+| `S10.5 PASS/INFO what=yaw_after_placement requested_deg= read_back_yaw= error_deg=`, `what=yaw_after_walk_end_with_rotation_90`, `INFO what=sequence_issued / emotion_issued / lookat_issued` | facing (criterion +-15 deg); gestures and emotes are tester observations |
+| `S10.6 PASS/FAIL what=follower_replaced_in_new_room`, `PASS/FAIL what=interiors_despawning_cleanup actors_before= leftover=`, `INFO what=step_end interiors_despawning_seen=` | transitions and teardown |
+| `S10.7 INFO what=conversation_started actor= conversation=`, `PASS what=next_section section= choiceparam=`, `INFO what=open_conversation_menu`, `what=menu_displayed mode=conv`, `what=conversation_finished outcome=`, `PASS/INFO/FAIL what=step_end conversations_started= message_chosen= wave_chosen= menu_chosen=` | S10.7. No `conversation_started` line = the custom handler did not receive the talk |
+| `S10.8 MEASURE what=frame_time phase=baseline_0_actors ...` and `PASS/FAIL what=frame_time_delta baseline_ms_avg= with_8_actors_ms_avg= delta_ms=` | cost (criterion < 0.5 ms); frame time = interval between `onUpdate` calls |
+| `S10.8 INFO what=actors_removed which=all removed=` / `run2_instruction_given` | run 1 strip / run 2 hand-over to the janitor |
+| `S10.9 INFO what=station index= name= owner= canhavedynamicinterior= shadyguy= shady_tradesvisible= shady_room_type= rooms= dynamic_rooms= dynamic_types=` | interior catalogue (`dynamic_types` = which room types the game generated, "modded rooms" evidence) |
+| `S10.11 INFO what=lounge_create_begin variant= corridor_macro= doors= first_door= rooms_before=`, `PASS what=lounge_created variant= interior_name= room_macro= room_type= room_x/y/z_in_station= rooms_after=`, `FAIL what=lounge_create_failed` (look for an engine error just before it), `PASS/FAIL what=summary variants_created=` | S10.11 |
+| `S10.12 PASS/FAIL what=lounge_go moved= player_in_lounge= x/y/z=`, `what=lounge_leave back_in_return_room=`, `INFO what=menu_go_to_lounge_clicked / menu_leave_clicked`, `what=OpenMenu_called` | S10.12 / S10.14 / S10.15 teleports (transporter listing and door destination are tester notes) |
+| `S10.13 INFO what=lounge_slot index= x= y= z= ischair=` and `MEASURE what=lounge_slots_summary slots= checksum=` | slot offsets; equal `slots` and `checksum` across runs = deterministic |
+| `S10.14 INFO what=step_end saves_to_make=lounge-outside,lounge-inside` | S10.14 (the disable-extension load is done by hand afterwards) |
+| `S10.15 MEASURE what=lounge_summary mirror_mode= mirror_err_p95_m= frame_ms_avg= conversations_started=` and `PASS/FAIL what=actor_in_slot tag= slot_index=` | S10.15 |
+
+Not implemented: S10.10 (two-player smoke test; needs the M3 build and two PCs). The L/XL bridge repeat of S10.3 is done by hand: stand on the bridge and run `/x4mpspike onfoot1 step=3`.
+Deviation from the research table: S10.11 gets the corridor door from `get_room_definition ... doors=` for the entertainment corridor group (seeded; contains `room_arg_corridor_04_macro`) instead of naming a fixed corridor macro, because a door name is only available through that action.
