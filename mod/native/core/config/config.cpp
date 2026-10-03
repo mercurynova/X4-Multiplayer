@@ -78,9 +78,28 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   if (long long v = 0; read_int(doc, "outbox_byte_cap", 64LL * 1024, 1LL << 30, v, source, diags)) {
     cfg.outbox_byte_cap = static_cast<std::size_t>(v);
   }
+  if (long long v = 0; read_int(doc, "frame_budget_us", 100, 50000, v, source, diags)) cfg.frame_budget_us = static_cast<int>(v);
+  if (auto it = doc.find("log_categories"); it != doc.end()) {
+    if (!it->is_object()) {
+      bad(diags, source, "log_categories", "must be an object of category name to level");
+    } else {
+      std::vector<std::pair<std::string, log::Level>> cats;
+      bool ok = true;
+      for (auto cit = it->begin(); cit != it->end(); ++cit) {
+        const auto level = cit.value().is_string() ? log::parse_level(cit.value().get<std::string>()) : std::nullopt;
+        if (!level) {
+          bad(diags, source, "log_categories." + cit.key(), "must be one of debug, info, warn, error");
+          ok = false;
+          continue;
+        }
+        cats.emplace_back(cit.key(), *level);
+      }
+      if (ok || !cats.empty()) cfg.log_categories = std::move(cats);
+    }
+  }
   warn_unknown(doc,
                {"server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
-                "outbox_byte_cap"},
+                "outbox_byte_cap", "frame_budget_us", "log_categories"},
                source, diags);
 }
 
@@ -228,6 +247,8 @@ std::string describe(const Config& c) {
   out += "player_name=" + c.player_name + "\n";
   out += std::string("password=") + (c.password.empty() ? "<unset>" : "<redacted>") + "\n";
   out += "outbox_byte_cap=" + std::to_string(c.outbox_byte_cap) + "\n";
+  out += "frame_budget_us=" + std::to_string(c.frame_budget_us) + "\n";
+  for (const auto& [name, level] : c.log_categories) out += "log_category." + name + "=" + log::level_name(level) + "\n";
   out += std::string("launch_active=") + (c.launch.active ? "true" : "false") + "\n";
   return out;
 }
