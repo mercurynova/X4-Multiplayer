@@ -10,6 +10,8 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "host/platform.h"
@@ -67,11 +69,34 @@ class FakePlatform final : public host::IPlatform {
     return it->second.data();
   }
   bool stash_remove(const char* key) override { return stash.erase(key) > 0; }
+  // Bridge (M2-10): subscriptions are kept so tests can fire a Lua->native verb; raise_lua calls are recorded.
+  bool subscribe_event(const char* name, EventFn fn) override {
+    subscribers[name].push_back(std::move(fn));
+    return true;
+  }
+  bool raise_lua(const char* name, std::string_view text) override {
+    if (!lua_ok) return false;
+    raised.emplace_back(name, std::string(text));
+    return true;
+  }
+  void fire(const std::string& name, const std::string& text) {
+    for (auto& fn : subscribers[name]) fn(text);
+  }
+  [[nodiscard]] std::vector<std::string> raised_named(const std::string& name) const {
+    std::vector<std::string> out;
+    for (const auto& [n, t] : raised) {
+      if (n == name) out.push_back(t);
+    }
+    return out;
+  }
 
   std::string version = "9.00";
   std::map<std::string, void*> functions;
   std::map<std::string, std::vector<std::uint8_t>> stash;  // survives "reload": reuse the same FakePlatform
   std::vector<std::string> native_lines;
+  std::map<std::string, std::vector<EventFn>> subscribers;
+  std::vector<std::pair<std::string, std::string>> raised;
+  bool lua_ok = true;
 
  private:
   std::filesystem::path ext_;

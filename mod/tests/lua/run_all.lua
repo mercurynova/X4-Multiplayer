@@ -7,7 +7,7 @@ local T = require("lib")
 local E = require("env")
 E.setRoot(root)
 
-local files = { "test_json", "test_bridge", "test_screens", "test_standalone", "test_extensions", "test_adapter_hud", "test_texts" }
+local files = { "test_json", "test_bridge", "test_screens", "test_standalone", "test_extensions", "test_adapter_hud", "test_texts", "test_saves" }
 for _, name in ipairs(files) do
 	T.currentFile = name
 	local chunk = assert(loadfile(here .. "/" .. name .. ".lua"))
