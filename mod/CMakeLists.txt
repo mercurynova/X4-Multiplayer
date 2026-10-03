@@ -402,7 +402,7 @@ endif()
 # =============================================================================================
 target_sources(x4mp_host PRIVATE native/host/status_json.cpp)
 if(X4MP_TESTS)
-  target_sources(x4mp_host_tests PRIVATE tests/test_join_json.cpp tests/test_status_json.cpp)
+  target_sources(x4mp_host_tests PRIVATE tests/test_join_json.cpp tests/test_status_json.cpp tests/test_join_mods_json.cpp)  # test_join_mods_json: M2-X3
   target_link_libraries(x4mp_host_tests PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME hostsim.join_refused_build
     COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/join_refused_build.hostsim")

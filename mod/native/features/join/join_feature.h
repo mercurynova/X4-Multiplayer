@@ -157,6 +157,8 @@ class JoinFeature final : public host::IFeature {
   std::string last_status_;
   Clock::time_point last_status_at_{};
   bool force_status_ = false;
+  std::string mod_refusal_json_;  // M2-X3: x4mp.mod_refusal of the last ExtensionsMismatch (re-sent with every forced status)
+  std::string mod_policy_json_;   // M2-X3: x4mp.mod_policy (session mod list) of the last Welcome / ModPolicyChanged
 
   // diag hub (M2-10): connection state + LogForward sender
   bool diag_connected_ = false;
