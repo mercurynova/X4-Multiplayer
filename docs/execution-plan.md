@@ -151,6 +151,8 @@ verification loop the brief asked for); it is not fine if the agent is going in 
   suite takes ~7 min), or start them as a background run that notifies on completion. Don't loop
   `sleep N` + check: each poll leaves a shell and a sleep process behind and can idle the agent for
   minutes after the run finished (seen in wave H, 2026-10-02). Put this line in every brief.
+  Also no background `sleep N` used as a timer or "check back later" (seen again in M2 wave 2, 2026-10-03:
+  seven idle `sleep 240..1500` processes plus `sleep 5` loops). Briefs must say this explicitly.
 - Record the reason for any run over ~1 hour in the wave status note in roadmap.md
   (what took the time, whether it was needed), so we can tune briefs.
 
