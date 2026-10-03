@@ -341,3 +341,17 @@ test("standalone renderer draws the link rows: a full-width selectable edit box 
 	eq(box.props.selectTextOnActivation, true)
 	truthy(env.findCell("button", function(c) return c.text == "Open Workshop page" end), "Workshop button")
 end)
+
+-- Session 3: a refusal that arrives in game must never open (or leave open) a menu: X4 hides the cockpit HUD while a menu is up.
+test("a refusal raised in game opens no menu (standalone renderer loaded)", function()
+	env.installApi()
+	env.installUi()
+	env.startmenu = false
+	env.loadAll({ "x4mp_bridge.lua", "x4mp_menu.lua", "x4mp_ui_standalone.lua", "x4mp_join_mods.lua" })
+	fireRejected()
+	env.fire("x4mp.status", '{"v":1,"state":"disconnected"}')
+	env.fire("x4mp.status", '{"v":1,"state":"error","detail":"x"}')
+	eq(#env.opened, 0)
+	falsy(X4MPMenu.renderer.isOpen())
+	eq(#env.frames, 0, "no frame drawn")
+end)

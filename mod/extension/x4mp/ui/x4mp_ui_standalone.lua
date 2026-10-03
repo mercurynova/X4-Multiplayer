@@ -93,11 +93,19 @@ end
 function menu.onShowMenu()
 	menu.shown = true
 	menu.opening = nil
+	-- Helper.showMenuCallback stored the parameters OpenMenu got in menu.param2; Helper.closeMenu / clearMenu wipes them again, so keep a
+	-- copy. For a window opened by Helper.closeMenuAndOpenNewMenu(OptionsMenu, ...) it is { "OptionsMenu", param, {"restore", ...} }.
+	local p2 = menu.param2
+	menu.returnTo = (type(p2) == "table" and #p2 > 0) and p2 or nil
 	local ok, err = pcall(menu.display)
 	if not ok then log("standalone ui: display failed: " .. tostring(err)) end
 end
 
 function menu.onCloseElement(dueToClose)
+	local ret = menu.returnTo
+	-- Vanilla Helper.closeMenu(menu, "back") reopens param2[1] itself (helper.lua, Helper.closeMenu). Every other reason (the Close
+	-- button and Esc deliver "close") only closes, so the way back is ours.
+	menu.vanillaReturn = (dueToClose == "back") and ret ~= nil
 	Helper.closeMenu(menu, dueToClose or "close")
 	menu.cleanup()
 end
@@ -111,17 +119,51 @@ function menu.cleanup()
 	menu.restoreStartMenu()
 end
 
--- Session-2 finding D2: our window opens OVER the start menu, and closing it (Close button or Esc) leaves a blank screen. The
--- vanilla way back is what gameoptions.lua does at start-up (init(), "restore handling"): OpenMenu("OptionsMenu", submenu, nil, true)
--- with no submenu = the main page. Not done when a session save is being loaded (the game replaces the screen itself) or when the
--- window was not opened over the start menu (in game, the vanilla menu handling resumes by itself).
+local function findOptionsMenu()
+	if type(Menus) ~= "table" then return nil end
+	for _, m in ipairs(Menus) do
+		if type(m) == "table" and m.name == "OptionsMenu" then return m end
+	end
+	return nil
+end
+
+-- Session-2/3 finding: our window opens OVER the start menu, and closing it (Close button or Esc) left a blank screen.
+-- Root cause (helper.lua showMenuCallback :1337-1343): OpenMenu("OptionsMenu") is ignored while OptionsMenu.shown is still true, and
+-- it was, because the row click opened our window with a plain OpenMenu: nothing ever ran Helper.closeMenu/clearMenu on the options
+-- menu, View.clearMenus only blanked its frames. Vanilla (gameoptions.lua:13381) leaves with Helper.closeMenuAndOpenNewMenu, which
+-- clears the old menu (shown=nil) and records { "OptionsMenu", param, ... } as param2 so that "back" returns to it.
+-- So: renderer.show leaves the options menu that way, and the close path reopens it from that record (or, for Esc/"close", from
+-- OpenMenu("OptionsMenu", ...) like gameoptions.lua init() does). Not done when a session save is being loaded (the game replaces
+-- the screen itself) or when the window was not opened over the start menu (in game, the vanilla menu handling resumes by itself).
 function menu.restoreStartMenu()
 	local overStartMenu = menu.overStartMenu
+	local ret = menu.returnTo
+	local vanillaReturn = menu.vanillaReturn
 	menu.overStartMenu = nil
+	menu.returnTo = nil
+	menu.vanillaReturn = nil
 	if not overStartMenu then return end
-	if X4MPBridge.loadingSave then return end
+	if X4MPBridge.loadingSave then
+		log("standalone: closed, a session save is loading, not reopening the start menu")
+		return
+	end
+	if vanillaReturn then
+		log("standalone: closed, reopening start menu (via Helper.closeMenu back -> " .. tostring(ret[1]) .. ")")
+		return
+	end
+	local name = (ret and type(ret[1]) == "string") and ret[1] or "OptionsMenu"
+	local param, param2 = nil, nil
+	if ret then param, param2 = ret[2], ret[3] end
+	log("standalone: closed, reopening start menu (OpenMenu " .. name .. ", saved return record "
+		.. (ret and "yes" or "no") .. ")")
 	local function reopen()
-		local ok, err = pcall(OpenMenu, "OptionsMenu", nil, nil, true)
+		-- a stale "shown" would make the game ignore the request (see above): clear it the way closeMenu does
+		local om = findOptionsMenu()
+		if om and om.shown and type(Helper) == "table" and type(Helper.clearMenu) == "function" then
+			log("standalone: OptionsMenu still marked shown, clearing it first")
+			pcall(Helper.clearMenu, om)
+		end
+		local ok, err = pcall(OpenMenu, name, param, param2, true)
 		if not ok then log("standalone ui: restoring the start menu failed: " .. tostring(err)) end
 	end
 	if type(getElapsedTime) == "function" and type(Helper) == "table" and Helper.addDelayedOneTimeCallbackOnUpdate then
@@ -168,7 +210,14 @@ function renderer.show(model)
 	if not ensureRegistered() then return end
 	menu.opening = true
 	menu.overStartMenu = X4MPBridge.isStartMenu() == true
-	local ok, err = pcall(OpenMenu, MENU_NAME, { 0, 0 }, nil)
+	local ok, err
+	local om = menu.overStartMenu and findOptionsMenu() or nil
+	if om and om.shown and type(Helper.closeMenuAndOpenNewMenu) == "function" then
+		-- leave the options menu the vanilla way (closes it, records the return target in param2), see restoreStartMenu
+		ok, err = pcall(Helper.closeMenuAndOpenNewMenu, om, MENU_NAME, { 0, 0 })
+	else
+		ok, err = pcall(OpenMenu, MENU_NAME, { 0, 0 }, nil)
+	end
 	if not ok then
 		menu.opening = nil
 		menu.overStartMenu = nil

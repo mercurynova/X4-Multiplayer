@@ -112,7 +112,18 @@ function E.installUi()
 		standardButtons_Close = { close = true }, headerRowCenteredProperties = {},
 		scaleX = function(v) return v end,
 		clearDataForRefresh = function() end,
-		closeMenu = function() end,
+		-- faithful to helper.lua: clearMenu resets shown/param/param2; closeMenu(menu,"back") reopens param2[1] itself
+		clearMenu = function(menu) menu.shown = nil menu.param = nil menu.param2 = nil end,
+		closeMenu = function(menu, dueToClose)
+			if dueToClose == "back" and menu.param2 and #menu.param2 > 0 then
+				_G.OpenMenu(menu.param2[1], menu.param2[2], menu.param2[3])
+			end
+			_G.Helper.clearMenu(menu)
+		end,
+		closeMenuAndOpenNewMenu = function(menu, newname, param)
+			_G.OpenMenu(newname, param, { menu.name, menu.param, { "restore", false, menu.param2 } })
+			_G.Helper.clearMenu(menu)
+		end,
 		registerMenu = function(menu) E.registeredMenu = menu end,
 		createFrameHandle = function(menu, props)
 			local frame = { menu = menu, props = props, tables = {} }
@@ -133,10 +144,16 @@ function E.installUi()
 		end,
 	}
 	-- the game calls menu.onShowMenu after OpenMenu
-	_G.OpenMenu = function(name)
+	-- like Helper.registerMenu's showMenuCallback: a menu that is still marked shown ignores the request (the blank-screen bug)
+	_G.OpenMenu = function(name, param, param2)
 		E.opened[#E.opened + 1] = name
 		for _, m in ipairs(_G.Menus) do
-			if m.name == name then m.onShowMenu() end
+			if m.name == name and not m.shown then
+				m.shown = true
+				m.param, m.param2 = param, param2
+				if param2 and param2[1] == "restore" then m.param2 = param2[3] end
+				m.onShowMenu()
+			end
 		end
 	end
 end

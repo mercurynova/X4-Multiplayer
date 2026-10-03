@@ -177,3 +177,63 @@ test("a redraw of the open window does not count as a new open over the start me
 	menu.onCloseElement("close")
 	eq(optionsOpens(), 1, "the start-menu flag was taken when the window opened")
 end)
+
+-- Session-3 finding: the start menu did not come back. The game ignores OpenMenu(name) while that menu is still marked shown, and the
+-- row click used to open our window without closing the options menu. These tests model the vanilla OptionsMenu (shown while open).
+local function withOptionsMenu()
+	env.startmenu = true
+	local S, menu = setup()
+	local showCount = 0
+	local om = { name = "OptionsMenu", shown = true, param = nil, onShowMenu = function() showCount = showCount + 1 end }
+	table.insert(_G.Menus, om)
+	return S, menu, om, function() return showCount end
+end
+
+test("opening over the start menu leaves the options menu the vanilla way (closed, return record in param2)", function()
+	local S, menu, om = withOptionsMenu()
+	S.open("main")
+	falsy(om.shown, "options menu cleared")
+	eq(env.opened[1], "X4MPMenu")
+	truthy(menu.shown)
+	eq(menu.returnTo[1], "OptionsMenu")
+end)
+
+test("Close button / Esc ('close') brings the options menu back and logs it", function()
+	local S, menu, om, shows = withOptionsMenu()
+	S.open("main")
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 1)
+	truthy(om.shown, "options menu shown again, not ignored")
+	eq(shows(), 1)
+	t.contains(env.debugText(), "[X4MP] standalone: closed, reopening start menu (")
+end)
+
+test("'back' from the top level returns through vanilla Helper.closeMenu exactly once", function()
+	local S, menu, om, shows = withOptionsMenu()
+	S.open("main")
+	menu.onCloseElement("back")
+	eq(optionsOpens(), 1, "no second reopen on top of the vanilla one")
+	truthy(om.shown)
+	eq(shows(), 1)
+	t.contains(env.debugText(), "closed, reopening start menu (via Helper.closeMenu back")
+end)
+
+test("a stale shown flag on the options menu is cleared before the reopen (no closeMenuAndOpenNewMenu)", function()
+	local S, menu, om, shows = withOptionsMenu()
+	Helper.closeMenuAndOpenNewMenu = nil -- the fallback plain OpenMenu path leaves om.shown = true
+	S.open("main")
+	truthy(om.shown)
+	menu.onCloseElement("close")
+	truthy(om.shown)
+	eq(shows(), 1, "the options menu was shown again")
+end)
+
+test("the window can be reopened and closed repeatedly over the start menu", function()
+	local S, menu, om, shows = withOptionsMenu()
+	for i = 1, 3 do
+		S.open("main")
+		menu.onCloseElement(i % 2 == 0 and "back" or "close")
+		eq(shows(), i)
+		truthy(om.shown)
+	end
+end)
