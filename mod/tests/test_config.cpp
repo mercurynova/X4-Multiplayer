@@ -237,3 +237,29 @@ TEST_CASE("the password never appears in diagnostics, dumps or log output", "[co
   CHECK(all.find("password=<redacted>") != std::string::npos);
   CHECK(describe(defaults()).find("password=<unset>") != std::string::npos);
 }
+
+TEST_CASE("frame_budget_us and log_categories (M2-04)", "[config]") {
+  std::string errors;
+  auto cfg = parse_json(R"({"frame_budget_us":800,"log_categories":{"net":"debug","perf":"warn"}})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->frame_budget_us == 800);
+  REQUIRE(cfg->log_categories.size() == 2);
+  CHECK(cfg->log_categories[0].first == "net");
+  CHECK(cfg->log_categories[0].second == x4mp::log::Level::Debug);
+  CHECK(describe(*cfg).find("log_category.perf=") != std::string::npos);
+
+  errors.clear();
+  cfg = parse_json(R"({"frame_budget_us":5,"log_categories":{"net":"loud"}})", &errors);
+  REQUIRE(cfg);
+  CHECK(cfg->frame_budget_us == 1500);  // out of range: default kept
+  CHECK(cfg->log_categories.empty());
+  CHECK(errors.find("frame_budget_us") != std::string::npos);
+  CHECK(errors.find("log_categories.net") != std::string::npos);
+  CHECK(errors.find("loud") == std::string::npos);  // values are never echoed
+
+  errors.clear();
+  cfg = parse_json(R"({"log_categories":"net"})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.find("log_categories") != std::string::npos);
+}
