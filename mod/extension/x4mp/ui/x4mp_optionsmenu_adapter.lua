@@ -1,0 +1,3 @@
+-- x4mp_optionsmenu_adapter.lua
+-- STUB created by M2-05 so ui.xml lists every planned M2 Lua file.
+-- Owner: M2-11 (embedded OptionsMenu entry, probe chain per D1-D3; registers a renderer with X4MPScreens.setRenderer).
