@@ -17,7 +17,9 @@ param(
     [int]$TcpPort = 47965, [int]$UdpPort = 47966, [int]$HttpPort = 47967,
     [string]$Scenario = 'ghosts_scenario.hostsim',
     [int]$Reloads = 20,
-    [int]$MaxSeconds = 330
+    # budget of the hostsim client alone (idle PC: ~125 s). It is deliberately BELOW the CI step timeout (tools/e2e.ps1: 330 s for the whole script incl.
+    # ~60 s of server/authority/bot start-up), so a stuck scenario ends here with its own message and log tail instead of being killed by the step.
+    [int]$MaxSeconds = 240
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
@@ -37,6 +39,7 @@ $adminPassword = 'Ghosts-e2e-only-password-12345'
 $procs = New-Object System.Collections.Generic.List[object]
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $exit = 1
+$out = $null
 function Stop-All { foreach ($p in $procs) { if (-not $p.HasExited) { try { & taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { } } } }
 function Start-P($exe, $argList, $out, $envVars = @{}) {
     $old = @{}
@@ -106,7 +109,7 @@ try {
     $a = @('--dll', $dll, '--script', $scenarioPath, '--work-dir', (Join-Path $tmp 'work-Pia'),
         '--admin-url', $url, '--admin-user', 'admin', '--admin-password', $adminPassword,
         '--var', "tcp=$TcpPort", '--var', 'name=Pia', '--var', 'bot=Bot01', '--var', 'leaver=Zed01', '--var', "reloads=$Reloads",
-        '--timeout-scale', '5', '--max-seconds', "$MaxSeconds")
+        '--timeout-scale', '2', '--max-seconds', "$MaxSeconds")
     $run = Start-P $hostSim $a $out
     # M3-18: when the scenario asks (it writes move_request.txt), create team 2 and move the staying bot into it through the admin API
     $moveFile = Join-Path (Join-Path $tmp 'work-Pia') 'move_request.txt'
@@ -118,7 +121,7 @@ try {
     $team2 = & $post '/api/v1/teams' @{ name = 'Second'; factionSlot = 2 } $s2
     $null = & $putJson "/api/v1/teams/members/$botId" @{ teamId = $team2.id }
     Write-Host "  moved Bot01 (player $botId) to team $($team2.id)"
-    if (-not $run.WaitForExit(($MaxSeconds + 30) * 1000)) { & taskkill /PID $run.Id /T /F *> $null; throw 'the hostsim client did not finish in time' }
+    if (-not $run.WaitForExit(($MaxSeconds + 30) * 1000)) { & taskkill /PID $run.Id /T /F *> $null; throw "the hostsim client did not finish within $($MaxSeconds + 30) s" }
     $run.WaitForExit()
     Write-Host "--- Pia (exit $($run.ExitCode)) ---"
     Get-Content $out -Tail 12 | ForEach-Object { Write-Host "  $_" }
@@ -127,7 +130,16 @@ try {
     if ($run.ExitCode -ne 0) { throw "the hostsim client exited with $($run.ExitCode)" }
     $exit = 0
 }
-catch { Write-Host "GHOSTS E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }
+catch {
+    Write-Host "GHOSTS E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    # where it got to: the client's last script lines (they carry +<s> wall-clock stamps) and the mod's last [sync] windows
+    if ($out -and (Test-Path $out)) { Write-Host '--- last lines of the hostsim client ---'; Get-Content $out -Tail 30 | ForEach-Object { Write-Host "  $_" } }
+    $wp = Join-Path $tmp 'work-Pia'
+    if (Test-Path $wp) {
+        $sl = Get-ChildItem -Path $wp -Recurse -Filter 'x4mp.log' -ErrorAction SilentlyContinue | Select-String -Pattern '\[sync\] player=' | Select-Object -Last 4
+        foreach ($l in $sl) { Write-Host "  $($l.Line)" }
+    }
+}
 finally {
     Stop-All
     Write-Host ("Ghosts e2e {0} in {1:N0} s. Temp tree: {2}" -f $(if ($exit -eq 0) { 'PASSED' } else { 'FAILED' }), $sw.Elapsed.TotalSeconds, $tmp)

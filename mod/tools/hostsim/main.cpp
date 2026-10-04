@@ -26,6 +26,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -36,6 +37,7 @@
 #include <functional>
 #include <stdexcept>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -52,6 +54,12 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 using namespace std::chrono_literals;
 using Clock = std::chrono::steady_clock;
+// where the script is right now (for the --max-seconds watchdog, which fires on another thread): the line number and the text of the line
+static std::atomic<int> g_line_no{0};
+static std::mutex g_line_mu;
+static std::string g_line_text;
+static const Clock::time_point g_t0 = Clock::now();
+static double wall_s() { return std::chrono::duration<double>(Clock::now() - g_t0).count(); }
 
 namespace {
 
@@ -323,6 +331,12 @@ class Runner {
     return out;
   }
 
+  static std::string fmt_s(double s) {
+    char b[32];
+    std::snprintf(b, sizeof(b), "%.1fs", s);
+    return b;
+  }
+
   std::chrono::milliseconds scaled(long long ms) const {
     return std::chrono::milliseconds(static_cast<long long>(static_cast<double>(ms) * o_.timeout_scale));
   }
@@ -338,9 +352,14 @@ class Runner {
     if (quiet_echo_) {
       // inside `until`: the same line repeats every 200 ms, say it once
     } else if (cmd == "lua" || cmd == "lua-raw") {
-      host_.note("[hostsim] L" + std::to_string(line_no) + " " + cmd + " " + (t.size() > 1 ? t[1] : "") + " (" + std::to_string(rest_from(2).size()) + " bytes)");
+      host_.note("[hostsim] +" + fmt_s(wall_s()) + " L" + std::to_string(line_no) + " " + cmd + " " + (t.size() > 1 ? t[1] : "") + " (" + std::to_string(rest_from(2).size()) + " bytes)");
     } else {
-      host_.note("[hostsim] L" + std::to_string(line_no) + " " + line);
+      host_.note("[hostsim] +" + fmt_s(wall_s()) + " L" + std::to_string(line_no) + " " + line);
+    }
+    if (!quiet_echo_) {
+      g_line_no = line_no;
+      std::lock_guard<std::mutex> lk(g_line_mu);
+      g_line_text = (cmd == "lua" || cmd == "lua-raw") ? cmd + " " + (t.size() > 1 ? t[1] : "") : line;  // never the payload: it can hold the test password
     }
 
     if (cmd == "init") cmd_init();
@@ -400,7 +419,10 @@ class Runner {
     if (!is_number(t[1])) throw UsageError("until wants a timeout in milliseconds, got '" + t[1] + "'");
     if (nested.empty()) throw UsageError("until <timeout_ms> <command ...>");
     need_loaded();
-    const auto deadline = Clock::now() + scaled(std::atoll(t[1].c_str()));
+    // The deadline is WALL-CLOCK (steady_clock), never game frames: the frames are paced at 60 Hz of real time, so a slow machine does not stretch it.
+    // It IS multiplied by --timeout-scale, though (scale 5: `until 60000` may wait 300 s of wall time), so the failure message says both numbers.
+    const auto started = Clock::now();
+    const auto deadline = started + scaled(std::atoll(t[1].c_str()));
     const bool was_quiet = quiet_echo_;
     quiet_echo_ = true;
     for (;;) {
@@ -411,7 +433,10 @@ class Runner {
       } catch (const ScriptFail& e) {
         if (Clock::now() >= deadline) {
           quiet_echo_ = was_quiet;
-          throw ScriptFail(std::string("until ") + t[1] + " ms: " + e.what());
+          char w[200];
+          std::snprintf(w, sizeof(w), "until %s ms (x%g timeout-scale = %lld ms wall): gave up after %.1f s of wall time: ", t[1].c_str(), o_.timeout_scale,
+                        static_cast<long long>(scaled(std::atoll(t[1].c_str())).count()), std::chrono::duration<double>(Clock::now() - started).count());
+          throw ScriptFail(std::string(w) + e.what());
         }
       } catch (...) {
         quiet_echo_ = was_quiet;
@@ -1360,7 +1385,13 @@ int main(int argc, char** argv) {
     const int max_s = o.max_seconds;
     std::thread([max_s] {
       std::this_thread::sleep_for(std::chrono::seconds(max_s));
-      std::printf("HOSTSIM FAIL: exceeded --max-seconds %d (hung?)\n", max_s);
+      std::string where;
+      {
+        std::lock_guard<std::mutex> lk(g_line_mu);
+        where = g_line_text;
+      }
+      std::printf("HOSTSIM FAIL: exceeded --max-seconds %d at +%.1fs while on line %d: %s (hung, or a slow machine: see the +<s> stamps above)\n", max_s, wall_s(),
+                  g_line_no.load(), where.c_str());
       std::fflush(stdout);
       TerminateProcess(GetCurrentProcess(), 1);
     }).detach();

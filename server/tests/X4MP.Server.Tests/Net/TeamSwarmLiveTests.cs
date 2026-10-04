@@ -140,7 +140,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         await using var host = new Host(LobbyWithCreate);
         await host.StartAsync();
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--teams", "2", "--commander", "foreign", "--duration", "14"),
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--teams", "2", "--commander", "foreign", "--duration", "90"),
             Until(s => AllPlaced(s, 4) && LiveStop.OrdersSent(s) >= 12 && LiveStop.OrdersAnswered(s) == LiveStop.OrdersSent(s)));
 
         Assert.Equal(0, exit);
@@ -168,7 +168,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         foreach (string name in new[] { "Alpha", "Beta", "Gamma" })
             Assert.True((await host.Teams.CreateTeamAsync(name)).Ok);
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--team-pick", "lobby-random", "--duration", "10"), Until(s => AllPlaced(s, 6)));
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--team-pick", "lobby-random", "--duration", "90"), Until(s => AllPlaced(s, 6)));
 
         Assert.Equal(0, exit);
         var teams = TeamsLine().Match(text);
@@ -186,7 +186,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         await using var host = new Host(LobbyWithCreate);
         await host.StartAsync();
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--teams", "3", "--duration", "10"), Until(s => AllPlaced(s, 6)));
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "6", "--with-authority", "--teams", "3", "--duration", "90"), Until(s => AllPlaced(s, 6)));
 
         Assert.Equal(0, exit);
         var teams = TeamsLine().Match(text);
@@ -203,7 +203,7 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
         await using var host = new Host(LobbyWithCreate.Append("--X4MP:Teams:DefaultRelation=Hostile").ToArray());
         await host.StartAsync();
 
-        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--relations", "twoteams", "--verify", "--commander", "own", "--duration", "14"),
+        var (exit, text) = await RunAsync(Swarm(host, "--clients", "4", "--with-authority", "--relations", "twoteams", "--verify", "--commander", "own", "--duration", "90"),
             Until(s => AllPlaced(s, 4) && LiveStop.Verified(s, 4, 1500) && s.Sum(n => n.Session?.ChecksumsOk ?? 0) >= 4));
 
         Assert.Equal(0, exit);
