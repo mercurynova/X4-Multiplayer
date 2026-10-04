@@ -57,13 +57,18 @@ $saveHash = { (Get-ChildItem $saveDir -File | Sort-Object Name | ForEach-Object 
 $savesBefore = & $saveHash
 
 $script:checks = 0
-function Check([bool]$cond, [string]$what) { $script:checks++; if (-not $cond) { throw "CHECK FAILED: $what" } else { Write-Host "  ok  $what" } }
-function Step($name, [scriptblock]$body) { Write-Host ''; Write-Host "=== $name" -ForegroundColor Cyan; & $body }
+# elapsed seconds on every progress line (M3-17): under a step timeout the last line of the log shows where it hung
+$script:clock = [Diagnostics.Stopwatch]::StartNew()
+function Stamp { return ('[{0,6:N1}s]' -f $script:clock.Elapsed.TotalSeconds) }
+function Check([bool]$cond, [string]$what) { $script:checks++; if (-not $cond) { throw "CHECK FAILED: $what" } else { Write-Host "  $(Stamp) ok  #$($script:checks) $what" } }
+function Step($name, [scriptblock]$body) { Write-Host ''; Write-Host "$(Stamp) === $name" -ForegroundColor Cyan; & $body }
 function Run-Kit([string]$script, [string[]]$kitArgs = @()) {
     $f = Join-Path $s4 $script
+    Write-Host "  $(Stamp) run $script $($kitArgs -join ' ')"
     $o = Join-Path $tmp ('kit-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.txt')
     $p = Start-Process $powershell -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$f`"") + $kitArgs) -PassThru -Wait -NoNewWindow -RedirectStandardOutput $o -RedirectStandardError ($o + '.err')
     $null = $p.Handle
+    Write-Host "  $(Stamp) done $script (exit $($p.ExitCode))"
     return @{ Exit = $p.ExitCode; Text = ((Get-Content $o -Raw) + (Get-Content ($o + '.err') -Raw)) }
 }
 function Expect-Kit($r, [string]$what, [int]$exitCode = 0, [string[]]$mustHave = @()) {
@@ -343,6 +348,15 @@ if (-not `$r.File) { throw 'no DLC file' }
     }
 
     Step 'savescan.ps1 on the synthetic save fixtures (through the kit script)' {
+        # savescan.ps1 builds tools\X4MP.SaveScan on first use (a cold CI runner has no build of it: restore + compile of the protocol
+        # project). Do it here, visibly, so the build time is not hidden inside a kit-script call.
+        $scanDll = Join-Path $repo 'tools\X4MP.SaveScan\bin\Release\net10.0\X4MP.SaveScan.dll'
+        if (-not (Test-Path $scanDll)) {
+            Write-Host "  $(Stamp) building tools\X4MP.SaveScan (first use)"
+            & dotnet build (Join-Path $repo 'tools\X4MP.SaveScan') -c Release -nologo -v quiet | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "building tools\X4MP.SaveScan failed (exit $LASTEXITCODE)" }
+            Write-Host "  $(Stamp) built"
+        }
         foreach ($f in 'clean', 'client-quicksave') {
             $src = Join-Path $saveScanFixtures "$f.xml"
             $dst = Join-Path $tmp "$f.xml.gz"
@@ -367,7 +381,7 @@ if (-not `$r.File) { throw 'no DLC file' }
         Check (Test-Path (Join-Path $outDir 'parked\x4mp')) 'the stale parked product is reported, not deleted (the script warned)'
         Check ($r.Text -match 'still parked') 'install.ps1 warned about the parked product'
         Remove-Item (Join-Path $outDir 'parked') -Recurse -Force
-        $r = Run-Kit 'uninstall.ps1' $x4
+        $r = Run-Kit 'uninstall.ps1' ($x4 + @('-Force'))   # -Force: a real X4 running on the dev PC must not fail the dry run
         Expect-Kit $r 'uninstall.ps1' 0 @('Removed', 'never deletes saves')
         foreach ($gone in 'x4mp', 'x4native') { Check (-not (Test-Path (Join-Path $ext $gone))) "$gone removed by uninstall" }
         Check ((& $saveHash) -eq $savesBefore) 'save folder untouched by install / uninstall'

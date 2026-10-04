@@ -92,6 +92,33 @@ function Get-FirewallStatus {
     $ports = Get-ServerPortList
     $out = New-Object System.Collections.Generic.List[object]
     $rules = $null
+    # Fast path (M3-17): the firewall COM API lists every rule with its protocol and ports in ~0.1 s and needs no rights. The
+    # Get-NetFirewallRule | Get-NetFirewallPortFilter path below costs one CIM round trip per rule (10-15 s on a dev PC, far more on a CI runner).
+    try {
+        $policy = New-Object -ComObject HNetCfg.FwPolicy2
+        $com = New-Object System.Collections.Generic.List[object]
+        foreach ($r in $policy.Rules) {
+            if ($r.Direction -ne 1 -or $r.Action -ne 1 -or -not $r.Enabled) { continue }   # inbound, allow, enabled
+            $proto = switch ([int]$r.Protocol) { 6 { 'TCP' } 17 { 'UDP' } 256 { 'Any' } default { [string]$r.Protocol } }
+            $lp = if ($proto -in 'TCP', 'UDP') { [string]$r.LocalPorts } else { '*' }
+            $com.Add([pscustomobject]@{ Protocol = $proto; LocalPorts = @(($lp -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) | ForEach-Object { if ($_ -eq '*') { 'Any' } else { $_ } }) })
+        }
+        foreach ($p in $ports) {
+            $covered = $false
+            foreach ($c in $com) {
+                if ($c.Protocol -ne $p.Protocol -and $c.Protocol -ne 'Any') { continue }
+                if ($c.LocalPorts -contains [string]$p.Port -or $c.LocalPorts -contains 'Any') { $covered = $true; break }
+                foreach ($range in ($c.LocalPorts | Where-Object { $_ -match '^\d+-\d+$' })) {
+                    $lo, $hi = $range -split '-'
+                    if ([int]$lo -le $p.Port -and $p.Port -le [int]$hi) { $covered = $true }
+                }
+                if ($covered) { break }
+            }
+            $out.Add([pscustomobject]@{ Protocol = $p.Protocol; Port = $p.Port; Name = $p.Name; Purpose = $p.Purpose; Covered = $covered })
+        }
+        return $out.ToArray()
+    }
+    catch { $out.Clear() }
     try {
         $rules = @(Get-NetFirewallRule -Direction Inbound -Action Allow -Enabled True -ErrorAction Stop)
         $filters = @{}
