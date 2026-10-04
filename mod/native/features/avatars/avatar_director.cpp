@@ -13,7 +13,7 @@ namespace {
 constexpr double kValidityPeriodS = 1.0;
 constexpr double kInertPeriodS = 5.0;
 constexpr double kIdleReassertS = 0.25;
-constexpr double kParkedSnapM = 0.5;
+constexpr double kParkedSnapM = 2.0;  // a ship that merely settles (after its zero-velocity hint) is not a pushed ship (M3-20)
 constexpr double kPersistPeriodS = 2.0;
 constexpr double kRecordMoveM = 5.0;
 constexpr std::int64_t kMaxClockSkewUs = 2'000'000;
@@ -53,6 +53,7 @@ struct AvatarDirector::Avatar {
   double next_snap = 0;
   VelHint last_hint{};
   bool hint_nonzero = false;
+  bool zero_pending = false;          // M3-20: one zero-velocity hint is owed (parked, suspended, snapped back): the inert ship keeps its last velocity otherwise
   std::string waiting;                // why a spawn waits (logged when it changes)
   std::uint32_t dress_seq = 0;
   bool clock_warned = false;
@@ -275,6 +276,7 @@ void AvatarDirector::on_roster(const RosterIn& roster) {
     it->second.online = p.online;
     if (Avatar* av = find(p.id)) {
       av->suspended = !p.online && av->rec.online;
+      if (av->suspended) av->zero_pending = true;
       if (av->rec.online && av->rec.team == 0) av->rec.team = p.team;
       if (p.team != 0 && av->rec.team != 0) {
         if (p.team != av->rec.team) {  // the player moved team: the avatar follows (applied in step() once the ship is live)
@@ -555,6 +557,7 @@ void AvatarDirector::park(Avatar& av) {
   av.interp->reset();
   av.have_prev_state = false;
   av.vel.reset();
+  av.zero_pending = true;  // the MD velocity hint of the last driven moment would keep the inert ship drifting (M3-20)
   ++stats_.parked;
   if (av.rec.net_id != 0) env_.send_controller(av.rec.net_id, 0);
   env_.log(LogLevel::Info, std::format("avatars: player {} left: avatar net_id={} stays parked at its pose", av.rec.player_id, av.rec.net_id));
@@ -663,7 +666,11 @@ void AvatarDirector::maintain(Avatar& av) {
       std::uint64_t sec = 0;
       Pose p;
       if (env_.read_pose(av.local_id, sec, p) && av.sector_id != 0 && (sec != av.sector_id || distance_m(p, av.rec.pose) > kParkedSnapM)) {
-        if (env_.set_pose(av.local_id, av.sector_id, av.rec.pose)) ++stats_.repairs;
+        if (env_.set_pose(av.local_id, av.sector_id, av.rec.pose)) {
+          ++stats_.repairs;
+          env_.log(LogLevel::Info, std::format("avatars: repaired the parked avatar of player {} (net_id {}): it was {:.1f} m off its pose", av.rec.player_id, av.rec.net_id, distance_m(p, av.rec.pose)));
+          av.zero_pending = true;  // a pushed ship moves on with its velocity: stop it, or it is snapped back again and again
+        }
       }
     }
   }
@@ -719,7 +726,14 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
     std::vector<VelHint> hints;
     for (auto& up : avatars_) {
       Avatar& av = *up;
-      if (av.stage != Stage::Live || !av.rec.online || av.suspended) continue;
+      if (av.stage != Stage::Live) continue;
+      if (!av.rec.online || av.suspended) {  // parked / suspended: exactly one zero hint, never a stale velocity
+        if (av.zero_pending || av.hint_nonzero) hints.push_back({av.local_id, 0, 0, 0});
+        av.zero_pending = false;
+        av.hint_nonzero = false;
+        continue;
+      }
+      av.zero_pending = false;
       if (av.vel.valid()) {
         const auto v = av.vel.velocity();
         const double sp = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);

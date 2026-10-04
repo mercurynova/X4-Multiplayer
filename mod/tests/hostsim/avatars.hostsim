@@ -79,6 +79,11 @@ expect-file extension/logs/x4mp.log stays parked at its pose
 expect-object count == 2 owner=x4mp_team_1
 expect-state spawns == 2
 
+# M3-20: parking sends one zero-velocity hint, and the parked avatars are never repaired while nothing pushes them (30 s)
+expect-lua x4mp.avatars_vel 3000 contains ,0.0,0.0,0.0]
+frame 60Hz 1800
+expect-no-log avatars: repaired the parked avatar
+
 # something pushes a parked avatar: it is snapped back
 world object pos owner=x4mp_team_1 99999,0,0
 frame 60Hz 180

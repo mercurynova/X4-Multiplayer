@@ -95,11 +95,11 @@ function Run-Scenario($name, $workName, $vars) {
     $args2 = @('--dll', $dll, '--script', (Join-Path $PSScriptRoot "$name.hostsim"), '--work-dir', (Join-Path $tmp $workName),
         '--admin-url', $url, '--admin-user', 'admin', '--admin-password', $adminPassword,
         '--var', "tcp=$TcpPort", '--var', "apw=$nodeAdminPassword", '--var', "sim=$(Join-Path $PSScriptRoot 'authority_sim.ps1')",
-        '--var', "fake=$fakeExe", '--var', "bots=$(Join-Path $PSScriptRoot 'avatars_sim.ps1')", '--var', "tcpport=$TcpPort", '--var', "tmp=$tmp", '--var', "admin_url=$url", '--var', "admin_pw=$adminPassword", '--max-seconds', '170') + $vars
+        '--var', "fake=$fakeExe", '--var', "bots=$(Join-Path $PSScriptRoot 'avatars_sim.ps1')", '--var', "tcpport=$TcpPort", '--var', "tmp=$tmp", '--var', "admin_url=$url", '--var', "admin_pw=$adminPassword", '--max-seconds', '230') + $vars
     $out = Join-Path $tmp "$name.out.txt"
     $t0 = [Diagnostics.Stopwatch]::StartNew()
     $p = Start-P $hostSim $args2 $out
-    if (-not $p.WaitForExit(190000)) { & taskkill /PID $p.Id /T /F *> $null; throw "$name did not finish in 190 s" }
+    if (-not $p.WaitForExit(250000)) { & taskkill /PID $p.Id /T /F *> $null; throw "$name did not finish in 250 s" }
     $p.WaitForExit()
     Get-Content $out -Tail 8 | ForEach-Object { Write-Host "  $_" }
     if ($p.ExitCode -ne 0) { throw "$name failed (exit $($p.ExitCode)); output: $out; mod log: $(Join-Path $tmp "$workName\extension\logs\x4mp.log")" }

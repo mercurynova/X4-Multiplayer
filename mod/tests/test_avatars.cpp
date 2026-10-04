@@ -501,6 +501,37 @@ TEST_CASE("avatars.director: driving from relayed PlayerState, velocity hint, pa
     CHECK(env.spawns_sent.back()[0].controller_player == 2);
   }
 
+  SECTION("leaving queues exactly one zero-velocity hint and the parked ship is not repaired again and again (M3-20)") {
+    const std::size_t before = env.velocities.size();
+    RosterIn gone;
+    gone.removed = {2};
+    d.on_roster(gone);
+    run(d, c, 3.0);
+    int zero_hints = 0, nonzero_after = 0;
+    for (std::size_t i = before; i < env.velocities.size(); ++i) {
+      for (const auto& h : env.velocities[i]) {
+        if (h.id != id) continue;
+        if (h.vx == 0 && h.vy == 0 && h.vz == 0) ++zero_hints;
+        else ++nonzero_after;
+      }
+    }
+    CHECK(zero_hints == 1);
+    CHECK(nonzero_after == 0);
+    // the game keeps moving a ship that has a velocity; with the zero hint it only settles within the tolerance: no repair
+    env.objs[id].pose.x += 1.0;
+    run(d, c, 3.0);
+    CHECK(d.stats().repairs == 0);
+    // a real push is snapped back once and stops again (one more zero hint), the counter stays at 1
+    env.objs[id].pose.x += 40;
+    run(d, c, 3.0);
+    CHECK(d.stats().repairs == 1);
+    int zero_after_repair = 0;
+    for (std::size_t i = before; i < env.velocities.size(); ++i) {
+      for (const auto& h : env.velocities[i]) zero_after_repair += (h.id == id && h.vx == 0 && h.vy == 0 && h.vz == 0) ? 1 : 0;
+    }
+    CHECK(zero_after_repair == 2);
+  }
+
   SECTION("a node in its resume grace is suspended, not parked") {
     RosterIn r;
     RosterRow row;
