@@ -19,6 +19,9 @@ std::vector<std::uint8_t> encode_node_stats(const NodeStatsSample& s) {
   b.add_clock_offset_us(s.clock_offset_us);
   b.add_rtt_ms(s.rtt_ms);
   b.add_net_main_ms_p95(s.net_main_ms_p95);
+  b.add_ghosts(s.ghosts);
+  b.add_udp_active(s.udp_active);
+  b.add_udp_rx_loss_pct(s.udp_rx_loss_pct);
   b.add_team_setup_state(static_cast<P::FeatureState>(s.team_setup_state));
   fbb.Finish(b.Finish());
   return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());

@@ -298,6 +298,7 @@ std::string AuthorityState::to_json() const {
   nlohmann::json j;
   j["next_net_id"] = next_net_id;
   j["spawned"] = spawned;
+  j["host_net_id"] = host_net_id;
   j["strings_sent"] = strings_sent;
   j["string_count"] = string_count;
   j["checkpoints"] = checkpoints;
@@ -312,6 +313,8 @@ AuthorityState AuthorityState::from_json(std::string_view text) {
   const auto u32 = doc.value("next_net_id", std::uint32_t{1});
   s.next_net_id = (u32 == 0 || u32 == 0xFFFFFFFFu) ? 1 : u32;
   s.spawned = doc.value("spawned", false);
+  const auto host_id = doc.value("host_net_id", std::uint32_t{0});
+  s.host_net_id = (host_id == 0xFFFFFFFFu) ? 0 : host_id;
   s.strings_sent = doc.value("strings_sent", false);
   s.string_count = doc.value("string_count", std::uint32_t{0});
   s.checkpoints = doc.value("checkpoints", std::uint64_t{0});

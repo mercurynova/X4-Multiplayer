@@ -49,7 +49,13 @@ function Start-P($exe, $argList, $out, $envVars = @{}) {
 }
 function Wait-Until($what, [scriptblock]$probe, $sec = 40) {
     $end = (Get-Date).AddSeconds($sec)
-    while ($true) { try { if (& $probe) { return } } catch { }; if ((Get-Date) -gt $end) { throw "Timed out waiting for $what" }; Start-Sleep -Milliseconds 250 }
+    # between probes it blocks on the server process (returns early when it dies); no fixed sleeps
+    while ($true) {
+        try { if (& $probe) { return } } catch { }
+        if ($script:server.HasExited) { throw "the server exited while waiting for $what" }
+        if ((Get-Date) -gt $end) { throw "Timed out waiting for $what" }
+        Wait-Process -Id $script:server.Id -Timeout 1 -ErrorAction SilentlyContinue
+    }
 }
 function Get-Sha256Hex([string]$Path) { $s = [IO.File]::OpenRead($Path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($h.ComputeHash($s)) -replace '-', '').ToLowerInvariant() } finally { $h.Dispose() } } finally { $s.Dispose() } }  # not Get-FileHash: a 5.1 child of pwsh 7 cannot autoload Microsoft.PowerShell.Utility
 function New-GzSave($path, $seed) {

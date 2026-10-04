@@ -249,6 +249,17 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         {
             CatchUpAfterResume(node);
         }
+        else if (resumed && node.Phase == NodePhase.CatchingUp && _loaded.TryGetValue(node.PlayerId, out var loadedCheckpoint))
+        {
+            // Dropped inside the catch-up before it applied a single journal entry: replay everything after its checkpoint (strings included).
+            StartCatchUp(node, loadedCheckpoint);
+        }
+        else if (resumed && node.Phase == NodePhase.InGame)
+        {
+            // In game with no journal position (nothing applied since the checkpoint): the strings the authority added while the socket was
+            // down are missed by the incremental send, and the node's DLL may have restarted, so a resume always gets the full table (M3-14).
+            SendStringTable(node);
+        }
         else if (node.Phase == NodePhase.SyncingSave)
         {
             SendSaveInfo(node);

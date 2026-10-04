@@ -1,6 +1,7 @@
 #include "features/stats/stats_feature.h"
 
 #include "features/diag/diag_hub.h"
+#include "features/ghosts/ghost_hub.h"
 #include "features/stats/stats_message.h"
 #include "features/teams/team_hub.h"
 
@@ -29,13 +30,17 @@ void StatsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
       s.team_setup_state = static_cast<std::uint8_t>(teams::team_hub().state());
       s.rtt_ms = static_cast<float>(net.rtt_us) / 1000.0f;
       s.clock_offset_us = net.clock_offset_us;
+      s.ghosts = static_cast<std::uint32_t>(ghosts::ghost_hub().ghost_count());
+      s.udp_active = net.udp_active;
+      s.udp_rx_loss_pct = net.udp_rx_loss_pct;
       s.tcp_send_queue_bytes = static_cast<std::uint32_t>(net.write_buffer_bytes > 0xFFFFFFFFull ? 0xFFFFFFFFull : net.write_buffer_bytes);
       if (have_prev_) {
-        s.rx_bytes_per_s = stats::rate_per_s(prev_in_, net.bytes_in, w.window_s);
-        s.tx_bytes_per_s = stats::rate_per_s(prev_out_, net.bytes_out, w.window_s);
+        // TCP + UDP (the Realtime traffic is the bulk of it when the lane is up)
+        s.rx_bytes_per_s = stats::rate_per_s(prev_in_, net.bytes_in + net.udp_bytes_in, w.window_s);
+        s.tx_bytes_per_s = stats::rate_per_s(prev_out_, net.bytes_out + net.udp_bytes_out, w.window_s);
       }
-      prev_in_ = net.bytes_in;
-      prev_out_ = net.bytes_out;
+      prev_in_ = net.bytes_in + net.udp_bytes_in;
+      prev_out_ = net.bytes_out + net.udp_bytes_out;
       have_prev_ = true;
       last_rtt_ms_ = s.rtt_ms;
       last_rx_ = s.rx_bytes_per_s;

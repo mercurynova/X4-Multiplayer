@@ -935,8 +935,11 @@ public sealed partial class InterestManager
     }
 
     /// <summary>
-    /// New strings go to every client node that is past the join replay (CatchingUp or InGame) before any spawn that may reference
-    /// them: the Control lane keeps order, and the authority sends the strings first.
+    /// New strings go to every client node from <see cref="NodePhase.Matching"/> on, before any spawn that may reference them: the Control
+    /// lane keeps order, and the authority sends the strings first. Matching is included on purpose (M3-14): the catch-up replay takes its
+    /// string snapshot while the node is still Matching (the move to CatchingUp is queued behind it), so a string the authority adds in that
+    /// window is in neither the snapshot nor, under the old CatchingUp/InGame-only rule, the incremental send. A node that got a string both
+    /// ways just stores it twice (the table is idempotent).
     /// </summary>
     public void OnStringsAdded(IReadOnlyList<StringTableEntry> added)
     {
@@ -951,7 +954,7 @@ public sealed partial class InterestManager
             foreach (var node in _nodes.Values)
             {
                 if (!node.IsAuthority && node.IsAttached && (node.Roles & Role.Client) != 0
-                    && node.Phase is NodePhase.CatchingUp or NodePhase.InGame)
+                    && node.Phase is NodePhase.Matching or NodePhase.CatchingUp or NodePhase.InGame)
                 {
                     frame ??= OutboundFrame.Create(MsgType.StringTableAdd, payload);
                     _transport.Send(node.PlayerId, frame);

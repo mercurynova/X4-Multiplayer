@@ -39,6 +39,18 @@
                 no leave. Ports 47953-47955.
     AuthorityFlow   (Windows, M2-14) authority_flow_run.ps1: the real x4mp.dll as the AUTHORITY for a session made from an admin
                 upload, 3 FakeNode clients verify the checkpoint, self-spawn game_time. Ports 47956-47958.
+    UdpLane     (Windows, M3-03/M3-14) mod/tests/hostsim/udp_lane_run.ps1: the mod's UDP realtime lane (x4mp-headless against the real server): forced,
+                5 % loss, blocked from the start (TCP fallback within 3 s), blocked after binding (fallback within 3.5 s, no disconnect), off.
+                Ports 47920-47922.
+    HostSimAvatars (Windows, M3-11/M3-14) mod/tests/hostsim/avatars_run.ps1: the real x4mp.dll as the AUTHORITY, FakeNode bots as the players: avatars
+                provisioned (safe position or the wanted spot), dressed, driven from PlayerState, parked on leave, snapped back, listed in the checkpoint
+                manifest, bound again after a save load that renumbers every id. Ports 47944-47946.
+    HostSimM3   (Windows, M3-14) mod/tests/hostsim/m3_pair_run.ps1: TWO real x4mp.dll instances (the authority HostAlice and the client Pia) + 6 FakeNode bots
+                against the real server: join, takeover, avatars, 7 ghosts, chat both ways (+ bot echo), a gate jump, a checkpoint with 7 avatars, a "save load"
+                with renumbered ids, 3 reloads, leave; then tools/session4/sync-report.ps1 -Strict on both mod logs (mod frame p95, rx/tx, log rate, path error,
+                latency). Ports 47930-47932.
+    Session4Kit (Windows, M3-14) mod/tests/hostsim/session4_dry_run.ps1 -Part kit: every tools/session4 script with -WhatIf and for real against a
+                temp Documents folder, a fake X4 install and temp out folders (install, collect-logs, make-client-kit, sync-report, start-server-lan -Check ...).
     UploadKill  (Windows, M2-14) the M2-08 live test x4mp_authority_live (X4MP_LIVE_SERVER_EXE): the authority upload job with the
                 connection killed at random points, 50 runs. Ports 47980-47983.
 
@@ -52,7 +64,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless', 'HostSim', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill', 'HostSimPair', 'HostSimGhosts')][string[]]$Steps,
+  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless', 'HostSim', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill', 'HostSimPair', 'HostSimGhosts', 'UdpLane', 'HostSimAvatars', 'HostSimM3', 'Session4Kit')][string[]]$Steps,
   [int]$Clients = 6,
   [int]$SwarmSeconds = 45,
   [int]$PortBase = 47960,
@@ -75,7 +87,7 @@ $isWin = [System.Environment]::OSVersion.Platform -eq 'Win32NT'
 $exeExt = if ($isWin) { '.exe' } else { '' }
 $rid = if ($isWin) { 'win-x64' } else { 'linux-x64' }
 if (-not $ArtifactDir) { $ArtifactDir = Join-Path $repo 'out/e2e' }
-if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless', 'HostSim', 'HostSimPair', 'HostSimGhosts', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill' } }
+if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless', 'HostSim', 'HostSimPair', 'HostSimGhosts', 'HostSimAvatars', 'HostSimM3', 'UdpLane', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill', 'Session4Kit' } }
 if ($SkipPublish) { $Steps = $Steps | Where-Object { $_ -ne 'Publish' } }
 
 $serverExe = Join-Path $repo "out/$rid/x4mp-server$exeExt"
@@ -242,7 +254,8 @@ if ($Steps -contains 'Publish') {
 
 foreach ($f in @($serverExe, $fakeNodeExe)) {
   if (($Steps -contains 'Swarm' -or $Steps -contains 'Headless' -or $Steps -contains 'Playwright' -or $Steps -contains 'HostSim' -or $Steps -contains 'JoinFlow' -or
-      $Steps -contains 'ReloadSurvival' -or $Steps -contains 'AuthorityFlow' -or $Steps -contains 'ModRefusal' -or $Steps -contains 'LaunchStats' -or $Steps -contains 'UploadKill' -or $Steps -contains 'HostSimPair' -or $Steps -contains 'HostSimGhosts') -and -not (Test-Path $f)) {
+      $Steps -contains 'ReloadSurvival' -or $Steps -contains 'AuthorityFlow' -or $Steps -contains 'ModRefusal' -or $Steps -contains 'LaunchStats' -or $Steps -contains 'UploadKill' -or $Steps -contains 'HostSimPair' -or $Steps -contains 'HostSimGhosts' -or
+      $Steps -contains 'UdpLane' -or $Steps -contains 'HostSimAvatars' -or $Steps -contains 'HostSimM3') -and -not (Test-Path $f)) {
     throw "$f not found: run without -SkipPublish first."
   }
 }
@@ -372,6 +385,30 @@ if ($Steps -contains 'HostSimPair') {
 if ($Steps -contains 'HostSimGhosts') {
   Invoke-Step 'HostSimGhosts (one real x4mp.dll as client against FakeNode bots: ghosts, path error, hide, reloads)' {
     Invoke-HostSimScript 'hostsimghosts' 'mod/tests/hostsim/ghosts_run.ps1' 330
+  }
+}
+
+if ($Steps -contains 'HostSimAvatars') {
+  Invoke-Step 'HostSimAvatars (real x4mp.dll as authority, FakeNode bots as players: avatars, parking, manifest, rebind after a save load)' {
+    Invoke-HostSimScript 'hostsimavatars' 'mod/tests/hostsim/avatars_run.ps1' 300
+  }
+}
+
+if ($Steps -contains 'HostSimM3') {
+  Invoke-Step 'HostSimM3 (two real x4mp.dll: authority + client, 6 bots: takeover, ghosts, chat, gate jump, checkpoint, rebind, reloads; perf / bandwidth / log rate)' {
+    Invoke-HostSimScript 'hostsimm3' 'mod/tests/hostsim/m3_pair_run.ps1' 480
+  }
+}
+
+if ($Steps -contains 'UdpLane') {
+  Invoke-Step 'UdpLane (UDP realtime lane: forced, 5 % loss, blocked, blocked later, off; fallback to TCP within 3 s)' {
+    Invoke-HostSimScript 'udplane' 'mod/tests/hostsim/udp_lane_run.ps1' 150
+  }
+}
+
+if ($Steps -contains 'Session4Kit') {
+  Invoke-Step 'Session4Kit (every tools/session4 script: -WhatIf and a dry run against temp folders)' {
+    Invoke-HostSimScript 'session4kit' 'mod/tests/hostsim/session4_dry_run.ps1' 300
   }
 }
 

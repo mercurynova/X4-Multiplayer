@@ -402,6 +402,17 @@ public sealed class WingmanChatSyncTests
         Assert.False(CliParser.Parse(["authority", "--wingman", "x"]).Ok);
         Assert.False(CliParser.Parse(["client", "--wingman-speed", "0"]).Ok);
         Assert.False(CliParser.Parse(["client", "--wingman-mode", "line"]).Ok);
+
+        // M3-14: a real X4 authority needs longer than the bots' default 10 s to answer a PlayerShip request
+        Assert.Equal(0, CliParser.Parse(["client", "--avatars"]).Options!.AvatarTimeoutSeconds);
+        Assert.Equal(45, CliParser.Parse(["swarm", "--clients", "2", "--avatars", "--avatar-timeout", "45"]).Options!.AvatarTimeoutSeconds);
+        var stand = CliParser.Parse(["swarm", "--clients", "2", "--avatars", "--host-stand-pos", "25000,0,-20000"]).Options!.HostStandPosition!.Value;
+        Assert.Equal(new Vec3(25000, 0, -20000), stand);
+        Assert.Null(CliParser.Parse(["client", "--avatars"]).Options!.HostStandPosition);
+        Assert.False(CliParser.Parse(["client", "--host-stand-pos", "1,2"]).Ok);
+        Assert.False(CliParser.Parse(["client", "--host-stand-pos", "1,2,9999999"]).Ok);
+        Assert.False(CliParser.Parse(["client", "--avatar-timeout", "0"]).Ok);
+        Assert.False(CliParser.Parse(["client", "--avatar-timeout", "601"]).Ok);
     }
 
     [Fact]

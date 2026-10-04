@@ -130,6 +130,33 @@ public sealed partial class SaveService
         _ = Task.Run(() => CatchUpSenderAsync(connection, checkpoint, strings, records));
     }
 
+    /// <summary>Replays the whole string table to a node (paced on its Control lane). Duplicates are harmless on the node.</summary>
+    private void SendStringTable(SessionNode node)
+    {
+        if (node.Connection is not { } connection)
+        {
+            return;
+        }
+
+        var strings = _world.Strings.EncodeChunks();
+        _ = Task.Run(() => StringTableSenderAsync(connection, strings));
+    }
+
+    private static async Task StringTableSenderAsync(INodeConnection connection, List<byte[]> strings)
+    {
+        try
+        {
+            foreach (var payload in strings)
+            {
+                await SendPacedAsync(connection, MsgType.StringTableAdd, payload, connection.Closed).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // the node went away; a resume asks again
+        }
+    }
+
     private static async Task CatchUpSenderAsync(INodeConnection connection, CheckpointId checkpoint, List<byte[]> strings, IReadOnlyList<JournalRecord> records)
     {
         var ct = connection.Closed;

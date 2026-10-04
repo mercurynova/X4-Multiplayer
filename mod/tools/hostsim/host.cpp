@@ -527,6 +527,23 @@ void Host::emulate_md(const std::string& topic, const std::string& param) {
     }
   } else if (topic == "x4mp.sector_map_collect") {  // M3-09 asks MD for the sector list: answer it (the ghosts use that map)
     for (const auto& data : world.md_sector_map) md_answers_.emplace_back("x4mp.sector_map", nlohmann::json{{"v", 1}, {"data", data}}.dump());
+  } else if (topic == "x4mp.avatars_safepos") {  // M3-14: the authority's MD get_safe_pos; the fake universe has no station in the way: the wanted spot is safe
+    const auto j = nlohmann::json::parse(param, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("seq")) return;
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "P;%u;1;%.0f;%.0f;%.0f", j["seq"].get<unsigned>(), j.value("x", 0.0), j.value("y", 0.0), j.value("z", 0.0));
+    md_answers_.emplace_back("x4mp.avatars_md", nlohmann::json{{"v", 1}, {"data", std::string(buf)}}.dump());
+  } else if (topic == "x4mp.avatars_dress") {  // M3-14: the authority's MD dress of an avatar: name, minimum hull, radar, the basic early-game loadout
+    ++world.dress_events;
+    const auto j = nlohmann::json::parse(param, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("seq") || !j.contains("id")) return;
+    const auto id = static_cast<std::uint64_t>(std::strtoull(j["id"].get<std::string>().c_str(), nullptr, 10));
+    if (Obj* o = world.find(id); o && id != world.player_ship) {
+      if (j.contains("name")) o->name = j["name"].get<std::string>();
+      if (j.contains("min_hull")) o->min_hull = j["min_hull"].get<int>();
+      o->radar = true;
+    }
+    md_answers_.emplace_back("x4mp.avatars_md", nlohmann::json{{"v", 1}, {"data", "D;" + std::to_string(j["seq"].get<unsigned>()) + ";1;loadout:basic"}}.dump());
   } else if (topic == "x4mp.teams_apply") {  // M3-08: the MD team setup; answer with a report that matches the plan
     ++world.teams_applies;
     const auto j = nlohmann::json::parse(param, nullptr, false);

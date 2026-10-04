@@ -283,6 +283,12 @@ public sealed record CliOptions
     /// <summary>authority: the ship macro of every avatar (default the Argon Elite, <see cref="FakeAvatarOptions.DefaultStarterMacro"/>).</summary>
     public string AvatarMacro { get; init; } = FakeAvatarOptions.DefaultStarterMacro;
 
+    /// <summary>client/swarm: seconds a bot waits for the avatar after its <c>PlayerShip</c> request (<c>--avatar-timeout</c>); 0 = the run default (10 s). A real X4 authority needs longer (safe position, dress).</summary>
+    public int AvatarTimeoutSeconds { get; init; }
+
+    /// <summary>client/swarm: where the bots say they stand in the host's ship, sector-local metres (<c>--host-stand-pos x,y,z</c>); null = the default (1.5 km from the centre of the first sector with a gate). The avatars appear 300-600 m from this spot, so a real X4 client pick a spot in empty space.</summary>
+    public Vec3? HostStandPosition { get; init; }
+
     /// <summary>authority: how far from the host ship a new avatar appears, metres (default 450, spread +-150).</summary>
     public double AvatarOffset { get; init; } = 450;
 
@@ -383,6 +389,8 @@ public static class CliParser
           --avatars            client/swarm: after joining send PlayerShip, wait for the avatar the authority spawns (next to the host ship) and fly as it
           --wingman NAME       client/swarm: fly near the replicated ship of player NAME (implies --avatars); the bot named NAME itself flies its --behavior
           --wingman-speed M    wingman top speed in m/s (default 350); --wingman-radius M (default 400); --wingman-mode orbit|formation
+          --host-stand-pos x,y,z   client/swarm: the sector-local spot (m) the bots say they stand at in the host's ship = where the avatars appear (default 1500,0,-1200)
+          --avatar-timeout S   client/swarm: seconds a bot waits for its avatar after the PlayerShip request (default 10; a real X4 authority needs more)
           --chat-echo          client/swarm: answer chat messages of other players with "echo: <text>" on the same channel
           --avatar-macro MACRO authority: ship macro of every avatar (default the Argon Elite ship_arg_s_fighter_01_a_macro); --avatar-offset M (default 450); --host-name NAME (default Host)
           --host-ship-macro MACRO   clients: the macro of the ship they say they stand in (the host's ship, default the Elite)
@@ -578,9 +586,26 @@ public static class CliParser
                 return value.Length is >= 3 and <= 100 ? (o with { AvatarMacro = value }, null) : (o, $"--avatar-macro must be a ship macro id (got '{value}')");
             case "host-ship-macro":
                 return value.Length is >= 3 and <= 100 ? (o with { HostShipMacro = value }, null) : (o, $"--host-ship-macro must be a ship macro id (got '{value}')");
+            case "avatar-timeout":
+                return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int avatarTimeout) && avatarTimeout is >= 1 and <= 600
+                    ? (o with { AvatarTimeoutSeconds = avatarTimeout }, null) : (o, $"--avatar-timeout must be 1 to 600 seconds (got '{value}')");
             case "avatar-offset":
                 return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double avatarOffset) && avatarOffset is >= 0 and <= 10000
                     ? (o with { AvatarOffset = avatarOffset }, null) : (o, $"--avatar-offset must be 0 to 10000 m (got '{value}')");
+            case "host-stand-pos":
+                {
+                    var parts = value.Split(',');
+                    if (parts.Length == 3
+                        && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double sx)
+                        && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double sy)
+                        && double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double sz)
+                        && Math.Abs(sx) <= 400_000 && Math.Abs(sy) <= 400_000 && Math.Abs(sz) <= 400_000)
+                    {
+                        return (o with { HostStandPosition = new Vec3(sx, sy, sz) }, null);
+                    }
+
+                    return (o, $"--host-stand-pos must be x,y,z in metres, each within 400 km (got '{value}')");
+                }
             case "host-name":
                 return value.Length is >= 1 and <= 24 ? (o with { HostName = value }, null) : (o, $"--host-name must be 1-24 characters (got '{value}')");
             case "loss":

@@ -114,6 +114,17 @@ public sealed class AuthorityRig : IAsyncDisposable
         await Client.SendPayloadAsync(MsgType.EntitySpawn, MessageEncoder.EncodePayload(b => EntitySpawn.Pack(b, spawn), 1024));
     }
 
+    /// <summary>The authority interns a new string (macro or faction) and sends it as <c>StringTableAdd</c>, as the avatar provisioning does.</summary>
+    public async Task AddStringAsync(string value, StringKind kind = StringKind.Macro)
+    {
+        Authority.Strings.Ensure(value, kind, out var added);
+        if (added is { } entry)
+        {
+            var add = new StringTableAddT { Entries = [entry] };
+            await Client.SendPayloadAsync(MsgType.StringTableAdd, MessageEncoder.EncodePayload(b => StringTableAdd.Pack(b, add), 128));
+        }
+    }
+
     /// <summary>The socket dies (no Disconnect): the server keeps the slot for the resume grace.</summary>
     public async Task DropAsync()
     {

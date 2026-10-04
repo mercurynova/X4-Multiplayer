@@ -200,6 +200,7 @@ TEST_CASE("AuthorityState round-trips and tolerates garbage", "[authority]") {
   AuthorityState s;
   s.next_net_id = 7;
   s.spawned = true;
+  s.host_net_id = 5;
   s.strings_sent = true;
   s.string_count = 12;
   s.checkpoints = 3;
@@ -207,6 +208,7 @@ TEST_CASE("AuthorityState round-trips and tolerates garbage", "[authority]") {
   const auto back = AuthorityState::from_json(s.to_json());
   CHECK(back.next_net_id == 7);
   CHECK(back.spawned);
+  CHECK(back.host_net_id == 5);  // M3-14: the host ship's net id survives a reload
   CHECK(back.strings_sent);
   CHECK(back.string_count == 12);
   CHECK(back.checkpoints == 3);
@@ -215,6 +217,8 @@ TEST_CASE("AuthorityState round-trips and tolerates garbage", "[authority]") {
   const auto bad = AuthorityState::from_json("not json");
   CHECK(bad.next_net_id == 1);
   CHECK_FALSE(bad.spawned);
+  CHECK(bad.host_net_id == 0);
+  CHECK(AuthorityState::from_json(R"({"host_net_id":4294967295})").host_net_id == 0);  // the reserved id is never kept
   CHECK(bad.loaded_sha.empty());
   CHECK(AuthorityState::from_json(R"({"next_net_id":0,"loaded_sha":"abcd"})").next_net_id == 1);
   CHECK(AuthorityState::from_json(R"({"loaded_sha":"abcd"})").loaded_sha.empty());  // wrong length

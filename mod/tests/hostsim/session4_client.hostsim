@@ -1,0 +1,69 @@
+# Session-4 kit dry run, sitting 1 (real X4 = client, FakeNode authority + wingmen): the real x4mp.dll plays "Tester" against what
+# tools/session4/start-fake-authority.ps1 -Wingmen 2 started (FakeNode swarm --with-authority --wingman Tester on the galaxy dump).
+# Run by mod/tests/hostsim/session4_dry_run.ps1 -Part topology. vars: tcp, name (Tester), wing (the wingman bots' prefix, Wing), reloads.
+# The fake universe has the 7 sectors of galaxy-dump-small.json (sorted macros = wire indices 1..7), like ghosts_scenario.hostsim.
+world sector add 100003
+world sector add 100004
+world sector add 100005
+world sector add 100006
+world sector add 100007
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_01_sector002_macro=100002,cluster_01_sector003_macro=100003,cluster_02_sector001_macro=100004,cluster_02_sector002_macro=100005,cluster_03_sector001_macro=100006,cluster_09_sector001_macro=100007
+
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"${name}","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 8000 contains x4mp_
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_s4_client
+frame 60Hz 180
+expect-lua x4mp.status 8000 json $.state == ingame
+expect-admin /api/v1/players $[name==${name}].online == true
+
+# 1.1 join and takeover: the standing player is moved into its own fighter, the host ship copy goes
+until 90000 expect-lua x4mp.takeover 0 json $.stage == done
+expect-file extension/logs/x4mp.log takeover: standing in ship 200001
+expect-file extension/logs/x4mp.log takeover: the guard confirmed
+expect-file extension/logs/x4mp.log takeover: removed the local copy 200001
+expect-object 200001 absent
+expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
+seat on
+ship place sector=100001 pos=0,0,0
+drop-lua x4mp.selfship
+ship path circle radius=1500 speed=200 center=300,0,300 sector=100001
+frame 60Hz 300
+expect-lua x4mp.selfship 5000 json $.rate_hz > 15
+
+# 1.2 the wingmen: [MP] Host (the fake authority's ship) + Wing01 + Wing02, under the team faction, inert, moving (they orbit our ship)
+until 120000 expect-object count == 3 owner=x4mp_team_1
+expect-object count == 1 "name=[MP] Host"
+expect-object count == 1 "name=[MP] ${wing}01"
+expect-object count == 1 "name=[MP] ${wing}02"
+expect-object count == 3 owner=x4mp_team_1 minhull=100 active=0 radar=1
+until 60000 expect-object count == 2 moving=1 owner=x4mp_team_1
+expect-state spawns == 4
+expect-file extension/logs/x4mp.log janitor: swept: 0 leftover
+
+# 1.4 chat: the wingmen echo
+write-file extension/s4.chat ready
+lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from ${name}"}
+until 30000 expect-lua x4mp.chat 0 contains echo: hello from ${name}
+
+# 1.3 reloads: the ghosts are adopted from the stash, no second spawn
+repeat ${reloads}
+reloadui
+frame 60Hz 120
+until 60000 expect-object count == 3 owner=x4mp_team_1 minhull=100
+end-repeat
+expect-state spawns == 4
+expect-object count == 3 owner=x4mp_team_1
+until 30000 expect-file extension/logs/x4mp.log ghost adoption: records=3 adopted_by_id timeout=0
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret never-written-password
+shutdown

@@ -1,44 +1,43 @@
-# In-game test session 4 (M3: two players see each other) - OUTLINE
+# In-game test session 4 (M3: two players see each other)
 
-> **Status (2026-10-03): Sitting 0 is FINALISED (runnable); sittings 1-3 are an OUTLINE.** For sittings 1-3 script names, labels, log lines and timings below are the plan.
-> Sitting 0 is finalised by the wave-0 kit tasks (M3-001/002) before it runs; sittings 1-3 are finalised by the
-> **kit-check task M3-14** against the merged code (every script exists, every log line is real, dry run in hostsim),
-> as M2-14 did for session 3. Do not start sittings 1-3 until their sections say "finalised".
+> **Status (2026-10-04): FINALISED.** Sitting 0 ran on 2026-10-03 (results: [spikes/session-4-sitting-0-results.md](spikes/session-4-sitting-0-results.md)). Sittings 1-3 were finalised by
+> the kit-check task M3-14 against the merged code: every script, parameter and log line named below exists in the code, and the kit was dry-run without X4
+> (`mod/tests/hostsim/session4_dry_run.ps1`: `-Part kit` = CI step `Session4Kit`, `-Part topology` = the three topologies end to end with the real `x4mp.dll` in hostsim).
+> Not verified by anything but your eyes: how it LOOKS (ghost model, colours, orientation, smoothness), the chat window, real highways and docks, real frame cost, two real PCs.
 
-Claude can't play X4, so you run these steps and send back the log zips plus your notes. Plan: [m3-plan.md](m3-plan.md)
-(exit criteria in section 3, spikes in section 5).
+Claude can't play X4, so you run these steps and send back the log zips plus your notes. Plan: [m3-plan.md](m3-plan.md) (exit criteria in section 3, spikes in section 5).
 
 | Sitting | When | PCs / X4 copies | Time | What it answers |
 |---|---|---|---|---|
-| **0** | **Before coding** (after wave 0) | 1 / 1, throwaway `x4mp_probe` + `x4mp_spike`, scratch save slot | ~60 min | Spikes S13.1-S13.12 (how ghosts can be made, moved and named; takeover from the post-load state; highways; seat; SETA; pause; galaxy dump; chat window) |
-| **1** | After wave 3 | 1 / 1: real X4 = **client**, FakeNode authority serving your save + 2 FakeNode **wingman** bots | ~70 min | Criteria 2, 3, 5-7, 9 (bot on team 2), 10, 11, 12, 14 |
-| **2** | After wave 3 | 1 / 1: real X4 = **authority**, FakeNode clients (3 wingmen, then 7 for the perf check) | ~60 min | Criteria 4, 5, 8, 9, 11, V21b |
-| **3** | After sittings 1-2 pass | **2 / 2** (Q1): PC A = server + authority, PC B = client | ~100 min | Criteria 1, 2, 3, 6, 9, 10, 13 over a real LAN |
+| **0** | done | 1 / 1, throwaway kit | ~60 min | Spikes S13.1-S13.12 |
+| **1** | next | 1 / 1: real X4 = **client**, FakeNode authority serving your save + 2 FakeNode **wingman** bots | ~70 min | Criteria 2, 3, 5-7, 9 (one-PC part), 10, 11 (client half), 12, 14 |
+| **2** | now | 1 / 1: real X4 = **authority**, FakeNode wingmen (3, then 7) | ~60 min | Criteria 4, 5, 8, 11 (authority half), V21b |
+| **3** | after 1-2 pass | **2 / 2** (Q1): PC A = server + authority, PC B = client | ~100 min | Criteria 1, 2, 3, 6, 9, 10, 13 over a real LAN |
 
-## START HERE (outline)
+## START HERE (sittings 1-3, 10 lines)
 
-1. Back up `Documents\Egosoft\X4\<id>\save\` on **every** PC (OneDrive paused; Steam Cloud syncs it and restores deleted files, see session 3 A1). Slots 1-7 are never touched; sitting 0 uses a scratch slot you name (default slot 7).
-2. Steam launch options on every PC: `-debug all -logfile x4mp_s4.log`; Steam auto-update for X4 **off**; both PCs on build 611726 with the **same DLCs**.
-3. Two PowerShell windows in the repo folder (window 1 = server, window 2 = helpers). Always `powershell -ExecutionPolicy Bypass -File <script>`.
-4. Bind **Toggle Chat Window** (Settings > Controls) on every PC.
-5. Sitting 0: follow its own **0.A START HERE** below (`install-spike.ps1`, `write-probe-config.ps1 -ScratchSlot`, `run-block.ps1`, `collect-logs.ps1 -Label s0`, then `install-spike.ps1 -Restore`).
-6. Sittings 1-3: `mod\build.ps1`, then `tools\session4\install.ps1` (product mod). PC B gets the zip from `tools\session4\make-client-kit.ps1` (no build tools needed there).
-7. **After every X4 quit run `tools\session4\collect-logs.ps1 -Label <word>`** (on the PC where X4 ran) before starting X4 again.
-8. After sittings 1-3 also run `tools\session4\sync-report.ps1` (summary of the `[sync]` and `[perf]` lines) and paste its output into your notes.
-9. Send Claude: the zip file names, your notes with clock times, ratings (sitting 0), screenshots where asked.
-10. At the end: `uninstall.ps1` on every PC; remove the launch option.
+1. Back up `Documents\Egosoft\X4\<id>\save\` on **every** PC (OneDrive paused; Steam Cloud syncs it). Slots 1-7 are never touched; your working copy is `save_004` (any name works: `-List` shows them). Same build 611726 and **same DLCs** on both PCs.
+2. Steam launch options on every PC: `-debug all -logfile x4mp_s4.log`; Steam auto-update for X4 off. In X4 bind **Toggle Chat Window** (Settings > Controls).
+3. Two PowerShell windows in the repo folder: window 1 = server / fake nodes (stays open), window 2 = helpers. Always `powershell -ExecutionPolicy Bypass -File <script>`; switches only (`-FreshDownload`, never `-X $false`).
+4. Window 2: `mod\build.ps1`, then `tools\session4\install.ps1` (if the sitting-0 kit is still installed: `install-spike.ps1 -Restore` first, or add `-RemoveTestExtensions`). X4 > Settings > Extensions: **Protected UI Mode OFF**, **x4native** and **X4 Multiplayer** on.
+5. `out\session4\galaxy-dump.json` (written by `collect-logs.ps1 -Label s0`, 140+ sectors) must exist: the fake nodes use its real sector names. The scripts warn when it is missing.
+6. **Sitting 1**: window 1 `tools\session4\start-fake-authority.ps1 -SaveName save_004 -FreshDownload -Wingmen 2`; wait for `checkpoint stored`; start X4; Multiplayer > Join a server: `127.0.0.1:47780`, name **`Tester`**.
+7. **Sitting 2**: window 1 `tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3`; start X4; Join dialog: name `Tester`, **Host this session as the authority = Yes**, the admin password the script printed; after the load stand 30 s, then sit down: the wingmen start by themselves.
+8. **Sitting 3**: PC A `tools\session4\make-client-kit.ps1` and copy the zip to PC B; PC A window 1 `tools\session4\start-server-lan.ps1 -SaveName save_004` (read its firewall output); PC A hosts, PC B joins `<PC A address>:47780`.
+9. **After every X4 quit**, on the PC where X4 ran: `tools\session4\collect-logs.ps1 -Label s1` (s2, s3a, s3b), then `tools\session4\sync-report.ps1`. X4 overwrites its log at the next start.
+10. Send Claude: the zip names, your notes with clock times, ratings (1-5), the `sync-report.ps1` output, screenshots where asked. At the end `uninstall.ps1` on every PC and remove the launch option.
 
 ## Lessons carried from sessions 2 and 3 (read once)
 
 - The Load Game list hides `x4mp_*` saves; the mod loads them by name. Copy a checkpoint into a normal slot with Explorer when a step asks for it.
 - A save load and `/reloadui` both restart our DLL; the connection survives. Write down anything that looks frozen after a load.
-- Use `-FreshDownload` on the fake-authority script when you want a real download (Steam Cloud keeps old `x4mp_*` files).
-- Quicksave still writes a file on a client (hard block is M4); from M3 the janitor removes `[MP] ` ships from it when it is loaded with the mod.
+- Steam Cloud restores deleted `x4mp_*` files: use `-FreshDownload` on `start-fake-authority.ps1` when you want a real download.
+- Quicksave still writes a file on a client (hard block is M4); the janitor removes `[MP] ` ships from it when it is loaded with the mod.
 - UIX and SirNukes may stay enabled (session 3 ran with both).
-- **New in M3:** your client's NPC world is **not** the host's (NPC sync is M4). Different traffic around you is expected. Local NPCs can attack you (Q12): fly in quiet, friendly sectors.
+- **New in M3:** your client's NPC world is **not** the host's (NPC sync is M4). Different traffic around you is expected, and local NPCs can attack you (Q12): stay in quiet, friendly sectors. The ships you see of the other players are ghosts named `[MP] <name>`.
+- Where you appear (sittings 1 and 2): sitting 1 with wingmen puts the fake host ship and your avatar in the **first sector of the galaxy dump with a gate** (index 1; Argon Prime in vanilla), at `-HostStand` (default 25 km off-centre, empty space); without wingmen you appear next to where your save's ship really is. If you land in something, change `-HostStand x,y,z` and restart.
 
 ---
-
 ## Sitting 0: spikes S13 (before coding, one PC, ~60-75 min) - FINALISED (M3-002)
 
 One PC, no server, no FakeNode. The throwaway test kit (`x4native` + `x4mp_probe` native DLL + `x4mp_spike` Lua/MD) replaces the product mod for the
@@ -125,41 +124,47 @@ Between steps you may run `run-block.ps1 s13_status` (what is active) or `run-bl
 
 ## Sitting 1: real X4 = client, FakeNode authority + wingmen (one PC)
 
-**1.0 Start** (window 1): `tools\session4\start-fake-authority.ps1 -SaveName save_004 -JoinPassword Testpw-314159 -FreshDownload -Wingmen 2 -GalaxyFile <dump from 0.12>`. Wait for `checkpoint stored`; the two bots `Wing1`, `Wing2` wait until a player named `Tester` is in game, then fly in formation 400-800 m around you. `Wing2` is on team 2 (allied at first).
+**1.0 Start** (window 1): `powershell -ExecutionPolicy Bypass -File tools\session4\start-fake-authority.ps1 -SaveName save_004 -FreshDownload -Wingmen 2`
+(`-WhatIf` shows the plan; `-HostStand x,y,z` moves where you appear). It prints the plan (galaxy file, `Wingmen   : 2 bots (Wing01..) ... around the player 'Tester'`, your DLCs), starts the server and
+`fakenode swarm --with-authority ...`. Wait for `checkpoint stored` and two `[Wing0N] avatar net_id=` lines. The bots wait until a player named **`Tester`** is in game and then orbit it at 400 m.
+Admin GUI: `http://127.0.0.1:47790` (password file `out\session4\admin-password.txt`, never printed).
 
-**1.1 Join and takeover (criteria 3, 14).** Start X4: the Multiplayer window shows the remembered address and name (from `x4mp.json`). Join as `Tester`. After loading you stand in the host's ship; within a few seconds you are moved into **your own fighter** next to it. *Look for:* the host ship is gone from beside you, then reappears as `[MP] Host` (the fake authority's ship). `x4mp.log`: `takeover: ...` lines in order, ending `takeover: done`; `remove_blocked_by_guard` lines are fine, a Game Over is not.
+**1.1 Join and takeover (criteria 3, 14).** Start X4 (start menu): **Multiplayer > Join a server**, address `127.0.0.1:47780`, name `Tester`, Connect. Status: download (a real one, no `CACHE HIT` in window 1), load, matching, Connected. After the load you stand in the cockpit of your save's ship; within seconds you are moved into **your own fighter** (an Argon Elite) in empty space; the host ship copy is gone and reappears as the ghost `[MP] Host`.
+*Mod log* (`Documents\Egosoft\X4\x4mp\logs\x4mp.log`), in this order: `takeover: standing in ship ... requesting the avatar`, `takeover: avatar granted: net_id=`, `takeover: the avatar is not in the loaded save: spawned a local copy`, `takeover: teleported the player into ship`, `takeover: the guard confirmed (10 frames, ...)`, `takeover: removed the local copy`, `takeover: done in`, then `janitor: swept: 0 leftover`. Lines `remove_blocked_by_guard` are fine, a Game Over is not.
+*Write down:* seconds from the end of the load to being in the fighter; whether you saw the HUD hint "Sit in the pilot seat to take over your ship" (then sit down and note it: it means the teleport was refused while standing); **what equipment the fighter has** (Info > ship: early-game parts or Mk2/Mk3? the client's local copy gets no loadout yet, so expect high-end parts; the authority's avatar gets the early-game loadout); quit and join again (**rejoin**) and check the **Last server** line and the pre-filled address and name (criterion 14).
 
-**1.2 See the wingmen (criteria 2, 6).** Fly straight, turn, boost, then use travel drive. *Look for:* `[MP] Wing1` / `[MP] Wing2` follow smoothly (rate 1-5), names and colours. Then jump through a gate: the bots follow (they appear in the new sector, no streak). Take a local highway and, if near, a superhighway. Dock on a pad, dock inside, undock.
+**1.2 See the wingmen (criteria 2, 6).** Fly straight, turn, boost, travel drive. *Look for:* `[MP] Wing01`, `[MP] Wing02` (they orbit you) and `[MP] Host` (parked 300-600 m away), names and colours (team 1), on the map and radar; rate **smoothness 1-5**; do the ghosts **face their direction of travel** (nose forward; sideways, upside down or nose-down means the orientation signs in `GhostsApi::to_pos_rot` must flip: say which); the ship model; no ghost pops (a ghost vanishing and reappearing). Then jump a gate (the wingmen follow and appear in the new sector, no streak), take a local highway and, if near, a superhighway, dock on a pad, dock inside, undock, walk out of the cockpit if you can.
+*Mod log:* `ghost spawned: net=... label='[MP] Wing01'` once per ghost (3 in total), every 5 s `[sync] player=Wing01 net=.. frames=.. err_p50/p95/max=.. m steady_p95=.. lat_p95=.. ms` and `[sync] ghosts tracked=3 visible=3 spawned=3 respawned=0 ...`.
 
-**1.3 Reloads (criterion 7).** `/reloadui` twice; then quit to the menu and join again (rejoin). *Look for:* no duplicate wingmen, no leftover ships where the old ones were; `janitor: removed N` and `ghosts: adopted N` lines.
+**1.3 Reloads (criterion 7).** `/reloadui` twice. *Look for:* no duplicate wingmen, no leftover ships where the old ones were. *Mod log:* `ghosts: init (restored 3 ghost records and N strings from the stash ...)`, then `ghost adoption: records=3 adopted_by_id=.. adopted_by_idcode=.. lost=0`, and in the next `[sync] ghosts` line `spawned=0 ... adopted=3`. Then quit to the menu and join again: you are in a fighter again where you left it (no ghost of yourself anywhere); `janitor: swept: N` with N the number of old copies.
 
-**1.4 Chat (criterion 10).** Toggle Chat Window: `hi all`, then `/t team only`, then `/w Wing1 psst` (the bots echo). With SirNukes enabled, one of its `/` commands still works.
+**1.4 Chat (criterion 10).** Toggle Chat Window: `hi all`, then `/t team only`, then `/w Wing01 psst` (the bots answer `echo: ...`; the whisper answer is for you only). *Look for:* do our lines show in the vanilla window outside Ventures, is the author name coloured (team colour), does your own line appear, does a toast show when the window is closed. With SirNukes enabled one of its `/` commands still works. *Mod log:* `chat: sent channel=all bytes=N` (no text).
 
-**1.5 Relations (criterion 9).** GUI **Teams & Factions**: set team 1 <-> team 2 to **Hostile**, then **Allied**. *Look for:* `[MP] Wing2`'s targeting colour changes within 2 s each time.
+**1.5 Relations (criterion 9, bot on team 2).** GUI **Teams & Factions**: **+ New team** (team 2), move `Wing02` to it with the member's **Move to...** menu; then click the cell team 1 / team 2 of the relation grid until it says **Hostile**, **Apply relations (1)**, then **Allied**, apply. *Look for:* `[MP] Wing02`'s targeting colour and its name colour change within 2 s each time (target it, look at the map). *Mod log:* `teams: apply seq=N reason=...`, `teams: MD report ... -> ok`.
 
-**1.6 SETA (criterion 12).** Turn SETA on: off again within 1 s, notification.
+**1.6 SETA (criterion 12).** Turn SETA on if you have the item (if you have none, say so). It must go off within 1 s with the notification "SETA is disabled in multiplayer". *Mod log:* `selfship: SETA is active while connected: switch-off requested` then `selfship: SETA is off again after N ms`, or `selfship: SETA was stopped at the source (MD)`.
 
-**1.7 Quicksave (criterion 8, client half).** Quicksave (known: a file is written). Later load that file with the mod in single player: `janitor: removed N [MP] objects`.
+**1.7 Quicksave (criterion 8, client half).** Quicksave (a file is written). Quit, start X4 **single player**, load that quicksave (the mod loaded): `janitor: swept: N leftover '[MP] ' object(s) removed` with N = ghosts + old copies. Window 2: `tools\session4\savescan.ps1 -Save <the quicksave name> -Role Client -OwnAvatar <idcode in the takeover line, e.g. HSX-001>` before the load lists them (exit 1), after a re-save the list is empty (exit 0).
 
-**1.8 Performance (criterion 11).** Window 1: restart with `-Wingmen 7`. Fly 10 minutes among them. *Look for:* GUI Players > Tester: mod main-thread p95 < 0.2 ms; FPS compared with 1 minute disconnected at the same spot (write both down).
+**1.8 Performance (criterion 11).** Window 1: Ctrl+C, then `start-fake-authority.ps1 -SaveName save_004 -FreshDownload -Wingmen 7`; join again, fly 10 minutes among them. *Look for:* GUI **Players > Tester**: "Mod main-thread cost (p95)" below 0.2 ms, "Realtime lane: UDP", "Ghosts shown 8"; write down your FPS with the 7 wingmen and 1 minute later after `Disconnect` at the same spot.
 
 Quit X4, `collect-logs.ps1 -Label s1`, `sync-report.ps1`.
 
 ---
 
-## Sitting 2: real X4 = authority, FakeNode clients (one PC)
+## Sitting 2: real X4 = authority, FakeNode wingmen (one PC)
 
-**2.0 Start** (window 1): `tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3` (uploads the save, creates the session, prints the in-game admin password).
+**2.0 Start** (window 1): `powershell -ExecutionPolicy Bypass -File tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3` (`-Target` = the name you host with, default `Tester`). It starts the server, uploads the save, creates and starts the session, prints the in-game admin password (`x4mp-host-test`), then **waits until the session runs and your ship exists** before it starts the wingmen (the real authority can only place their avatars next to your ship).
 
-**2.1 Host and self-spawn (criteria 4, 5).** Host from the start menu (as session 3 C2). After the load **stand** for 30 s, then sit down. *Look for:* window 1 / GUI Logs: your ship's `EntitySpawn` arrives within 1 s of sitting down (not before). Three bot avatars `[...]` appear next to you as team ships and fly around you; they take no damage if shot.
+**2.1 Host and self-spawn (criteria 4, 5).** Start X4: **Multiplayer > Join a server**: `127.0.0.1:47780`, name `Tester`, click **Host this session as the authority** until it says **Yes**, the admin password. After the load **stand in the cockpit for 30 s**, then sit down. *Mod log:* `authority: no player ship was reported by MD with the checkpoint; the self-spawn waits for the pilot seat (the player stands)`, nothing more while you stand, then `selfship: the player sat down`, `authority: self-spawn sent net_id=1 ...` within 1 s, `authority: world clock: keepalive WorldUpdate at 20 Hz started`. Window 1 then prints `Your ship exists for the session. Starting 3 wingman bot(s)`. The three bot avatars appear next to you as team ships (names `[MP] Wing01`..), orbit you, and take no damage if shot. *Mod log:* `avatars: PlayerShip from player N: provisioning a new avatar`, `avatars: spawned the avatar of player N: id .. macro ship_arg_s_fighter_01_a_macro owner x4mp_team_1 name '[MP] Wing01' ...`. *Write down:* does the avatar appear clear of any station (get_safe_pos), what equipment it has (**early-game**, not Mk2/Mk3: open its info), does it keep that after a checkpoint and a load.
 
-**2.2 Checkpoint with avatars (criteria 4, 8).** GUI **Request save now**. Then `tools\session4\savescan.ps1 -Latest`: `[MP] objects: 0`, `team ships: 3` (the avatars). Stop one bot (window 1 prints how): its avatar stays parked.
+**2.2 Checkpoint with avatars (criteria 4, 8).** GUI **Sessions & Saves > Request save now** (the host sees X4's save screen for about 5 s: note it). *Mod log:* `janitor: checkpoint check: 0 stale '[MP] ' object(s) ... ghosts_cleaned=true`, `authority: manifest lists 3 avatar(s)`, `stored (save`. Then window 2: `tools\session4\savescan.ps1 -Save <x4mp_ckpt_... name from the log> -Role Checkpoint -Manifest <the .x4mf next to it in the save folder>` must end `[MP] objects: 0` and exit 0, with 3 team ships (the avatars). **Check the first real save against the scanner** (`SaveScan` assumes the XML shape `<component class= macro= code= owner= name=>`; if it finds nothing or errors, send the zip). Stop one wingman (Ctrl+C in window 1 stops all; restart with `-Wingmen 2`): the avatar of the one that left stays parked: `avatars: player N left: avatar net_id=.. stays parked at its pose`.
 
-**2.3 Authority reload (criterion 4).** Quit X4 and host again (it loads the newest checkpoint). *Look for:* the three avatars are where they were saved and move again when the bots resume; `avatars: bound 3, spawned 0`.
+**2.3 Authority reload (criterion 4).** Quit X4 and host again with the same name (it loads the newest checkpoint). *Look for:* the avatars are where they were saved. *Mod log:* `avatars: N avatar record(s) restored`, `avatars: rebound player N net_id=.. to the ship in the loaded universe`, **no** second `avatars: spawned the avatar` line. The ship ids changed by the load; the idcode and name decide.
 
-**2.4 Perf (criterion 11).** Restart window 1 with `-Wingmen 7`; 10 minutes; mod p95 on the host.
+**2.4 Perf (criterion 11).** Window 1: Ctrl+C, restart with `-Wingmen 7`; 10 minutes; GUI Players > Tester (mod p95), your FPS.
 
-**2.5 V21b (criterion 8 / Q9).** Copy the newest `x4mp_ckpt_*.xml.gz` to the scratch slot, `uninstall.ps1`, load it without the mod. Note exactly what X4 says (refuses? loads with warnings? the avatar ships?). Reinstall afterwards.
+**2.5 V21b (criterion 8 / Q9).** Copy the newest `x4mp_ckpt_*.xml.gz` into a normal slot with Explorer, `uninstall.ps1`, load it **without the mod**. Write down exactly what X4 says (refuses? loads with warnings? the avatar ships?). Reinstall afterwards (`install.ps1`).
 
 Quit X4, `collect-logs.ps1 -Label s2`, `sync-report.ps1`.
 
@@ -167,32 +172,87 @@ Quit X4, `collect-logs.ps1 -Label s2`, `sync-report.ps1`.
 
 ## Sitting 3: two PCs (needs Q1)
 
-**3.0 Network.** PC A: `tools\session4\start-server-lan.ps1` (prints PC A's LAN address and checks the firewall rules for TCP 47780, UDP 47781, HTTP 47790; it tells you the admin command to add them if missing). PC B: install the client kit. Both PCs: same DLCs, build 611726.
+**3.0 Network.** PC A: `powershell -ExecutionPolicy Bypass -File tools\session4\make-client-kit.ps1` (zip in `out\session4\`; it contains the built mod, X4Native and the install / uninstall / log scripts, no secrets) and copy it to PC B (USB stick or share); on PC B unzip anywhere and follow `START-HERE-PC-B.txt` (`tools\session4\install.ps1`; no build tools needed). PC A: `tools\session4\start-server-lan.ps1 -Check` first: it prints PC A's LAN address(es) (**PC B joins `<address>:47780`**) and reads (never changes) the firewall for TCP 47780, UDP 47781, TCP 47790; for a missing one it prints the exact `New-NetFirewallRule ...` command: run it yourself in an **elevated** PowerShell, then `-Check` again. Both PCs: same DLCs, build 611726.
 
-**3.1 Join over the LAN.** PC A hosts (authority). PC B joins `<PC A address>:47780`. *Look for:* PC B shows the **download progress** (session-3 open item 10); takeover on PC B; each sees the other as `[MP] <name>`; GUI shows **UDP** active for both.
+**3.1 Join over the LAN.** PC A window 1: `tools\session4\start-server-lan.ps1 -SaveName save_004` (add `-JoinPassword <throwaway>` if the LAN is not yours). PC A starts X4 and hosts as in 2.1 (`127.0.0.1:47780`, name `Alice`, authority Yes, the printed admin password), stands, sits. PC B starts X4: Join `<PC A address>:47780`, name `Bob`. *Look for:* PC B shows the **download progress** (session-3 open item 10: invisible on loopback), takeover on PC B (as 1.1), each sees the other as `[MP] <name>`; GUI Players > Bob: **Realtime lane: UDP**, Players > Alice likewise.
 
-**3.2 Fly together 30 minutes (criteria 1, 2).** PC A: give your ship an autopilot trip through >= 5 sectors including a gate and a highway (Q2); PC B: fly alongside, then swap roles halfway. *Look for:* smoothness (1-5) on both screens; ghost never far off where the other really is; no Game Over; `[sync]` numbers from `sync-report.ps1` on both PCs.
+**3.2 Fly together 30 minutes (criteria 1, 2).** PC A: give your ship an autopilot trip through >= 5 sectors including a gate and a highway (Q2); PC B flies alongside, then swap halfway (the autopilot ship is on PC A's side only while PC A flies: the host's autopilot works as vanilla). *Look for:* smoothness (1-5) on both screens; the ghost never far off where the other really is; no Game Over; `[sync]` numbers.
 
-**3.3 Chat and relations (criteria 9, 10).** Chat both ways (All, Team). Two-team check (Q10): GUI moves PC B's player to team 2, Hostile then Allied: colours on both PCs.
+**3.3 Chat and relations (criteria 9, 10).** Chat both ways (All and `/t`). Two-team check (Q10, 5 minutes): GUI Teams & Factions: move Bob to a new team 2, relation **Hostile**, then **Allied**: the colours of the other player's ghost on both screens within 2 s. No PvP damage yet.
 
-**3.4 Leave / rejoin, reload, checkpoint.** PC B: `/reloadui`; quit to menu and rejoin (back in its avatar where it parked); PC A: **Request save now** during flight (PC B keeps flying; note the host's ~5 s save screen); PC B leaves: its ship stays parked as `[MP] <name> (offline)` on PC A.
+**3.4 Leave / rejoin, reload, checkpoint.** PC B: `/reloadui`; quit to the menu and rejoin (back in its avatar where it parked, no duplicate); PC A: **Request save now** during flight (PC B keeps flying; note the host's ~5 s save screen); PC B leaves: its ship stays parked on PC A as `[MP] Bob (offline)`. A newer checkpoint, then PC B rejoins: it takes over the avatar again (`takeover: the avatar is in the loaded save: local ship ...` is expected only if PC B loaded a save that contains it).
 
-**3.5 UDP fallback (criterion 13).** PC A: `start-server-lan.ps1 -BlockUdp` toggles the UDP rule off for 1 minute: GUI shows TCP for PC B within 3 s, no disconnect; then back on.
+**3.5 UDP fallback (criterion 13).** In an elevated PowerShell on PC A run the line `start-server-lan.ps1 -Check` printed for blocking UDP (`Disable-NetFirewallRule -DisplayName 'X4MP game UDP'`): within 3 s the GUI shows **TCP** for Bob (the mod logs only `net: udp: binding to ...` at the start; the state change is visible in the GUI), no disconnect, the flight continues; after a minute run the enable line (`Enable-NetFirewallRule -DisplayName 'X4MP game UDP'`): UDP returns within about 30 s (re-probe). This script never changes the firewall; only you do.
 
-Quit X4 on both, `collect-logs.ps1 -Label s3a` (PC A) / `-Label s3b` (PC B; the zip is copied to PC A or sent), `sync-report.ps1` on both.
+Quit X4 on both, `collect-logs.ps1 -Label s3a` (PC A) / `-Label s3b` (PC B; send the zip), `sync-report.ps1` on both.
 
 ---
 
+## Exit criteria and what each sitting answers (m3-plan section 3)
+
+| # | Criterion | In game | Without X4 (CI, `HostSimM3` unless said) |
+|---|---|---|---|
+| 1 | Fly together 30 min | 3.2 | pending the two-PC sitting |
+| 2 | Ghost quality (path error, latency, no pops) | 1.2, 3.2, `sync-report.ps1` | host ghost path error < 10 m p95 from the mod's `[sync]` lines; 0 respawns |
+| 3 | Avatar takeover, rejoin | 1.1, 1.3, 3.1, 3.4 | takeover, guard, host copy removed, adoption after `/reloadui` |
+| 4 | Avatars on the authority | 2.1-2.3 | 7 avatars driven, parked, in the manifest, rebound after a renumbering load (`HostSimAvatars` too) |
+| 5 | Pilot-seat self-spawn | 2.1 | `authority_flow.hostsim`, `session4_authority.hostsim` |
+| 6 | Ghost lifecycle (gate, highway, dock, leave, kick) | 1.2, 3.2, 3.4 | gate jump; Hidden / highway flags in Catch2 and `pair_scenario.hostsim` |
+| 7 | Reloads | 1.3, 3.4 | 3 `/reloadui` with adoption (`reloadui` command), `HostSimGhosts` 20 reloads |
+| 8 | Save hygiene v1 | 1.7, 2.2, 2.5 | pre-save check clean, `savescan` on fixtures |
+| 9 | Teams in game | 1.5, 3.3 | hub tests |
+| 10 | Chat | 1.4, 3.3 | both ways + bot echo |
+| 11 | Performance | 1.8, 2.4, `sync-report.ps1` | mod p95 about 0.10 ms client / 0.12 ms authority with 7 remote players, about 1-2 kB/s per client |
+| 12 | SETA off in 1 s | 1.6 | pair scenario (hostsim) |
+| 13 | UDP lane + fallback | 3.1, 3.5 | `UdpLane` step; GUI/API `udpActive` asserted |
+| 14 | Remembered fields | 1.1 | hostsim |
+| 15 | No regressions | - | CI + `./tools/e2e.ps1` |
+| 16 | S13 verdicts | - | recorded by the lead |
+
+## In-game checks the code could not settle (collected from the M3 handoff notes)
+
+Look at these during the sittings; each is "does it behave like the code assumes?":
+
+- **Loadout**: the authority's avatar has early-game equipment (`apply_loadout` of the basic Elite loadout replaces the spawn default; are the `../con_*` paths right); the client's local copy of its own ship currently has the **default** equipment (known gap, report what it is). (2.1, 1.1)
+- **Safe position**: MD `get_safe_pos` result and its number format; no avatar inside a station. (2.1)
+- **Ghost orientation**: yaw / pitch / roll signs (`kYawSign` ...), model, name colour, radar. (1.2)
+- **Velocity hints**: MD `set_object_velocity` accepted at 5 Hz together with the per-frame set; the batch list shape. (1.2)
+- **Gate jump**: `SetObjectSectorPos` with sector-local metres across a gate, `ConvertStringTo64Bit` for sector components. (1.2, 3.2)
+- **Takeover**: works standing without the hint; time to the guard; idcode and name survive a checkpoint (`takeover: the avatar is in the loaded save: local ship ...` for a returning player); `GetAllFactionShips("x4mp_team_k")` lists the avatars after a load; is the own ship's name `[MP] <name>` a problem. (1.1, 3.4)
+- **Idcode rebind** after a load (avatars on the authority). (2.3)
+- **Teams**: the Lua array reaches MD as a list; the effect of the `<relations>` block (Xenon / Khaa'k hostile to team ships); re-sending relations while locked; a checkpoint with active team factions loads **without** the mod (Q9, 2.5). (1.5, 2.5)
+- **Chat**: the vanilla window outside Ventures, the coloured author, `menu.shown` while faded, clicking a name. (1.4)
+- **SETA**: whether `stopactivity` ends a started SETA (only if you have the item). (1.6)
+- **SaveScan** against the first real checkpoint and quicksave (XML shape; `RemoveComponent` and `GetAllFactionShips`; `GetComponentName` of stations). (1.7, 2.2)
+- **Janitor sweep lines**: `janitor: waiting for the takeover to finish before sweeping`, `swept: ...`, `checkpoint check: ...`. (1.1, 1.7, 2.2)
+- **Remembered fields** survive a run without the mod. (1.1)
+
+## If something does not work
+
+| Symptom | What to do |
+|---|---|
+| A script says `Galaxy dump ... : N sectors (FEWER than 140)` or `No galaxy dump` | Sitting 0 first (`collect-logs.ps1 -Label s0`), or pass `-GalaxyFile`. Without it the bots use sectors your X4 does not have |
+| The wingmen never appear (sitting 1) | The Join name must be exactly `Tester` (or pass `-Target`). Window 1 shows `[Wing01] avatar net_id=` when they have their avatars |
+| The wingmen never start (sitting 2) | The script waits for your ship: sit down in the pilot seat; it prints `session Running; waiting for your ship` meanwhile. A bot that does not get its avatar within 90 s stops with `no avatar within 90 s` |
+| No `[MP]` ghosts at all on the client | `rep_msgs=0` in the `[sync] ghosts` line = no `Replication`: is the host ship in the GUI Players list with a ship (authority), is the session Running |
+| Stuck in the host's ship after the load | Look for `takeover:` lines; sit in the pilot seat (hint); send the log |
+| `start-server-lan.ps1` says `UNKNOWN (could not read the rules)` | Normal without admin rights for some profiles; use the printed commands in an elevated PowerShell, test the join from PC B |
+| PC B cannot connect | `Test-NetConnection <PC A address> -Port 47780` on PC B; the three firewall rules on PC A; same network (not "guest") |
+| X4 crashes or Game Over | Quit, **collect the logs**, note the last step and the clock time |
+| `collect-logs.ps1` says no lines | The launch option `-debug all -logfile x4mp_s4.log` is missing |
+| `install.ps1` refuses | The sitting-0 kit is still installed: `install-spike.ps1 -Restore` or `-RemoveTestExtensions` |
+
 ## Sending results
 
-Zips `out\session4\logs-<label>-<time>.zip` (game log `x4mp_s4.log`, `x4native\`, `Documents\Egosoft\X4\x4mp\` without `launch.json`, server and FakeNode logs; never saves, passwords or the database); notes with clock times; ratings; `sync-report.ps1` output; screenshots of anything odd.
+Zips `out\session4\logs-<label>-<time>.zip` (game log `x4mp_s4.log`, `x4native\`, `Documents\Egosoft\X4\x4mp\` incl. `x4mp-lines.txt` and `sync-report.txt`, server and FakeNode logs; never saves, passwords, `launch.json` or the database); your notes with clock times; ratings; the `sync-report.ps1` output; screenshots of anything odd.
 
-## Quick reference (outline)
+## Quick reference
 
 | What | Where |
 |---|---|
+| Scripts | `tools\session4\`: `install.ps1`, `uninstall.ps1`, `start-fake-authority.ps1 [-Wingmen N] [-HostStand x,y,z]`, `start-fake-clients.ps1 [-Wingmen N] [-Target name]`, `start-server-lan.ps1 [-Check]`, `upload-save.ps1`, `make-client-kit.ps1`, `collect-logs.ps1 -Label`, `sync-report.ps1 [-Log \| -Zip]`, `savescan.ps1` |
 | Admin GUI | `http://<server PC>:47790` (password file `out\session4\admin-password.txt`) |
-| Mod log | `Documents\Egosoft\X4\x4mp\logs\x4mp.log` (`[sync]`, `[perf]`, `takeover:`, `ghosts:`, `avatars:`, `janitor:`) |
+| Mod log | `Documents\Egosoft\X4\x4mp\logs\x4mp.log` (`[sync]`, `[perf]`, `takeover:`, `ghost`, `avatars:`, `janitor:`, `selfship:`, `authority:`) |
 | Game log | `Documents\Egosoft\X4\<id>\x4mp_s4.log` |
-| Galaxy dump (sitting 0) | `Documents\Egosoft\X4\x4mp\galaxy-dump.json` |
 | Ports | TCP 47780, UDP 47781, HTTP 47790 |
+| Targets (`sync-report.ps1`) | path error p95 < 50 m (< 10 m steady below 300 m/s), display latency <= 200 ms, mod main-thread p95 < 0.2 ms, < 20 kB/s per client, < 10 log lines/s, 0 ghost respawns |

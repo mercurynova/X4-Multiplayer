@@ -1,0 +1,95 @@
+# Session-4 kit dry run, sitting 2 (real X4 = authority, FakeNode wingmen): the real x4mp.dll hosts as "Tester" the session that
+# tools/session4/start-fake-clients.ps1 -Wingmen 2 created from an uploaded save; the script starts the wingmen only when the host's ship exists.
+# Run by mod/tests/hostsim/session4_dry_run.ps1 -Part topology.
+# vars: tcp, apw (the in-game admin password), sim, ckpt_src, ckpt_src2, admin_url, admin_pw, name (Tester), wing (prefix), wings (number of wingmen), done (a file the runner creates to end it)
+# The Lua/MD side is emulated by hostsim (`world md-emulate on`); the checkpoint (galaxy, SaveGame) is played here, as in m3_authority.hostsim.
+world sector add 100003
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_02_sector001_macro=100002,cluster_03_sector001_macro=100003
+init
+set game_time 4000
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"${name}","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 5000 contains x4mp_
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_s4_authority
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+
+# the first checkpoint (SessionStart): MD reports the galaxy; the player STANDS in the cockpit (2.1: stand for a while, then sit down)
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+frame 60Hz 150
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+expect-file extension/logs/x4mp.log the self-spawn waits for the pilot seat
+# 2.1: standing for 10 s asks nothing; then sit down: ONE ask, MD answers with the ship -> the host ship's EntitySpawn
+frame 60Hz 600
+expect-no-log self-spawn sent
+ship place sector=100001 pos=0,0,0
+drop-lua x4mp.auth_collect
+seat on
+frame 60Hz 20
+expect-lua x4mp.auth_collect 3000 json $.ship_only == true
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 90
+expect-file extension/logs/x4mp.log self-spawn sent net_id=1
+ship path circle radius=2000 speed=250 center=0,0,0 sector=100001
+# the kit script sees the host's ship in the dashboard (shipNetId > 0) and starts the wingmen
+expect-admin /api/v1/dashboard $.players[name==${name}].shipNetId > 0 timeout=10000
+frame 60Hz 60
+expect-file extension/logs/x4mp.log world clock: keepalive WorldUpdate at 20 Hz started
+
+# 2.1: the wingmen's avatars appear next to the host as team ships, inert, minimum hull
+until 150000 expect-object count == ${wings} owner=x4mp_team_1
+expect-object count == ${wings} owner=x4mp_team_1 minhull=100 radar=1
+expect-object count == ${wings} owner=x4mp_team_1 active=0
+expect-object count == 1 "name=[MP] ${wing}01"
+expect-no-log SpawnObjectAtPos2 failed
+until 30000 expect-state set_pos_calls > 1000
+
+# chat with the wingmen (they echo)
+lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from ${name}"}
+until 30000 expect-lua x4mp.chat 0 contains echo: hello from ${name}
+
+# 2.2: "Request save now": a checkpoint with the avatars in its manifest, the janitor's pre-save check clean
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode post -Url "${admin_url}" -Password "${admin_pw}" -Path "/api/v1/sessions/{current}/request-save"
+frame 60Hz 60
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src2}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4300.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log manifest lists ${wings} avatar(s)
+expect-file extension/logs/x4mp.log janitor: checkpoint check: 0 stale
+expect-file extension/logs/x4mp.log ghosts_cleaned=true
+
+# 2.3: a save load (renumbered ids): the avatars are bound again, none respawned
+world renumber
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_s4_authority
+frame 60Hz 180
+until 60000 expect-file extension/logs/x4mp.log avatars: ${wings} avatar record(s) restored timeout=0
+until 30000 expect-object count == ${wings} owner=x4mp_team_1
+expect-state spawns == ${wings}
+expect-file extension/logs/x4mp.log avatars: rebound player
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown

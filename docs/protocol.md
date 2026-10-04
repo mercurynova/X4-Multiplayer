@@ -790,6 +790,38 @@ the server:
      `GameEvent{PlayerDiedEvent}`.
   3. Respawn is a new `PlayerShip`.
 
+### 13.1 M3 as built (schema deltas and wire behaviour; protocol stays 0.1, append-only)
+
+Schema deltas of [m3-plan.md](m3-plan.md) 4.13 (all in `protocol/schema`, golden vectors regenerated):
+
+| # | Delta | Meaning / who uses it |
+|---|---|---|
+| D1 | `StateFlags.Hidden` = bit 10 (`0x0400`) | "Do not show this ship": docked inside, in a superhighway, standing up (not in its ship). Set by the mod's own-ship tracker (`features/selfship`: `Hidden` = `Docked` or `InHighway`; standing up sends ONE Hidden state and then nothing). The ghost interpolator treats a Hidden neighbour as a discontinuity (no streak) and the ghost driver hides the object (`SafeRemove`, record kept) and shows it again within a frame of the flag dropping |
+| D2 | `ManifestEntry.origin:EntityOrigin`, `ManifestEntry.controller_player:ushort` | Avatars in the checkpoint manifest (`origin=PlayerShip`, the controlling player, owner team and idcode): the authority binds its avatars from its own manifest after a save load, clients read the manifest to find the copies of avatars that are in their loaded save |
+| D3 | `PlayerInfo.online:bool = true` (appended) | `false` while the node is detached inside the resume grace; a planned `ClientReload` stays invisible. Parked avatars are shown "(offline)" by the clients (`controller_player == 0`) |
+| D4 | Settings, not schema: `Avatars.StarterShipMacro`, `Avatars.StarterLoadout`, `Avatars.SpawnOffsetMeters` | Pushed to every node as `ServerSettingsUpdate` entries (text values) after `Welcome` and on every change; the authority uses them for the avatar spawn, a client for its local copy |
+
+Wire behaviour that integration (M3-14) pinned down; the first three were bugs the two-DLL pair run found:
+
+- **The authority's clock.** `ReplicationModule` sends nothing until the server has seen one `WorldUpdate` (its `game_time` and `capture_time_us` are the reference every entity
+  state is stamped with). The M3 authority streams no world (M4), so it sends a **keepalive `WorldUpdate` with no states at 20 Hz** (the server's tick) on the Realtime lane once
+  its first checkpoint exists (`authority: world clock: keepalive WorldUpdate at 20 Hz started`). Entities driven by a `PlayerState` are stamped with the game time of the
+  latest `WorldUpdate`, so the path error of a player ghost has a floor of about `speed x 25 ms` (4-6 m p95 at 270 m/s on loopback); the 20 Hz rate matters.
+- **The host's own ship is a player ship.** The authority's self-spawn `EntitySpawn` carries `origin=PlayerShip`, `controller_player` and `owner_player` = the authority's player id,
+  `owner_team` = its team and the name `[MP] <player>`; its `PlayerState` carries that `net_id` (the server drives an entity from a `PlayerState` only when
+  `entity.controller_player == sender` and the state names the entity). That makes the host appear to the clients as a ghost under its team faction, `PlayerInfo.ship_net_id`
+  is set for the host, and the wingman bots can find their target by the ghost name.
+- **String-table delivery.** `StringTableAdd` reaches a client node from `Matching` on (the catch-up string snapshot is taken while the node is still `Matching`; the move to
+  `CatchingUp` is queued behind it). A resume with no journal position (`ClientHello.last_journal_seq == 0`) in `InGame` gets the whole table again; a resume inside
+  `CatchingUp` with no position restarts the catch-up from the node's checkpoint. Duplicates are harmless on the node (the table is idempotent).
+- **`NodeStats`.** `udp_active`, `udp_rx_loss_pct` and `ghosts` are filled by the mod now (they were declared and never set), and `rx_bytes_per_s` / `tx_bytes_per_s` count the
+  UDP datagrams too (they were TCP only, so a client with the lane up reported ~0). The admin API's `NodeStatsDto` carries `udpActive`, `udpRxLossPct`, `ghosts` (the player
+  detail page shows "Realtime lane: UDP / TCP" and "Ghosts shown").
+- **Takeover.** A client holds its `PlayerState` stream back until its takeover guard confirmed (otherwise the host-ship pose would drag the avatar on the authority); the avatar's
+  `net_id` goes into every state from then on. The server forwards `PlayerShip` to the authority and re-forwards held requests after an authority resume; the authority answers the
+  same player with the same avatar (never a duplicate).
+- **Removal orders.** `EntityDespawn{Removed}` from the server to the authority removes an avatar (admin kick/ban with `removeAvatar`); the authority refuses the player's own ship.
+
 ---
 
 ## 14. Teams and factions

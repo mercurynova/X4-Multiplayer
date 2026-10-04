@@ -87,7 +87,7 @@ jobs:
           # E2E (M1-C1): the ubuntu jobs (swarm, Playwright) need the server, web, FakeNode, protocol or the script itself;
           # the windows headless-client job also needs the mod. mod/spikes/** alone triggers nothing.
           e2e=$(has '^(server/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$|Directory\..*\.props$|global\.json$)')
-          if echo "$files" | grep -Ev '^mod/spikes/' | grep -Eq '^mod/'; then e2e_win=true; else e2e_win=$(has '^(server/src/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$)'); fi
+          if echo "$files" | grep -Ev '^mod/spikes/' | grep -Eq '^mod/'; then e2e_win=true; else e2e_win=$(has '^(server/src/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$|tools/session[234]/)'); fi
           if [ "$EVENT" = "push" ]; then e2e=true; e2e_win=true; fi   # a push to main always runs the whole E2E
           if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; e2e_win=true; fi
           {
@@ -352,7 +352,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e_win == 'true'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
     steps:
@@ -377,9 +377,11 @@ jobs:
       - name: Create vcpkg cache dir
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
-      - name: E2E (Publish, Headless, HostSim, HostSimPair, HostSimGhosts, JoinFlow, ReloadSurvival, AuthorityFlow, ModRefusal, LaunchStats, UploadKill)
+      # M3-14: + HostSimAvatars (real authority + bots), HostSimM3 (two real DLLs: authority + client, 6 bots; perf / bandwidth / log rate through
+      # tools/session4/sync-report.ps1), UdpLane (UDP lane forced / loss / blocked / fallback) and Session4Kit (every session-4 kit script).
+      - name: E2E (Publish, Headless, HostSim, HostSimPair, HostSimGhosts, HostSimAvatars, HostSimM3, UdpLane, JoinFlow, ReloadSurvival, AuthorityFlow, ModRefusal, LaunchStats, UploadKill, Session4Kit)
         shell: pwsh
-        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,HostSimPair,HostSimGhosts,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,LaunchStats,UploadKill
+        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,HostSimPair,HostSimGhosts,HostSimAvatars,HostSimM3,UdpLane,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,LaunchStats,UploadKill,Session4Kit
       - name: Upload E2E logs
         if: failure()
         uses: actions/upload-artifact@v4

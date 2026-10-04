@@ -16,6 +16,9 @@ struct NodeStatsSample {
   std::int64_t clock_offset_us = 0;
   float rtt_ms = 0.0f;
   float net_main_ms_p95 = 0.0f;  // the mod's own main-thread cost per frame, p95 over the window (appended field)
+  std::uint32_t ghosts = 0;           // M3-14: the ghosts this node shows (clients)
+  bool udp_active = false;            // M3-14: the Realtime lane runs over UDP (false = TCP)
+  float udp_rx_loss_pct = 0.0f;
   std::uint8_t team_setup_state = 0;  // FeatureState (0 unknown, 1 off, 2 starting, 3 ok, 4 failed): the team factions + relations (M3-08)
 };
 

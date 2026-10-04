@@ -148,7 +148,7 @@ internal static class AdminMapping
         return new(
             node.PlayerId, node.ConnectionId, node.Name, node.Roles.ToString(), node.Phase.ToString(), node.Connected, node.RemoteAddress,
             node.RttMs, node.Stats?.Fps ?? 0, (long)Math.Max(0, (now - node.JoinedAt).TotalSeconds), live.Muted.Contains(node.PlayerId), teamId, teamName,
-            node.Stats is { } s ? new NodeStatsDto(s.Fps, s.FrameMsP95, s.GameTime, s.RttMs, s.RxBytesPerS, s.TxBytesPerS, s.NetMainMsP95, s.MemoryMb, s.ReceivedAt) : null,
+            node.Stats is { } s ? new NodeStatsDto(s.Fps, s.FrameMsP95, s.GameTime, s.RttMs, s.RxBytesPerS, s.TxBytesPerS, s.NetMainMsP95, s.MemoryMb, s.ReceivedAt, s.UdpActive, s.UdpRxLossPct, s.Ghosts) : null,
             node.Sector == 0 ? null : node.Sector,
             live.SectorName(node.Sector),
             node.Sector == 0 ? null : new Vec3Dto(Quantize.PositionToMetres(node.PosX), Quantize.PositionToMetres(node.PosY), Quantize.PositionToMetres(node.PosZ)),

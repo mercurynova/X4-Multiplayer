@@ -98,13 +98,9 @@ try {
     $leaver = Start-P $fakeExe @('swarm', '--clients', '1', '--name-prefix', 'Zed', '--avatars', '--behavior', 'wander', '--galaxy-file', $galaxy, '--seed', $seed,
         '--server', "127.0.0.1:$TcpPort", '--duration', '80') $leaverLog
 
-    # The bots' avatars (and their strings) must exist before the client under test joins: a node that is still joining misses strings the
-    # authority adds meanwhile (server race, not part of this task), and then cannot resolve a ship macro.
-    Wait-Until 'both bot avatars' {
-        $pl = (Invoke-RestMethod -Uri "$url/api/v1/dashboard" -Headers $h -WebSession $s2 -TimeoutSec 3).players
-        $withShip = @($pl | Where-Object { ($_.name -eq 'Bot01' -or $_.name -eq 'Zed01') -and $_.shipNetId -gt 0 })
-        $withShip.Count -ge 2
-    } 90 $bot
+    # M3-14: the client under test joins right after the bots, while their avatars (and the macro / faction strings they add to the session table) are
+    # still being provisioned. Before the server fix a node that was still joining could miss those strings and then never resolve a ship macro,
+    # which is why this run used to wait for both avatars first. It is now a regression test of the fix.
 
     $out = Join-Path $tmp 'hostsim-Pia.out.txt'
     $a = @('--dll', $dll, '--script', $scenarioPath, '--work-dir', (Join-Path $tmp 'work-Pia'),
