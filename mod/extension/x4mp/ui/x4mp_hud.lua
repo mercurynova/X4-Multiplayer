@@ -55,6 +55,8 @@ H.config = H.config or {
 	timerStale = 2,      -- a pending delayed callback older than this many intervals (+1 s) counts as lost and is armed again
 	restartLogInterval = 30, -- seconds between "loop restarted" log lines
 	blockedMax = 10,     -- seconds another menu may keep the HUD from drawing before it draws anyway (a stale View entry must not hide it for good)
+	fullscreenMenus = { MapMenu = true }, -- treated as live when the engine gives no frame-liveness signal (never forced over)
+	liveLogInterval = 30, -- seconds between "blocked by X (live), not forcing" log lines
 	outcomeLogInterval = 30, -- seconds between repeats of the same unusual tick outcome in the log
 }
 
@@ -195,6 +197,34 @@ function H.blocked()
 		end
 	end
 	return false
+end
+
+--- Is a blocking View entry a live menu? View.registerMenu / View.updateMenu (viewhelper.lua) store the engine frame ids in entry.frames, the
+--- same ids Helper keeps in menu.frames[layer] and checks with IsValidWidgetElement (helper.lua:1660). A real open menu has at least one valid
+--- frame; a stale entry (session 3: TopLevelMenu/Helper2 after the checkpoint saves) has none. Returns the names of the live blockers or nil.
+--- Without IsValidWidgetElement / entry.frames there is no signal: only config.fullscreenMenus count as live then.
+function H.liveBlockers()
+	local names = {}
+	if H.minimizedMenuOpen() then names[#names + 1] = "Minimized" end
+	if type(View) == "table" and type(View.menus) == "table" then
+		local ignore = H.config.ignoreMenus
+		for _, entry in ipairs(View.menus) do
+			if type(entry) == "table" and entry.name ~= MENU_NAME and not entry.minimized and not (entry.name and ignore[entry.name]) then
+				local live
+				if type(IsValidWidgetElement) == "function" and type(entry.frames) == "table" then
+					live = false
+					for _, f in pairs(entry.frames) do
+						local ok, valid = pcall(IsValidWidgetElement, f)
+						if ok and valid then live = true break end
+					end
+				else
+					live = entry.name ~= nil and H.config.fullscreenMenus[entry.name] == true
+				end
+				if live then names[#names + 1] = tostring(entry.name) end
+			end
+		end
+	end
+	return #names > 0 and table.concat(names, ",") or nil
 end
 
 function menu.display()
@@ -402,6 +432,17 @@ function H.tick(force)
 	if H.blocked() then
 		H.blockedSince = H.blockedSince or t
 		if t < H.blockedSince or t - H.blockedSince < H.config.blockedMax then return "blocked" end
+		-- A live menu (valid frames) is never drawn over: frame:display() kills its render target (live session 4: the open map went blurry
+		-- 11.6 s in). Only an entry without any valid frame counts as stale, for blockedMax from when it last looked live.
+		local live = H.liveBlockers()
+		if live then
+			H.blockedSince = t
+			if not H.lastLiveLogAt or t < H.lastLiveLogAt or t - H.lastLiveLogAt >= H.config.liveLogInterval then
+				H.lastLiveLogAt = t
+				log("hud: blocked by " .. live .. " (live), not forcing")
+			end
+			return "blocked"
+		end
 		-- Blocked for a long time: probably a stale View entry (session 3 Run 3: the line never came back after the checkpoint saves). Draw
 		-- anyway, at most once per refreshInterval; the engine closes our frame again if a real menu is up, which costs nothing.
 		if H.lastForcedAt and t >= H.lastForcedAt and t - H.lastForcedAt < H.config.refreshInterval then return "blocked" end
