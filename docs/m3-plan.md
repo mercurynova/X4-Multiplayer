@@ -840,7 +840,7 @@ What M3-14 / session 4 need:
 ### M3-16: HUD no longer draws over a live menu
 
 `x4mp_hud.lua` H.tick used to force-draw after `blockedMax` (10 s) of being blocked, which killed the render target of any real open menu (live session 4: the map went blurry at ~11.6 s). Now `H.liveBlockers()` decides: a blocking View entry is live while `entry.frames` (filled by `View.updateMenu`, viewhelper.lua; the same ids Helper checks with `IsValidWidgetElement`) holds at least one valid frame. Live: never forced, `blockedSince` restarts, log "hud: blocked by X (live), not forcing" at most every 30 s. No valid frame for `blockedMax`: stale, forced as before (session-3 heal). Without `IsValidWidgetElement` / `entry.frames`, only `config.fullscreenMenus` (MapMenu) count as live. Tests in test_adapter_hud.lua. In-game check: map open > 30 s with the HUD on.
-/^>>>>>>> worktree-agent-a8cdd17196cc4cbba$/d
+
 ### M3-15 ghost rotation units (2026-10-04, live finding of session 4 sitting 1)
 
 Every ghost (FakeNode wingmen, the parked `[MP] Host`) faced sector +Z for ever; positions were fine. Cause: **X4's `SetObjectSectorPos` / `SpawnObjectAtPos2` take angles in DEGREES, `GetObjectPositionInSector` returns RADIANS** (vendored `sdk/x4n_math.h`: "GetObjectPositionInSector returns radians, SetObjectSectorPos expects degrees"; S13.4 confirmed the read side; the sitting-0 probe wrote degrees). The mod wrote radians, so a heading of 1.5 rad was a 1.5 degree turn.
@@ -848,4 +848,3 @@ Every ghost (FakeNode wingmen, the parked `[MP] Host`) faced sector +Z for ever;
 - **hostsim** now models the game: `SpawnObjectAtPos2` / `SetObjectSectorPos` thunks take degrees and store radians, `GetObjectPositionInSector` returns radians; script-side values (`ship place yaw=`, `world object add yaw=`, paths) are radians as stored. `world_objects.hostsim` expects pi/4 and pi/2 for the stub's 45 / 90 degree writes.
 - **Tests:** `test_game_api.cpp` "angles are written to the game in degrees and read back in radians" (yaw pi/2 reaches the export as 90, reads back as pi/2; spawn path and raw `GameApi` writers too); `m3_authority/m3_client.hostsim`: the host turns to 1.2 rad and the client's `[MP] Host` ghost must read yaw 1.2 +- 0.05 rad in the fake world; FakeNode `AFormationWingmanReportsTheLeadersYawInRadians`.
 - **Still to look at in game:** that ghosts now face their heading (if one flies sideways or nose-down, flip the sign constants in `ghosts_api.h`), and pitch/roll axis order.
->>>>>>> worktree-agent-a8cdd17196cc4cbba
