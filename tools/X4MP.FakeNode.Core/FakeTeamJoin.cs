@@ -135,6 +135,7 @@ public static class FakeTeamJoin
         int requests = 0;
         int rejections = 0;
         string note = string.Empty;
+        var refused = new List<string>(); // every refusal, so a run that gives up says why it was refused each time
         for (int attempt = 0; attempt < MaxAttempts; attempt++)
         {
             if (link.Phase != NodePhase.AwaitingTeam)
@@ -163,10 +164,11 @@ public static class FakeTeamJoin
 
             rejections++;
             note = $"{note}: {result.Reason} {result.Detail}".TrimEnd();
+            refused.Add(note);
             await Task.Delay(60, ct).ConfigureAwait(false);
         }
 
-        return new TeamStepResult(link.Phase != NodePhase.AwaitingTeam, requests, rejections, note);
+        return new TeamStepResult(link.Phase != NodePhase.AwaitingTeam, requests, rejections, note + " | all refusals: " + string.Join(" | ", refused));
     }
 
     private static async Task<TeamRequestResultT?> WaitResultAsync(NodeLink link, FakeTeamState teams, ulong key, TimeSpan timeout, CancellationToken ct)
