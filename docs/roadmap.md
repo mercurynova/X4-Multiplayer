@@ -242,6 +242,8 @@ trade settings → M5; `WorldUpdate` > 20 Hz verify errors and sector owner/exte
 
 ## 3c. M3 tasks (plan: [m3-plan.md](m3-plan.md), 2026-10-03)
 
+**Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
+
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of
 [m3-plan.md](m3-plan.md) (second X4 copy, ghost-error metric, UDP in M3, avatar spawn, offline avatars, ...). Scope: teams in
 game, own-ship capture, avatars + client takeover, player ghosts, UDP lane, chat + roster, save hygiene v1, the two M2

@@ -21,8 +21,8 @@ Rules for implementers (put in every brief):
    `dotnet build`/`dotnet test`/`npm test`/`ctest` pass with zero warnings.
 4. Don't add dependencies that aren't in `Directory.Packages.props` / vcpkg manifest without
    saying so in the report.
-5. Commit on your worktree branch with a message like `M0-04: FrameCodec + registry`, plus
-   the attribution trailer. Do not push.
+5. Commit on your worktree branch with a message like `M0-04: FrameCodec + registry`, with **no
+   attribution lines** (no `Co-Authored-By:`, no "Generated with"). Do not push.
 
 ## 2. Prerequisites (user action, before any coding)
 
