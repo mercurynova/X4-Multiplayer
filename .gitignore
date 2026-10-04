@@ -44,3 +44,6 @@ Thumbs.db
 # Claude Code agent worktrees
 .claude/worktrees/
 **/.auth/
+
+# Local screen recordings of in-game sessions (large, personal; never committed)
+/Video Recordings/
