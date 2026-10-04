@@ -158,7 +158,7 @@ bool GameApi::is_valid_component(UniverseId id) const noexcept {
 // ---- M3 exports ----
 UniverseId GameApi::spawn_object(const char* macro, UniverseId sector, const PosRotPod& pos, const char* owner) const noexcept {
   if (!fns_.SpawnObjectAtPos2 || !macro || !*macro || sector == 0 || !assert_main_thread("SpawnObjectAtPos2")) return 0;
-  return fns_.SpawnObjectAtPos2(macro, sector, pos, owner ? owner : "");
+  return fns_.SpawnObjectAtPos2(macro, sector, pos_rot_to_game_write(pos), owner ? owner : "");  // pos: radians in, degrees out
 }
 bool GameApi::activate_object(UniverseId id, bool active) const noexcept {
   if (id == 0 || !fns_.ActivateObject || !assert_main_thread("ActivateObject")) return false;
@@ -167,7 +167,7 @@ bool GameApi::activate_object(UniverseId id, bool active) const noexcept {
 }
 bool GameApi::set_object_sector_pos(UniverseId id, UniverseId sector, const PosRotPod& pos) const noexcept {
   if (id == 0 || sector == 0 || !fns_.SetObjectSectorPos || !assert_main_thread("SetObjectSectorPos")) return false;
-  fns_.SetObjectSectorPos(id, sector, pos);
+  fns_.SetObjectSectorPos(id, sector, pos_rot_to_game_write(pos));  // pos: radians in, degrees out
   return true;
 }
 std::optional<PosRotPod> GameApi::object_position(UniverseId id) const noexcept {

@@ -28,10 +28,26 @@ struct GameVersionPod {
 
 // Binary-compatible with the SDK's UIPosRot {float x, y, z, yaw, pitch, roll;} (passed and returned by value by the
 // M3 object exports). hostsim static_asserts the layout against the SDK type.
+//
+// UNITS (the one place that matters): inside the mod a PosRotPod always carries RADIANS, as GetObjectPositionInSector returns them
+// (S13.4). The game's WRITE side takes DEGREES (vendored sdk/x4n_math.h: "GetObjectPositionInSector returns radians,
+// SetObjectSectorPos expects degrees"; the sitting-0 probe wrote degrees and its ghosts faced right). GameApi::spawn_object and
+// set_object_sector_pos therefore convert radians -> degrees (kRadToDeg) right before the export call; object_position does not.
+// A raw PosRotPod handed to a GameFns pointer directly (bypassing GameApi) is in the game's units, not the mod's.
 struct PosRotPod {
   float x = 0, y = 0, z = 0;
-  float yaw = 0, pitch = 0, roll = 0;  // raw units as the game uses them (S13.2c settles degrees vs radians)
+  float yaw = 0, pitch = 0, roll = 0;
 };
+
+inline constexpr float kRadToDeg = 180.0f / 3.14159265358979f;  // same factor as x4n::math::RAD_TO_DEG
+// The mod's radians pose -> the game's write units (degrees). Positions untouched.
+[[nodiscard]] constexpr PosRotPod pos_rot_to_game_write(const PosRotPod& p) noexcept {
+  PosRotPod o = p;
+  o.yaw *= kRadToDeg;
+  o.pitch *= kRadToDeg;
+  o.roll *= kRadToDeg;
+  return o;
+}
 
 // Raw exports. Names match the X4 exports exactly (they are looked up by these strings).
 struct GameFns {

@@ -1,8 +1,8 @@
 #pragma once
 // game/ghosts_api: the game calls the ghost feature needs, on top of GameApi (M3-10; GameFns stays frozen, docs/m3-plan.md 6).
 //
-//   * The ONE place where our pose convention meets the game's UIPosRot: positions are sector-local metres, angles RADIANS (S13.4:
-//     UIPosRot angles are radians). The axis order / signs of yaw, pitch, roll are the convention of core/ghost/math.h
+//   * The ONE place where our pose convention meets the game's UIPosRot: positions are sector-local metres, angles RADIANS (S13.4: reads are radians;
+//     writes are converted to the game's degrees in GameApi::spawn_object / set_object_sector_pos, see PosRotPod in game_api.h). The axis order / signs of yaw, pitch, roll are the convention of core/ghost/math.h
 //     (R = Ry(yaw) Rx(pitch) Rz(roll)); if the first in-game look shows a ghost flying sideways or nose-down, flip kPitchSign /
 //     kRollSign / kYawSign below and nowhere else.
 //   * Exports that are not in GameFns (faction and ship lists, used for the faction check and for finding our ghosts by idcode after

@@ -681,7 +681,7 @@ What is built (all frame-thread; the per-frame path allocates nothing, Catch2 `s
   window), 1 Hz while Hidden; IMMEDIATE on a sector change, teleport, ship change, the first state after sit-down, a change of Hidden/Docked/InHighway. The schedule catches up
   (exact average rate at 20..144 fps) and never bursts after a gap. **Flags:** `PlayerControlled` always, `Docked`, `InHighway`, `Hidden` = Docked or InHighway, `Teleport` on
   sector change / ship change / sit-down / link up (`force_resend`) / a position jump > 2 km + 15 km/s x frame time. **Standing up sends ONE Hidden state and then nothing**
-  (no OnFootState before M3b; the plan's "1 Hz while hidden" applies to docked / highway only). Angles go out exactly as the game gives them (radians, S13.4); positions are
+  (no OnFootState before M3b; the plan's "1 Hz while hidden" applies to docked / highway only). Angles go out exactly as the game gives them (reads are radians, S13.4; writes to the game are degrees, see M3-15); positions are
   sector-local metres; quantised with `x4mp::wire::quantize_*`.
 - **Sector index** = the 1-based rank of the sector macro in the **ordinally sorted** macro list (protocol.md 8.2). `features/authority/build_plan` now sorts the same way (it used MD's
   enumeration order before; the server never depended on it), so authority and clients agree without a table on the wire. `features/selfship/galaxy_map.*`: macro <-> UniverseID <-> index
@@ -711,7 +711,7 @@ What is built (all frame-thread; the per-frame path allocates nothing, Catch2 `s
   `selfship_hub().set_own_net_id(id)` (M3-12: the avatar's net id for PlayerState). A *sit-down* is the trigger M3-12 can use for its "I am in the avatar" check; the hub status is
   updated before the join feature runs in the same frame (SelfShipFeature is registered before JoinFeature). Highway: local and super highways both set `InHighway` AND `Hidden`
   (they cannot be told apart natively); docked inside vs on a pad likewise sets `Hidden`. M3-10 may choose to render `InHighway` ghosts if it finds a way to tell local ones.
-- **hostsim changes:** fake paths now write **radians** (S13.4; the old degrees would have been sent as radians), `highway on|off` command, `world_ship.hostsim` expectations updated.
+- **hostsim changes:** fake paths now write **radians** into the fake world (reads are radians, S13.4; the game's *write* exports take degrees, M3-15), `highway on|off` command, `world_ship.hostsim` expectations updated.
   The e2e pair scenario got the M3-09 block (map, 20 Hz, idle 5 Hz, gate teleport, dock Hidden, highway Hidden, SETA switch-off + notification, stand-up silence).
 
 ### M3-11 avatars on the authority (`features/avatars/**`, `game/avatars_api.*`, `md/x4mp_avatars.xml`, `ui/x4mp_avatars.lua`, tests `test_avatars.cpp`, `test_avatars.lua`, `tests/hostsim/avatars*`)
@@ -774,7 +774,7 @@ Pieces and what M3-11/12 reuse:
   interpolate loop, no hide); `FakeWorld` (`tests/ghosts/fake_world.h`) + `Rig` (`rig.h`) are the test kit. `GhostCore` (`ghost_core.*`) = driver + string table + message decoding
   (StringTableAdd, EntitySpawn, EntityChange, EntityDespawn, Replication); `ghost_hub()` is the join feature's hand-over (one line in `K::Frame`, one in `stop_session`).
 - `game/ghosts_api.*` (`GhostsApi`): spawn / make_inert / place / pose / valid / id_code / name / `faction_state` / `ships_of` (exports resolved BY NAME, GameFns untouched), and the ONE
-  place for the pose convention: `to_pos_rot` with `kYawSign/kPitchSign/kRollSign` (angles radians, axis order from `core/ghost/math.h`: **not verified in game**; if a ghost flies sideways or
+  place for the pose convention: `to_pos_rot` with `kYawSign/kPitchSign/kRollSign` (angles radians in the mod, converted to degrees on write by `GameApi` (M3-15); axis order from `core/ghost/math.h`: **not verified in game**; if a ghost flies sideways or
   nose-down flip the signs there and nowhere else).
 - Registries: `driver.registries()` (`ghost::Registries`) is mirrored on every spawn / hide; `driver.save(stash)` writes `ghost.registries` (+ my `ghost.meta`, one line per record incl. idcode); the
   string table is kept in `ghost.strings`. `ghost_hub().is_ghost_local(id)` tells the janitor / takeover which objects are ghosts: **M3-13 must skip them on a /reloadui**.
@@ -840,3 +840,12 @@ What M3-14 / session 4 need:
 ### M3-16: HUD no longer draws over a live menu
 
 `x4mp_hud.lua` H.tick used to force-draw after `blockedMax` (10 s) of being blocked, which killed the render target of any real open menu (live session 4: the map went blurry at ~11.6 s). Now `H.liveBlockers()` decides: a blocking View entry is live while `entry.frames` (filled by `View.updateMenu`, viewhelper.lua; the same ids Helper checks with `IsValidWidgetElement`) holds at least one valid frame. Live: never forced, `blockedSince` restarts, log "hud: blocked by X (live), not forcing" at most every 30 s. No valid frame for `blockedMax`: stale, forced as before (session-3 heal). Without `IsValidWidgetElement` / `entry.frames`, only `config.fullscreenMenus` (MapMenu) count as live. Tests in test_adapter_hud.lua. In-game check: map open > 30 s with the HUD on.
+/^>>>>>>> worktree-agent-a8cdd17196cc4cbba$/d
+### M3-15 ghost rotation units (2026-10-04, live finding of session 4 sitting 1)
+
+Every ghost (FakeNode wingmen, the parked `[MP] Host`) faced sector +Z for ever; positions were fine. Cause: **X4's `SetObjectSectorPos` / `SpawnObjectAtPos2` take angles in DEGREES, `GetObjectPositionInSector` returns RADIANS** (vendored `sdk/x4n_math.h`: "GetObjectPositionInSector returns radians, SetObjectSectorPos expects degrees"; S13.4 confirmed the read side; the sitting-0 probe wrote degrees). The mod wrote radians, so a heading of 1.5 rad was a 1.5 degree turn.
+- **Conversion point:** `GameApi::spawn_object` and `GameApi::set_object_sector_pos` (`game/game_api.cpp`) apply `pos_rot_to_game_write()` (`game/game_api.h`, `kRadToDeg`) right before the export call. Inside the mod a `PosRotPod` / `GhostPose` / avatar `Pose` is always radians; `object_position` (reads) is not converted. Because it sits at the one chokepoint, every writer is covered: `GhostsApi::spawn/place`, avatar spawn and driving (`avatars_feature.cpp`), the takeover local copy (`avatars_client.cpp`). `kYawSign/kPitchSign/kRollSign` are unchanged (axis order and signs are still not verified in game).
+- **hostsim** now models the game: `SpawnObjectAtPos2` / `SetObjectSectorPos` thunks take degrees and store radians, `GetObjectPositionInSector` returns radians; script-side values (`ship place yaw=`, `world object add yaw=`, paths) are radians as stored. `world_objects.hostsim` expects pi/4 and pi/2 for the stub's 45 / 90 degree writes.
+- **Tests:** `test_game_api.cpp` "angles are written to the game in degrees and read back in radians" (yaw pi/2 reaches the export as 90, reads back as pi/2; spawn path and raw `GameApi` writers too); `m3_authority/m3_client.hostsim`: the host turns to 1.2 rad and the client's `[MP] Host` ghost must read yaw 1.2 +- 0.05 rad in the fake world; FakeNode `AFormationWingmanReportsTheLeadersYawInRadians`.
+- **Still to look at in game:** that ghosts now face their heading (if one flies sideways or nose-down, flip the sign constants in `ghosts_api.h`), and pitch/roll axis order.
+>>>>>>> worktree-agent-a8cdd17196cc4cbba
