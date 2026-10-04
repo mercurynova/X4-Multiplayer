@@ -44,6 +44,9 @@ public sealed partial class FakeAvatars(FakeAuthority authority, FakeAvatarOptio
 {
     private sealed record Leave(int PlayerId);
 
+    /// <summary>The roster upserted this player: if its team differs from the avatar's, the avatar is re-owned (M3-18).</summary>
+    private sealed record TeamCheck(int PlayerId);
+
     private sealed record Request(PlayerShipT Ship, Stopwatch Age);
 
     private sealed class Entry
@@ -71,6 +74,7 @@ public sealed partial class FakeAvatars(FakeAuthority authority, FakeAvatarOptio
     private long _provisioned;
     private long _reissued;
     private long _leaves;
+    private long _reowned;
 
     public FakeAvatarOptions Options => _opt;
 
@@ -79,6 +83,9 @@ public sealed partial class FakeAvatars(FakeAuthority authority, FakeAvatarOptio
 
     /// <summary>Requests answered with an avatar that already existed (a resume, a rejoin).</summary>
     public long Reissued => Interlocked.Read(ref _reissued);
+
+    /// <summary>Avatars (and the host ship) re-owned because their player moved team (M3-18).</summary>
+    public long Reowned => Interlocked.Read(ref _reowned);
 
     /// <summary>Avatars parked because their player left.</summary>
     public long Leaves => Interlocked.Read(ref _leaves);
@@ -137,7 +144,11 @@ public sealed partial class FakeAvatars(FakeAuthority authority, FakeAvatarOptio
             }
 
             foreach (var p in roster.Players ?? [])
+            {
                 _roster[p.PlayerId] = p;
+                _events.Enqueue(new TeamCheck(p.PlayerId));
+            }
+
             foreach (ushort removed in roster.Removed ?? [])
             {
                 _roster.Remove(removed);
@@ -164,6 +175,8 @@ public sealed partial class FakeAvatars(FakeAuthority authority, FakeAvatarOptio
                 _waiting.Add(request);
             else if (evt is Leave leave)
                 Park(leave.PlayerId, gameTime, output);
+            else if (evt is TeamCheck check)
+                Reown(check.PlayerId, output);
         }
 
         for (int i = 0; i < _waiting.Count;)
@@ -181,6 +194,36 @@ public sealed partial class FakeAvatars(FakeAuthority authority, FakeAvatarOptio
         }
 
         return output;
+    }
+
+    /// <summary>
+    /// A player moved team (the roster upsert carries the new team id): its avatar (and the fake host ship) is re-owned to <c>x4mp_team_&lt;slot&gt;</c>
+    /// and one <c>EntityChange{Owner|OwnerTeam}</c> tells the server, whose mirror and every client follow (m3-plan M3-18). Same trigger as the real
+    /// authority mod, which also reads the team from the roster.
+    /// </summary>
+    private void Reown(int playerId, List<OutMessage> output)
+    {
+        if (!TryRoster(playerId, out var info) || info.TeamId == 0)
+            return;
+        lock (_avatars)
+        {
+            var entry = _avatars.TryGetValue(playerId, out var a) ? a : _host is { } h && h.PlayerId == playerId ? h : null;
+            if (entry is null || entry.Team == info.TeamId)
+                return;
+            // an avatar that is still waiting for its first spawn has no record yet; it is made under the right team
+            entry.Team = info.TeamId;
+            string faction = string.Create(CultureInfo.InvariantCulture, $"x4mp_team_{SlotOf(entry.Team)}");
+            uint ownerRef = authority.Strings.Ensure(faction, StringKind.Faction, out var newFaction);
+            if (newFaction is not null)
+            {
+                var table = new StringTableAddT { Entries = [newFaction] };
+                output.Add(new OutMessage(MsgType.StringTableAdd, MessageEncoder.EncodePayload(b => StringTableAdd.Pack(b, table), 128)));
+            }
+
+            Interlocked.Increment(ref _reowned);
+            var change = new EntityChangeT { NetId = entry.NetId, Fields = ChangeField.Owner | ChangeField.OwnerTeam, OwnerRef = ownerRef, OwnerTeam = entry.Team };
+            output.Add(new OutMessage(MsgType.EntityChange, MessageEncoder.EncodePayload(b => EntityChange.Pack(b, change), 64)));
+        }
     }
 
     private void Park(int playerId, double gameTime, List<OutMessage> output)

@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   M3-10 ghosts e2e (CI step HostSimGhosts): the published server, a FakeNode authority (avatars, host ship, the synthetic galaxy file),
-  FakeNode bots that really fly (one stays, one leaves), and ONE x4mp-hostsim process with the real x4mp.dll as the client under test.
+  FakeNode bots that really fly (one stays, one leaves; the staying one is moved to team 2 mid-run, M3-18), and ONE x4mp-hostsim process with the real x4mp.dll as the client under test.
 .DESCRIPTION
   The hostsim client sees the bots as ghosts in its fake universe (spawn + dress + inert + radar + minimum hull, per-frame motion from
   Replication, velocity hints, parked label after a bot left) and survives N DLL reloads without duplicates. The path error is the one
@@ -108,6 +108,16 @@ try {
         '--var', "tcp=$TcpPort", '--var', 'name=Pia', '--var', 'bot=Bot01', '--var', 'leaver=Zed01', '--var', "reloads=$Reloads",
         '--timeout-scale', '5', '--max-seconds', "$MaxSeconds")
     $run = Start-P $hostSim $a $out
+    # M3-18: when the scenario asks (it writes move_request.txt), create team 2 and move the staying bot into it through the admin API
+    $moveFile = Join-Path (Join-Path $tmp 'work-Pia') 'move_request.txt'
+    Wait-Until 'the scenario asking for the team move' { Test-Path $moveFile } $MaxSeconds $run
+    $putJson = { param($path, $body) Invoke-RestMethod -Method Put -Uri "$url$path" -Headers $h -WebSession $s2 -ContentType 'application/json' -Body ($body | ConvertTo-Json) }
+    $players = Invoke-RestMethod -Uri "$url/api/v1/players" -Headers $h -WebSession $s2
+    $botId = @($players | Where-Object { $_.name -eq 'Bot01' })[0].id
+    if (-not $botId) { throw 'Bot01 is not in /api/v1/players' }
+    $team2 = & $post '/api/v1/teams' @{ name = 'Second'; factionSlot = 2 } $s2
+    $null = & $putJson "/api/v1/teams/members/$botId" @{ teamId = $team2.id }
+    Write-Host "  moved Bot01 (player $botId) to team $($team2.id)"
     if (-not $run.WaitForExit(($MaxSeconds + 30) * 1000)) { & taskkill /PID $run.Id /T /F *> $null; throw 'the hostsim client did not finish in time' }
     $run.WaitForExit()
     Write-Host "--- Pia (exit $($run.ExitCode)) ---"

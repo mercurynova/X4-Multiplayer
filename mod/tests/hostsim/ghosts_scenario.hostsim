@@ -7,6 +7,7 @@
 #     by the emulated MD half (name), moving ones get velocity hints (mode c)
 #   * path error: expect-ghost <bot> err_p95 < 2 (the mod's own [sync] windows: rendered position vs the sender's samples at the same server time)
 #   * a pushed ghost is put back; a ghost that left becomes "[MP] <name> (offline)" and stays
+#   * M3-18: a bot moved to team 2 (admin API) -> its ghost is re-owned to x4mp_team_2 in place (owner_dirty), also after the reloads
 #   * N reloads (DLL unload + init, stash kept): the ghosts are adopted, 0 leaks, 0 duplicates, spawn count unchanged
 # the fake universe has the 7 sectors of the galaxy file the authority and the bots use (sorted macros = wire indices 1..7)
 world sector add 100003
@@ -83,13 +84,23 @@ until 150000 expect-object count == 1 "name=[MP] ${leaver} (offline)"
 expect-object count == 3 owner=x4mp_team_1
 expect-state spawns == 4
 
-# reloads: the ghosts are adopted from the stash every time
+# M3-18: the staying bot is moved to a new team 2 through the admin API (the runner does it when it sees move_request.txt): the FakeNode
+# authority re-owns its avatar and sends one EntityChange{Owner|OwnerTeam}; this client's ghost follows (SetComponentOwner x4mp_team_2), no respawn
+write-file move_request.txt go
+until 90000 expect-object count == 1 "name=[MP] ${bot}" owner=x4mp_team_2
+expect-object count == 2 owner=x4mp_team_1
+expect-object count == 1 "name=[MP] ${bot}" owner=x4mp_team_2 minhull=100 active=0 radar=1
+expect-state spawns == 4
+expect-state removed == 1
+
+# reloads: the ghosts are adopted from the stash every time (the moved one keeps its new team)
 repeat ${reloads}
 reload
 frame 60Hz 120
-until 30000 expect-object count == 3 owner=x4mp_team_1 minhull=100
+until 30000 expect-object count == 3 minhull=100
 end-repeat
-expect-object count == 3 owner=x4mp_team_1
+expect-object count == 2 owner=x4mp_team_1
+expect-object count == 1 "name=[MP] ${bot}" owner=x4mp_team_2
 expect-state spawns == 4
 expect-state removed == 1
 expect-object count == 1 "name=[MP] ${bot}"

@@ -253,4 +253,49 @@ public sealed class AvatarTests
     [InlineData("ship_ter_xl_carrier_01_a_macro", EntityKind.ShipXL)]
     [InlineData("something_odd", EntityKind.ShipS)]
     public void TheShipClassComesFromTheMacro(string macro, EntityKind kind) => Assert.Equal(kind, FakeAvatars.KindOf(macro));
+
+    [Fact]
+    public void APlayerMovingTeamReownsItsAvatarWithOneEntityChange()
+    {
+        var authority = NewAuthority();
+        authority.Teams.ApplyWelcome(new WelcomeT
+        {
+            PlayerId = 1,
+            TeamId = 1,
+            Teams = new TeamTableT
+            {
+                Version = 1, Full = true, Removed = [],
+                Teams = [new TeamInfoT { TeamId = 1, FactionSlot = 1, Members = [] }, new TeamInfoT { TeamId = 2, FactionSlot = 2, Members = [] }],
+            },
+        });
+        authority.Avatars.NoteRoster(Roster((1, "BotAuthority", 1), (2, "Alice", 1)));
+        authority.Avatars.OnPlayerShip(Request(2));
+        var spawn = Spawned(authority.Avatars.Drain(1.0));
+        var avatar = spawn[1];
+        Assert.Equal((ushort)1, avatar.OwnerTeam);
+
+        // the same roster again (a resync): nothing happens
+        authority.Avatars.NoteRoster(Roster((2, "Alice", 1)));
+        Assert.Empty(authority.Avatars.Drain(1.5));
+
+        // the server moved Alice to team 2: the roster carries the new team
+        authority.Avatars.NoteRoster(Roster((2, "Alice", 2)));
+        var messages = authority.Avatars.Drain(2.0);
+        var changes = messages.Where(m => m.Type == MsgType.EntityChange).Select(m => MessageRegistry.Default.Decode<EntityChange>(AsFrame(m)).UnPack()).ToList();
+        var change = Assert.Single(changes);
+        Assert.Equal(avatar.NetId, change.NetId);
+        Assert.Equal(ChangeField.Owner | ChangeField.OwnerTeam, change.Fields);
+        Assert.Equal((ushort)2, change.OwnerTeam);
+        Assert.Equal(authority.Strings.Index("x4mp_team_2"), change.OwnerRef);
+        Assert.Contains(StringAdds(messages), e => e.Value == "x4mp_team_2" && e.Kind == StringKind.Faction);
+        Assert.Equal((ushort)2, authority.Avatars.AvatarOf(2)!.Team);
+        Assert.Equal(1, authority.Avatars.Reowned);
+
+        // a rejoin after the move answers with the avatar under the new team
+        authority.Avatars.OnPlayerShip(Request(2));
+        var again = Assert.Single(Spawned(authority.Avatars.Drain(3.0)));
+        Assert.Equal(avatar.NetId, again.NetId);
+        Assert.Equal((ushort)2, again.OwnerTeam);
+        Assert.Equal(authority.Strings.Index("x4mp_team_2"), again.OwnerRef);
+    }
 }
