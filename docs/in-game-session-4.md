@@ -11,10 +11,10 @@ Claude can't play X4, so you run these steps and send back the log zips plus you
 |---|---|---|---|---|
 | **0** | done | 1 / 1, throwaway kit | ~60 min | Spikes S13.1-S13.12 |
 | **1** | next | 1 / 1: real X4 = **client**, FakeNode authority serving your save + 2 FakeNode **wingman** bots | ~70 min | Criteria 2, 3, 5-7, 9 (one-PC part), 10, 11 (client half), 12, 14 |
-| **2** | now | 1 / 1: real X4 = **authority**, FakeNode wingmen (3, then 7) | ~60 min | Criteria 4, 5, 8, 11 (authority half), V21b |
+| **2** | after 1 | 1 / 1: real X4 = **authority**, FakeNode wingmen (3, then 7) | ~60 min | Criteria 4, 5, 8, 11 (authority half), V21b |
 | **3** | after 1-2 pass | **2 / 2** (Q1): PC A = server + authority, PC B = client | ~100 min | Criteria 1, 2, 3, 6, 9, 10, 13 over a real LAN |
 
-## START HERE (sittings 1-3, 10 lines)
+## START HERE (sittings 1-3, 11 lines)
 
 1. Back up `Documents\Egosoft\X4\<id>\save\` on **every** PC (OneDrive paused; Steam Cloud syncs it). Slots 1-7 are never touched; your working copy is `save_004` (any name works: `-List` shows them). Same build 611726 and **same DLCs** on both PCs.
 2. Steam launch options on every PC: `-debug all -logfile x4mp_s4.log`; Steam auto-update for X4 off. In X4 bind **Toggle Chat Window** (Settings > Controls).
@@ -25,7 +25,8 @@ Claude can't play X4, so you run these steps and send back the log zips plus you
 7. **Sitting 2**: window 1 `tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3`; start X4; Join dialog: name `Tester`, **Host this session as the authority = Yes**, the admin password the script printed; after the load stand 30 s, then sit down: the wingmen start by themselves.
 8. **Sitting 3**: PC A `tools\session4\make-client-kit.ps1` and copy the zip to PC B; PC A window 1 `tools\session4\start-server-lan.ps1 -SaveName save_004` (read its firewall output); PC A hosts, PC B joins `<PC A address>:47780`.
 9. **After every X4 quit**, on the PC where X4 ran: `tools\session4\collect-logs.ps1 -Label s1` (s2, s3a, s3b), then `tools\session4\sync-report.ps1`. X4 overwrites its log at the next start.
-10. Send Claude: the zip names, your notes with clock times, ratings (1-5), the `sync-report.ps1` output, screenshots where asked. At the end `uninstall.ps1` on every PC and remove the launch option.
+10. **Record the screen** of every PC running X4: OBS (Windows Game Bar `Win+Alt+R` as fallback) into the `Video Recordings` folder in the repo root (git-ignored, never committed), with a clock showing **seconds** in view (Windows taskbar clock with seconds, or an OBS Text source with a clock). Start it before X4 and write down the start time; the clock lets Claude match the footage to log timestamps (ffmpeg pulls single frames).
+11. Send Claude: the zip names, the recording file names, your notes with clock times, ratings (1-5), the `sync-report.ps1` output, screenshots where asked. At the end `uninstall.ps1` on every PC and remove the launch option.
 
 ## Lessons carried from sessions 2 and 3 (read once)
 
