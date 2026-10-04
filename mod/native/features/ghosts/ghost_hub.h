@@ -27,6 +27,8 @@ class GhostHub {
   void session_ended();
   // True when the local object id is a ghost this node spawned (the janitor and the takeover must skip those).
   [[nodiscard]] bool is_ghost_local(std::uint64_t local_id) const noexcept;
+  // M3-13: how many ghosts this node's registry holds (0 without a ghost core). The authority's checkpoint check wants 0.
+  [[nodiscard]] std::size_t ghost_count() const noexcept { return core_ ? core_->driver.registries().ghosts.size() : 0; }
   // M3-12: while true the ghost feature spawns / moves nothing (messages still queue). A client's takeover holds it from the moment the node is
   // in game until the vacated host copy and the other avatar copies are removed, so no ghost stands on a copy that is about to go.
   void set_spawn_hold(bool hold) noexcept { spawn_hold_ = hold; }

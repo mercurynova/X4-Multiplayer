@@ -154,6 +154,25 @@ jobs:
       - run: dotnet build -c Release --no-restore -warnaserror -p:SkipWebBuild=true
       # Wall-clock / load-sensitive tests are [Trait("Category","Perf")]: excluded here, run by nightly.yml.
       - run: dotnet test -c Release --no-build -p:SkipWebBuild=true --filter "Category!=Perf" --logger "trx;LogFileName=results.trx" --results-directory TestResults
+      # M3-13: the SaveScan CLI on the synthetic fixture saves (gzipped here like X4 writes them): clean = 0, an authority checkpoint with its
+      # avatars = 0, a client quicksave full of ghosts = exactly 1 (leftovers found).
+      - name: SaveScan on the synthetic fixtures
+        shell: bash
+        run: |
+          set -u
+          fx=tools/X4MP.SaveScan.Tests/fixtures
+          dll=tools/X4MP.SaveScan/bin/Release/net10.0/X4MP.SaveScan.dll
+          out="$RUNNER_TEMP/savescan"
+          mkdir -p "$out"
+          for f in clean authority-checkpoint client-quicksave; do gzip -c "$fx/$f.xml" > "$out/$f.xml.gz"; done
+          dotnet "$dll" "$out/clean.xml.gz" --json "$out/clean.json"
+          dotnet "$dll" "$out/authority-checkpoint.xml.gz" --avatar-owner team --expect-avatar AVA-001 --expect-avatar AVA-002
+          set +e
+          dotnet "$dll" "$out/client-quicksave.xml.gz" --expect-avatar AVA-001 --avatar-owner player
+          rc=$?
+          set -e
+          if [ "$rc" -ne 1 ]; then echo "expected exit code 1 (leftovers) for the client quicksave fixture, got $rc"; exit 1; fi
+          test -s "$out/clean.json"
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4

@@ -36,6 +36,20 @@ struct ClientLink {
   std::function<bool(std::uint16_t type, std::vector<std::uint8_t> payload)> send_control;
 };
 
+// M3-13: what the janitor / the checkpoint check must never remove on the authority: the avatars. Both lists are copies taken on the frame thread.
+struct AvatarProtect {
+  std::vector<std::uint64_t> ids;        // local ids the binder bound (void after a load until it runs again)
+  std::vector<std::string> idcodes;      // idcodes of every avatar record (they survive a load, the ids do not)
+};
+
+// M3-13: a client's takeover as the janitor sees it. `active` = the node is a client in game (the client link exists).
+struct TakeoverStatus {
+  bool active = false;
+  bool done = false;
+  std::uint64_t avatar_id = 0;  // the local copy the player sits in (or will)
+  std::uint64_t host_id = 0;    // the vacated host-ship copy until it is removed
+};
+
 struct HubInputs {
   std::vector<AvatarInfo> avatar_spawns;  // M3-12: EntitySpawn avatars (client)
   std::vector<RosterIn> rosters;
@@ -81,6 +95,12 @@ class AvatarHub {
   void set_max_net_id(std::uint32_t id) noexcept { max_net_id_ = id; }
   [[nodiscard]] std::uint32_t max_net_id() const noexcept { return max_net_id_; }
 
+  // ---- janitor / checkpoint check (M3-13) ----
+  void set_protect_fn(std::function<AvatarProtect()> fn) { protect_fn_ = std::move(fn); }
+  [[nodiscard]] AvatarProtect protect() const { return protect_fn_ ? protect_fn_() : AvatarProtect{}; }
+  void set_takeover_status(const TakeoverStatus& s) noexcept { takeover_ = s; }
+  [[nodiscard]] const TakeoverStatus& takeover_status() const noexcept { return takeover_; }
+
   // ---- avatars feature ----
   [[nodiscard]] HubInputs take_inputs();
 
@@ -95,6 +115,8 @@ class AvatarHub {
   bool have_services_ = false;
   std::function<std::vector<Record>()> snapshot_fn_;
   std::uint32_t max_net_id_ = 0;
+  std::function<AvatarProtect()> protect_fn_;
+  TakeoverStatus takeover_;
 };
 
 [[nodiscard]] AvatarHub& avatar_hub() noexcept;

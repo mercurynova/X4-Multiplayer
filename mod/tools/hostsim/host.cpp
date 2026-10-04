@@ -331,6 +331,9 @@ struct Thunks {
     return i;
   }
   static const std::vector<std::string>& faction_names() { return g_host->world.factions; }  // `world factions a,b,c` edits it
+  // M3-13 (the janitor lists ships AND stations of a faction): the fake universe has no stations of x4mp_team_* / player to list.
+  static std::uint32_t GetNumAllFactionStations(const char*) { return 0; }
+  static std::uint32_t GetAllFactionStations(UniverseID*, std::uint32_t, const char*) { return 0; }
   static bool IsPlayerOccupiedShipDocked() {
     check_thread("IsPlayerOccupiedShipDocked");
     return g_host->world.docked;
@@ -430,6 +433,8 @@ void Host::build_game() {
   game_fns_["GetAllFactions"] = reinterpret_cast<void*>(&Thunks::GetAllFactions);
   game_fns_["GetNumAllFactionShips"] = reinterpret_cast<void*>(&Thunks::GetNumAllFactionShips);
   game_fns_["GetAllFactionShips"] = reinterpret_cast<void*>(&Thunks::GetAllFactionShips);
+  game_fns_["GetNumAllFactionStations"] = reinterpret_cast<void*>(&Thunks::GetNumAllFactionStations);
+  game_fns_["GetAllFactionStations"] = reinterpret_cast<void*>(&Thunks::GetAllFactionStations);
   X4HS_REG(RemoveComponent);
 #undef X4HS_REG
   offsets_ = std::make_unique<std::uint8_t[]>(sizeof(X4GameOffsets));

@@ -66,6 +66,10 @@ class DiagHub {
   // The node is a pure client of a session: saves must be blocked.
   [[nodiscard]] bool is_client() const;
   [[nodiscard]] std::uint64_t connection_epoch() const;  // bumps on every set_connection that changes anything
+  // M3-13: a session exists and is not over (connecting, downloading, loading, in game, rejoining). The janitor of a node that may be about to
+  // join waits instead of sweeping the save's [MP] ships (the takeover may want its returning avatar).
+  void set_session_pending(bool pending);
+  [[nodiscard]] bool session_pending() const;
 
   void set_log_sender(LogSender sender);  // empty = none
   // Sends one LogForward line when a sender exists and accepts it. Returns whether it was handed to the sender.
@@ -87,6 +91,7 @@ class DiagHub {
   mutable std::mutex m_;
   NodeRole role_ = NodeRole::None;
   bool connected_ = false;
+  bool session_pending_ = false;
   std::uint64_t epoch_ = 0;
   LogSender sender_;
   StatsLink stats_link_;

@@ -36,6 +36,9 @@ struct Gates {
   bool game_loaded = false;
   bool universe_ready = false;
   std::uint64_t universe_epoch = 0;  // incremented on every on_universe_ready (this process incarnation)
+  // M3-13: true when the current universe-ready gate was opened by the host after /reloadui (the SAME universe, no save was loaded);
+  // false after a real on_universe_ready (a save load or a fresh start). The janitor sweeps only after a save load.
+  bool universe_ready_after_reload = false;
 };
 
 // Persisted by the host in the stash at shutdown (key "host.state") and readable after a reload; the host does NOT

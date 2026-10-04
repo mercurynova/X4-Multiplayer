@@ -10,6 +10,7 @@
 #include "core/authority/entity_spawn.h"
 #include "core/crypto/crypto.h"
 #include "features/avatars/avatar_hub.h"
+#include "features/janitor/janitor_feature.h"
 #include "common_generated.h"
 #include "message_ids_generated.h"
 
@@ -304,6 +305,11 @@ void AuthorityFlow::request_save(host::HostContext& ctx) {
   j["name"] = save_name_;
   j["request_id"] = request_id_;
   j["display"] = "X4MP checkpoint " + save_name_.substr(10, 8);
+  // M3-13 save hygiene: the authority universe must hold no ghost / client-side leftovers when the game writes the checkpoint. The check removes
+  // what it finds (never an avatar, never a guarded id); a leftover that cannot be removed flags the save ghosts_cleaned=false (the server stores
+  // it but never makes it current, ADR-023).
+  const auto hygiene = JanitorFeature::checkpoint_check(ctx);
+  ghosts_cleaned_ = hygiene.clean;
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: SaveGame requested as {} (request {})", save_name_, request_id_);
   step_ = Step::WaitSaveReply;
   step_since_ = Clock::now();
@@ -430,7 +436,7 @@ void AuthorityFlow::step_hashing(host::HostContext& ctx) {
   x4mp::authority::UploadSpec spec;
   spec.checkpoint = checkpoint_;
   spec.files = {ready_.save, ready_.manifest};
-  spec.ghosts_cleaned = true;
+  spec.ghosts_cleaned = ghosts_cleaned_;
   spec.step_timeout = seconds(60);
   if (!uploader_.start(std::move(spec))) return fail(ctx, "the upload job could not start (not connected?)");
   spawn_ship_ = collected_.ship();

@@ -253,6 +253,7 @@ void ModHost::handle_game_loaded() noexcept {
   try {
     gates_.game_loaded = true;
     gates_.universe_ready = false;
+    gates_.universe_ready_after_reload = false;
     synthesized_ready_ = false;
     X4MP_CLOG(*log_, Cat::Host, Level::Info, "game loaded (universe not ready yet)");
     registry_.game_loaded_all(*ctx_);
@@ -305,6 +306,7 @@ void ModHost::handle_universe_ready() noexcept {
     }
     gates_.game_loaded = true;
     gates_.universe_ready = true;
+    gates_.universe_ready_after_reload = synthesized_ready_;
     ++gates_.universe_epoch;
     guard_ids_ = game::refresh_player_guard(game_);
     X4MP_CLOG(*log_, Cat::Host, Level::Info, "universe ready (epoch {}, {} guarded id(s))", gates_.universe_epoch, guard_ids_);
