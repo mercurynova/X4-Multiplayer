@@ -574,6 +574,10 @@ void JoinFeature::update_diag(host::HostContext&) {
       out.bytes_in = ns.bytes_in;
       out.bytes_out = ns.bytes_out;
       out.write_buffer_bytes = ns.write_buffer_bytes;
+      out.udp_active = ns.udp.state == net::UdpState::Active;
+      out.udp_rx_loss_pct = ns.udp.rx_loss_pct;
+      out.udp_bytes_in = ns.udp.bytes_in;
+      out.udp_bytes_out = ns.udp.bytes_out;
       return true;
     };
     link.send_control = [this](std::uint16_t type, std::vector<std::uint8_t> payload) {
@@ -679,6 +683,7 @@ void JoinFeature::pump_session(host::HostContext& ctx) {
   if (authority_) {
     const auto& seat = selfship::selfship_hub().status();  // M3-09: the pilot seat (native) decides when the self-spawn may ask MD for the ship
     authority_->note_seat(seat.seated, seat.seat_edges);
+    selfship::selfship_hub().set_own_net_id(authority_->state().host_net_id);  // M3-14: the host's PlayerState names the ship the self-spawn made
     authority_->step(ctx);
   }
   step_authority_ready(ctx);

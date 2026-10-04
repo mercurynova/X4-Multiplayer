@@ -29,6 +29,8 @@
 #include <utility>
 #include <vector>
 
+#include <flatbuffers/flatbuffers.h>
+
 #include "core/authority/upload_job.h"
 #include "core/session/session.h"
 #include "features/authority/authority_data.h"
@@ -156,6 +158,14 @@ class AuthorityFlow {
   std::vector<avatars::Record> manifest_avatars_;     // M3-11: the avatars as of SaveGame, for the manifest
   std::optional<ShipRec> spawn_ship_;
   GalaxyPlan spawn_plan_;
+  // M3-14: the authority's clock reference. The server replicates player ships only after it has seen one WorldUpdate (its game time and capture time
+  // are the reference every entity state is stamped with), and the M3 mod streams no world: this sends the keepalive WorldUpdate (no states) at 20 Hz.
+  void step_world_clock(host::HostContext& ctx);
+  flatbuffers::FlatBufferBuilder wu_fbb_{256};
+  std::uint32_t wu_tick_ = 0;
+  Clock::time_point next_wu_{};
+  std::uint64_t wu_sent_ = 0, wu_failed_ = 0;
+  bool wu_logged_ = false;
 };
 
 }  // namespace x4mp::features::auth

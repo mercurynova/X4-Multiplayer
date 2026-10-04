@@ -66,6 +66,49 @@ public sealed class SaveJoinTests(ITestOutputHelper output)
         await SaveServer.WaitUntilAsync(() => client.Saves.CatchUpEntries - before == 4, 10_000, "catch-up after resume");
     }
 
+    /// <summary>M3-14: a resume without a journal position used to get nothing at all, so a string added while the socket was down never arrived.</summary>
+    [Fact]
+    public async Task AResumedNodeWithoutAJournalPositionGetsTheStringsItMissed()
+    {
+        await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0");
+        await using var authority = await RunningAsync(server);
+        await using var client = await ClientRig.StartAsync(server, "Roamer");
+        await client.WaitReadyAsync(30_000);
+        await server.WaitForAsync(s => s.Nodes.Any(n => n.Name == "Roamer" && n.Phase == NodePhase.InGame), 10_000, "in game");
+
+        await client.DropAsync();
+        await authority.AddStringAsync("ship_arg_s_fighter_01_a_macro");
+        await authority.AddStringAsync("x4mp_team_1", StringKind.Faction);
+        await SaveServer.WaitUntilAsync(() => server.World.Strings.TryFind(StringKind.Faction, "x4mp_team_1", out _), 10_000, "table grows");
+        Assert.DoesNotContain("x4mp_team_1", client.Saves.KnownStrings.Values);
+
+        await client.ResumeAsync(lastJournalSeq: 0);
+        await SaveServer.WaitUntilAsync(
+            () => client.Saves.KnownStrings.Count == server.World.Strings.Count, 10_000, "the full table after the resume");
+        Assert.Contains("ship_arg_s_fighter_01_a_macro", client.Saves.KnownStrings.Values);
+        Assert.Contains("x4mp_team_1", client.Saves.KnownStrings.Values);
+    }
+
+    /// <summary>
+    /// M3-14: a client that is still joining (a slow load) while the authority provisions an avatar must end up with the avatar's macro and
+    /// team faction: the catch-up snapshot and the incremental send together have to cover every moment of the join.
+    /// </summary>
+    [Fact]
+    public async Task AStringAddedWhileAClientIsStillJoiningReachesIt()
+    {
+        await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0");
+        await using var authority = await RunningAsync(server);
+        await using var client = await ClientRig.StartAsync(
+            server, "Slow", new FakeSaveClientOptions { Directory = server.ClientDir("Slow"), LoadDelay = TimeSpan.FromMilliseconds(1500) });
+        await server.WaitForAsync(s => s.Nodes.Any(n => n.Name == "Slow"), 15_000, "joining");
+        await authority.AddStringAsync("ship_arg_s_fighter_01_a_macro");
+        await authority.AddStringAsync("x4mp_team_2", StringKind.Faction);
+        await client.WaitReadyAsync(30_000);
+        await SaveServer.WaitUntilAsync(
+            () => client.Saves.KnownStrings.Count == server.World.Strings.Count, 10_000, "the whole table, avatar strings included");
+        Assert.Contains("x4mp_team_2", client.Saves.KnownStrings.Values);
+    }
+
     // ------------------------------------------------------------------ ManifestReport policy
 
     [Fact]

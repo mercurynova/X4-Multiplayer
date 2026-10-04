@@ -635,6 +635,22 @@ it was when its player went offline.
   ghost mirrors under a borrowed faction, and they **are** stripped before every
   save, as in the reference design.
 
+**As built in M3** (`features/avatars/**`, `game/avatars_api.*`, `md/x4mp_avatars.xml`; details in [m3-plan.md](m3-plan.md) section 8, M3-11/M3-13/M3-14):
+
+- One state machine, three layers: `AvatarDirector` (pure, over `IAvatarEnv`, Catch2 with a fake world) <- `AvatarsFeature` (GameApi, Lua bridge, stash, hubs) <- `avatar_hub()`
+  (the join feature hands it `PlayerShip`, `PlayerState`, `EntityDespawn`, `RosterUpdate`, `ServerSettingsUpdate`). Only the authority node acts.
+- **Provision** on `PlayerShip`: waits for `team_hub().factions_ready()`, the roster and the sector map; the spot is `place_near(host ship, Avatars.SpawnOffsetMeters, slot)`,
+  moved clear of stations by MD `get_safe_pos` (5 s, then the wanted spot); native `SpawnObjectAtPos2` under `x4mp_team_<slot>` + `ActivateObject(false)`; MD "dress": name
+  `[MP] <player>`, minimum hull 100, forced radar, known, the **basic early-game loadout** (`Avatars.StarterLoadout`, never the spawn default); then `EntitySpawn{origin=PlayerShip,
+  owner_player, owner_team, controller_player, name, idcode}`. A second `PlayerShip` from the same player gets the same ship and `net_id`.
+- **Driving**: the relayed `PlayerState` (with the server-derived velocity) goes through the shared `core/ghost` interpolator; `SetObjectSectorPos` every frame, a 5 Hz velocity hint.
+  **Parking**: roster `removed` -> `EntityChange{Controller=0}`, the ship stays, snapped back every second if something pushes it; `online=false` (resume grace) only suspends driving.
+- **Persistence and the binder**: identity records (player, team, net id, name, macro, idcode, owner, sector macro, pose) live in the stash and in `avatar-records.txt` next to the
+  config; at every init the binder matches them to the `x4mp_team_*` ships of the loaded universe (idcode + name + owner, nearest wins), respawns only what nothing matches, and the
+  checkpoint manifest lists the avatars (`origin=PlayerShip`, D2). The janitor and the pre-save check never remove an avatar (bound id or idcode).
+- **The host's ship** (M3-14): the authority's self-spawn is a player ship too (`origin=PlayerShip`, controller = the host, name `[MP] <host>`), the host's `PlayerState` carries its
+  `net_id` (persisted as `host_net_id` in the authority state), and the authority sends the keepalive `WorldUpdate` clock at 20 Hz (protocol.md 13.1). The authority has no ghosts.
+
 ---
 
 ## 4. Client pipeline
@@ -837,6 +853,33 @@ the team that maps to the authority's `player` faction (section 11.3). Each
 client player owns their avatar ship, plus anything they build, buy or capture
 during the session. Those assets live in the authority's universe under their
 team faction. Credits are covered by the wallet model (section 12).
+
+### 4.11 As built in M3 (client takeover, player ghosts, the janitor)
+
+What is real after M3 (M3-02, M3-09 .. M3-14; per-task details in [m3-plan.md](m3-plan.md) section 8). Players only: the NPC world is **not** streamed before M4, so a client's local
+universe keeps running unsynced next to the shared player ships.
+
+- **Own ship** (`features/selfship`): native per-frame sampling of the player's ship (`GetObjectPositionInSector` + sector context, angles in radians, sector-local metres),
+  `PlayerState` 20 Hz moving / 5 Hz idle / 1 Hz hidden / immediately on a sector change or teleport, `Hidden` while docked, in a highway or standing up; the sector index is the rank
+  of the macro in the ordinally sorted macro list (the same rule on every node, no table on the wire); SETA is blocked at the MD event and switched off by a safety net within 1 s.
+- **Takeover** (`features/avatars/avatar_takeover.*`): standing in the host's ship after the load -> `PlayerShip` (every 10 s until answered) -> locate the avatar in the loaded save
+  (idcode + name among the `x4mp_team_*` ships) or spawn a `player`-owned copy at the `EntitySpawn`'s pose -> `CanTeleportPlayerTo` must answer `"granted"` ->
+  `TeleportPlayerTo(copy, true, true, true)` -> `PlayerGuard` must show the player in it for **10 consecutive frames** -> only then remove the vacated host-ship copy and the avatar
+  copies the manifest / an `EntitySpawn` names. Refusals back off 2..5 s then every 20 s forever (nothing destructive exists in that path); from the 3rd refusal the HUD hint
+  "Sit in the pilot seat to take over your ship" shows. The record survives `/reloadui` in the stash (`avatars.takeover`). `PlayerState` and ghost spawning are held until the guard.
+- **Ghosts** (`features/ghosts`, shared `core/ghost`): `Replication`/`EntitySpawn`/`EntityChange`/`EntityDespawn` of player ships -> native spawn under the team faction, inert, forced radar,
+  MD dress (`[MP] <name>`, `(offline)` while parked, minimum hull, known), per-frame `SetObjectSectorPos` from a Hermite interpolator with a render clock of the stream's own base
+  (`now - bias`, min of arrival-minus-reference over 128 messages), a 5 Hz velocity hint, hide (`SafeRemove`, record kept) / show on `Hidden` / `DockedInside`, sector changes as ONE
+  placement into the new sector, stash persistence and adoption after `/reloadui` (a stashed id is trusted only with the same idcode and an `[MP] ` name; otherwise found again by idcode
+  among the team ships), `[sync]` lines every 5 s. Orientation signs live in one place (`GhostsApi::to_pos_rot`: `kYawSign`/`kPitchSign`/`kRollSign`).
+- **Janitor** (`features/janitor`): at the first real universe-ready after a load a node removes `[MP] ` leftovers of `player` and the team factions (never ghosts, avatars, the takeover
+  copies, guarded ids; a client waits for the takeover to finish; a node without a session after 15 s of frame time), each through `SafeRemove`; the authority's pre-save check removes stale
+  objects and requires an empty ghost registry (`ghosts_cleaned` goes into `SaveUploadBegin`). `tools/X4MP.SaveScan` reads a save and reports what is left.
+- **Chat and roster** (`features/chat`, `ui/x4mp_chat.lua`, `ui/x4mp_players.lua`): the vanilla chat window through wrappers of `OnlineGetChatMessages` / `OnlineSendChatMessage` /
+  `ExecuteDebugCommand` (`/t`, `/w`), the player list in the Multiplayer window, join/leave notices; chain-safe with SirNukes (wrap on top, unwrap only if ours is on top).
+- **Numbers** (hostsim, relwithdebinfo, loopback; `tools/session4/sync-report.ps1`): with 7 remote players the mod's main-thread cost is about 0.10 ms p95 per frame on a client and
+  about 0.12 ms on the authority (target < 0.2 ms), the ghost driver itself 0.03 ms p95, a client receives about 1 kB/s and sends about 2 kB/s (target < 20 kB/s), the authority receives
+  about 10 kB/s (the relayed `PlayerState`s), the log stays under 10 lines/s, and a ghost of a ship at 270 m/s shows a path error of 4-6 m p95 against the sender's own samples.
 
 ---
 
@@ -1699,6 +1742,13 @@ remote truth and the ghost is under 50 m at speeds below 500 m/s, as measured by
 the `[SYNC] maxerr` comparison. There are no Game Overs, no log floods (fewer
 than 10 lines per second sustained), and less than 1 FPS cost from the mod.
 
+**Status (2026-10-04, after M3-14):** everything above is built and green in CI without X4 (Catch2 + Lua + hostsim, including the two-DLL pair run `HostSimM3` that plays join,
+takeover, avatars, ghosts, chat, a gate jump, a checkpoint with avatars, a save load with renumbered ids and reloads, and the `sync-report` numbers). The exit-criteria mapping,
+what only the game can show, and the in-game checks are in [in-game-session-4.md](in-game-session-4.md) ("Exit criteria and what each sitting answers"); sittings 1-3 are
+finalised, nobody has run them yet. Mapping to the list above: items 1-1b are teams and avatars (`features/teams`, `features/avatars`), 2-3 the sector map and own-ship capture
+(`features/selfship`), 4-5 the ghosts (`features/ghosts`, `core/ghost`), 6 chat (`features/chat`), 7 save hygiene (janitor, the `SaveJob` check, `tools/X4MP.SaveScan`). The client
+**save block** of item 7 is still M4 (Q8: a client quicksave writes a file, and the janitor removes the `[MP] ` ships when it is loaded with the mod).
+
 ### M4: Authority world streaming, interest management, ghost-only clients
 
 1. `CaptureSet` handling and the incremental universe index (dedupe, sized
@@ -2000,6 +2050,12 @@ player ship**. Without intervention, everyone would be flying the same ship.
   (`player`-owned on the authority, reported as their team).
 - **Death:** see 5.2. The avatar is destroyed on the authority. On respawn the
   server provisions a new starter ship. The policy setting is `respawn_ship`.
+
+**As built in M3** (sections 3.7 and 4.11 have the mechanics): the starter ship comes from ONE place (`Avatars.StarterShipMacro`, default the Argon Elite; `Avatars.StarterLoadout`
+for the early-game equipment; later per race/team origin, ADR-049, M5); it is spawned next to the host's ship (`Avatars.SpawnOffsetMeters`, 1x..2x, golden angle per slot) after the MD
+safe-position clearance (a spawn 300 m ahead of a docked ship landed inside the station in sitting 0); the client's takeover waits for the 10-frame guard before it removes anything;
+the "first join" of this section is a `PlayerShip` answered by the authority, a rejoin gets the same ship and `net_id`. The server never removes an avatar on leave
+(`EntityChange{Controller=0}`: parked, shown "(offline)"); an admin kick/ban with `removeAvatar` sends the authority an `EntityDespawn{Removed}`.
 
 ### 11.5 Joins, team selection, switches
 

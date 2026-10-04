@@ -1,0 +1,120 @@
+# M3-14 pair run, the CLIENT half: the real x4mp.dll as the player "Pia" in the session of the REAL x4mp.dll authority (m3_authority.hostsim) with FakeNode
+# bots as the other players. Run by m3_pair_run.ps1.
+# vars: tcp, name (this player), host (the authority's player name), sync (folder both processes write), bots, ghosts (= bots + 1: every other player), reloads
+#
+# What it proves on the client side (docs/m3-plan.md criteria 2, 3, 6, 7, 10, 11):
+#   * join + download + load + resume + InGame as a client of a real authority
+#   * the takeover from the standing state: the avatar the real authority made, the guard, the host ship copy removed, nothing else touched
+#   * ghosts of every other player (the host ship and the bots) under the team faction, inert, radar, minimum hull, ghost spawn only after the takeover
+#   * the host ghost's path error vs the authority's own samples (the authority flies a circle) from the mod's [sync] lines
+#   * chat both ways (the authority's line, the bots' echo of ours)
+#   * a gate jump: the server (and the authority's avatar of us) follow into sector 2
+#   * the authority's checkpoint + "save load" (renumbered ids): the ghosts stay, none respawn
+#   * N DLL reloads: ghosts adopted from the stash, 0 leaks, 0 duplicates
+world sector add 100003
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_02_sector001_macro=100002,cluster_03_sector001_macro=100003
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"${name}","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 8000 contains x4mp_
+
+# X4 reloads the DLL on the save load (stash kept): the session resumes
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_m3_client
+frame 60Hz 180
+expect-lua x4mp.status 8000 json $.state == ingame
+expect-admin /api/v1/players $[name==${name}].online == true
+
+# ---- the takeover (the player stands in the host's ship = the fake world's ship 200001; teleports are allowed) ----
+until 90000 expect-lua x4mp.takeover 0 json $.stage == done
+expect-file extension/logs/x4mp.log takeover: standing in ship 200001
+expect-file extension/logs/x4mp.log takeover: avatar granted
+expect-file extension/logs/x4mp.log takeover: the guard confirmed
+expect-file extension/logs/x4mp.log takeover: removed the local copy 200001
+expect-object 200001 absent
+expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
+expect-state teleports == 1
+expect-state removed == 1
+seat on
+# we sit in the avatar, next to the host ship in sector 1: fly a circle (20 Hz PlayerState, the authority drives our avatar from it)
+drop-lua x4mp.selfship
+ship path circle radius=1500 speed=200 center=300,0,300 sector=100001
+frame 60Hz 300
+expect-lua x4mp.selfship 5000 json $.rate_hz > 15
+expect-admin /api/v1/dashboard $.players[name==${name}].sectorId == 1 timeout=10000
+
+# ---- ghosts: the host's ship and every bot ----
+until 120000 expect-object count == ${ghosts} owner=x4mp_team_1
+expect-object count == 1 "name=[MP] ${host}"
+expect-object count == ${ghosts} owner=x4mp_team_1 minhull=100 active=0 radar=1
+expect-object count == 0 "name=[MP] ${name}"
+expect-state spawns == ${spawns}
+# the janitor ran after the takeover and removed nothing live
+expect-file extension/logs/x4mp.log janitor: swept: 0 leftover
+until 60000 expect-object count >= 1 moving=1 owner=x4mp_team_1
+
+# ---- the GUI's view (criterion 13): UDP active for both nodes, the ghosts the client shows ----
+expect-admin /api/v1/dashboard $.players[name==${name}].stats.udpActive == true timeout=20000
+expect-admin /api/v1/dashboard $.players[name==${host}].stats.udpActive == true timeout=20000
+expect-admin /api/v1/dashboard $.players[name==${name}].stats.ghosts == ${ghosts} timeout=20000
+
+# ---- path error of the host ghost, measured by the mod itself (the authority flies a circle at 250 m/s) ----
+until 120000 expect-ghost ${host} samples > 900 timeout=0
+until 90000 expect-ghost ${host} err_p95 < 10 timeout=0
+expect-ghost ${host} err_p50 < 4 timeout=0
+expect-ghost ${host} err_max < 25 timeout=0
+
+# ---- chat ----
+write-file ${sync}/client.chat ready
+lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from ${name}"}
+until 30000 expect-lua x4mp.chat 0 contains echo: hello from ${name}
+write-file ${sync}/client.echoed ok
+until 30000 expect-lua x4mp.chat 0 contains hello from ${host}
+expect-file extension/logs/x4mp.log chat: sent channel=all
+until 60000 expect-file ${sync}/auth.chat ok timeout=0
+
+# ---- a gate jump: the server and the authority's avatar of us follow into sector 2 ----
+ship place sector=100001 pos=0,0,-500
+ship path gate from=0,0,-500 to=0,0,0 speed=500 sector=100001 to_sector=100002 exit=0,0,50
+frame 60Hz 180
+expect-state gate_jumps == 1
+expect-admin /api/v1/dashboard $.players[name==${name}].sectorId == 2 timeout=10000
+# hold position in sector 2 (a short circle)
+ship path circle radius=800 speed=150 center=0,0,50 sector=100002
+frame 60Hz 60
+write-file ${sync}/client.jumped ok
+
+# ---- the authority's checkpoint and "save load" (renumbered ids on its side): our ghosts stay, none respawns ----
+until 240000 expect-file ${sync}/auth.checkpoint ok timeout=0
+until 240000 expect-file ${sync}/auth.reloaded ok timeout=0
+frame 60Hz 120
+until 60000 expect-object count == ${ghosts} owner=x4mp_team_1
+expect-state spawns == ${spawns}
+expect-object count == 1 "name=[MP] ${host}"
+
+# ---- reloads: the ghosts are adopted from the stash every time ----
+repeat ${reloads}
+reloadui
+frame 60Hz 120
+until 60000 expect-object count == ${ghosts} owner=x4mp_team_1 minhull=100
+end-repeat
+# the last instance gets the server clock again within a few seconds and then adopts the ghosts of the stash (no second spawn, no leftovers)
+until 30000 expect-file extension/logs/x4mp.log ghost adoption: records=${ghosts} adopted_by_id timeout=0
+expect-file extension/logs/x4mp.log lost=0 (registry
+expect-state spawns == ${spawns}
+expect-state removed == 1
+expect-object count == ${ghosts} owner=x4mp_team_1
+expect-object count == 1 "name=[MP] ${host}"
+expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
+expect-admin /api/v1/players $[name==${name}].online == true
+
+write-file ${sync}/client.done ok
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret never-written-password
+shutdown

@@ -682,6 +682,9 @@ export interface NodeStatsDto {
   netMainMsP95: number;
   memoryMb: number;
   receivedAt: string;
+  udpActive: boolean;
+  udpRxLossPct: number;
+  ghosts: number;
 }
 
 export interface PatchModPolicyRequest {

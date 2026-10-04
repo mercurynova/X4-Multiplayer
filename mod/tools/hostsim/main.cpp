@@ -347,6 +347,7 @@ class Runner {
     else if (cmd == "shutdown") cmd_shutdown();
     else if (cmd == "reload") cmd_reload(false);
     else if (cmd == "restart") cmd_reload(true);
+    else if (cmd == "reloadui") { cmd_reload(false); fire("on_game_loaded"); }  // M3-14: what /reloadui really does: X4Native replays on_game_loaded at once (the mod then treats the universe as ready again)
     else if (cmd == "ui_reload") { need_loaded(); fire("on_ui_reload"); }
     else if (cmd == "load_save") cmd_load_save(t.size() > 1 ? t[1] : "");
     else if (cmd == "save") { need_loaded(); fire("on_game_save"); }
@@ -682,11 +683,19 @@ class Runner {
   }
 
   // expect-file <path> <text>: the file (relative to the work dir; the mod's file log is extension/logs/x4mp.log) holds the text.
-  void cmd_expect_file(const std::vector<std::string>& t, const std::string& text) {
-    need(t, 3, "expect-file <path> <text>");
+  void cmd_expect_file(const std::vector<std::string>& t, const std::string& text_in) {
+    need(t, 3, "expect-file <path> <text> [timeout=<ms>]");
     fs::path p = t[1];
     if (p.is_relative()) p = work_ / p;
-    const auto deadline = Clock::now() + scaled(3000);
+    // M3-14: a trailing `timeout=<ms>` is the retry window (default 3 s, scaled). `until <ms> expect-file <path> <text> timeout=0` is a single look: it must not
+    // block the frame loop while it waits (a blocked authority stops sending its clock and PlayerState, and the other node sees seconds of lag).
+    std::string text = text_in;
+    long long timeout_ms = 3000;
+    if (const auto sp = text.rfind(" timeout="); sp != std::string::npos && is_number(text.substr(sp + 9))) {
+      timeout_ms = std::atoll(text.c_str() + sp + 9);
+      text = trim(text.substr(0, sp));
+    }
+    const auto deadline = Clock::now() + scaled(timeout_ms);
     for (;;) {
       std::ifstream f(p, std::ios::binary);
       const std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());

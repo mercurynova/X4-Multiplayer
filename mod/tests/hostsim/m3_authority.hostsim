@@ -1,0 +1,122 @@
+# M3-14 pair run, the AUTHORITY half (run by m3_pair_run.ps1; the other process is m3_client.hostsim, the extra players are FakeNode bots).
+# vars: tcp, apw, sim, ckpt_src, ckpt_src2, admin_url, admin_pw, sync (folder both processes write), bots (number of FakeNode bots), reloads
+#
+# What it proves on the authority side (docs/m3-plan.md criteria 3, 4, 5, 10, 15):
+#   * join as the authority of an uploaded save, first checkpoint, session Running (as authority_flow / avatars)
+#   * the host sits down: the host ship is announced; the client (real DLL) and the bots get avatars: team ships, inert, minimum hull, radar, driven
+#     from their relayed PlayerState (the client's avatar follows the client through a gate jump)
+#   * chat both ways with the real client and the bots' echo
+#   * a checkpoint with 7 avatars lists them in the manifest; after "a save load" (world renumber + reload) every avatar is bound again, none respawned
+#   * a leaving player's avatar stays parked
+# The Lua/MD side is emulated by hostsim (`world md-emulate on`: sector list, team report, safe position, dress); the checkpoint (galaxy, SaveGame) is played here.
+world sector add 100003
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_02_sector001_macro=100002,cluster_03_sector001_macro=100003
+init
+set game_time 4000
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_authority_e2e
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+
+# the first checkpoint: MD reports the galaxy and the host's ship
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 150
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+
+# the host sits in its ship in sector 1 and flies a circle (the client sees it as a ghost and measures the path error against these samples)
+ship place sector=100001 pos=0,0,0
+drop-lua x4mp.selfship
+seat on
+ship path circle radius=2000 speed=250 center=0,0,0 sector=100001
+frame 60Hz 300
+expect-lua x4mp.selfship 5000 json $.rate_hz > 15
+# the runner starts the client and the bots now
+write-file ${sync}/auth.running ok
+
+# ---- avatars: the client Pia (real DLL) and the bots ----
+until 150000 expect-object count == ${avatars} owner=x4mp_team_1
+expect-object count == 1 "name=[MP] Pia"
+expect-object count == ${avatars} owner=x4mp_team_1 minhull=100 radar=1
+expect-object count == ${avatars} owner=x4mp_team_1 active=0
+expect-object owner=x4mp_team_1 macro == ship_arg_s_fighter_01_a_macro
+expect-no-log SpawnObjectAtPos2 failed
+# driven from the relayed PlayerState (20 Hz each)
+until 30000 expect-state set_pos_calls > 2000
+write-file ${sync}/auth.avatars ok
+
+# ---- chat with the real client and the bots' echo ----
+until 120000 expect-file ${sync}/client.chat ready timeout=0
+until 30000 expect-lua x4mp.chat 0 contains hello from Pia
+until 60000 expect-file ${sync}/client.echoed ok timeout=0
+lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from HostAlice"}
+until 30000 expect-lua x4mp.chat 0 contains echo: hello from HostAlice
+write-file ${sync}/auth.chat ok
+
+# ---- the client takes over, sees every ghost and jumps a gate: its avatar follows into sector 2 ----
+until 150000 expect-file ${sync}/client.jumped ok timeout=0
+until 20000 expect-object "name=[MP] Pia" sector == 100002
+expect-object count == ${avatars} owner=x4mp_team_1
+
+# ---- a checkpoint with every avatar ----
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode post -Url "${admin_url}" -Password "${admin_pw}" -Path "/api/v1/sessions/{current}/request-save"
+frame 60Hz 60
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src2}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4300.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log manifest lists ${avatars} avatar(s)
+expect-file extension/logs/x4mp.log janitor: checkpoint check: 0 stale
+expect-file extension/logs/x4mp.log ghosts_cleaned=true
+write-file ${sync}/auth.checkpoint ok
+
+# ---- "a save load": every component id changes; the binder finds every avatar again, nothing is respawned ----
+world renumber
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_authority_e2e
+frame 60Hz 180
+# (md-emulate answers the sector map and the team report of the new universe)
+until 60000 expect-file extension/logs/x4mp.log avatars: ${avatars} avatar record(s) restored timeout=0
+until 30000 expect-object count == ${avatars} owner=x4mp_team_1
+expect-state spawns == ${avatars}
+expect-file extension/logs/x4mp.log avatars: rebound player
+expect-no-log SpawnObjectAtPos2 failed
+drop-lua x4mp.selfship
+seat on
+ship place sector=100001 pos=0,0,0
+ship path circle radius=2000 speed=250 center=0,0,0 sector=100001
+write-file ${sync}/auth.reloaded ok
+
+# ---- the client reloads and leaves; its avatar stays parked ----
+until 240000 expect-file ${sync}/client.done ok timeout=0
+until 30000 expect-file extension/logs/x4mp.log stays parked at its pose timeout=0
+expect-object count == ${avatars} owner=x4mp_team_1
+expect-state spawns == ${avatars}
+expect-object "name=[MP] Pia" exists
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown

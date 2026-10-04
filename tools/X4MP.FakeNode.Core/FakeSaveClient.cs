@@ -58,6 +58,7 @@ public sealed class FakeSaveClient : IDisposable
     private long _lastStatusTicks;
     private long _catchUpEntries;
     private long _stringEntries;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, string> _strings = new();
 
     public FakeSaveClient(TcpNodeClient client, FakeSaveClientOptions? options = null, Action<string>? log = null)
     {
@@ -98,6 +99,9 @@ public sealed class FakeSaveClient : IDisposable
     public long CatchUpEntries => Interlocked.Read(ref _catchUpEntries);
 
     public long StringEntries => Interlocked.Read(ref _stringEntries);
+
+    /// <summary>The distinct string-table entries received so far (index -> value); duplicates from a replay are stored once.</summary>
+    public IReadOnlyDictionary<uint, string> KnownStrings => _strings;
 
     /// <summary>Hash mismatches seen (a mismatch restarts the file once).</summary>
     public int ChecksumFailures { get; private set; }
@@ -172,7 +176,16 @@ public sealed class FakeSaveClient : IDisposable
                 await OnChunkAsync(frame, ct).ConfigureAwait(false);
                 return true;
             case MsgType.StringTableAdd:
-                Interlocked.Add(ref _stringEntries, MessageRegistry.Default.Decode<StringTableAdd>(frame).EntriesLength);
+                var table = MessageRegistry.Default.Decode<StringTableAdd>(frame);
+                Interlocked.Add(ref _stringEntries, table.EntriesLength);
+                for (int i = 0; i < table.EntriesLength; i++)
+                {
+                    if (table.Entries(i) is { } entry)
+                    {
+                        _strings[entry.Index] = entry.Value;
+                    }
+                }
+
                 return true;
             case MsgType.WorldCatchUp:
                 await OnCatchUpAsync(MessageRegistry.Default.Decode<WorldCatchUp>(frame), ct).ConfigureAwait(false);

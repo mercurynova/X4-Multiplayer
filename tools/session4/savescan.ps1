@@ -41,7 +41,7 @@ else {
     $user = Resolve-X4UserDir $UserId
     $name = if ($Save -match '\.xml(\.gz)?$') { $Save } else { "$Save.xml.gz" }
     $candidate = Join-Path (Join-Path $user 'save') $name
-    if (-not (Test-Path -LiteralPath $candidate)) { Write-Error "save not found: '$Save' (also tried $candidate)"; exit 2 }
+    if (-not (Test-Path -LiteralPath $candidate)) { [Console]::Error.WriteLine("save not found: '$Save' (also tried $candidate)"); exit 2 }
     $savePath = $candidate
 }
 
@@ -55,7 +55,7 @@ if ($Json) { $argsList += @('--json', $Json) }
 $dll = Join-Path $repo 'tools\X4MP.SaveScan\bin\Release\net10.0\X4MP.SaveScan.dll'
 if (-not (Test-Path $dll)) {
     & dotnet build (Join-Path $repo 'tools\X4MP.SaveScan') -c Release -nologo -v quiet | Out-Host
-    if ($LASTEXITCODE -ne 0) { Write-Error 'building tools\X4MP.SaveScan failed'; exit 2 }
+    if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine('building tools\X4MP.SaveScan failed'); exit 2 }
 }
 & dotnet $dll @argsList
 exit $LASTEXITCODE

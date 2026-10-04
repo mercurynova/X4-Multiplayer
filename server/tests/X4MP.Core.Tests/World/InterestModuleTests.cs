@@ -73,6 +73,39 @@ public sealed class InterestModuleTests(ITestOutputHelper output)
         Assert.Empty(boss.Connection.SentOf(MsgType.StringTableAdd));
     }
 
+    /// <summary>
+    /// M3-14: the catch-up takes its string snapshot while the node is Matching and the move to CatchingUp is queued behind it, so a string added
+    /// in that window has to be sent to a Matching node (before, it was in neither the snapshot nor the incremental send).
+    /// </summary>
+    [Fact]
+    public async Task StringsAddedWhileAClientIsMatchingAreSentToIt()
+    {
+        var mirror = new WorldMirror();
+        var interest = new InterestManager(mirror, new InterestOptions());
+        await using var rig = new ActorRig(modules: [mirror, interest]);
+        var boss = await rig.JoinAuthorityAsync();
+        await rig.BringInGameAsync(boss);
+        var alice = await rig.JoinAsync("Alice");
+        foreach (var phase in new[] { NodePhase.SyncingSave, NodePhase.Verifying, NodePhase.Loading })
+        {
+            await rig.LoadStatusAsync(alice, phase);
+        }
+
+        await rig.SendAsync(boss, MsgType.StringTableAdd, Builder(b => StringTableAdd.Pack(b, new StringTableAddT
+        {
+            Entries = [new StringEntryT { Index = 1, Kind = StringKind.Macro, Value = "early" }],
+        }).Value));
+        Assert.Empty(alice.Connection.SentOf(MsgType.StringTableAdd));   // still loading: the catch-up snapshot will carry it
+
+        await rig.LoadStatusAsync(alice, NodePhase.Matching);
+        await rig.SendAsync(boss, MsgType.StringTableAdd, Builder(b => StringTableAdd.Pack(b, new StringTableAddT
+        {
+            Entries = [new StringEntryT { Index = 2, Kind = StringKind.Macro, Value = "ship_arg_s_fighter_01_a_macro" }],
+        }).Value));
+        var sent = Assert.Single(alice.Connection.SentOf(MsgType.StringTableAdd)).Decode<StringTableAdd>();
+        Assert.Equal((uint)2, sent.Entries(0)!.Value.Index);
+    }
+
     [Fact]
     public async Task ADetachedClientIsForgottenAndStartsFreshWhenItResumes()
     {

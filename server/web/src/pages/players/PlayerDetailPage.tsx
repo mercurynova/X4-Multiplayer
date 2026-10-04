@@ -111,6 +111,12 @@ function Connection({ live, address }: { live: PlayerLiveDto | null; address: st
           <dd data-testid="stat-traffic">
             {formatRate(live.stats.rxBytesPerS)} / {formatRate(live.stats.txBytesPerS)}
           </dd>
+          <dt>Realtime lane</dt>
+          <dd data-testid="stat-udp">
+            {live.stats.udpActive ? `UDP (loss ${live.stats.udpRxLossPct.toFixed(1)} %)` : 'TCP (UDP not active)'}
+          </dd>
+          <dt>Ghosts shown</dt>
+          <dd data-testid="stat-ghosts">{live.stats.ghosts}</dd>
           <dt>Game time</dt>
           <dd data-testid="stat-game-time">{formatDuration(live.stats.gameTime)}</dd>
         </>

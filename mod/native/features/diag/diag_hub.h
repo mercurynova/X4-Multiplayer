@@ -33,6 +33,11 @@ struct NetSample {
   std::uint64_t bytes_in = 0;   // cumulative since the connection start
   std::uint64_t bytes_out = 0;
   std::uint64_t write_buffer_bytes = 0;
+  // M3-14: the UDP realtime lane. bytes_in / bytes_out above are the TCP connection only; the Realtime traffic (ghost positions) rides these.
+  bool udp_active = false;           // the lane is bound and carries the Realtime frames (false = they go over TCP)
+  float udp_rx_loss_pct = 0.0f;
+  std::uint64_t udp_bytes_in = 0;
+  std::uint64_t udp_bytes_out = 0;
 };
 struct StatsLink {
   std::function<bool(NetSample&)> sample;

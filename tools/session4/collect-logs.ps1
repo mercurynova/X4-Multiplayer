@@ -10,7 +10,10 @@
                                      launch.json is NEVER included
     galaxy-dump.json                 if the file is missing there, rebuilt from the S13.11 DATA lines of the game log (also saved to
                                      out\session4\galaxy-dump.json, which the FakeNode --galaxy-file takes in sittings 1-2)
-    server-logs\, fakenode.log, server.out.log, server.err.log   from out\session4\ (sittings 1-3; absent in sitting 0)
+    x4mp-lines.txt, sync-report.txt  (product mode, sittings 1-3) the [sync] / [perf] / takeover: / ghosts: / avatars: / janitor: / selfship: / chat /
+                                     warning lines of Documents\Egosoft\X4\x4mp\logs\x4mp.log, and the output of sync-report.ps1 on that log;
+                                     x4mp\x4mp.json, x4mp\avatar-records.txt, x4mp\authority-saves.json (the mod's own files; no password is ever in them)
+    server-logs\, fakenode.log, fakenode-clients.log, server.out.log, server.err.log   from out\session4\ (sittings 1-3; absent in sitting 0)
   Never included: saves, initial-admin-password*, anything named *password*, the database, launch.json. Supports -WhatIf.
   X4 overwrites its -logfile (and the x4native logs) each time it starts: collect before the next start. -Label puts a word into the zip
   name so the zips stay apart (logs-<label>-<date-time>.zip); sitting 0 uses -Label s0.
@@ -41,6 +44,8 @@ Add-Item $gameLog $GameLogName
 Add-Item (Join-Path $user 'x4native') 'x4native'
 Add-Item (Join-Path $cfgDir 'logs') 'x4mp\logs'
 Add-Item (Join-Path $cfgDir 'galaxy-dump.json') 'x4mp\galaxy-dump.json'
+foreach ($n in 'x4mp.json', 'avatar-records.txt', 'authority-saves.json') { Add-Item (Join-Path $cfgDir $n) ('x4mp\' + $n) }   # product mod: settings (never a password), avatar records, authority bookkeeping
+Add-Item (Join-Path $OutDir 'fakenode-clients.log') 'fakenode-clients.log'
 Add-Item (Join-Path $OutDir 'data\logs') 'server-logs'
 Add-Item (Join-Path $OutDir 'fakenode.log') 'fakenode.log'
 Add-Item (Join-Path $OutDir 'server.out.log') 'server.out.log'
@@ -95,7 +100,21 @@ if ($PSCmdlet.ShouldProcess($zip, 'Create log archive')) {
             [IO.File]::WriteAllLines((Join-Path $stage 'spike-lines.txt'), $lines)
             $withoutData = @($lines | Where-Object { $_ -notmatch 'S13\.11 DATA ' }).Count
             Write-Host ("  spike-lines.txt: {0} lines ({1} without the galaxy DATA chunks)" -f $lines.Count, $withoutData)
-            if ($lines.Count -eq 0) { Write-Warning "No [X4MP-SPIKE] / [X4MP-PROBE] lines in ${GameLogName}: the launch option -debug all -logfile $GameLogName missing, or the kit was not active?" }
+            if ($lines.Count -eq 0) { Write-Host "  (no [X4MP-SPIKE] / [X4MP-PROBE] lines in ${GameLogName}: normal in sittings 1-3, where the product mod runs; in sitting 0 it means the launch option -debug all -logfile $GameLogName is missing or the kit was not active)" }
+        }
+        # product mode (sittings 1-3): the lines that matter of the mod log, in order, plus the sync-report summary (docs\in-game-session-4.md)
+        $modLog = Join-Path $cfgDir 'logs\x4mp.log'
+        if (Test-Path $modLog) {
+            $keep = New-Object System.Collections.Generic.List[string]
+            $fs = [IO.File]::Open($modLog, 'Open', 'Read', 'ReadWrite'); $sr = New-Object IO.StreamReader($fs)
+            try { while ($null -ne ($l = $sr.ReadLine())) { if ($l -match '\[sync\]|\[perf\]|takeover:|ghosts:|avatars:|janitor:|selfship:|\[chat\]|chat:|SELFTEST|teams?:|seta|SETA|udp|UDP|\[WARN\]|\[ERROR\]') { $keep.Add($l) } } } finally { $sr.Dispose() }
+            [IO.File]::WriteAllLines((Join-Path $stage 'x4mp-lines.txt'), $keep)
+            Write-Host ("  x4mp-lines.txt: {0} lines of the mod log" -f $keep.Count)
+            try {
+                $report = & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'sync-report.ps1') -Log $modLog 2>&1
+                [IO.File]::WriteAllLines((Join-Path $stage 'sync-report.txt'), [string[]]@($report | ForEach-Object { "$_" }))
+            }
+            catch { Write-Warning "sync-report could not run: $($_.Exception.Message)" }
         }
         # galaxy dump: file written by the spike, else rebuilt from the log chunks
         $dumpFile = Join-Path $cfgDir 'galaxy-dump.json'

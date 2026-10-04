@@ -10,6 +10,9 @@
 #include "core/authority/entity_spawn.h"
 #include "core/crypto/crypto.h"
 #include "features/avatars/avatar_hub.h"
+#include "features/chat/chat_json.h"
+#include "features/selfship/selfship_hub.h"
+#include "world_generated.h"
 #include "features/janitor/janitor_feature.h"
 #include "common_generated.h"
 #include "message_ids_generated.h"
@@ -150,6 +153,7 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
     sent_macros_.clear();
     known_strings_.clear();
     state_.spawned = false;
+    state_.host_net_id = 0;
     state_.strings_sent = false;
     state_.string_count = 0;
     state_.next_net_id = 1;
@@ -262,6 +266,34 @@ void AuthorityFlow::step(host::HostContext& ctx) {
   });
   if (spawn_due_) maybe_spawn(ctx);
   if (ship_wait_ && step_ == Step::Idle && !spawn_due_) step_ship_wait(ctx);
+  step_world_clock(ctx);
+}
+
+// M3-14 (found by the two-DLL pair run): without a WorldUpdate the server never replicates anything (ReplicationModule: "no WorldUpdate yet: its game time is the
+// reference every entry is stamped with"), so no client would see another player move. The M3 mod streams no NPC world (M4), so the authority only sends the
+// clock: a WorldUpdate with no states, 20 Hz (the server's tick), on the Realtime lane like PlayerState. Starts once a checkpoint exists (the session runs).
+void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
+  if (state_.checkpoints == 0 && stored_total_ == 0) return;
+  const auto now = Clock::now();
+  if (now < next_wu_) return;
+  auto& hub = selfship::selfship_hub();
+  std::int64_t server_now = 0;
+  if (!hub.linked() || !hub.server_now(server_now)) return;
+  const auto game_time = ctx.game.game_time();
+  if (!game_time || !x4mp::authority::EntitySpawnBuilder::is_valid_game_time(*game_time)) return;
+  next_wu_ = std::max(next_wu_ + std::chrono::milliseconds(50), now - std::chrono::milliseconds(50));  // 20 Hz, at most one extra send after a long frame
+  wu_fbb_.Clear();
+  const auto states = wu_fbb_.CreateVectorOfStructs<P::EntityState>(nullptr, 0);
+  wu_fbb_.Finish(P::CreateWorldUpdate(wu_fbb_, ++wu_tick_, static_cast<std::uint64_t>(server_now), *game_time, states));
+  if (hub.send_realtime(T(P::MsgType::WorldUpdate), std::span<const std::uint8_t>(wu_fbb_.GetBufferPointer(), wu_fbb_.GetSize()))) {
+    ++wu_sent_;
+    if (!wu_logged_) {
+      wu_logged_ = true;
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: world clock: keepalive WorldUpdate at 20 Hz started (game_time {:.3f}); the server replicates player ships from now on", *game_time);
+    }
+  } else {
+    ++wu_failed_;
+  }
 }
 
 void AuthorityFlow::step_collecting(host::HostContext& ctx) {
@@ -524,10 +556,19 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
   x4mp::authority::SpawnEntity self;
   self.net_id = state_.next_net_id;
   self.kind = spawn_kind_for_class(spawn_ship_->cls);
-  self.origin = x4mp::authority::SpawnOrigin::AuthorityRuntime;
+  // M3-14 (found by the two-DLL pair run): the host's ship is a PLAYER ship like every avatar. Without origin=PlayerShip and the controller the server
+  // would not drive this entity from the host's PlayerState (the clients would see a frozen, unnamed ship, or none) and the roster would show
+  // no ship for the host. The name is what the clients show as the ghost label.
+  const std::uint16_t host_id = session_.welcome().player_id;
+  std::string host_name;
+  if (const auto* row = chat::chat_hub().roster().find(host_id)) host_name = row->name;
+  self.origin = x4mp::authority::SpawnOrigin::PlayerShip;
+  self.owner_player = host_id;
+  self.controller_player = host_id;
+  self.owner_team = session_.welcome().team_id;
   self.macro_ref = macro_ref;
   self.owner_ref = spawn_plan_.player_faction_ref;  // "player" is always the first string, index 1, in every table we send
-  self.name = spawn_ship_->name;
+  self.name = host_name.empty() ? spawn_ship_->name : "[MP] " + host_name;
   self.idcode = spawn_ship_->idcode;
   self.sector = ship_sector;
   (void)builder.add(std::move(self));
@@ -541,6 +582,7 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: self-spawn sent net_id={} game_time={:.3f}{}", state_.next_net_id, spawn_time,
             late_ship_ ? " (late: the ship was not known at the checkpoint)" : "");
   state_.spawned = true;
+  state_.host_net_id = state_.next_net_id;  // the host's PlayerState carries it from now on (JoinFeature copies it to the selfship hub every frame)
   ++state_.next_net_id;
   spawn_due_ = false;
   ship_wait_ = false;

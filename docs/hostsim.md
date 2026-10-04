@@ -31,6 +31,7 @@ If no `init` line exists the DLL is initialised before the first command. `set` 
 | `init` / `shutdown` | LoadLibrary + `x4native_init` (must return 0) / `x4native_shutdown` + FreeLibrary |
 | `reload` | shutdown + FreeLibrary + LoadLibrary + init, **stash kept** (subscriptions dropped like X4Native does) |
 | `restart` | same but the stash is cleared (game restart) |
+| `reloadui` | `reload` + `on_game_loaded` right after init: what /reloadui really does (X4Native replays it; the mod then treats the universe as ready again and, on a client, adopts its ghosts from the stash). Plain `reload` keeps the old no-replay behaviour (the join flows) |
 | `frame <N>Hz <count>` / `frame fast <count>` | fire `on_native_frame_update` (X4NativeFrameUpdate) + `on_frame_update` per frame, real-time paced / unpaced; game time advances unless paused; prints callback p50/p95/max |
 | `lua <event> <payload...>` | Lua->native event: raised under the cpp name the mod registered with `register_lua_bridge`; fails if the mod never bridged it. `lua-raw` skips that check. Payload text is passed as the `const char*` data |
 | `load_save [name]` | `on_game_loaded` then `on_universe_ready` |
@@ -40,7 +41,7 @@ If no `init` line exists the DLL is initialised before the first command. `set` 
 | `expect-no-lua <topic> [window_ms]` | no such event within the window |
 | `drop-lua [topic]` | discard captured events |
 | `expect-log <text> [timeout=<ms>]` / `expect-no-log <text>` | text in the host-side log (what the mod passed to `api.log`) |
-| `expect-file <path> <text>` | text in a file (relative to the work dir), 3 s retry |
+| `expect-file <path> <text> [timeout=<ms>]` | text in a file (relative to the work dir, or absolute), 3 s retry (scaled); `timeout=0` = one look (use it inside `until`, see "Two-DLL pair run") |
 | `write-file <path> <text>` | creates/overwrites a file (relative to the work dir; parent folders are created), e.g. `extension/launch.json` before `init` (M2-12) |
 | `expect-no-file <path>` | the file must not exist (3 s retry), e.g. a consumed `launch.json` |
 | `expect-state <name> <op> <value>` | `paused game_time reload_save_list_calls money_delta reloads frames stash_count hooks lua_pending last_shutdown_ms subs.<event>`; ops `== != < <= > >=` |
@@ -102,7 +103,24 @@ SDK function table) and `hostsim.world_failure_exit_code`.
 The fake game also answers (resolved by name, not in the SDK table; M3-11) `GetNumAllFactions` / `GetAllFactions` (player, argon, paranid, `x4mp_team_1..8`) and
 `GetNumAllFactionShips` / `GetAllFactionShips` (the ships of an owner), which the avatar binder and the janitor use, and (M3-12) `RemoveComponent` (drops the object; the player's current ship and the station are refused) so `game::safe_remove` works. `CanTeleportPlayerTo` answers `granted` when allowed, like the real game (S13.6).
 
-### Avatar run (M3-11, not in CI)
+### Two-DLL pair run (M3-14, CI step `HostSimM3`)
+`mod/tests/hostsim/m3_pair_run.ps1` (ports 47930-47932, about 100 s; `./tools/e2e.ps1 -Steps Publish,HostSimM3`): **two real `x4mp.dll` instances in two hostsim processes**, the
+authority `HostAlice` (`m3_authority.hostsim`, a session made from an uploaded save, the Lua/MD half emulated) and the client `Pia` (`m3_client.hostsim`), plus `-Bots` (default 6)
+FakeNode bots (`--avatars --chat-echo --behavior wander`, joined while the client is still joining: the string-table regression test). The two scripts synchronise through marker
+files in a shared folder (`write-file` / `until ... expect-file ... timeout=0`). It covers join + download + load + resume, the takeover (guard, host copy removed), 7 ghosts
+(the host's ship and 6 bots: team faction, inert, radar, minimum hull), the avatars on the authority (7, driven from `PlayerState`), chat both ways with the bots' echo, a gate jump
+(the authority's avatar of the client follows into sector 2), the GUI view (`stats.udpActive`, `stats.ghosts` on the dashboard API), the host ghost's path error from the mod's own
+`[sync]` lines (< 10 m p95; the authority flies a circle at 250 m/s), a checkpoint whose manifest lists 7 avatars with a clean pre-save check, a "save load" (`world renumber` + reload:
+7 avatar records restored and rebound, no second spawn, the client's ghosts stay), 3 client reloads (0 leaks, 0 duplicates), the client leaving (its avatar stays parked). Afterwards
+`tools/session4/sync-report.ps1 -Strict` judges both mod logs (CI limits: mod frame p95 < 0.5 ms (product target 0.2), < 20 kB/s, < 12 log lines/s, path error and latency medians).
+`-UseRunningServer -AdminPasswordFile <file> [-NodeAdminPasswordValue <pw>]` skips the server and session creation: the session-4 kit dry run (`session4_dry_run.ps1 -Part topology`)
+uses it behind `start-server-lan.ps1`.
+Hostsim additions of M3-14: `world md-emulate on` now also plays the authority's MD half (`x4mp.avatars_safepos` -> `P;seq;1;x;y;z`, `x4mp.avatars_dress` -> name / minimum hull /
+radar and `D;seq;1;loadout:basic`); **`expect-file <path> <text> timeout=<ms>`** (default 3 s scaled): `until <ms> expect-file <path> <text> timeout=0` is a single look that
+does not block the frame loop (a blocked authority stops sending its clock and `PlayerState`, and the other node sees seconds of lag: the first pair runs showed 5 s of ghost latency
+until every wait inside `until` was frame-friendly: use `timeout=0` / `expect-lua ... 0` / `expect-admin ... timeout=0` inside `until`).
+
+### Avatar run (M3-11, CI step `HostSimAvatars` since M3-14)
 `mod/tests/hostsim/avatars_run.ps1` (ports 47944-47946, about 2 minutes; needs `mod/build.ps1` and `tools/e2e.ps1 -Steps Publish`): the real DLL is the authority of a
 session from an uploaded save, FakeNode bots (`avatars_sim.ps1` starts them without waiting, so the authority keeps ticking) are the players. `avatars.hostsim` plays
 the Lua/MD side and checks: avatar spawned under `x4mp_team_1`, inert, at the MD safe position (and at the wanted spot after the timeout when MD does not answer), early-game
@@ -162,6 +180,20 @@ authority of a session created from an uploaded save. `authority_flow.hostsim` p
 `session3_client.hostsim` (join with a password against `start-fake-authority.ps1`, reload, self-test from the `write-config.ps1` file, server restart with the same command),
 `session3_launch.hostsim` / `session3_launch_expired.hostsim` (files from `write-launch.ps1`), `session3_authority.hostsim` (real DLL as authority behind `start-fake-clients.ps1`, 3 FakeNode clients, "Request save now").
 It also checks `find-password.ps1` (clean, planted UTF-16 and URL-quoted) and the contents of the `collect-logs.ps1` zip.
+
+## Session-4 kit dry run (M3-14; `-Part kit` is CI step `Session4Kit`)
+`mod/tests/hostsim/session4_dry_run.ps1 [-Part kit|topology|all]` (kit about 70 s; topology about 8 minutes; ports 47977-47979) runs every `tools/session4` script against a temp Documents
+folder (`X4MP_S2_DOCS_ROOT`), a temp `out\session4` (`X4MP_S4_OUT_DIR`) and a fake X4 install (`-X4Dir`); the real Documents folder and X4 install are never touched.
+- **kit** (no server): sitting 0 (install-spike / write-probe-config / run-block / collect-logs / extract-galaxy-dump / `-Restore`) and sittings 1-3: `-WhatIf` of every script and what it
+  prints (wingman command lines, DLC list, join password "set", firewall commands), the DLC report file, `start-server-lan.ps1 -Check` (addresses, firewall status read-only,
+  the printed commands, no rule created), `sync-report.ps1` PASS / FAIL on synthetic logs in the real formats (file and zip, `-Strict` exit codes), `collect-logs.ps1` in product mode
+  (`x4mp-lines.txt`, `sync-report.txt`, the mod's own files, never `launch.json`), `savescan.ps1` on the synthetic fixtures, `install.ps1` / `uninstall.ps1` (refuses next to the sitting-0 kit,
+  deploys, enables, removes, saves untouched), `make-client-kit.ps1` (contents, no secrets / pdb / saves / repo paths, and the **unzipped kit's own install.ps1 and collect-logs.ps1 run
+  without the repo**).
+- **topology** (needs `mod/build.ps1` and `tools/e2e.ps1 -Steps Publish`; the web GUI is built once through the kit's `Ensure-Published`): sitting 1 = `start-fake-authority.ps1 -Wingmen 2
+  -FreshDownload` + the real DLL as `Tester` (`session4_client.hostsim`: takeover, `[MP] Host` + `Wing01` + `Wing02`, chat echo, reloads, adoption); sitting 2 = `start-fake-clients.ps1
+  -Wingmen 2` + the real DLL as the authority `Tester` (`session4_authority.hostsim`: stand, sit, self-spawn, the script waits for the host ship before it starts the wingmen, 2 avatars,
+  chat, checkpoint with 2 avatars, rebind after a save load); sitting 3 = `start-server-lan.ps1` (game port listens on all interfaces) + `m3_pair_run.ps1 -UseRunningServer` (two real DLLs + a bot).
 
 ## M2-X3 mod refusal scenario (not in CI)
 `mod/tests/hostsim/mod_refusal_run.ps1` starts the published server, a FakeNode authority with `mod_refusal_authority.json` (two DLC and

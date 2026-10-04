@@ -381,7 +381,7 @@ public class SendQueueTests(Xunit.Abstractions.ITestOutputHelper output)
     [Fact]
     public void TrySendIsAllocationFree() => MeasureTrySend();
 
-    /// <summary>Wall-clock speed: only meaningful on a quiet machine, so it runs in the nightly Perf job, not on shared CI runners.</summary>
+    /// <summary>Wall-clock speed: best of 300 rounds of 1000 sends (machine load cannot fail it, a real slowdown still does). Runs in the nightly Perf job.</summary>
     [Fact]
     [Trait("Category", "Perf")]
     public void TrySendIsFast()
@@ -421,8 +421,11 @@ public class SendQueueTests(Xunit.Abstractions.ITestOutputHelper output)
                 drain();
             }
 
+            // Best of the rounds, not the mean of all of them (same idea as the ReplicationBench fix in M2): one round is ~1000 sends (tens of
+            // microseconds), so a descheduled thread or a noisy neighbour spoils a few rounds and a mean over 300 of them on a loaded machine
+            // reads 2-5x too slow. The fastest round is what the code can do; a real regression slows EVERY round, so the limit still bites.
             long allocBefore = GC.GetAllocatedBytesForCurrentThread();
-            long ticks = 0;
+            long bestTicks = long.MaxValue;
             for (int r = 0; r < rounds; r++)
             {
                 long t0 = Stopwatch.GetTimestamp();
@@ -431,7 +434,7 @@ public class SendQueueTests(Xunit.Abstractions.ITestOutputHelper output)
                     send();
                 }
 
-                ticks += Stopwatch.GetTimestamp() - t0;
+                bestTicks = Math.Min(bestTicks, Stopwatch.GetTimestamp() - t0);
                 drain();
             }
 
@@ -439,7 +442,7 @@ public class SendQueueTests(Xunit.Abstractions.ITestOutputHelper output)
             // A per-send allocation would show up as >= 300,000 bytes here. A few KB are runtime noise (tiered-JIT
             // tier-up and OSR can allocate on this thread mid-measurement), which made an exact 0 flaky.
             Assert.True(allocated < 16 * 1024, $"TrySend allocated {allocated} bytes over {batch * rounds} sends");
-            return ticks * 1e9 / Stopwatch.Frequency / (batch * rounds);
+            return bestTicks * 1e9 / Stopwatch.Frequency / batch;
         }
 
         void Drain()

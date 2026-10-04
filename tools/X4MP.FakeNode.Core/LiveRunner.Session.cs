@@ -926,16 +926,17 @@ public static partial class LiveRunner
     {
         var request = FakeAvatarFlow.BuildRequest(o, galaxy, link.PlayerId);
         var watch = Stopwatch.StartNew();
+        var avatarTimeout = o.AvatarTimeoutSeconds > 0 ? TimeSpan.FromSeconds(o.AvatarTimeoutSeconds) : run.AvatarTimeout;
         await link.Client.SendPayloadAsync(MsgType.PlayerShip, MessageEncoder.EncodePayload(b => PlayerShip.Pack(b, request), 256), ct).ConfigureAwait(false);
         stats.SetAvatarState(1);
         try
         {
-            await session.OwnAvatarReady.WaitAsync(run.AvatarTimeout, ct).ConfigureAwait(false);
+            await session.OwnAvatarReady.WaitAsync(avatarTimeout, ct).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
             stats.SetAvatarState(3);
-            throw new TimeoutException($"no avatar within {run.AvatarTimeout.TotalSeconds:F0} s of the PlayerShip request (is an authority connected?)");
+            throw new TimeoutException($"no avatar within {avatarTimeout.TotalSeconds:F0} s of the PlayerShip request (is an authority connected?)");
         }
 
         var avatar = session.OwnAvatar!.Value;

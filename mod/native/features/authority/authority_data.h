@@ -120,6 +120,7 @@ std::vector<std::string> record_and_trim(const std::filesystem::path& ledger_fil
 struct AuthorityState {
   std::uint32_t next_net_id = 1;
   bool spawned = false;
+  std::uint32_t host_net_id = 0;       // M3-14: the net id of the host's own ship (the self-spawn); PlayerState carries it so the server drives that entity
   bool strings_sent = false;           // StringTableAdd already sent in this session
   std::uint32_t string_count = 0;      // highest string index the server holds (a later self-spawn adds its macro after it)
   std::uint64_t checkpoints = 0;       // stored in this session (informational)

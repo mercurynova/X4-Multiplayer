@@ -158,13 +158,13 @@ void GhostFeature::report(host::HostContext& ctx, std::int64_t) {
   for (const std::string& line : c.driver.take_sync_lines()) ctx.log.raw(Cat::Ghost, Level::Info, line);
   const ghosts::DriverCounters& k = c.driver.counters();
   if (c.driver.size() == 0 && c.counters.replication == 0) return;
+  // one line (the log cuts lines at ~240 characters, so the fields that matter come first; sync-report.ps1 reads this exact order)
   ctx.log.raw(Cat::Ghost, Level::Info,
-              std::format("[sync] ghosts tracked={} visible={} spawned={} respawned={} shown_again={} hidden={} removed={} adopted={} places={} sector_changes={} hints={} "
-                          "unmapped_frames={} spawn_failed={} frame_p95_us={:.0f} frame_max_us={:.0f} rep_msgs={} rep_entries={} rep_bad={} strings={} string_msgs={} spawn_msgs={} spawn_unresolved={}",
-                          c.driver.size(), last_visible_, k.spawned, k.respawned, k.shown, k.hidden, k.removed, k.adopted, k.places, k.sector_changes, k.hints_sent,
-                          k.unmapped_frames, k.spawn_failed, frame_cost_us_.percentile(0.95), frame_cost_max_us_, c.counters.replication,
-                          c.counters.replication_entries, c.counters.replication_bad, c.strings.size(), c.counters.strings, c.counters.spawn_messages,
-                          c.counters.spawn_unresolved));
+              std::format("[sync] ghosts tracked={} visible={} spawned={} respawned={} hidden={} removed={} adopted={} hints={} rep_msgs={} rep_entries={} frame_p95_us={:.0f} "
+                          "frame_max_us={:.0f} clk_ms={} bias_ms={} rep_bad={} spawn_failed={} unmapped={} unresolved={}",
+                          c.driver.size(), last_visible_, k.spawned, k.respawned, k.hidden, k.removed, k.adopted, k.hints_sent, c.counters.replication,
+                          c.counters.replication_entries, frame_cost_us_.percentile(0.95), frame_cost_max_us_, c.clock_offset_us / 1000, c.stream_clock.bias_us() / 1000,
+                          c.counters.replication_bad, k.spawn_failed, k.unmapped_frames, c.counters.spawn_unresolved));
   frame_cost_us_.clear();
   frame_cost_max_us_ = 0;
 }
