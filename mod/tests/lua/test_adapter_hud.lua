@@ -520,6 +520,37 @@ test("hud: blocked for a long time by a stale view entry -> drawn anyway and log
 	contains(env.debugText(), "SaveStale")
 end)
 
+test("hud: a live MapMenu entry (valid frame) is never drawn over, even after 60 s", function()
+	hudSetup()
+	status(INGAME)
+	_G.IsValidWidgetElement = function(f) return f == 77 end
+	_G.View.menus = { { name = "MapMenu", type = "Helper", id = "Helper1", frames = { 77 } } }
+	X4MPHud.menu.shown = nil
+	advance(4)
+	local n = #env.frames
+	advance(60)
+	eq(#env.frames, n, "no draw over the live map")
+	contains(env.debugText(), "blocked by MapMenu (live), not forcing")
+	-- the map closes: the HUD shows again after the reshow delay
+	_G.View.menus = {}
+	advance(3)
+	truthy(#env.frames > n, "shown again after the menu closed")
+end)
+
+test("hud: stale entry with no valid frame is forced after blockedMax even when frames are tracked", function()
+	hudSetup()
+	status(INGAME)
+	_G.IsValidWidgetElement = function() return false end
+	_G.View.menus = { { name = "TopLevelStale", type = "Helper", id = "Helper2", frames = { 5 } } }
+	X4MPHud.menu.shown = nil
+	advance(4)
+	local n = #env.frames
+	advance(12)
+	truthy(#env.frames > n, "forced")
+	contains(env.debugText(), "drawing anyway")
+	_G.IsValidWidgetElement = nil
+end)
+
 test("hud: notify mode sends one notification per change, never a frame", function()
 	hudSetup({ hudMode = "notify" })
 	status(INGAME)

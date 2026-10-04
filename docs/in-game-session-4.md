@@ -214,6 +214,7 @@ Quit X4 on both, `collect-logs.ps1 -Label s3a` (PC A) / `-Label s3b` (PC B; send
 
 Look at these during the sittings; each is "does it behave like the code assumes?":
 
+- **Map with the HUD on (M3-16)**: open the map and leave it open > 30 s; it must stay intact (no blur, no empty 3D view), also over Esc menu / ship config / trade. Log shows "hud: blocked by MapMenu (live), not forcing"; the line returns after the menu closes. (M3-16)
 - **Loadout**: the authority's avatar has early-game equipment (`apply_loadout` of the basic Elite loadout replaces the spawn default; are the `../con_*` paths right); the client's local copy of its own ship currently has the **default** equipment (known gap, report what it is). (2.1, 1.1)
 - **Safe position**: MD `get_safe_pos` result and its number format; no avatar inside a station. (2.1)
 - **Ghost orientation**: yaw / pitch / roll signs (`kYawSign` ...), model, name colour, radar. (1.2)
