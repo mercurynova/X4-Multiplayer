@@ -665,6 +665,17 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
 
         state.Results[id] = result;
         Send(node, result);
+        if (!assigned)
+        {
+            // A refusal usually means the node chose from a table that has moved on (the team it wants was created or filled a moment ago). A node in the
+            // lobby can have missed that push (it was not attached yet when it went out), so it gets the whole table again with the refusal and
+            // chooses from fresh data instead of repeating the same request until it is rate limited.
+            var table = ControlFrames.Encode(MsgType.TeamTable, fbb => TeamTable.Pack(fbb, BuildTable()).Value, 512);
+            TrySend(node, table);
+            table.Release();
+            MarkSent(node, table: _registry.Version);
+        }
+
         if (assigned)
         {
             AfterChange(); // also fires TeamAssigned for the node (the answer goes out before the phase changes)

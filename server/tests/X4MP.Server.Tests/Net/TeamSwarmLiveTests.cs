@@ -269,7 +269,14 @@ public sealed partial class TeamSwarmLiveTests(ITestOutputHelper output)
             Assert.NotNull(authority);
             Assert.Contains(authority!.OwnershipChanges, c => c.NetId == asset && c.FromTeam == 1 && c.ToTeam == 2);
             Assert.All(mine, g => Assert.True(host.Mirror.TryGet(g.NetId, out var e2) && e2.OwnerTeam == 2, "every visible asset moved with its player"));
-            await WaitForAsync(() => mover.Session.OwnerOf(asset) is { Team: 2 } ? mover.Session : null, TimeSpan.FromSeconds(30), "the mover's client to learn the new owner");
+            // What the mover's client may still show of its assets: the mover's ship wanders from sector to sector (the interest set follows it), so the
+            // probed asset can be out of its view by now, and a ghost that is gone cannot learn anything (when it spawns again the record comes from the
+            // mirror, which was asserted above). So: no asset of the mover that the client still holds may keep the old team. A visible one that is
+            // stale would stay stale and fail here.
+            await WaitForAsync(
+                () => mine.All(g => mover.Session.OwnerOf(g.NetId) is not { Team: 1 }) ? mover.Session : null,
+                TimeSpan.FromSeconds(30), "the mover's client to drop the old team from the assets it still shows");
+            report.Add("mover's client view after the move: " + string.Join(", ", mine.Select(g => $"{g.NetId}={(mover.Session.OwnerOf(g.NetId) is { } o ? "team " + o.Team : "not visible")}")));
 
             // after the move: the new team passes, the old team fails
             await WaitForAsync(() => mover.TeamId == 2 ? mover : null, TimeSpan.FromSeconds(30), "the mover's client to learn its new team");

@@ -165,15 +165,22 @@ internal sealed class HubRig : IAsyncDisposable
         return (connection, recorder);
     }
 
-    public async Task<AuthorityRig> StartAuthorityAsync(int megabytes = 1, int sectors = 20)
+    /// <param name="onUploadProgress">Called on the upload thread after every chunk (bytes sent, size); a test can block in it to hold the transfer open.</param>
+    /// <param name="waitForRunning">False: return before the first checkpoint is stored (the caller then has to wait for it itself).</param>
+    public async Task<AuthorityRig> StartAuthorityAsync(int megabytes = 1, int sectors = 20, Action<long, long>? onUploadProgress = null, bool waitForRunning = true)
     {
         var options = new FakeAuthoritySaveOptions
         {
             SaveBytes = megabytes * 1024L * 1024,
             Directory = Path.Combine(Server.Dir, "fake-authority"),
+            OnUploadProgress = onUploadProgress,
         };
         Authority = await AuthorityRig.StartAsync(Server, options, sectors: sectors);
-        await Server.WaitForAsync(s => s.Phase == X4MP.Proto.SessionPhase.Running, 60_000, "first checkpoint");
+        if (waitForRunning)
+        {
+            await Server.WaitForAsync(s => s.Phase == X4MP.Proto.SessionPhase.Running, 60_000, "first checkpoint");
+        }
+
         return Authority;
     }
 
