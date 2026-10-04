@@ -5,6 +5,7 @@
 #include "x4mp/wire.h"
 
 #include "common_generated.h"
+#include "manifest_generated.h"
 #include "session_generated.h"
 #include "world_generated.h"
 
@@ -97,6 +98,65 @@ std::optional<SettingsIn> decode_settings(std::span<const std::uint8_t> payload)
     for (const auto* e : *m->entries()) s.entries.emplace_back(str_of(e->key()), str_of(e->value()));
   }
   return s;
+}
+
+std::optional<std::vector<AvatarInfo>> decode_avatar_spawns(std::span<const std::uint8_t> payload) {
+  const auto* m = verified_root<P::EntitySpawn>(payload);
+  if (!m) return std::nullopt;
+  std::vector<AvatarInfo> out;
+  if (m->entities()) {
+    for (const auto* e : *m->entities()) {
+      if (e->origin() != P::EntityOrigin::PlayerShip) continue;
+      AvatarInfo a;
+      a.net_id = e->net_id();
+      a.owner_player = e->owner_player();
+      a.controller_player = e->controller_player();
+      a.owner_team = e->owner_team();
+      a.name = str_of(e->name());
+      a.idcode = str_of(e->idcode());
+      if (const auto* s = e->state()) {
+        a.sector = s->sector();
+        a.pose = pose_of(s->px(), s->py(), s->pz(), s->yaw(), s->pitch(), s->roll());
+      }
+      out.push_back(std::move(a));
+    }
+  }
+  return out;
+}
+
+std::optional<std::vector<AvatarInfo>> decode_manifest_avatars(std::span<const std::uint8_t> payload) {
+  if (payload.size() < 8) return std::nullopt;
+  flatbuffers::Verifier v(payload.data(), payload.size());
+  if (!P::VerifyManifestBuffer(v)) return std::nullopt;
+  const auto* m = P::GetManifest(payload.data());
+  if (!m) return std::nullopt;
+  std::vector<AvatarInfo> out;
+  if (m->entries()) {
+    for (const auto* e : *m->entries()) {
+      if (e->origin() != P::EntityOrigin::PlayerShip) continue;
+      AvatarInfo a;
+      a.net_id = e->net_id();
+      a.owner_player = e->owner_player();
+      a.controller_player = e->controller_player();
+      a.owner_team = e->owner_team();
+      a.idcode = str_of(e->idcode());
+      a.sector = e->sector();
+      if (const auto* p = e->position()) a.pose = {p->x(), p->y(), p->z(), 0, 0, 0};
+      out.push_back(std::move(a));
+    }
+  }
+  return out;
+}
+
+std::vector<std::uint8_t> encode_player_ship(const PlayerShipReq& r, std::uint64_t key_lo, std::uint64_t key_hi, std::uint64_t local_component_id) {
+  flatbuffers::FlatBufferBuilder fbb(256);
+  const P::Id128 key(key_lo, key_hi);
+  const auto q = [](double v) { return wire::quantize_position(v).value_or(0); };
+  const auto qr = [](double v) { return wire::quantize_rotation(v).value_or(0); };
+  const auto off = P::CreatePlayerShipDirect(fbb, &key, r.ship_macro.c_str(), r.name.c_str(), r.idcode.c_str(), r.sector, q(r.pose.x), q(r.pose.y), q(r.pose.z), qr(r.pose.yaw),
+                                             qr(r.pose.pitch), qr(r.pose.roll), 255, 255, local_component_id, 0);
+  fbb.Finish(off);
+  return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
 }
 
 std::vector<std::uint8_t> encode_controller_change(std::uint32_t net_id, std::uint16_t player) {

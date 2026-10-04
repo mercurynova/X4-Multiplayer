@@ -152,6 +152,37 @@ test("load_save: bad names are refused", function()
 	eq(B.lastError.code, "bad_save_name")
 end)
 
+-- M3-12: the takeover's HUD hint topic
+test("hint: show keeps the hint and raises the HUD notification, hide clears it", function()
+	local B = bridge()
+	local notes = {}
+	_G.AddUITriggeredEvent = function(a, b, c) notes[#notes + 1] = { a, b, c } end
+	eq(B.hint, nil)
+	env.fire("x4mp.hint", '{"v":1,"id":"takeover","show":true,"text":"Sit in the pilot seat to take over your ship"}')
+	eq(B.hint.id, "takeover")
+	eq(#notes, 1)
+	eq(notes[1][1], "X4MP") eq(notes[1][2], "notify")
+	t.contains(notes[1][3], "pilot seat")
+	env.fire("x4mp.hint", '{"v":1,"id":"takeover","show":true,"text":"Sit in the pilot seat to take over your ship"}')
+	eq(#notes, 2) -- native repeats the hint on purpose
+	env.fire("x4mp.hint", '{"v":1,"id":"takeover","show":false}')
+	eq(B.hint, nil)
+	eq(#notes, 2)
+	env.fire("x4mp.hint", "null")
+	env.fire("x4mp.hint", '{"v":1,"show":true}') -- no text: kept, no notification
+	eq(#notes, 2)
+	eq(B.hint.show, true)
+end)
+
+test("takeover: the last stage is kept", function()
+	local B = bridge()
+	env.fire("x4mp.takeover", '{"v":1,"stage":"teleporting","net_id":9,"avatar":"400001","hint":true,"refusals":3}')
+	eq(B.takeover.stage, "teleporting")
+	eq(B.takeover.refusals, 3)
+	env.fire("x4mp.takeover", '{"v":1,"stage":"done","net_id":9}')
+	eq(B.takeover.stage, "done")
+end)
+
 test("loading the bridge twice does not register events twice", function()
 	local B = bridge()
 	local before = #env.events["x4mp.status"]

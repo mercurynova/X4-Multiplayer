@@ -76,13 +76,15 @@ expect-state removed == 1
 lua x4stub.world spawn
 expect-lua x4stub.world_result 3000 json $.name == ship_arg_s_fighter_01_a_macro
 lua x4stub.world teleport
+expect-lua x4stub.world_result 3000 json $.why == granted
+lua x4stub.world teleport
 expect-lua x4stub.world_result 3000 json $.ok == true
-expect-state teleports == 1
+expect-state teleports == 2
 expect-state seat == 1
 world teleport deny the pilot is busy
 lua x4stub.world teleport
 expect-lua x4stub.world_result 3000 json $.why contains busy
-expect-state teleports == 1
+expect-state teleports == 2
 
 # expect-ghost: samples come from `ghost-sample` here (the real DLL's [sync] lines feed it in ghosts_run.ps1); with nothing at all
 # only `samples == 0` can pass (M3-10: an err_* metric without data is a failure, no longer a stub)

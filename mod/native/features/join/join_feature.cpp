@@ -544,6 +544,23 @@ void JoinFeature::update_diag(host::HostContext&) {
     diag_ship_link_ = false;
     selfship::selfship_hub().clear_link();
   }
+  // M3-12: a CLIENT's avatar takeover sends PlayerShip on the Control lane while the node is in game; the link also holds the PlayerState stream back
+  // (selfship hub) until the takeover lifts it. The authority never takes over (its own ship is the host's).
+  const bool want_client_link = want_ship_link && !authority;
+  if (want_client_link && !diag_client_link_) {
+    diag_client_link_ = true;
+    avatars::ClientLink link;
+    link.player_id = [this]() -> std::uint16_t { return session_ && session_->has_welcome() ? session_->welcome().player_id : 0; };
+    link.send_control = [this](std::uint16_t type, std::vector<std::uint8_t> payload) {
+      if (!session_ || !welcomed()) return false;
+      send_control(type, payload);
+      return true;
+    };
+    avatars::avatar_hub().set_client_link(std::move(link));
+  } else if (!want_client_link && diag_client_link_) {
+    diag_client_link_ = false;
+    avatars::avatar_hub().clear_client_link();
+  }
   // M2-12: the stats feature samples the net counters and sends NodeStats through this link while the node is welcomed.
   if (connected && !diag_stats_link_) {
     diag_stats_link_ = true;
@@ -778,8 +795,18 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
   }
 }
 
+// M3-12: where this node's copy of the checkpoint manifest lives (the client takeover reads the avatar entries from it); "" = no manifest.
+static std::string manifest_file_of(host::HostContext& ctx, const session::SaveInfo& s) {
+  if (s.manifest_sha256.size() != crypto::kSha256Size || s.manifest_size == 0) return {};
+  const auto dir = ctx.game.save_folder_path();
+  if (!dir || dir->empty()) return {};
+  const auto name = "x4mp_" + crypto::to_hex(std::span<const std::uint8_t>(s.manifest_sha256).first(6)) + ".x4mf";
+  return (fs::path(*dir) / name).string();
+}
+
 void JoinFeature::handle_save_ready(host::HostContext& ctx) {
   if (!save_) return;
+  avatars::avatar_hub().set_manifest_file(manifest_file_of(ctx, *save_));
   save_sha_ = save_->sha256;
   checkpoint_ = save_->checkpoint_id;
   has_manifest_ = save_->manifest_sha256.size() == crypto::kSha256Size && save_->manifest_size > 0;
@@ -824,6 +851,7 @@ void JoinFeature::handle_rejoin_save(host::HostContext& ctx) {
   }
   checkpoint_ = save_->checkpoint_id;
   has_manifest_ = save_->manifest_sha256.size() == crypto::kSha256Size && save_->manifest_size > 0;
+  avatars::avatar_hub().set_manifest_file(manifest_file_of(ctx, *save_));
   rejoin_report_ = true;
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "rejoin: the session save is the running universe ({}); reporting it again without a load", save_->local_file_name);
 }

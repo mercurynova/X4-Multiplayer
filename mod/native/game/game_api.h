@@ -58,7 +58,7 @@ struct GameFns {
   void (*SetObjectSectorPos)(UniverseId objectid, UniverseId sectorid, PosRotPod offset) = nullptr;
   PosRotPod (*GetObjectPositionInSector)(UniverseId objectid) = nullptr;
   bool (*TeleportPlayerTo)(UniverseId controllableid, bool allowcontrolling, bool instant, bool force) = nullptr;
-  const char* (*CanTeleportPlayerTo)(UniverseId controllableid, bool allowcontrolling, bool force) = nullptr;  // "" / null = allowed
+  const char* (*CanTeleportPlayerTo)(UniverseId controllableid, bool allowcontrolling, bool force) = nullptr;  // "granted" = allowed (S13.6); else the reason
   void (*SetComponentOwner)(UniverseId componentid, const char* factionid) = nullptr;
   void (*SetObjectForcedRadarVisible)(UniverseId objectid, bool value) = nullptr;
   bool (*IsSetaActive)() = nullptr;
@@ -85,6 +85,10 @@ struct GameInfo {
   std::string x4native_version;   // get_x4native_version()
   int game_types_build = 0;       // X4NativeAPI::game_types_build (e.g. 900)
 };
+
+// The text CanTeleportPlayerTo answers when the teleport is allowed (real game, spike S13.6).
+inline constexpr const char* kTeleportGranted = "granted";
+[[nodiscard]] inline bool is_teleport_granted(const std::optional<std::string>& answer) noexcept { return answer.has_value() && *answer == kTeleportGranted; }
 
 class GameApi {
  public:
@@ -121,7 +125,8 @@ class GameApi {
   bool set_object_sector_pos(UniverseId id, UniverseId sector, const PosRotPod& pos) const noexcept;    // true when the call was made
   [[nodiscard]] std::optional<PosRotPod> object_position(UniverseId id) const noexcept;                 // nullopt: missing / id 0
   bool teleport_player_to(UniverseId id, bool allow_controlling, bool instant, bool force) const noexcept;  // false when missing / refused
-  // nullopt = the export is missing (unknown); "" = allowed; otherwise the game's reason text.
+  // nullopt = the export is missing (unknown). Otherwise the game's own text: "granted" when allowed (session-4 S13.6; M3-12 fixed the wrapper, "" is NOT
+  // "allowed"), else the reason. Use is_teleport_granted() to decide.
   [[nodiscard]] std::optional<std::string> can_teleport_player_to(UniverseId id, bool allow_controlling, bool force) const;
   bool set_component_owner(UniverseId id, const char* faction) const noexcept;                          // true when the call was made
   bool set_object_forced_radar_visible(UniverseId id, bool value) const noexcept;                       // true when the call was made

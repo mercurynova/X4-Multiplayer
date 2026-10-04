@@ -49,7 +49,15 @@ expect-object count == 1 "name=[MP] Host"
 expect-object count == 1 "name=[MP] ${bot}"
 expect-object count == 1 "name=[MP] ${leaver}"
 expect-object count == 3 owner=x4mp_team_1 minhull=100 active=0 radar=1
-expect-state spawns == 3
+# M3-12 integration: ghosts are held back until the client takeover is Done (this client also takes over its avatar here: one local spawn), so
+# exactly one ghost per OTHER player exists (Host, bot, leaver), none for this player, no host-ship copy is left, and the removal of the vacated
+# copy (the 1 removal) did not touch a ghost (they appeared after it)
+expect-lua x4mp.takeover 5000 json $.stage == done
+expect-object 200001 absent
+expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
+expect-object count == 0 "name=[MP] ${name}"
+expect-state removed == 1
+expect-state spawns == 4
 
 # mode c: the flying bots get velocity hints, the parked Host does not move
 until 20000 expect-object count == 2 moving=1 owner=x4mp_team_1
@@ -71,7 +79,7 @@ expect-ghost ${bot} err_max < 15 timeout=0
 # the leaver goes away: its ghost stays as a parked avatar, relabelled (no respawn)
 until 150000 expect-object count == 1 "name=[MP] ${leaver} (offline)"
 expect-object count == 3 owner=x4mp_team_1
-expect-state spawns == 3
+expect-state spawns == 4
 
 # reloads: the ghosts are adopted from the stash every time
 repeat ${reloads}
@@ -80,8 +88,8 @@ frame 60Hz 120
 until 30000 expect-object count == 3 owner=x4mp_team_1 minhull=100
 end-repeat
 expect-object count == 3 owner=x4mp_team_1
-expect-state spawns == 3
-expect-state removed == 0
+expect-state spawns == 4
+expect-state removed == 1
 expect-object count == 1 "name=[MP] ${bot}"
 expect-object count == 1 "name=[MP] ${leaver} (offline)"
 expect-object count == 1 "name=[MP] Host"

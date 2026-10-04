@@ -222,6 +222,9 @@ void SelfShipFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& in
   const bool linked = hub.linked();
   if (linked && !was_linked_) tracker_.force_resend();
   was_linked_ = linked;
+  const bool held = hub.state_hold();  // M3-12: a client's takeover holds the stream back until the avatar is its ship
+  if (!held && was_held_) tracker_.force_resend();  // the first state after the hold is a full, immediate one
+  was_held_ = held;
   update_seta(ctx, now_us, diag_hub().connected());
 
   const auto read = game::read_own_ship(ctx.game);
@@ -259,7 +262,7 @@ void SelfShipFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& in
     if ((tick.out.flags & ghost::kTeleport) != 0) {
       X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: teleport state, sector {}", tick.out.sector);
     }
-    if (linked) send_state(ctx, tick.out);
+    if (linked && !held) send_state(ctx, tick.out);
   }
   if (tick.blocked != Blocked::None && (tick.blocked != last_blocked_ || now_us - last_blocked_log_us_ >= kBlockedLogEveryUs)) {
     last_blocked_ = tick.blocked;
