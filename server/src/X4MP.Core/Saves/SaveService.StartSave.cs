@@ -60,12 +60,31 @@ public sealed partial class SaveService
 
     /// <summary>True when <paramref name="node"/> is the authority, the session still has no checkpoint and <paramref name="shaHex"/> is the start save.</summary>
     private bool IsStartSave(SessionNode node, string shaHex) =>
-        node.IsAuthority && _current is null && _startSave is { } start && string.Equals(start.Sha, shaHex, StringComparison.Ordinal);
+        node.IsAuthority && EffectiveStart() is { } start && string.Equals(start.Sha, shaHex, StringComparison.Ordinal);
+
+    /// <summary>
+    /// What a loading authority must load: the chosen start save while the session has no checkpoint, or the current checkpoint's save when an
+    /// authority (re)joined a session that already has one (AuthorityLost to AuthorityLoading, M3-21). Null otherwise.
+    /// </summary>
+    private StartSave? EffectiveStart()
+    {
+        if (_current is null)
+        {
+            return _startSave;
+        }
+
+        if (_phase == SessionPhase.AuthorityLoading && _current.SaveSha is { } sha && Files.SizeOf(sha, UploadKind.Save) is { } size)
+        {
+            return new StartSave(sha, size, _current.Name ?? SaveFileStore.Abbrev(sha));
+        }
+
+        return null;
+    }
 
     /// <summary>Sends the authority the start save (see <see cref="SetStartSaveAsync"/>) unless it has already loaded it.</summary>
     private void SendStartSaveInfo(SessionNode node)
     {
-        if (_startSave is not { } start || _current is not null || !node.IsAuthority || node.Connection is not { } connection)
+        if (EffectiveStart() is not { } start || !node.IsAuthority || node.Connection is not { } connection)
         {
             return;
         }

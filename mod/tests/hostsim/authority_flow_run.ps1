@@ -126,6 +126,22 @@ try {
     Publish-SessionFromUpload $srv.Session $dummy $sha
     Run-Scenario 'authority_running_save' 'work-running' @('--var', "ckpt_src=$ckpt1", '--var', "save_sha=$sha")
     Assert-SpawnGameTime $srv.Log 5000
+    Stop-All
+
+    # ---- scenario 3 (M3-21): the authority's game is killed (no disconnect) and restarted: a fresh join must be sent the current checkpoint and load it ----
+    $srv = Start-FreshServer 'c'
+    Publish-SessionFromUpload $srv.Session $dummy $sha
+    Run-Scenario 'authority_restart_a' 'work-restart-a' @('--var', "ckpt_src=$ckpt1")
+    # the restarted game finds the checkpoint file in its save folder (the first run wrote it): a cache hit, nothing to download
+    $restartWork = Join-Path $tmp 'work-restart-b'
+    New-Item -ItemType Directory -Force (Join-Path $restartWork 'saves') | Out-Null
+    Copy-Item (Join-Path $tmp 'work-restart-a\saves\x4mp_ckpt_*.xml.gz') (Join-Path $restartWork 'saves')
+    # same machine, same player: the identity key (the server binds the name to it) and the extension's authority-saves record survive the game restart
+    New-Item -ItemType Directory -Force (Join-Path $restartWork 'extension') | Out-Null
+    Copy-Item (Join-Path $tmp 'work-restart-a\extension\player.key') (Join-Path $restartWork 'extension')
+    Copy-Item (Join-Path $tmp 'work-restart-a\extension\authority-saves.json') (Join-Path $restartWork 'extension')
+    Run-Scenario 'authority_restart_b' 'work-restart-b' @('--var', "ckpt_src2=$ckpt2")
+    Write-Host '  authority restart: fresh join was sent the checkpoint, loaded it and the session is Running again' -ForegroundColor Green
     $exit = 0
 }
 catch { Write-Host "AUTHORITY E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }
