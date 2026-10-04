@@ -740,3 +740,48 @@ Things M3-13 / M3-10 / M3-14 must know:
 - FakeNode `PlayerState.sample_time_us` counts ticks (not server time); the authority re-stamps such samples with their arrival time. M3-14's `sync-report` must not expect server-clock stamps from bots.
 - Not verified in game (add to sitting 1/2): (1) `get_safe_pos` result and its number formatting in the MD string; (2) `apply_loadout` of the basic Elite loadout on a `SpawnObjectAtPos2` ship (does it replace the Mk2/Mk3 default parts, are the `../con_*` paths right); (3) `set_object_velocity` on an avatar at 5 Hz together with the per-frame set (S13.2 mode c said yes for the probe's ghosts); (4) `GetAllFactionShips` for a team faction after a save load finds the avatars; (5) `SetObjectSectorPos` with sector-local metres across a gate jump (S13.3 left this open); (6) the avatar's idcode and name survive the checkpoint (S13.8 proved position, name, idcode for one ship).
 - Deliberately small: a docked / on-foot player is `Hidden` and the avatar stays at its last pose (real docking is M5); no respawn-on-destroy policy (a vanished ship is respawned at its last pose, logged); the per-team race table is the `resolve_starter` TODO.
+### M3-10 client ghosts (`features/ghosts/*`, `game/ghosts_api.*`, `md/x4mp_ghosts.xml`, `ui/x4mp_ghosts.lua`; tests `tests/ghosts/*` exe `x4mp_ghosts_tests` ctest prefix `ghosts.`, `tests/hostsim/ghosts_run.ps1`)
+
+What it does: player ships (origin `PlayerShip`, not the own ship) of other players become ghosts on a **client** node (nothing on the authority). Per ghost: native
+`SpawnObjectAtPos2` under the team faction (`team_hub().faction_of_team`, only while `factions_ready()`), `ActivateObject(false)` + forced radar, MD dress
+(`[MP] <name>`, `(offline)` while `controller == 0`, min hull 100, known), `SetObjectSectorPos` every frame from `core/ghost` (`render(now)`), a 5 Hz velocity hint
+(MD `set_object_velocity`, mode c), hide (= `SafeRemove`, record kept) / show on the Hidden flag and `EntityDespawn{DockedInside}`, sector changes as ONE place() with the
+new sector's id and sector-local pose, removal of a record on `EntityDespawn` / session end, stash persistence and adoption, `[sync]` lines every 5 s.
+
+Pieces and what M3-11/12 reuse:
+- `GhostDriver` (`ghost_driver.h`): SDK-free, `IGhostWorld` is the whole game surface (spawn, make_inert, place, dress, hint_velocities, set_owner, valid, wrecked, remove, id_code, name,
+  find_ghost_by_idcode, faction, local_ship_within, sector_id). The authority's avatar driver can reuse the driver with its own `IGhostWorld` (kinematic avatars = the same spawn / place /
+  interpolate loop, no hide); `FakeWorld` (`tests/ghosts/fake_world.h`) + `Rig` (`rig.h`) are the test kit. `GhostCore` (`ghost_core.*`) = driver + string table + message decoding
+  (StringTableAdd, EntitySpawn, EntityChange, EntityDespawn, Replication); `ghost_hub()` is the join feature's hand-over (one line in `K::Frame`, one in `stop_session`).
+- `game/ghosts_api.*` (`GhostsApi`): spawn / make_inert / place / pose / valid / id_code / name / `faction_state` / `ships_of` (exports resolved BY NAME, GameFns untouched), and the ONE
+  place for the pose convention: `to_pos_rot` with `kYawSign/kPitchSign/kRollSign` (angles radians, axis order from `core/ghost/math.h`: **not verified in game**; if a ghost flies sideways or
+  nose-down flip the signs there and nowhere else).
+- Registries: `driver.registries()` (`ghost::Registries`) is mirrored on every spawn / hide; `driver.save(stash)` writes `ghost.registries` (+ my `ghost.meta`, one line per record incl. idcode); the
+  string table is kept in `ghost.strings`. `ghost_hub().is_ghost_local(id)` tells the janitor / takeover which objects are ghosts: **M3-13 must skip them on a /reloadui**.
+- Adoption (`GhostDriver::adopt`): fixed registry epoch (identity decides, not an epoch): a stashed id is adopted only if valid AND idcode equal AND name starts with `[MP] `; otherwise the
+  ghost is searched by idcode among `x4mp_team_1..8` ships (ids change on every load); otherwise it respawns from its samples. Unrelated objects at a stale id are never touched.
+- Stream clock (important): `Replication.server_time_us` is the AUTHORITY's capture clock, not the server clock (FakeNode's authority stamps ticks since its own start: 1.4 s off; a real
+  authority is only as good as its estimate). The render clock is therefore `now_server - StreamClock.bias_us()` (min of arrival - reference over 128 messages), i.e. the stream's own "present".
+  `lat_p95` in `[sync]` is measured against that clock. If M3-11's capture times are exact the bias is just the minimum network latency.
+- Deviations from the plan: **stale hiding is off** (`stale_us` 1 h): the server sends nothing for a ship that does not change (a parked avatar was silent for 30+ s), so silence is not
+  staleness; ghosts leave through `EntityDespawn` / session end. The sector map is **not** built here: `GameGhostWorld::sector_id` reads `selfship_hub().map()` (one accessor added to the hub,
+  `set_map()` in `SelfShipFeature`). `ui.xml` got one line (`x4mp_ghosts.lua`).
+- Spawn rules: <= 2 per frame; waits while the faction is not ready (silent) / missing (error every 2 s) / the sector index is unmapped / the local player's ship is within 40 m of the spawn point
+  (never spawns onto the player; no timeout); failed spawns back off 2 s; > 3 respawns in 30 s back off 10 s (a deliberate hide + re-show is not a respawn); a lost dress is repeated (name check at +2 s, 5 tries).
+  A parked ghost is re-asserted every 250 ms (puts a pushed ghost back); inert every 5 s.
+- Spawn near stations: not knowable natively; only "never on the player's ship" is checked (sitting-0 note 8). M3-11/12 need `get_safe_pos` / the undock point for avatars.
+
+Numbers: Catch2 (`ghosts.*`, 36 cases): path error vs the analytic track (circle 1500 m / 250 m/s, line 300, accel to 450) < 0.5 m; gate jumps land within 1 m in the new sector with exactly one place() per jump and
+no respawn; 7 ghosts: **frame p50 0.9 us, p95 2.6 us, max ~10 us, 0 allocations** (Replication ingest + interpolation + driver, game calls excluded; budget 200 us). e2e (`ghosts_run.ps1`, real server,
+FakeNode authority + 2 flying bots, one real DLL): `[sync]` err p50/p95/max 0.00/0.00/0.00 m, display latency p95 ~120-250 ms (adaptive delay 116-250 ms), frame p95 ~28 us with 3 ghosts, 20 reloads: 0 leaks, 0 duplicates (3 spawns total).
+
+Found on the way:
+- **Separate fix, keep it (`join_feature.cpp`, ManifestReport ordering):** the count-only `ManifestReport` was sent in the same frame as `LoadStatus(Matching)` and could overtake it: the server answers `PhaseDenied`, never runs the catch-up
+  (string table + journal) and the node never learns the ship macros. It is now sent in `finish_ready()` right before `NodeReady` (after the roster shows Matching). Without it no ghost can be spawned.
+- **Open item for M3-14 (server, not fixed here):** strings the authority adds while a node is still joining are not sent to it (`OnStringsAdded` only reaches CatchingUp/InGame nodes, the catch-up snapshot is taken earlier), and a resume
+  does not re-send the table; a client joining while avatars are being provisioned can miss a macro. The ghost feature persists its table in the stash for reloads; the ghost e2e starts the bots first.
+- FakeNode stamps `PlayerState.sample_time_us` and `WorldUpdate.capture_time_us` with ticks since its own start, not the server clock (see stream clock above).
+- hostsim: `expect-ghost` is real (reads the `[sync]` lines), new `until`, `repeat`, `world md-emulate|md-sectors|factions`, `world object push`, `RemoveComponent` / faction / faction-ship exports, count filters
+  `moving hinted minhull active radar` (docs/hostsim.md). `world_objects.hostsim` no longer relies on the old STUB. CI: step `HostSimGhosts` in `tools/e2e.ps1` and `ci.yml` (ports 47965-47967; the pair range and 47944-47952 are used by other runs).
+- Not covered by e2e (FakeNode cannot send it): the Hidden flag (Catch2 covers hide / show) and more than one gate jump (Catch2 covers it exactly).
+- Not verified in game: ghost model / name colour, orientation signs, that MD `set_object_velocity` accepts the batch list shape, that `ConvertStringToLuaID` takes the decimal id string exactly as in the spike.

@@ -51,7 +51,7 @@ class SelfShipHub {
   void set_own_net_id(std::uint32_t id) noexcept { own_net_id_ = id; }
   [[nodiscard]] std::uint32_t own_net_id() const noexcept { return own_net_id_; }
 
-  // The node-local sector map (owned by the selfship feature; null before init / after shutdown). M3-11 reads index <-> macro <-> id from it.
+  // The node-local sector map (owned by the selfship feature; null before init / after shutdown). M3-11 (avatars) and M3-10 (ghosts) read index <-> macro <-> id from it.
   void set_map(const GalaxyMap* map) noexcept { map_ = map; }
   [[nodiscard]] const GalaxyMap* map() const noexcept { return map_; }
 

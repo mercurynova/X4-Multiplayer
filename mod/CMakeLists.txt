@@ -593,3 +593,27 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_avatars.cpp)
 endif()
 # END M3-11 avatars on the authority
+
+# =============================================================================================
+# BEGIN M3-10 features/ghosts (client ghosts: spawn, dress, move, hide, adopt). Appended by M3-10.
+#   x4mp_game  += game/ghosts_api.cpp (native calls on top of GameApi, pose convention, faction / ship lists by name)
+#   x4mp_host  += features/ghosts/*.cpp (picked up by the M2-04 features glob)
+#   x4mp_ghosts_tests = Catch2 over a fake game: driver (spawn / dress / move / hide / sector change / parked label / adoption /
+#     5 Hz hints / budget), message decoding, string table, no allocation per frame, perf with 7 ghosts (own exe: it
+#     replaces the global operator new like x4mp_ghost_tests)
+#   hostsim.ghosts_* + tests/hostsim/ghosts_run.ps1 = the real DLL against the real server and FakeNode bots (CI step HostSimGhosts)
+# =============================================================================================
+target_sources(x4mp_game PRIVATE native/game/ghosts_api.cpp)
+if(X4MP_TESTS)
+  add_executable(x4mp_ghosts_tests
+    tests/ghost/alloc_counter.cpp
+    tests/ghosts/test_driver.cpp
+    tests/ghosts/test_messages.cpp
+    tests/ghosts/test_perf.cpp)
+  target_include_directories(x4mp_ghosts_tests PRIVATE tests/ghost tests/ghosts)
+  target_link_libraries(x4mp_ghosts_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
+  x4mp_set_warnings(x4mp_ghosts_tests)
+  catch_discover_tests(x4mp_ghosts_tests TEST_PREFIX "ghosts." PROPERTIES TIMEOUT 120)
+  cmake_language(DEFER CALL x4mp_assert_no_sdk x4mp_ghosts_tests)
+endif()
+# END M3-10 features/ghosts

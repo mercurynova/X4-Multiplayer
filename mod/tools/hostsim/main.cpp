@@ -205,12 +205,49 @@ class Runner {
     }
   }
 
-  int run(const std::vector<std::string>& lines) {
+  // `repeat <n>` ... `end-repeat` (not nested) repeats the lines between them n times; error messages keep the original line numbers.
+  std::vector<std::pair<std::string, int>> expand_repeats(const std::vector<std::string>& lines) {
+    std::vector<std::pair<std::string, int>> out;
+    std::vector<std::pair<std::string, int>> block;
+    int count = 0;
+    bool in_block = false;
+    int no = 0;
+    for (const auto& raw : lines) {
+      ++no;
+      const auto t = tokenize(trim(raw));
+      if (!t.empty() && t[0] == "repeat") {
+        const std::string n = t.size() > 1 ? expand(t[1]) : std::string();  // `repeat ${reloads}`
+        if (in_block || n.empty() || !is_number(n)) throw UsageError("line " + std::to_string(no) + ": repeat <n> (not nested)");
+        in_block = true;
+        count = std::atoi(n.c_str());
+        block.clear();
+      } else if (!t.empty() && t[0] == "end-repeat") {
+        if (!in_block) throw UsageError("line " + std::to_string(no) + ": end-repeat without repeat");
+        for (int i = 0; i < count; ++i) out.insert(out.end(), block.begin(), block.end());
+        in_block = false;
+      } else if (in_block) {
+        block.emplace_back(raw, no);
+      } else {
+        out.emplace_back(raw, no);
+      }
+    }
+    if (in_block) throw UsageError("repeat without end-repeat");
+    return out;
+  }
+
+  int run(const std::vector<std::string>& original_lines) {
     const auto t0 = Clock::now();
     int line_no = 0, commands = 0;
     bool has_init = false;
+    std::vector<std::pair<std::string, int>> lines;
+    try {
+      lines = expand_repeats(original_lines);
+    } catch (const UsageError& e) {
+      host_.note(std::string("HOSTSIM USAGE ") + e.what());
+      return 2;
+    }
     for (const auto& l : lines) {
-      const auto t = tokenize(trim(l));
+      const auto t = tokenize(trim(l.first));
       if (!t.empty() && (t[0] == "init")) has_init = true;
     }
     int rc = 0;
@@ -220,8 +257,8 @@ class Runner {
         host_.note("[hostsim] (implicit) init");
         cmd_init();
       }
-      for (const auto& raw : lines) {
-        ++line_no;
+      for (const auto& [raw, original_no] : lines) {
+        line_no = original_no;
         std::string line = trim(raw);
         if (line.empty() || line[0] == '#') continue;
         ++commands;
@@ -298,7 +335,9 @@ class Runner {
     current_cmd_ = cmd;
     const auto rest_from = [&](std::size_t k) { return k < t.size() ? trim(line.substr(starts[k])) : std::string(); };
     // Echo (payloads of lua commands are not echoed: they can hold the test password).
-    if (cmd == "lua" || cmd == "lua-raw") {
+    if (quiet_echo_) {
+      // inside `until`: the same line repeats every 200 ms, say it once
+    } else if (cmd == "lua" || cmd == "lua-raw") {
       host_.note("[hostsim] L" + std::to_string(line_no) + " " + cmd + " " + (t.size() > 1 ? t[1] : "") + " (" + std::to_string(rest_from(2).size()) + " bytes)");
     } else {
       host_.note("[hostsim] L" + std::to_string(line_no) + " " + line);
@@ -346,9 +385,39 @@ class Runner {
     else if (cmd == "undock") cmd_dock(t, false);
     else if (cmd == "world") cmd_world(t);
     else if (cmd == "expect-object") cmd_expect_object(t);
+    else if (cmd == "until") cmd_until(t, rest_from(2));
     else if (cmd == "expect-ghost") cmd_expect_ghost(t);
     else if (cmd == "ghost-sample") cmd_ghost_sample(t);
     else throw UsageError("unknown command '" + cmd + "'");
+  }
+
+  // until <timeout_ms> <expect-... command>: repeats the nested expectation until it holds, running frames (the mod acts on frames) in between;
+  // fails with the last failure when the (scaled) timeout runs out. For things that happen on their own in the game's time: a ghost
+  // appearing, a label changing, a reload settling.
+  void cmd_until(const std::vector<std::string>& t, const std::string& nested) {
+    need(t, 3, "until <timeout_ms> <command ...>");
+    if (!is_number(t[1])) throw UsageError("until wants a timeout in milliseconds, got '" + t[1] + "'");
+    if (nested.empty()) throw UsageError("until <timeout_ms> <command ...>");
+    need_loaded();
+    const auto deadline = Clock::now() + scaled(std::atoll(t[1].c_str()));
+    const bool was_quiet = quiet_echo_;
+    quiet_echo_ = true;
+    for (;;) {
+      try {
+        execute(nested, 0);
+        quiet_echo_ = was_quiet;
+        return;
+      } catch (const ScriptFail& e) {
+        if (Clock::now() >= deadline) {
+          quiet_echo_ = was_quiet;
+          throw ScriptFail(std::string("until ") + t[1] + " ms: " + e.what());
+        }
+      } catch (...) {
+        quiet_echo_ = was_quiet;
+        throw;
+      }
+      cmd_frame({"frame", "60Hz", "12"});  // 200 ms of game time
+    }
   }
 
   static void need(const std::vector<std::string>& t, std::size_t n, const char* usage) {
@@ -488,6 +557,7 @@ class Runner {
       fu.game_paused = host_.paused.load();
       fu.frame_counter = static_cast<int>(host_.frames.load());
       if (!host_.paused.load()) host_.world.advance(dt * host_.speed);  // the scripted player-ship path (ship path ...)
+      host_.deliver_md_answers();  // M3-10: the emulated MD / Lua answers of the previous frame
       fire("on_native_frame_update", &fu);
       fire("on_frame_update");
       costs.push_back(std::chrono::duration<double, std::milli>(Clock::now() - f0).count());
@@ -505,7 +575,7 @@ class Runner {
     const auto pct = [&](double p) { return costs.empty() ? 0.0 : costs[std::min(costs.size() - 1, static_cast<std::size_t>(p * static_cast<double>(costs.size())))]; };
     std::snprintf(buf, sizeof(buf), "[hostsim] %lld frames in %.2f s; mod callback ms p50 %.3f p95 %.3f max %.3f; game_time %.2f", n,
                   std::chrono::duration<double>(Clock::now() - t0).count(), pct(0.5), pct(0.95), costs.empty() ? 0.0 : costs.back(), host_.game_time.load());
-    host_.note(buf);
+    if (!quiet_echo_) host_.note(buf);
   }
 
   void cmd_lua(const std::vector<std::string>& t, const std::string& payload, bool require_bridge) {
@@ -700,6 +770,9 @@ class Runner {
     else if (n == "activate_calls") got = static_cast<double>(host_.world.activate_calls);
     else if (n == "radar_calls") got = static_cast<double>(host_.world.radar_calls);
     else if (n == "removed") got = static_cast<double>(host_.world.removed);
+    else if (n == "dress_events") got = static_cast<double>(host_.world.dress_events);
+    else if (n == "velocity_events") got = static_cast<double>(host_.world.velocity_events);
+    else if (n == "teams_applies") got = static_cast<double>(host_.world.teams_applies);
     else if (n == "seat") got = host_.world.seat ? 1 : 0;
     else if (n == "docked") got = host_.world.docked ? 1 : 0;
     else if (n == "seta") got = host_.world.seta ? 1 : 0;
@@ -795,7 +868,8 @@ class Runner {
   static json obj_json(const hostsim::Obj& o) {
     return json{{"id", o.id}, {"cls", o.cls}, {"macro", o.macro}, {"owner", o.owner}, {"name", o.name}, {"idcode", o.idcode}, {"sector", o.sector},
                 {"x", o.pos.x}, {"y", o.pos.y}, {"z", o.pos.z}, {"yaw", o.pos.yaw}, {"pitch", o.pos.pitch}, {"roll", o.pos.roll},
-                {"active", o.active}, {"radar", o.radar}, {"wrecked", o.wrecked}};
+                {"active", o.active}, {"radar", o.radar}, {"wrecked", o.wrecked}, {"min_hull", o.min_hull},
+                {"speed", std::sqrt(o.vx * o.vx + o.vy * o.vy + o.vz * o.vz)}, {"vx", o.vx}, {"vy", o.vy}, {"vz", o.vz}, {"velocity_hints", o.velocity_hints}};
   }
 
   // seat on|off / seta on|off
@@ -892,6 +966,33 @@ class Runner {
     } else if (t[1] == "spawn-fail") {
       need(t, 3, "world spawn-fail <count>");
       w.spawn_fail_budget = std::atoi(t[2].c_str());
+    } else if (t[1] == "md-emulate") {  // M3-10: play the MD / Lua half of the ghost feature (dress, velocity hint, sector list)
+      cmd_toggle({"x", t.size() > 2 ? t[2] : ""}, "world md-emulate on|off", w.md_emulate);
+    } else if (t[1] == "md-sectors") {  // world md-sectors <macro>=<id>,<macro>=<id>,... : the answer to the selfship feature's sector map request
+      need(t, 3, "world md-sectors <macro>=<id>,<macro>=<id>,...");
+      std::string chunk = "S;";
+      std::size_t pos = 0, count = 0;
+      while (pos < t[2].size()) {
+        auto end = t[2].find(',', pos);
+        if (end == std::string::npos) end = t[2].size();
+        const std::string item = t[2].substr(pos, end - pos);
+        pos = end + 1;
+        const auto eq = item.find('=');
+        if (eq == std::string::npos || eq == 0) throw UsageError("world md-sectors <macro>=<id>,...");
+        chunk += (count ? ";" : "") + item.substr(0, eq) + "|" + item.substr(eq + 1);
+        ++count;
+      }
+      w.md_sector_map = {chunk, "E;" + std::to_string(count)};
+    } else if (t[1] == "factions") {  // world factions a,b,c : the faction list GetAllFactions returns
+      need(t, 3, "world factions <a>,<b>,...");
+      w.factions.clear();
+      std::size_t pos = 0;
+      while (pos < t[2].size()) {
+        auto end = t[2].find(',', pos);
+        if (end == std::string::npos) end = t[2].size();
+        w.factions.push_back(t[2].substr(pos, end - pos));
+        pos = end + 1;
+      }
     } else if (t[1] == "teleport") {
       need(t, 3, "world teleport allow|deny [reason]");
       w.teleport_allowed = t[2] == "allow";
@@ -935,7 +1036,15 @@ class Runner {
           o->pos.z = static_cast<float>(v->z);
         }
         else if (t[2] == "name") { need(t, 5, "world object name <selector> <text>"); o->name = t[4]; for (std::size_t i = 5; i < t.size(); ++i) o->name += " " + t[i]; }
-        else throw UsageError("world object add|wreck|unwreck|remove|owner|name ...");
+        else if (t[2] == "push") {  // world object push <selector> dx,dy,dz : the player bumps it (M3-10: a ghost must be put back)
+          need(t, 5, "world object push <selector> dx,dy,dz");
+          const auto d = hostsim::parse_vec3(t[4]);
+          if (!d) throw UsageError("world object push <selector> dx,dy,dz");
+          o->pos.x += static_cast<float>(d->x);
+          o->pos.y += static_cast<float>(d->y);
+          o->pos.z += static_cast<float>(d->z);
+        }
+        else throw UsageError("world object add|wreck|unwreck|remove|owner|name|push ...");
       }
     } else {
       throw UsageError("world sector|object|spawn-fail|teleport|controlled-when-docked ...");
@@ -944,7 +1053,7 @@ class Runner {
 
   // expect-object <selector> exists|absent
   // expect-object <selector> <field> <op> <value>     fields: id cls macro owner name idcode sector x y z yaw pitch roll active radar wrecked
-  // expect-object count <op> <n> [macro=M] [owner=O] [sector=S] [name=N]
+  // expect-object count <op> <n> [macro=M] [owner=O] [sector=S] [name=N] [moving=0|1] [hinted=0|1] [minhull=P] [active=0|1] [radar=0|1]
   void cmd_expect_object(const std::vector<std::string>& t) {
     need(t, 3, "expect-object <selector> exists|absent|<field> <op> <value> | expect-object count <op> <n> [filters]");
     auto& w = host_.world;
@@ -957,6 +1066,14 @@ class Runner {
         if (f.count("owner") && o.owner != f.at("owner")) continue;
         if (f.count("name") && o.name != f.at("name")) continue;
         if (f.count("sector") && std::to_string(o.sector) != f.at("sector")) continue;
+        // M3-10 filters on what the emulated MD half did: moving=1 (hinted speed > 50 m/s) / 0, hinted=1 (any velocity hint received),
+        // minhull=<pct>, active=0|1, radar=0|1
+        const double speed = std::sqrt(o.vx * o.vx + o.vy * o.vy + o.vz * o.vz);
+        if (f.count("moving") && (speed > 50.0) != (f.at("moving") == "1")) continue;
+        if (f.count("hinted") && (o.velocity_hints > 0) != (f.at("hinted") == "1")) continue;
+        if (f.count("minhull") && std::to_string(o.min_hull) != f.at("minhull")) continue;
+        if (f.count("active") && o.active != (f.at("active") == "1")) continue;
+        if (f.count("radar") && o.radar != (f.at("radar") == "1")) continue;
         ++n;
       }
       const auto why = check_number(n, t[2], t[3]);
@@ -981,33 +1098,94 @@ class Runner {
     if (!why.empty()) throw ScriptFail("object " + std::to_string(id) + " " + t[2] + ": " + why);
   }
 
-  // expect-ghost <player> err_p50|err_p95|err_max|samples <op> <value>
-  // The ghost error (metres between the ghost of <player> and that player's true pose) is measured by the ghost feature's
-  // test hook, which M3-10 adds; hostsim only stores the samples (World::ghost_errors, fed by `ghost-sample`). Until a
-  // scenario provides samples this command PARSES AND VALIDATES its arguments and prints "STUB" without failing, so wave-2
-  // scenarios can already contain the line. With samples it evaluates the percentile and fails on a violation.
+  // expect-ghost <player> err_p50|err_p95|err_max|samples <op> <value> [timeout=<ms>]
+  // M3-10: the numbers are the ones the mod itself measures and logs every 5 s on the [sync] line of each ghost (path error = the
+  // rendered position against the sender's own samples at the SAME server time, m3-plan Q3):
+  //   "[sync] player=<name> net=<id> frames=<n> err_p50/p95/max=<a>/<b>/<c> m ..."
+  // err_p50 / err_p95 / err_max = the worst of the LAST THREE full windows (windows of fewer than 60 rendered frames are partial and ignored;
+  // the first windows can predate the server's Near tier for this client),
+  // samples = the rendered frames summed over all windows. The command re-reads extension/logs/x4mp.log until the condition holds or the
+  // timeout (default 5 s, scaled) runs out; with no [sync] line for the player an err_* metric fails (it is no longer a stub).
+  // `ghost-sample` values (DLL-free scripts) take precedence when present.
+  struct SyncWindow {
+    long long frames = 0;
+    double p50 = 0, p95 = 0, max = 0;
+  };
+  std::vector<SyncWindow> read_sync_windows(const std::string& player) {
+    std::vector<SyncWindow> out;
+    std::ifstream f(work_ / "extension" / "logs" / "x4mp.log", std::ios::binary);
+    if (!f) return out;
+    const std::string needle = "[sync] player=" + player + " net=";
+    std::string line;
+    while (std::getline(f, line)) {
+      if (line.find(needle) == std::string::npos) continue;
+      SyncWindow w;
+      const auto fr = line.find(" frames=");
+      const auto er = line.find(" err_p50/p95/max=");
+      if (fr == std::string::npos || er == std::string::npos) continue;
+      w.frames = std::atoll(line.c_str() + fr + 8);
+      char* e = nullptr;
+      const char* p = line.c_str() + er + 17;  // "<p50>/<p95>/<max> m"
+      w.p50 = std::strtod(p, &e);
+      if (e == p || *e != '/') continue;
+      p = e + 1;
+      w.p95 = std::strtod(p, &e);
+      if (e == p || *e != '/') continue;
+      p = e + 1;
+      w.max = std::strtod(p, &e);
+      if (e == p) continue;
+      out.push_back(w);
+    }
+    return out;
+  }
+
   void cmd_expect_ghost(const std::vector<std::string>& t) {
-    need(t, 5, "expect-ghost <player> err_p50|err_p95|err_max|samples <op> <value>");
-    const std::string& metric = t[2];
+    std::vector<std::string> a(t.begin(), t.end());
+    long long timeout = 5000;
+    if (a.size() > 1 && a.back().rfind("timeout=", 0) == 0) {
+      timeout = std::atoll(a.back().c_str() + 8);
+      a.pop_back();
+    }
+    need(a, 5, "expect-ghost <player> err_p50|err_p95|err_max|samples <op> <value> [timeout=<ms>]");
+    const std::string& metric = a[2];
     if (metric != "err_p50" && metric != "err_p95" && metric != "err_max" && metric != "samples") throw UsageError("expect-ghost metric must be err_p50, err_p95, err_max or samples");
-    if (!is_number(t[4])) throw UsageError("expect-ghost wants a number, got '" + t[4] + "'");
-    const auto it = host_.world.ghost_errors.find(t[1]);
-    if (it == host_.world.ghost_errors.end() || it->second.empty()) {
-      if (metric == "samples") {
-        const auto why = check_number(0, t[3], t[4]);
-        if (!why.empty()) throw ScriptFail("ghost samples for " + t[1] + ": " + why);
+    if (!is_number(a[4])) throw UsageError("expect-ghost wants a number, got '" + a[4] + "'");
+    const auto deadline = Clock::now() + scaled(timeout);
+    for (;;) {
+      bool have = false;
+      double got = 0;
+      const auto it = host_.world.ghost_errors.find(a[1]);
+      if (it != host_.world.ghost_errors.end() && !it->second.empty()) {
+        auto v = it->second;
+        std::sort(v.begin(), v.end());
+        const auto pct = [&](double p) { return v[std::min(v.size() - 1, static_cast<std::size_t>(p * static_cast<double>(v.size())))]; };
+        got = metric == "samples" ? static_cast<double>(v.size()) : metric == "err_max" ? v.back() : metric == "err_p50" ? pct(0.5) : pct(0.95);
+        have = true;
+      } else {
+        const auto windows = read_sync_windows(a[1]);
+        if (metric == "samples") {
+          for (const auto& w : windows) got += static_cast<double>(w.frames);
+          have = true;
+        } else {
+          std::vector<SyncWindow> full;  // the steady state counts: the LAST three full windows (the first ones can predate the Near tier)
+          for (const auto& w : windows) {
+            if (w.frames >= 60) full.push_back(w);
+          }
+          const std::size_t from = full.size() > 3 ? full.size() - 3 : 0;
+          for (std::size_t i = from; i < full.size(); ++i) {
+            have = true;
+            got = std::max(got, metric == "err_p50" ? full[i].p50 : metric == "err_p95" ? full[i].p95 : full[i].max);
+          }
+        }
+      }
+      const auto why = have ? check_number(got, a[3], a[4]) : std::string("no [sync] line for this player yet");
+      if (have && why.empty()) {
+        host_.note("[hostsim]   ghost " + a[1] + " " + metric + " = " + std::to_string(got));
         return;
       }
-      host_.note("[hostsim]   expect-ghost STUB: no ghost error samples for '" + t[1] + "' (M3-10 provides the measurement); not evaluated");
-      return;
+      if (Clock::now() >= deadline) throw ScriptFail("ghost " + a[1] + " " + metric + ": " + why);
+      std::this_thread::sleep_for(100ms);  // condition wait with timeout (the mod's log writer may lag, the next [sync] window is 5 s away)
     }
-    auto v = it->second;
-    std::sort(v.begin(), v.end());
-    const auto pct = [&](double p) { return v[std::min(v.size() - 1, static_cast<std::size_t>(p * static_cast<double>(v.size())))]; };
-    const double got = metric == "samples" ? static_cast<double>(v.size()) : metric == "err_max" ? v.back() : metric == "err_p50" ? pct(0.5) : pct(0.95);
-    const auto why = check_number(got, t[3], t[4]);
-    if (!why.empty()) throw ScriptFail("ghost " + t[1] + " " + metric + ": " + why);
-    host_.note("[hostsim]   ghost " + t[1] + " " + metric + " = " + std::to_string(got));
   }
 
   // ghost-sample <player> <metres>: records one ghost error sample (used by M3-10's hook and by the DLL-free smoke).
@@ -1097,6 +1275,7 @@ class Runner {
   hostsim::Host host_;
   hostsim::AdminClient admin_;
   std::string current_cmd_;
+  bool quiet_echo_ = false;
   HMODULE dll_ = nullptr;
   bool loaded_ = false;
   int (*init_)(X4NativeAPI*) = nullptr;

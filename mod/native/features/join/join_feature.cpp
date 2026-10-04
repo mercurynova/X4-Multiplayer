@@ -18,6 +18,7 @@
 #include "features/teams/team_hub.h"
 #include "features/avatars/avatar_hub.h"
 #include "features/diag/diag_hub.h"
+#include "features/ghosts/ghost_hub.h"
 #include "features/join/join_messages.h"
 #include "features/join/join_requests.h"
 #include "features/selfship/selfship_hub.h"
@@ -485,6 +486,7 @@ void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
   chat::chat_hub().session_ended();  // M3-06: roster and chat history belong to the session
   teams::team_hub().session_ended();  // M3-08: the team model belongs to the session
   avatars::avatar_hub().session_ended();  // M3-11: queued avatar inputs belong to the session
+  ghosts::ghost_hub().session_ended();  // M3-10: the ghosts belong to the session too (removed on the next frame)
 }
 
 bool JoinFeature::welcomed() const {
@@ -749,6 +751,8 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       chat::chat_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
       teams::team_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);  // M3-08
       avatars::avatar_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);  // M3-11
+      // M3-10: player-ship entity messages and Replication go to the ghost feature (features/ghosts); it ignores everything else.
+      ghosts::ghost_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
@@ -899,11 +903,10 @@ void JoinFeature::complete_universe(host::HostContext&) {
   if (epoch == 0) epoch = 1;  // never 0 = "none"
   const auto t0 = Clock::now();
   send_control(join::msg_load_status(), join::encode_load_status(join::JoinPhase::Matching, 1.0f));
-  if (has_manifest_) {
-    // M2: count-only. Matching the manifest against the loaded universe is M4.
-    const auto ms = static_cast<std::uint32_t>(std::chrono::duration_cast<milliseconds>(Clock::now() - t0).count());
-    send_control(join::msg_manifest_report(), join::encode_manifest_report_counts(checkpoint_, 0, 0, ms));
-  }
+  // The count-only ManifestReport (M2; matching the manifest against the loaded universe is M4) follows in finish_ready(), once the roster
+  // shows us in Matching: sent in the same frame as the LoadStatus it can overtake it, the server answers PhaseDenied and then never runs
+  // the catch-up (string table + journal), so a node would not know the macros of the ships it is sent (found by M3-10's ghost e2e).
+  manifest_ms_ = static_cast<std::uint32_t>(std::chrono::duration_cast<milliseconds>(Clock::now() - t0).count());
   ready_pending_ = true;  // NodeReady follows in finish_ready()
   matching_sent_at_ = Clock::now();
   pending_epoch_ = epoch;
@@ -926,6 +929,7 @@ void JoinFeature::finish_ready(host::HostContext& ctx) {
       stash_->put(auth::kStashKey, st.to_json());
     }
   }
+  if (has_manifest_) send_control(join::msg_manifest_report(), join::encode_manifest_report_counts(checkpoint_, 0, 0, manifest_ms_));
   send_control(join::msg_node_ready(), join::encode_node_ready(epoch, save_sha_));
   session_->mark_in_session();
   stage_ = Stage::InGame;

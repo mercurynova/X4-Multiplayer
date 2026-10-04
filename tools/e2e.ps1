@@ -23,6 +23,10 @@
                 processes (two real x4mp.dll instances, players Pia and Pax) running mod/tests/hostsim/pair_scenario.hostsim: join, resume,
                 InGame, see each other online, a scripted ship path in the fake universe. The base the M3 ghost/avatar scenarios copy.
                 Ports 47940-47942 (the pair range is 47940-47949).
+    HostSimGhosts (Windows, M3-10) mod/tests/hostsim/ghosts_run.ps1: the published server, a FakeNode authority (avatars, host ship, the synthetic
+                galaxy file), two FakeNode bots that really fly (one leaves) and ONE x4mp-hostsim with the real x4mp.dll as the client: ghosts
+                spawn / dress / move (path error from the mod's own [sync] lines < 2 m), velocity hints, a pushed ghost is put back, a leaver
+                becomes "(offline)", 20 reloads without leaks or duplicates. Ports 47965-47967.
     ModRefusal  (Windows, M2-14) mod_refusal_run.ps1 (M2-X3): the real x4mp.dll is refused for install/enable/disable/update mod differences;
                 the grouped lists arrive in Lua. Ports 47968-47970.
     LaunchStats (Windows, M2-12) launch_stats_run.ps1: a launch.json connects the real x4mp.dll without UI and is deleted;
@@ -48,7 +52,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless', 'HostSim', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill', 'HostSimPair')][string[]]$Steps,
+  [ValidateSet('Publish', 'Swarm', 'Playwright', 'Headless', 'HostSim', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill', 'HostSimPair', 'HostSimGhosts')][string[]]$Steps,
   [int]$Clients = 6,
   [int]$SwarmSeconds = 45,
   [int]$PortBase = 47960,
@@ -71,7 +75,7 @@ $isWin = [System.Environment]::OSVersion.Platform -eq 'Win32NT'
 $exeExt = if ($isWin) { '.exe' } else { '' }
 $rid = if ($isWin) { 'win-x64' } else { 'linux-x64' }
 if (-not $ArtifactDir) { $ArtifactDir = Join-Path $repo 'out/e2e' }
-if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless', 'HostSim', 'HostSimPair', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill' } }
+if (-not $Steps) { $Steps = @('Publish', 'Swarm', 'Playwright'); if ($isWin) { $Steps += 'Headless', 'HostSim', 'HostSimPair', 'HostSimGhosts', 'JoinFlow', 'ReloadSurvival', 'AuthorityFlow', 'ModRefusal', 'LaunchStats', 'UploadKill' } }
 if ($SkipPublish) { $Steps = $Steps | Where-Object { $_ -ne 'Publish' } }
 
 $serverExe = Join-Path $repo "out/$rid/x4mp-server$exeExt"
@@ -238,7 +242,7 @@ if ($Steps -contains 'Publish') {
 
 foreach ($f in @($serverExe, $fakeNodeExe)) {
   if (($Steps -contains 'Swarm' -or $Steps -contains 'Headless' -or $Steps -contains 'Playwright' -or $Steps -contains 'HostSim' -or $Steps -contains 'JoinFlow' -or
-      $Steps -contains 'ReloadSurvival' -or $Steps -contains 'AuthorityFlow' -or $Steps -contains 'ModRefusal' -or $Steps -contains 'LaunchStats' -or $Steps -contains 'UploadKill' -or $Steps -contains 'HostSimPair') -and -not (Test-Path $f)) {
+      $Steps -contains 'ReloadSurvival' -or $Steps -contains 'AuthorityFlow' -or $Steps -contains 'ModRefusal' -or $Steps -contains 'LaunchStats' -or $Steps -contains 'UploadKill' -or $Steps -contains 'HostSimPair' -or $Steps -contains 'HostSimGhosts') -and -not (Test-Path $f)) {
     throw "$f not found: run without -SkipPublish first."
   }
 }
@@ -362,6 +366,12 @@ if ($Steps -contains 'JoinFlow') {
 if ($Steps -contains 'HostSimPair') {
   Invoke-Step 'HostSimPair (two real x4mp.dll instances in two hostsim processes against one server)' {
     Invoke-HostSimScript 'hostsimpair' 'mod/tests/hostsim/pair_run.ps1' 200
+  }
+}
+
+if ($Steps -contains 'HostSimGhosts') {
+  Invoke-Step 'HostSimGhosts (one real x4mp.dll as client against FakeNode bots: ghosts, path error, hide, reloads)' {
+    Invoke-HostSimScript 'hostsimghosts' 'mod/tests/hostsim/ghosts_run.ps1' 330
   }
 }
 

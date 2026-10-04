@@ -8,6 +8,7 @@
      x4mp_join_mods.lua (M2-X3). M3-06 added x4mp_players.lua (player table, join/leave) and x4mp_chat.lua (vanilla chat window adapter).
      M3-08 added x4mp_teams.lua (carries the team faction plan to md/x4mp_teams.xml and the answer back).
      M3-11 added x4mp_avatars.lua (carries the avatar safe-position / dress / velocity requests to md/x4mp_avatars.xml and the answers back).
+     M3-10 added x4mp_ghosts.lua (Lua half of the client ghosts: MD dress and velocity hint; the one line below is all it took).
      Later tasks must not edit this file.
      __X4MP_USER (userdata storage, not in the save): { version, lastAddress, lastName }; never the password. -->
 <addon name="x4mp">
@@ -25,6 +26,7 @@
     <file name="ui/x4mp_chat.lua" />
     <file name="ui/x4mp_teams.lua" />
     <file name="ui/x4mp_avatars.lua" />
+    <file name="ui/x4mp_ghosts.lua" />
     <dependency name="ego_detailmonitorHelper" />
     <savedvariable name="__X4MP_USER" storage="userdata" />
   </environment>

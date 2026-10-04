@@ -28,6 +28,9 @@ struct Obj {
   bool active = true;
   bool radar = false;
   bool wrecked = false;
+  int min_hull = -1;                 // set by the emulated MD dress (x4mp.ghost_dress); -1 = never dressed
+  double vx = 0, vy = 0, vz = 0;     // set by the emulated MD velocity hint (x4mp.ghost_velocity)
+  long long velocity_hints = 0;
 };
 
 enum class PathKind { None, Circle, Line, Gate };
@@ -66,6 +69,14 @@ class World {
   bool teleport_allowed = true;
   std::string teleport_reason = "hostsim: teleport denied";
   int spawn_fail_budget = 0;  // the next N spawns return 0
+  // M3-10: factions the game lists (GetAllFactions); the mod's ghost spawn refuses an owner that is not in the list.
+  std::vector<std::string> factions = {"player", "argon", "paranid", "xenon", "x4mp_team_1", "x4mp_team_2", "x4mp_team_3", "x4mp_team_4",
+                                       "x4mp_team_5", "x4mp_team_6", "x4mp_team_7", "x4mp_team_8"};
+  // M3-10: `world md-emulate on` makes the fake play the MD / Lua half of the ghost feature: x4mp.ghost_dress sets name + min hull,
+  // x4mp.ghost_velocity stores the velocity hint, x4mp.teams_apply is answered with the matching x4mp.teams_md report (M3-08).
+  bool md_emulate = false;
+  std::vector<std::string> md_sector_map;  // `world md-sectors`: the x4mp.sector_map payloads (S;.. / E;n) sent when selfship asks (x4mp.sector_map_collect)
+  long long dress_events = 0, velocity_events = 0, teams_applies = 0;
 
   // counters (expect-state)
   long long spawns = 0, set_pos_calls = 0, teleports = 0, owner_calls = 0, activate_calls = 0, radar_calls = 0, removed = 0;
