@@ -245,9 +245,18 @@ struct Thunks {
     World& w = g_host->world;
     return id != 0 && (w.exists(id) || w.has_sector(id) || id == World::kPlayerEntity);
   }
+  // The real game: UIPosRot WRITES (SpawnObjectAtPos2, SetObjectSectorPos) take DEGREES, GetObjectPositionInSector returns RADIANS
+  // (vendored sdk/x4n_math.h, S13.4). The fake world stores radians (what a read returns); the write thunks convert.
+  static UIPosRot deg_to_rad(UIPosRot p) {
+    constexpr float k = 3.14159265358979f / 180.0f;
+    p.yaw *= k;
+    p.pitch *= k;
+    p.roll *= k;
+    return p;
+  }
   static UniverseID SpawnObjectAtPos2(const char* macro, UniverseID sector, UIPosRot pos, const char* owner) {
     check_thread("SpawnObjectAtPos2");
-    return g_host->world.spawn(macro ? macro : "", sector, pos, owner ? owner : "");
+    return g_host->world.spawn(macro ? macro : "", sector, deg_to_rad(pos), owner ? owner : "");
   }
   static void ActivateObject(UniverseID id, bool active) {
     check_thread("ActivateObject");
@@ -262,7 +271,7 @@ struct Thunks {
     Obj* o = w.find(id);
     if (!o || !w.has_sector(sector)) return;  // the game ignores a bad target; scripts see it via expect-object
     o->sector = sector;
-    o->pos = pos;
+    o->pos = deg_to_rad(pos);
   }
   static UIPosRot GetObjectPositionInSector(UniverseID id) {
     check_thread("GetObjectPositionInSector");

@@ -5,7 +5,7 @@
 // off-thread game call as a contract violation before it reaches this class.
 //
 // This is NOT a simulation: positions change only when the mod calls SetObjectSectorPos or a `ship path` advances during
-// `frame`. Units: metres; angles are stored raw as given (the mod and the script agree on the unit; paths write radians (S13.4: the game gives radians)).
+// `frame`. Units: metres; angles are stored in RADIANS (what GetObjectPositionInSector returns, S13.4); the SpawnObjectAtPos2 / SetObjectSectorPos thunks take DEGREES like the real game and convert (M3-15), script `world`/`ship place` yaw values are stored as given (radians).
 #pragma once
 
 #include <cstdint>

@@ -69,6 +69,15 @@ until 90000 expect-ghost ${host} err_p95 < 10 timeout=0
 expect-ghost ${host} err_p50 < 4 timeout=0
 expect-ghost ${host} err_max < 25 timeout=0
 
+# ---- M3-15 ghost rotation units: the authority turns its ship to 1.2 rad (radians, as the game reads them) and stops; the ghost the
+# client renders carries that yaw, read back from the fake world in radians (the mod wrote it in degrees like the real game) ----
+write-file ${sync}/client.pathdone ok
+until 120000 expect-file ${sync}/auth.turned ok timeout=0
+# (the ghost keeps circling until the new yaw arrives: let it settle, then check both bounds)
+frame 60Hz 300
+expect-object "name=[MP] ${host}" yaw > 1.15
+expect-object "name=[MP] ${host}" yaw < 1.25
+
 # ---- chat ----
 write-file ${sync}/client.chat ready
 lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from ${name}"}

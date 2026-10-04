@@ -5,9 +5,11 @@
 #include <string>
 #include <thread>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "game/game_api.h"
+#include "game/ghosts_api.h"
 #include "game/main_thread.h"
 #include "game/player_guard.h"
 #include "game/safe_remove.h"
@@ -40,10 +42,19 @@ UniverseId fk_context(UniverseId id, const char* cls, bool) {
 bool fk_valid(UniverseId id) { return id != 666; }
 
 // M3 fakes
-PosRotPod g_set_pos;
+// Models the real game (sdk/x4n_math.h): writes take DEGREES, GetObjectPositionInSector returns RADIANS. g_written_raw = what the export
+// received, g_set_pos = what a read returns.
+PosRotPod g_set_pos, g_written_raw;
+PosRotPod deg_to_rad(PosRotPod p) {
+  p.yaw *= 3.14159265358979f / 180.0f;
+  p.pitch *= 3.14159265358979f / 180.0f;
+  p.roll *= 3.14159265358979f / 180.0f;
+  return p;
+}
 UniverseId g_set_sector = 0;
 UniverseId fk_spawn(const char* macro, UniverseId sector, PosRotPod pos, const char* owner) {
-  g_set_pos = pos;
+  g_written_raw = pos;
+  g_set_pos = deg_to_rad(pos);
   g_set_sector = sector;
   return std::string(macro) == "bad" || std::string(owner) == "nobody" ? 0 : 9001;
 }
@@ -51,7 +62,8 @@ bool g_active = true, g_radar = false, g_seta = true, g_docked = true;
 void fk_activate(UniverseId, bool a) { g_active = a; }
 void fk_setpos(UniverseId, UniverseId sector, PosRotPod pos) {
   g_set_sector = sector;
-  g_set_pos = pos;
+  g_written_raw = pos;
+  g_set_pos = deg_to_rad(pos);
 }
 PosRotPod fk_getpos(UniverseId) { return g_set_pos; }
 bool fk_teleport(UniverseId id, bool, bool, bool) { return id == 9001; }
@@ -155,6 +167,42 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   GameApi blank;
   CHECK_FALSE(blank.game_time());
   CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 28);
+}
+
+// M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
+TEST_CASE("angles are written to the game in degrees and read back in radians", "[game][api][m3][units]") {
+  ResetMainThread guard;
+  GameApi api(resolve_game_fns(lookup_all), GameInfo{});
+  GhostsApi ghosts(api, nullptr);
+  constexpr double kPi = 3.14159265358979;
+
+  // place(): yaw = pi/2 rad reaches SetObjectSectorPos as 90 (deg); the read-back is pi/2 rad again
+  GhostPose pose;
+  pose.x = 10;
+  pose.yaw = kPi / 2;
+  pose.pitch = kPi / 4;
+  pose.roll = -kPi / 6;
+  CHECK(ghosts.place(9001, 77, pose));
+  CHECK(g_written_raw.yaw == Catch::Approx(90.0f).margin(1e-3));
+  CHECK(g_written_raw.pitch == Catch::Approx(45.0f).margin(1e-3));
+  CHECK(g_written_raw.roll == Catch::Approx(-30.0f).margin(1e-3));
+  CHECK(g_written_raw.x == 10.0f);  // positions are never scaled
+  const auto back = ghosts.pose(9001);
+  REQUIRE(back);
+  CHECK(back->yaw == Catch::Approx(kPi / 2).margin(1e-5));
+  CHECK(back->pitch == Catch::Approx(kPi / 4).margin(1e-5));
+  CHECK(back->roll == Catch::Approx(-kPi / 6).margin(1e-5));
+
+  // spawn(): same conversion on the spawn path
+  CHECK(ghosts.spawn("ship_arg_s_fighter_01_a_macro", 77, pose, "x4mp_team_1") == 9001);
+  CHECK(g_written_raw.yaw == Catch::Approx(90.0f).margin(1e-3));
+
+  // the raw GameApi writers (avatar spawns, takeover copy, avatar driving) convert the same way
+  CHECK(api.set_object_sector_pos(9001, 78, PosRotPod{0, 0, 0, static_cast<float>(kPi), 0, 0}));
+  CHECK(g_written_raw.yaw == Catch::Approx(180.0f).margin(1e-3));
+  CHECK(api.spawn_object("m", 78, PosRotPod{0, 0, 0, static_cast<float>(kPi / 2), 0, 0}, "x4mp_team_1") == 9001);
+  CHECK(g_written_raw.yaw == Catch::Approx(90.0f).margin(1e-3));
+  CHECK(api.object_position(9001)->yaw == Catch::Approx(kPi / 2).margin(1e-5));  // reads are not converted
 }
 
 TEST_CASE("partially available exports resolve individually", "[game][api]") {

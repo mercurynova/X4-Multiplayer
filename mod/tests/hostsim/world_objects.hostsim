@@ -13,7 +13,8 @@ expect-state spawns == 1
 expect-object last owner == x4mp_team_1
 expect-object last sector == 100001
 expect-object last x == 10
-expect-object last yaw == 45
+expect-object last yaw > 0.7853
+expect-object last yaw < 0.7854
 expect-object last cls == ship
 expect-object last idcode contains HS
 expect-object macro=ship_arg_s_fighter_01_a_macro id == 400001
@@ -34,7 +35,8 @@ expect-lua x4stub.world_result 3000 json $.sector == 100002
 expect-object last sector == 100002
 expect-object last x == 500
 expect-object last z == 600
-expect-object last yaw == 90
+expect-object last yaw > 1.5707
+expect-object last yaw < 1.5708
 expect-object last active == false
 expect-object last radar == true
 expect-object last owner == x4mp_team_2

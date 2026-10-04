@@ -909,7 +909,7 @@ class Runner {
   // ship path line  from=x,y,z to=x,y,z speed=S [sector=ID] [loop]
   // ship path gate  from=x,y,z to=x,y,z speed=S sector=A to_sector=B [exit=x,y,z]
   // ship path stop
-  // ship place sector=ID pos=x,y,z [yaw=deg]
+  // ship place sector=ID pos=x,y,z [yaw=rad]
   void cmd_ship(const std::vector<std::string>& t) {
     need(t, 2, "ship path circle|line|gate|stop ... | ship place sector=ID pos=x,y,z");
     auto& w = host_.world;
@@ -960,7 +960,7 @@ class Runner {
     host_.note("[hostsim]   path started; the player ship moves during `frame` (game time, not while paused)");
   }
 
-  // world sector add <id> | world object add macro=M owner=O sector=S pos=x,y,z [name=N] [yaw=deg] [class=ship|station]
+  // world sector add <id> | world object add macro=M owner=O sector=S pos=x,y,z [name=N] [yaw=rad] [class=ship|station]
   // world object <wreck|remove|unwreck> <selector> | world object owner <selector> <faction> | world object name <selector> <text>
   // world spawn-fail <n> | world teleport allow|deny [reason] | world controlled-when-docked on|off
   void cmd_world(const std::vector<std::string>& t) {
@@ -1016,7 +1016,7 @@ class Runner {
       need(t, 3, "world object add|wreck|unwreck|remove|owner|pos|name ...");
       if (t[2] == "add") {
         const auto a = kv_args(t, 3);
-        if (!a.count("macro") || !a.count("sector")) throw UsageError("world object add macro=M sector=S [owner=O] [pos=x,y,z] [name=N] [yaw=deg] [class=station]");
+        if (!a.count("macro") || !a.count("sector")) throw UsageError("world object add macro=M sector=S [owner=O] [pos=x,y,z] [name=N] [yaw=rad] [class=station]");
         const auto sector = static_cast<std::uint64_t>(kv_num(a, "sector", 0));
         const auto owner = a.count("owner") ? a.at("owner") : std::string("argon");
         const auto id = w.spawn(a.at("macro"), sector, to_pos(kv_vec(a, "pos", {}), kv_num(a, "yaw", 0)), owner);

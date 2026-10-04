@@ -61,6 +61,12 @@ expect-no-log SpawnObjectAtPos2 failed
 until 30000 expect-state set_pos_calls > 2000
 write-file ${sync}/auth.avatars ok
 
+# ---- M3-15 ghost rotation units: the host turns (stops flying, yaw 1.2 rad) once the client's path-error check is done; the client's
+# ghost of the host must end up facing the same way, read back from the fake world in radians (the game's writes are degrees) ----
+until 240000 expect-file ${sync}/client.pathdone ok timeout=0
+ship place sector=100001 pos=0,0,0 yaw=1.2
+write-file ${sync}/auth.turned ok
+
 # ---- chat with the real client and the bots' echo ----
 until 120000 expect-file ${sync}/client.chat ready timeout=0
 until 30000 expect-lua x4mp.chat 0 contains hello from Pia

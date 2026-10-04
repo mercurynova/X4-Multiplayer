@@ -360,6 +360,19 @@ public sealed class WingmanChatSyncTests
     }
 
     [Fact]
+    public void AFormationWingmanReportsTheLeadersYawInRadians()
+    {
+        // M3-15: a parked leader turned to yaw Y; the wingman settles in its slot and reports Y (radians on the wire, no degree conversion)
+        const double yaw = 1.2;
+        var target = Pose(3, new Vec3(0, 0, 0), default, yaw: yaw);
+        var w = new FakeWingman(() => target, 3, new Vec3(0, 0, 0), slot: 0, speedMps: 350, radiusMetres: 400, WingmanMode.Formation);
+        PlayerStateT last = null!;
+        for (long t = 0; t < 20 * 30; t++)
+            last = w.NextSample(t);
+        Assert.Equal(yaw, Quantize.RotationToRadians(last.Yaw), 2);
+    }
+
+    [Fact]
     public void AWingmanThatDoesNotKnowItsTargetHoldsItsPlaceAndKeepsSending()
     {
         var w = new FakeWingman(() => null, 3, new Vec3(10, 20, 30), slot: 0, speedMps: 350, radiusMetres: 400) { NetId = 5002 };
