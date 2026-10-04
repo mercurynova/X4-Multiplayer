@@ -36,7 +36,7 @@ Claude can't play X4, so you run these steps and send back the log zips plus you
 - Quicksave still writes a file on a client (hard block is M4); the janitor removes `[MP] ` ships from it when it is loaded with the mod.
 - UIX and SirNukes may stay enabled (session 3 ran with both).
 - **New in M3:** your client's NPC world is **not** the host's (NPC sync is M4). Different traffic around you is expected, and local NPCs can attack you (Q12): stay in quiet, friendly sectors. The ships you see of the other players are ghosts named `[MP] <name>`.
-- Where you appear (sittings 1 and 2): sitting 1 with wingmen puts the fake host ship and your avatar in the **first sector of the galaxy dump with a gate** (index 1; Argon Prime in vanilla), at `-HostStand` (default 25 km off-centre, empty space); without wingmen you appear next to where your save's ship really is. If you land in something, change `-HostStand x,y,z` and restart.
+- Where you appear (sittings 1 and 2): sitting 1 with wingmen puts the fake host ship and your avatar in the **first sector of the galaxy dump with a gate** (index 1; **Grand Exchange I** in this galaxy dump, seen in sitting 1), at `-HostStand` (default 25 km off-centre, empty space); without wingmen you appear next to where your save's ship really is. If you land in something, change `-HostStand x,y,z` and restart.
 
 ---
 ## Sitting 0: spikes S13 (before coding, one PC, ~60-75 min) - FINALISED (M3-002)
@@ -145,7 +145,7 @@ Admin GUI: `http://127.0.0.1:47790` (password file `out\session4\admin-password.
 
 **1.6 SETA (criterion 12).** Turn SETA on if you have the item (if you have none, say so). It must go off within 1 s with the notification "SETA is disabled in multiplayer". *Mod log:* `selfship: SETA is active while connected: switch-off requested` then `selfship: SETA is off again after N ms`, or `selfship: SETA was stopped at the source (MD)`.
 
-**1.7 Quicksave (criterion 8, client half).** Quicksave (a file is written). Quit, start X4 **single player**, load that quicksave (the mod loaded): `janitor: swept: N leftover '[MP] ' object(s) removed` with N = ghosts + old copies. Window 2: `tools\session4\savescan.ps1 -Save <the quicksave name> -Role Client -OwnAvatar <idcode in the takeover line, e.g. HSX-001>` before the load lists them (exit 1), after a re-save the list is empty (exit 0).
+**1.7 Quicksave (criterion 8, client half).** Quicksave (a file is written). Quit, start X4 **single player**, load that quicksave (the mod loaded): `janitor: swept: N leftover '[MP] ' object(s) removed` with N = ghosts + old copies. Window 2: `tools\session4\savescan.ps1 -Save <the quicksave name> -Role Client` before the load lists them (exit 1); load it single player, save to a **new slot**, scan that: the list is empty (exit 0). Do not pass `-OwnAvatar` on a client: the takeover line's idcode is the *authority's* copy, the client's local copy gets its own idcode (sitting 1).
 
 **1.8 Performance (criterion 11).** Window 1: Ctrl+C, then `start-fake-authority.ps1 -SaveName save_004 -FreshDownload -Wingmen 7`; join again, fly 10 minutes among them. *Look for:* GUI **Players > Tester**: "Mod main-thread cost (p95)" below 0.2 ms, "Realtime lane: UDP", "Ghosts shown 8"; write down your FPS with the 7 wingmen and 1 minute later after `Disconnect` at the same spot.
 
