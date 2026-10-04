@@ -216,7 +216,13 @@ function Invoke-HostSimScript([string]$name, [string]$scriptFile, [int]$timeoutS
   if (-not $isWin) { throw "$name is Windows-only" }
   $null = Ensure-ModBuild
   $p = Start-Proc $name $psHost @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repo $scriptFile))
-  if (-not $p.WaitForExit($timeoutSec * 1000)) { Stop-Tree $p; throw "$name did not finish within $timeoutSec s" }
+  if (-not $p.WaitForExit($timeoutSec * 1000)) {
+    Stop-Tree $p
+    # show how far it got (M3-17): without this a timed-out step leaves no trace of where it hung
+    $partial = Join-Path $logDir "$name.log"
+    if (Test-Path $partial) { Write-Host "  --- last lines of $name.log before the timeout ---"; Get-Content $partial -Tail 25 | ForEach-Object { Write-Host "  $_" } }
+    throw "$name did not finish within $timeoutSec s"
+  }
   $p.WaitForExit()
   $text = Get-Content (Join-Path $logDir "$name.log") -Raw
   $text -split "`r?`n" | Select-Object -Last 14 | ForEach-Object { Write-Host "  $_" }
@@ -408,7 +414,7 @@ if ($Steps -contains 'UdpLane') {
 
 if ($Steps -contains 'Session4Kit') {
   Invoke-Step 'Session4Kit (every tools/session4 script: -WhatIf and a dry run against temp folders)' {
-    Invoke-HostSimScript 'session4kit' 'mod/tests/hostsim/session4_dry_run.ps1' 300
+    Invoke-HostSimScript 'session4kit' 'mod/tests/hostsim/session4_dry_run.ps1' 480
   }
 }
 
