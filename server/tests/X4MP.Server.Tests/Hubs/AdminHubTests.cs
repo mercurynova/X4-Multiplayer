@@ -169,15 +169,25 @@ public sealed class AdminHubTests
         // the galaxy is not known before an authority sent its metadata
         Assert.Null(await InvokeAsync<GalaxyDto?>(admin, AdminHubMethods.SubscribeGalaxy));
 
-        var authority = await rig.StartAuthorityAsync(megabytes: SaveCiMegabytes);
+        // The hub reports a transfer from its periodic tick, so an upload that starts and ends between two ticks (a fast disk, a stalled tick on a loaded
+        // machine) is never seen in progress. The fake authority is therefore held half way through the upload until the test has seen the progress push.
+        using var halfway = new ManualResetEventSlim(false);
+        var authority = await rig.StartAuthorityAsync(
+            megabytes: SaveCiMegabytes, waitForRunning: false,
+            onUploadProgress: (sent, size) =>
+            {
+                if (sent * 2 >= size)
+                    halfway.Wait(TimeSpan.FromSeconds(30));
+            });
         _ = authority;
+
+        // save transfer: the authority's checkpoint upload runs while we are subscribed; its last push has Finished set
+        var transfer = await rec.WaitAsync<TransferProgressDto>("SaveTransfer", t => !t.Finished && t.IsUpload);
+        Assert.True(transfer.Size > 0);
+        halfway.Set();
 
         // session: the phase changes while the authority joins and the first checkpoint lands
         await rec.WaitAsync<SessionSummaryDto>("SessionChanged", s => s.State == "Running");
-
-        // save transfer: the authority's checkpoint upload ran while we were subscribed; its last push has Finished set
-        var transfer = await rec.WaitAsync<TransferProgressDto>("SaveTransfer", t => !t.Finished && t.IsUpload);
-        Assert.True(transfer.Size > 0);
         await rec.WaitAsync<TransferProgressDto>("SaveTransfer", t => t.Finished && t.Id == transfer.Id);
 
         // galaxy: the subscribe call now returns the galaxy and 1 Hz frames follow
