@@ -32,6 +32,8 @@ class ClientTakeover {
   void shutdown(host::HostContext& ctx);
 
   [[nodiscard]] bool done() const noexcept;
+  [[nodiscard]] std::uint64_t avatar_id() const noexcept;  // M3-13: the janitor must not remove the own avatar copy
+  [[nodiscard]] std::uint64_t host_id() const noexcept;    // ... nor the vacated host copy before the takeover removed it
   [[nodiscard]] const char* stage_name() const noexcept;
 
  private:

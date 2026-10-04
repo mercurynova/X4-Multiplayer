@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SaveScan (M3-13, docs/m3-plan.md 4.10): streams an X4 save (.xml.gz, or plain .xml) and lists what X4MP leaves in it:
+    "[MP] "-named objects, x4mp_team_* owned ships, the reference mod's x4mp_host / x4mp_client_* traces, the team factions and our MD cues.
+    Exit code 0 = nothing unexpected, 1 = leftovers (or an expected avatar is missing), 2 = usage / unreadable save.
+    Only X4MP.Protocol is referenced (to read the checkpoint manifest's avatar entries with the manifest option).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>X4MP.SaveScan</AssemblyName>
+    <RootNamespace>X4MP.SaveScan</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\server\src\X4MP.Protocol\X4MP.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

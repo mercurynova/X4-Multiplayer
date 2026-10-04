@@ -152,6 +152,7 @@ class AuthorityFlow {
     std::uint32_t index = 0;
   };
   std::vector<KnownString> known_strings_;  // every string (any kind) the server's table holds that this flow knows of (memory only)
+  bool ghosts_cleaned_ = true;                        // M3-13: the pre-SaveGame hygiene check's verdict, sent as SaveUploadBegin.ghosts_cleaned
   std::vector<avatars::Record> manifest_avatars_;     // M3-11: the avatars as of SaveGame, for the manifest
   std::optional<ShipRec> spawn_ship_;
   GalaxyPlan spawn_plan_;

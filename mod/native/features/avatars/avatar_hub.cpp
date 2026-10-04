@@ -56,6 +56,7 @@ void AvatarHub::set_client_link(ClientLink link) {
 void AvatarHub::clear_client_link() {
   if (!client_.send_control && !client_.player_id) return;
   client_ = {};
+  takeover_ = {};
   selfship::selfship_hub().set_state_hold(false);
   ghosts::ghost_hub().set_spawn_hold(false);
   selfship::selfship_hub().set_own_net_id(0);

@@ -24,6 +24,16 @@ bool DiagHub::is_client() const {
   return connected_ && role_ == NodeRole::Client;
 }
 
+void DiagHub::set_session_pending(bool pending) {
+  const std::lock_guard lock(m_);
+  session_pending_ = pending;
+}
+
+bool DiagHub::session_pending() const {
+  const std::lock_guard lock(m_);
+  return session_pending_;
+}
+
 std::uint64_t DiagHub::connection_epoch() const {
   const std::lock_guard lock(m_);
   return epoch_;
@@ -91,6 +101,7 @@ void DiagHub::reset() {
   const std::lock_guard lock(m_);
   role_ = NodeRole::None;
   connected_ = false;
+  session_pending_ = false;
   ++epoch_;
   sender_ = nullptr;
   stats_link_ = {};

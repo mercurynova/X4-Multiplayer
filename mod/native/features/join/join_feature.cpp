@@ -499,6 +499,7 @@ bool JoinFeature::welcomed() const {
 void JoinFeature::update_diag(host::HostContext&) {
   auto& hub = diag_hub();
   const bool connected = welcomed();
+  hub.set_session_pending(session_ && stage_ != Stage::Idle && stage_ != Stage::Rejected && stage_ != Stage::Failed);
   const bool authority = connected && (session_->welcome().granted_roles & 1) != 0;
   if (connected != diag_connected_) {
     diag_connected_ = connected;

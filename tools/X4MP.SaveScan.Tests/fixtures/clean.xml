@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic fixture shaped like an X4 save (hand-written, no game data): nothing of X4MP in it. -->
+<savegame>
+  <info>
+    <save name="Clean fixture" date="1760000200"/>
+    <game id="x4" version="900" build="611726"/>
+    <player name="Solo" location="{galaxy}" money="1"/>
+  </info>
+  <universe seed="1">
+    <factions>
+      <faction id="player" active="1"/>
+      <faction id="argon" active="1"/>
+    </factions>
+    <component class="galaxy" macro="xu_ep2_universe_macro" id="[0x2]">
+      <connections>
+        <connection connection="clusters">
+          <component class="cluster" macro="cluster_fixture_01_macro" id="[0x10]">
+            <connections>
+              <connection connection="sectors">
+                <component class="sector" macro="cluster_fixture_01_sector001_macro" id="[0x11]">
+                  <connections>
+                    <connection connection="objects">
+                      <component class="ship_s" macro="ship_fixture_fighter_macro" code="SOL-001" owner="player" name="My Ship" id="[0x100]"/>
+                      <component class="station" macro="station_fixture_dock_macro" code="STA-001" owner="argon" name="Fixture Dock" id="[0x101]"/>
+                    </connection>
+                  </connections>
+                </component>
+              </connection>
+            </connections>
+          </component>
+        </connection>
+      </connections>
+    </component>
+  </universe>
+</savegame>

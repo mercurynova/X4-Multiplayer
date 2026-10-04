@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic fixture shaped like an X4 save (hand-written, no game data): a client quicksave with ghosts, the own avatar copy and reference-mod leftovers. -->
+<savegame>
+  <info>
+    <save name="Quicksave fixture" date="1760000100"/>
+    <game id="x4" version="900" build="611726"/>
+    <player name="Pia" location="{galaxy}" money="500"/>
+  </info>
+  <universe seed="1">
+    <factions>
+      <faction id="player" active="1"/>
+      <faction id="x4mp_team_1" active="1"/>
+      <faction id="x4mp_client_7" active="1"/>
+    </factions>
+    <component class="galaxy" macro="xu_ep2_universe_macro" id="[0x2]">
+      <connections>
+        <connection connection="clusters">
+          <component class="cluster" macro="cluster_fixture_01_macro" id="[0x10]">
+            <connections>
+              <connection connection="sectors">
+                <component class="sector" macro="cluster_fixture_01_sector001_macro" id="[0x11]">
+                  <connections>
+                    <connection connection="objects">
+                      <component class="ship_s" macro="ship_fixture_fighter_macro" code="AVA-001" owner="player" name="[MP] Pia" id="[0x100]"/>
+                      <component class="ship_s" macro="ship_fixture_fighter_macro" code="GHO-777" owner="x4mp_team_1" name="[MP] Bob" id="[0x101]"/>
+                      <component class="ship_m" macro="ship_fixture_trader_macro" code="REF-001" owner="x4mp_host" name="Old host ship" id="[0x102]"/>
+                      <component class="ship_s" macro="ship_fixture_fighter_macro" code="TEA-002" owner="x4mp_team_2" name="Plain team ship" id="[0x103]"/>
+                    </connection>
+                  </connections>
+                </component>
+              </connection>
+            </connections>
+          </component>
+        </connection>
+      </connections>
+    </component>
+  </universe>
+</savegame>

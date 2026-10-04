@@ -230,6 +230,8 @@ void ClientTakeover::shutdown(host::HostContext& ctx) {
 }
 
 bool ClientTakeover::done() const noexcept { return impl_->machine && impl_->machine->done(); }
+std::uint64_t ClientTakeover::avatar_id() const noexcept { return impl_->machine ? impl_->machine->avatar_id() : 0; }
+std::uint64_t ClientTakeover::host_id() const noexcept { return impl_->machine ? impl_->machine->host_id() : 0; }
 const char* ClientTakeover::stage_name() const noexcept { return impl_->machine ? AvatarTakeover::stage_name(impl_->machine->stage()) : "none"; }
 
 }  // namespace x4mp::features::avatars

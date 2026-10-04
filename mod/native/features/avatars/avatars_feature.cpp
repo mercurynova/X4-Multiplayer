@@ -316,6 +316,16 @@ void AvatarsFeature::on_init(host::HostContext& ctx) {
   s.client->init(ctx, [self = &s]() { return self->team_candidates(); });
   av::avatar_hub().set_max_net_id(s.dir->max_net_id());
   av::avatar_hub().set_snapshot_fn([&s]() { return s.dir->snapshot(); });
+  // M3-13: the janitor and the checkpoint check never remove an avatar: the ids the binder bound and the idcodes of every record
+  av::avatar_hub().set_protect_fn([&s]() {
+    av::AvatarProtect p;
+    if (!s.dir) return p;
+    for (const auto& v : s.dir->views()) {
+      if (v.local_id != 0) p.ids.push_back(v.local_id);
+      if (!v.rec.idcode.empty()) p.idcodes.push_back(v.rec.idcode);
+    }
+    return p;
+  });
   Impl* self = &s;
   (void)ctx.platform.subscribe_event("x4mp.avatars_md", [self](std::string_view t) {
     if (t.size() > 1024) return;
@@ -337,6 +347,8 @@ void AvatarsFeature::on_shutdown(host::HostContext& ctx) {
   auto& s = *impl_;
   s.ctx = &ctx;
   av::avatar_hub().set_snapshot_fn({});
+  av::avatar_hub().set_protect_fn({});
+  av::avatar_hub().set_takeover_status({});
   if (s.client) s.client->shutdown(ctx);
   if (s.dir && s.dir->size() > 0) s.dir->persist_now();
 }
@@ -359,6 +371,12 @@ void AvatarsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
     if (s.client) {
       s.client->apply(in, in.settings.empty() ? nullptr : &s.settings);
       s.client->frame(ctx, s.now_s);
+      av::TakeoverStatus ts;  // M3-13: the janitor waits for Done and spares the takeover's own objects
+      ts.active = hub.client_linked();
+      ts.done = s.client->done();
+      ts.avatar_id = s.client->avatar_id();
+      ts.host_id = s.client->host_id();
+      hub.set_takeover_status(ts);
     }
     return;
   }

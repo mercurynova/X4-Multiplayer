@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic fixture shaped like an X4 save (hand-written, no game data): an authority checkpoint with two avatars under the team factions. -->
+<savegame>
+  <info>
+    <save name="X4MP checkpoint fixture" date="1760000000"/>
+    <game id="x4" version="900" build="611726"/>
+    <player name="Host" location="{galaxy}" money="1000"/>
+  </info>
+  <universe seed="1">
+    <factions>
+      <faction id="player" active="1"/>
+      <faction id="argon" active="1"/>
+      <faction id="x4mp_team_1" active="1"/>
+      <faction id="x4mp_team_2" active="1"/>
+      <faction id="x4mp_team_3" active="0"/>
+    </factions>
+    <component class="galaxy" macro="xu_ep2_universe_macro" id="[0x2]">
+      <connections>
+        <connection connection="clusters">
+          <component class="cluster" macro="cluster_fixture_01_macro" id="[0x10]">
+            <connections>
+              <connection connection="sectors">
+                <component class="sector" macro="cluster_fixture_01_sector001_macro" id="[0x11]">
+                  <connections>
+                    <connection connection="objects">
+                      <component class="ship_s" macro="ship_fixture_fighter_macro" code="HOS-001" owner="player" name="Host Fighter" id="[0x100]"/>
+                      <component class="ship_m" macro="ship_fixture_trader_macro" code="ARG-100" owner="argon" name="Argon Trader" id="[0x101]"/>
+                      <component class="station" macro="station_fixture_dock_macro" code="STA-001" owner="argon" name="Fixture Dock" id="[0x102]">
+                        <connections/>
+                      </component>
+                      <component class="ship_s" macro="ship_fixture_fighter_macro" code="AVA-001" owner="x4mp_team_1" name="[MP] Alice" id="[0x103]"/>
+                    </connection>
+                  </connections>
+                </component>
+                <component class="sector" macro="cluster_fixture_01_sector002_macro" id="[0x12]">
+                  <connections>
+                    <connection connection="objects">
+                      <component class="ship_s" macro="ship_fixture_fighter_macro" code="AVA-002" owner="x4mp_team_2" name="[MP] Bob" id="[0x104]"/>
+                    </connection>
+                  </connections>
+                </component>
+              </connection>
+            </connections>
+          </component>
+        </connection>
+      </connections>
+    </component>
+    <md>
+      <cues>
+        <cue name="X4MP Galaxy">
+          <values>
+            <value name="$collected" value="1"/>
+            <value name="$sectorcount" value="2"/>
+          </values>
+        </cue>
+        <cue name="Some Other Cue"><values><value name="$x" value="1"/></values></cue>
+      </cues>
+    </md>
+  </universe>
+</savegame>

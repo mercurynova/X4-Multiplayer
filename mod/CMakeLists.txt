@@ -399,7 +399,7 @@ endif()
 # =============================================================================================
 target_link_libraries(x4mp_host PRIVATE nlohmann_json::nlohmann_json)
 if(X4MP_TESTS)
-  add_executable(x4mp_features_tests tests/test_features_saves_selftest.cpp)
+  add_executable(x4mp_features_tests tests/test_features_saves_selftest.cpp tests/test_janitor.cpp)  # test_janitor: M3-13
   target_link_libraries(x4mp_features_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
   x4mp_set_warnings(x4mp_features_tests)
   catch_discover_tests(x4mp_features_tests TEST_PREFIX "features." PROPERTIES TIMEOUT 60)
