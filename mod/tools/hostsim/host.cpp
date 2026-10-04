@@ -7,6 +7,7 @@
 #include <fstream>
 #include <thread>
 
+#include <nlohmann/json.hpp>
 #include <x4_game_offsets.h>
 
 #include "game/game_api.h"  // PosRotPod: the mod's SDK-free copy of UIPosRot must stay layout-identical
@@ -50,6 +51,7 @@ struct Thunks {
       h.lua_.push_back({n ? n : "", p ? p : ""});
       h.lua_history_.push_back({n ? n : "", p ? p : ""});
     }
+    if (h.world.md_emulate) h.emulate_md(n ? n : "", p ? p : "");
     h.cv_.notify_all();
     return 0;
   }
@@ -328,14 +330,15 @@ struct Thunks {
     for (; i < n && i < ids.size(); ++i) out[i] = ids[i];
     return i;
   }
-  static const std::vector<std::string>& faction_names() {
-    static const std::vector<std::string> names = {"player",      "argon",       "paranid",     "x4mp_team_1", "x4mp_team_2", "x4mp_team_3",
-                                                   "x4mp_team_4", "x4mp_team_5", "x4mp_team_6", "x4mp_team_7", "x4mp_team_8"};
-    return names;
-  }
+  static const std::vector<std::string>& faction_names() { return g_host->world.factions; }  // `world factions a,b,c` edits it
   static bool IsPlayerOccupiedShipDocked() {
     check_thread("IsPlayerOccupiedShipDocked");
     return g_host->world.docked;
+  }
+  // M3-10: removal (the mod's only removal path is game::safe_remove, which resolves this export), the faction list and the ships of a faction.
+  static void RemoveComponent(UniverseID id) {
+    check_thread("RemoveComponent");
+    g_host->world.remove(id);  // never the player ship or the station
   }
 };
 
@@ -392,6 +395,7 @@ void Host::build_game() {
   game_->GetComponentName = &Thunks::GetComponentName;
   game_->IsComponentWrecked = &Thunks::IsComponentWrecked;
   game_->IsPlayerOccupiedShipDocked = &Thunks::IsPlayerOccupiedShipDocked;
+  game_->RemoveComponent = &Thunks::RemoveComponent;
 #define X4HS_REG(name) game_fns_[#name] = reinterpret_cast<void*>(game_->name)
   X4HS_REG(GetCurrentGameTime);
   X4HS_REG(GetSaveFolderPath);
@@ -426,6 +430,7 @@ void Host::build_game() {
   game_fns_["GetAllFactions"] = reinterpret_cast<void*>(&Thunks::GetAllFactions);
   game_fns_["GetNumAllFactionShips"] = reinterpret_cast<void*>(&Thunks::GetNumAllFactionShips);
   game_fns_["GetAllFactionShips"] = reinterpret_cast<void*>(&Thunks::GetAllFactionShips);
+  X4HS_REG(RemoveComponent);
 #undef X4HS_REG
   offsets_ = std::make_unique<std::uint8_t[]>(sizeof(X4GameOffsets));
   std::memset(offsets_.get(), 0, sizeof(X4GameOffsets));
@@ -473,6 +478,67 @@ void Host::build_api() {
   api.set_setting_string = &Thunks::set_setting_string;
   api.get_lua_property = &Thunks::get_lua_property;
   api.get_lua_property_str = &Thunks::get_lua_property_str;
+}
+
+void Host::emulate_md(const std::string& topic, const std::string& param) {
+  if (topic == "x4mp.ghost_dress") {
+    ++world.dress_events;
+    const auto j = nlohmann::json::parse(param, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("id")) return;
+    const auto id = static_cast<std::uint64_t>(std::strtoull(j["id"].get<std::string>().c_str(), nullptr, 10));
+    if (Obj* o = world.find(id); o && id != world.player_ship) {  // MD refuses the player's ship
+      if (j.contains("name")) o->name = j["name"].get<std::string>();
+      if (j.contains("minhull")) o->min_hull = j["minhull"].get<int>();
+      o->radar = true;
+    }
+  } else if (topic == "x4mp.ghost_velocity") {
+    ++world.velocity_events;
+    std::size_t pos = 0;
+    while (pos < param.size()) {
+      auto end = param.find(';', pos);
+      if (end == std::string::npos) end = param.size();
+      const std::string item = param.substr(pos, end - pos);
+      pos = end + 1;
+      // "<id>,<vx>,<vy>,<vz>"
+      char* e = nullptr;
+      const char* p = item.c_str();
+      const unsigned long long id = std::strtoull(p, &e, 10);
+      bool ok = e != p && *e == ',';
+      double v[3] = {0, 0, 0};
+      for (int k = 0; ok && k < 3; ++k) {
+        p = e + 1;
+        v[k] = std::strtod(p, &e);
+        ok = e != p && (k == 2 ? *e == '\0' : *e == ',');
+      }
+      const double x = v[0], y = v[1], z = v[2];
+      if (ok) {
+        if (Obj* o = world.find(id); o && id != world.player_ship) {
+          o->vx = x;
+          o->vy = y;
+          o->vz = z;
+          ++o->velocity_hints;
+        }
+      }
+    }
+  } else if (topic == "x4mp.sector_map_collect") {  // M3-09 asks MD for the sector list: answer it (the ghosts use that map)
+    for (const auto& data : world.md_sector_map) md_answers_.emplace_back("x4mp.sector_map", nlohmann::json{{"v", 1}, {"data", data}}.dump());
+  } else if (topic == "x4mp.teams_apply") {  // M3-08: the MD team setup; answer with a report that matches the plan
+    ++world.teams_applies;
+    const auto j = nlohmann::json::parse(param, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("seq")) return;
+    const auto seq = j["seq"].get<unsigned>();
+    const std::size_t slots = j.contains("slots") && j["slots"].is_array() ? j["slots"].size() : 0;
+    const std::size_t rel = j.contains("rel") && j["rel"].is_array() ? j["rel"].size() : 0;
+    const std::string report = "R;" + std::to_string(seq) + ";" + std::to_string(slots) + ";0;0;" + std::to_string(slots) + ";" + std::to_string(rel);
+    md_answers_.emplace_back("x4mp.teams_md", nlohmann::json{{"v", 1}, {"data", report}}.dump());
+  }
+}
+
+void Host::deliver_md_answers() {
+  if (md_answers_.empty()) return;
+  std::vector<std::pair<std::string, std::string>> now;
+  now.swap(md_answers_);
+  for (auto& a : now) fire(a.first, a.second.data());
 }
 
 bool Host::fire(const std::string& name, void* data) {

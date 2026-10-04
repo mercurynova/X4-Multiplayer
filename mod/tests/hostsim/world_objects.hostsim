@@ -84,8 +84,8 @@ lua x4stub.world teleport
 expect-lua x4stub.world_result 3000 json $.why contains busy
 expect-state teleports == 1
 
-# expect-ghost: a stub without samples (M3-10 provides them), then evaluated against samples
-expect-ghost bob err_p95 < 2
+# expect-ghost: samples come from `ghost-sample` here (the real DLL's [sync] lines feed it in ghosts_run.ps1); with nothing at all
+# only `samples == 0` can pass (M3-10: an err_* metric without data is a failure, no longer a stub)
 expect-ghost bob samples == 0
 ghost-sample bob 0.1
 ghost-sample bob 0.2
@@ -96,4 +96,4 @@ expect-ghost bob samples == 5
 expect-ghost bob err_p50 < 0.5
 expect-ghost bob err_max == 5
 expect-ghost bob err_p95 > 4
-expect-ghost carol err_p95 < 2
+expect-ghost carol samples == 0

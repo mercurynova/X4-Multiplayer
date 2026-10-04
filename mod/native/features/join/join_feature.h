@@ -125,6 +125,7 @@ class JoinFeature final : public host::IFeature {
   bool rejoin_choice_ = false;                         // Rejoining: the session save differs from the running universe, waiting for the player
   Clock::time_point matching_sent_at_{};
   std::uint64_t pending_epoch_ = 0;
+  std::uint32_t manifest_ms_ = 0;  // how long the (count-only) matching took; reported with the ManifestReport in finish_ready()
   int authority_ready_step_ = 0;                       // 0 waiting, 1 Loading sent (Matching + NodeReady follow)
   Clock::time_point authority_ready_at_{};
 

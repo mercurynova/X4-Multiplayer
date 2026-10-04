@@ -63,7 +63,7 @@ state, and the counters `expect-state` reads. The mod's calls (`SpawnObjectAtPos
 `GetPlayerContainerID`, `GetContextByClass`, `IsValidComponent`) change or read it. Nothing moves by itself except the scripted
 player-ship path during `frame` (game time, paused when `set paused 1`). Objects the mod spawns get ids from 400001.
 Selectors: `<id>`, `last` (newest object, spawned by the mod or by `world object add`), `player` (the player ship), `station`,
-`macro=<m>`, `owner=<o>`, `name=<n>` (newest match; values have no spaces).
+`macro=<m>`, `owner=<o>`, `name=<n>` (newest match; a value with spaces needs the whole token quoted: `"name=[MP] Pia"`).
 
 | Command | Meaning |
 |---|---|
@@ -80,15 +80,21 @@ Selectors: `<id>`, `last` (newest object, spawned by the mod or by `world object
 | `world object wreck\|unwreck\|remove <sel>`, `world object owner <sel> <faction>`, `world object name <sel> <text>` | edit; the player ship and the station cannot be removed |
 | `world renumber` | a save load: every spawned / scripted object (not the player ship, the station, the sectors) gets a new id; positions, names, id codes stay (M3-11: the avatar binder test) |
 | `world object pos <sel> x,y,z` | something pushed the object (a parked avatar is snapped back) |
+| `world object push <sel> dx,dy,dz` | the player bumps it (M3-10: a ghost must be put back) |
+| `world md-emulate on\|off` | M3-10: hostsim plays the MD / Lua half: `x4mp.ghost_dress` sets name + min hull + radar, `x4mp.ghost_velocity` stores the hint (`expect-object ... speed/velocity_hints`, filters `moving`/`hinted`/`minhull`), `x4mp.sector_map_collect` is answered from `world md-sectors`, `x4mp.teams_apply` with a matching `x4mp.teams_md` report (the team setup is Ok). Answers arrive at the start of the next `frame` |
+| `world md-sectors <macro>=<id>,...` | the sector list the emulated MD answers the selfship feature's `x4mp.sector_map_collect` with (the wire index is the rank of the sorted macro) |
+| `world factions <a>,<b>,...` | the list `GetAllFactions` returns (default: player, argon, paranid, xenon, x4mp_team_1..8) |
+| `until <timeout_ms> <expect-... command>` | M3-10: repeats the expectation until it holds, running 200 ms of frames between tries (the mod acts on frames); fails with the last failure at the timeout |
+| `repeat <n>` ... `end-repeat` | repeats the lines in between n times (not nested; `${var}` allowed in n); errors keep the original line numbers |
 | `world spawn-fail <n>` | the next n `SpawnObjectAtPos2` calls return 0 |
 | `world teleport allow\|deny [reason]`, `world controlled-when-docked on\|off` | behaviour switches (assumptions: m3-plan section 8, M3-04) |
 | `expect-object <sel> exists\|absent` | the object exists / does not |
-| `expect-object <sel> <field> <op> <value>` | fields `id cls macro owner name idcode sector x y z yaw pitch roll active radar wrecked`; ops as `expect-admin` (`== != < <= > >= contains`); bools compare as `true` / `false` |
-| `expect-object count <op> <n> [macro=M] [owner=O] [sector=S] [name=N]` | number of objects (the player ship and station included) matching the filters |
-| `expect-ghost <player> err_p50\|err_p95\|err_max\|samples <op> <value>` | **stub until M3-10**: parsed and validated; evaluated only when ghost error samples (metres) exist for the player, otherwise prints `STUB ... not evaluated` and passes (`samples` is always evaluated) |
+| `expect-object <sel> <field> <op> <value>` | fields `id cls macro owner name idcode sector x y z yaw pitch roll active radar wrecked min_hull speed vx vy vz velocity_hints`; ops as `expect-admin` (`== != < <= > >= contains`); bools compare as `true` / `false` |
+| `expect-object count <op> <n> [macro=M] [owner=O] [sector=S] [name=N] [moving=0\|1] [hinted=0\|1] [minhull=P] [active=0\|1] [radar=0\|1]` | number of objects (the player ship and station included) matching the filters |
+| `expect-ghost <player> err_p50\|err_p95\|err_max\|samples <op> <value> [timeout=<ms>]` | M3-10, **real**: reads the `[sync] player=<name> ...` lines the ghost feature logs every 5 s (path error = rendered position vs the sender's own samples at the same server time). `err_*` = the worst of the LAST THREE full windows (>= 60 rendered frames), `samples` = rendered frames summed over all windows. Retries until the timeout (default 5 s, scaled) but runs NO frames while waiting: wrap it as `until <ms> expect-ghost ... timeout=0`. No `[sync]` line yet fails an `err_*` check (no more stub). `ghost-sample` values take precedence when present |
 | `ghost-sample <player> <metres>` | add one ghost error sample (the ghost feature's test hook and the DLL-free smoke use it) |
 
-`expect-state` also reads `objects spawns set_pos_calls teleports owner_calls activate_calls radar_calls removed seat docked seta
+`expect-state` also reads `dress_events velocity_events teams_applies objects spawns set_pos_calls teleports owner_calls activate_calls radar_calls removed seat docked seta
 path_active gate_jumps`. Checks run on the script thread right where they stand, so `frame` first (the mod acts on frames).
 The DLL-free smoke is ctest `hostsim.world_objects`, `hostsim.world_ship` (the stub extension drives the fake through the real
 SDK function table) and `hostsim.world_failure_exit_code`.
@@ -102,6 +108,13 @@ session from an uploaded save, FakeNode bots (`avatars_sim.ps1` starts them with
 the Lua/MD side and checks: avatar spawned under `x4mp_team_1`, inert, at the MD safe position (and at the wanted spot after the timeout when MD does not answer), early-game
 dress request, driven from the bot's `PlayerState` with velocity hints, parked on leave, snapped back when pushed, the checkpoint manifest lists both avatars, and after
 `world renumber` + reload both are bound again by idcode with no second spawn.
+### Ghost runs (M3-10, CI step `HostSimGhosts`)
+`mod/tests/hostsim/ghosts_run.ps1` (ports 47965-47967): the published server, a FakeNode authority on the synthetic galaxy file, two FakeNode bots
+(`--avatars`, wandering; one stays, one leaves after 80 s) and ONE hostsim process with the real DLL as the client Pia (`ghosts_scenario.hostsim`).
+It checks spawn + dress + inert + radar + min hull, the 5 Hz velocity hints, `expect-ghost` path error < 2 m from the mod's own `[sync]` lines,
+a pushed ghost put back, the leaver relabelled `(offline)`, and N reloads (default 20) with 0 leaks / 0 duplicates. The server runs with
+`Interest.NearRadiusM = 60000` so all bots stay in the 20 Hz Near tier. Why the bots are started first: the string table reaches a node only in
+its join catch-up, and a bot that joins meanwhile is not in it (see m3-plan section 8, M3-10).
 
 ### Pair runs (M3-04, CI step `HostSimPair`)
 `mod/tests/hostsim/pair_run.ps1` starts the published server, a FakeNode authority serving a dummy save and **two** hostsim

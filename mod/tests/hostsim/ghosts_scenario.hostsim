@@ -1,0 +1,89 @@
+# M3-10 ghosts e2e: ONE real x4mp.dll (the client "Pia") in the hostsim fake universe against the real server, a FakeNode authority
+# (avatars, host ship, galaxy file) and FakeNode bots that really fly (Replication end to end, gate jumps included).
+# Run by ghosts_run.ps1. vars: tcp, name (this player), bot (a bot that stays), leaver (a bot that leaves early), reloads.
+#
+# What it checks (docs/m3-plan.md criteria 2, 6, 7, 11):
+#   * the ghosts exist: [MP] Host (parked), [MP] <bot>, [MP] <leaver>; owner = the team faction, inert, radar, minimum hull 100, dressed
+#     by the emulated MD half (name), moving ones get velocity hints (mode c)
+#   * path error: expect-ghost <bot> err_p95 < 2 (the mod's own [sync] windows: rendered position vs the sender's samples at the same server time)
+#   * a pushed ghost is put back; a ghost that left becomes "[MP] <name> (offline)" and stays
+#   * N reloads (DLL unload + init, stash kept): the ghosts are adopted, 0 leaks, 0 duplicates, spawn count unchanged
+# the fake universe has the 7 sectors of the galaxy file the authority and the bots use (sorted macros = wire indices 1..7)
+world sector add 100003
+world sector add 100004
+world sector add 100005
+world sector add 100006
+world sector add 100007
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_01_sector002_macro=100002,cluster_01_sector003_macro=100003,cluster_02_sector001_macro=100004,cluster_02_sector002_macro=100005,cluster_03_sector001_macro=100006,cluster_09_sector001_macro=100007
+
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"${name}","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 5000 contains x4mp_
+
+# X4 reloads the DLL (stash kept): the session resumes
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+
+load_save x4mp_pair_e2e
+frame 60Hz 180
+expect-lua x4mp.status 5000 json $.state == ingame
+
+
+# the selfship feature asks MD for the sector list once the universe is ready (the emulated answer arrives a frame later) and the teams
+# feature for the team setup; the ghosts spawn only with both
+until 15000 expect-state teams_applies >= 1
+
+# our own ship sits in the sector the bots start in (index 1 = cluster_01_sector001 = 100001): the server then sends the bots at the Near
+# rate (20 Hz) because it knows where we are (PlayerState from the selfship feature)
+seat on
+ship place sector=100001 pos=0,0,0
+
+# Host (parked) + the staying bot + the leaving bot
+until 60000 expect-object count == 3 owner=x4mp_team_1
+expect-object count == 1 "name=[MP] Host"
+expect-object count == 1 "name=[MP] ${bot}"
+expect-object count == 1 "name=[MP] ${leaver}"
+expect-object count == 3 owner=x4mp_team_1 minhull=100 active=0 radar=1
+expect-state spawns == 3
+
+# mode c: the flying bots get velocity hints, the parked Host does not move
+until 20000 expect-object count == 2 moving=1 owner=x4mp_team_1
+expect-object count == 1 moving=0 "name=[MP] Host"
+
+# solid: a bump on the parked Host is undone within a quarter second
+world object push "name=[MP] Host" 25,0,0
+until 3000 expect-object "name=[MP] Host" x == 1500
+
+# path error against the sender's own samples, measured by the mod
+# (`until` runs frames between the checks: the mod only logs its [sync] windows while frames run)
+until 60000 expect-ghost ${bot} samples > 900 timeout=0
+# the first windows can predate the server's Near tier for this client (it learns our sector from the first PlayerState), so the check is on the
+# steady state: the last three windows must reach p95 < 2 m within 60 s and stay there for the p50/max checks right after
+until 60000 expect-ghost ${bot} err_p95 < 2 timeout=0
+expect-ghost ${bot} err_p50 < 1 timeout=0
+expect-ghost ${bot} err_max < 15 timeout=0
+
+# the leaver goes away: its ghost stays as a parked avatar, relabelled (no respawn)
+until 150000 expect-object count == 1 "name=[MP] ${leaver} (offline)"
+expect-object count == 3 owner=x4mp_team_1
+expect-state spawns == 3
+
+# reloads: the ghosts are adopted from the stash every time
+repeat ${reloads}
+reload
+frame 60Hz 120
+until 30000 expect-object count == 3 owner=x4mp_team_1 minhull=100
+end-repeat
+expect-object count == 3 owner=x4mp_team_1
+expect-state spawns == 3
+expect-state removed == 0
+expect-object count == 1 "name=[MP] ${bot}"
+expect-object count == 1 "name=[MP] ${leaver} (offline)"
+expect-object count == 1 "name=[MP] Host"
+expect-no-secret never-written-password
+shutdown

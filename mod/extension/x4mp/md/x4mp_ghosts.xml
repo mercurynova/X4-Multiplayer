@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP ghosts, MD side (M3-10). Lua side: ui/x4mp_ghosts.lua; native side: features/ghosts (docs/m3-plan.md 4.2, spikes S13.1 / S13.2c).
+
+  Native spawns, moves and removes the ghost ships itself (SpawnObjectAtPos2, SetObjectSectorPos, SafeRemove). MD only does what the
+  native exports cannot:
+
+  Lua -> MD  AddUITriggeredEvent("X4MP_Ghosts", control, value), value = event.param3 (a Lua table arrives as an MD list, a component
+             as the component):
+    dress      [obj, name, minhull]              set_object_name, set_object_min_hull (Q11: indestructible locally until M5),
+                                                 forced radar, known. Proven in session-4 sitting 0 (S13.1 / S13.7: name, owner
+                                                 x4mp_team_k, radar, min hull held at exactly the set value under fire)
+    velocity   [obj, vx, vy, vz, obj, vx, ...]   set_object_velocity (m/s, sector frame): the "mode c" velocity hint at 5 Hz that makes
+                                                 the target info show the real speed (S13.2: rated 4.5 against 4 without)
+
+  Safety (CLAUDE.md hard rule): the player's own ship, its container and its occupied ship are never named, hull-limited or given a
+  velocity; neither is anything the player owns (a stale id after a reload could point at one).
+-->
+<mdscript name="X4MP_Ghosts" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Ghosts_Dress" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Ghosts'" control="'dress'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Obj" exact="@event.param3.{1}"/>
+        <set_value name="$Name" exact="@event.param3.{2}"/>
+        <set_value name="$MinHull" exact="@event.param3.{3}"/>
+        <do_if value="not @$Obj.exists">
+          <debug_text text="'[X4MP] ghosts: dress refused, object not found obj=' + $Obj" filter="general" context="false"/>
+        </do_if>
+        <do_elseif value="$Obj == player.ship or $Obj == player.occupiedship or $Obj == player.container or $Obj.isplayerowned">
+          <debug_text text="'[X4MP] ghosts: dress refused, player ship or player-owned obj=' + $Obj" filter="general" context="false"/>
+        </do_elseif>
+        <do_elseif value="not $Name or not $MinHull">
+          <debug_text text="'[X4MP] ghosts: dress refused, name or min hull missing obj=' + $Obj" filter="general" context="false"/>
+        </do_elseif>
+        <do_else>
+          <set_object_name object="$Obj" name="$Name"/>
+          <set_object_min_hull object="$Obj" exact="$MinHull"/>
+          <set_object_forced_radar_visible object="$Obj" visible="true"/>
+          <set_known object="$Obj" known="true"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Ghosts_Velocity" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Ghosts'" control="'velocity'"/>
+      </conditions>
+      <actions>
+        <set_value name="$List" exact="event.param3"/>
+        <set_value name="$I" exact="1"/>
+        <do_while value="$List and $I + 3 le $List.count">
+          <set_value name="$Obj" exact="@$List.{$I}"/>
+          <do_if value="@$Obj.exists and $Obj != player.ship and $Obj != player.occupiedship and $Obj != player.container and not $Obj.isplayerowned">
+            <set_object_velocity object="$Obj" constantvel="false">
+              <linear x="$List.{$I + 1}" y="$List.{$I + 2}" z="$List.{$I + 3}"/>
+            </set_object_velocity>
+          </do_if>
+          <set_value name="$I" exact="$I + 4"/>
+        </do_while>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

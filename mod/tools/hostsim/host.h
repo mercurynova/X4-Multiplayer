@@ -70,6 +70,12 @@ class Host {
   // Drops subscriptions, bridges and hooks (what X4Native's auto-cleanup does when it unloads an extension).
   void clear_registrations();
 
+  // ---- M3-10: the emulated MD / Lua half of the ghost feature (`world md-emulate on`) ----------------------------------------
+  // Called by raise_lua_event for every native -> Lua event; answers are delivered at the start of the next `frame` (a real answer
+  // takes at least a frame: Lua -> MD -> Lua).
+  void emulate_md(const std::string& topic, const std::string& param);
+  void deliver_md_answers();
+
   // ---- Lua event capture (native -> Lua: api.raise_lua_event) ------------------------------------------------------
   // Waits until an event with this topic (and, if given, accepted by `accept`) was captured; consumes it.
   bool wait_lua(const std::string& topic, std::chrono::milliseconds timeout, const std::function<bool(const LuaEvent&)>& accept,
@@ -130,6 +136,7 @@ class Host {
   std::size_t log_cursor_ = 0;
   std::vector<LuaEvent> lua_;
   std::vector<LuaEvent> lua_history_;
+  std::vector<std::pair<std::string, std::string>> md_answers_;  // (event, payload) waiting for the next frame
   std::map<std::string, std::string> stash_;
   std::atomic<int> violation_count_{0};
   FILE* log_file_ = nullptr;

@@ -25,6 +25,7 @@
 #include "features/teams/teams_feature.h"
 #include "features/avatars/avatars_feature.h"
 #include "features/selfship/selfship_feature.h"
+#include "features/ghosts/ghost_feature.h"
 
 namespace x4mp::host {
 
@@ -39,6 +40,7 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::ChatFeature>());  // after join: it forwards what the join pump collected this frame
   registry.add(std::make_unique<x4mp::features::TeamsFeature>());  // after join: it applies what the join pump collected this frame (M3-08)
   registry.add(std::make_unique<x4mp::features::AvatarsFeature>());  // after teams and selfship: needs the team factions and the sector map (M3-11)
+  registry.add(std::make_unique<x4mp::features::GhostFeature>());  // after avatars: ghosts are the client half, avatars the authority half (they never act on the same node); after join/teams: frames and faction readiness (M3-10)
   registry.add(std::make_unique<x4mp::features::StatsFeature>());  // last: its frame cost sample covers the earlier features
 }
 
