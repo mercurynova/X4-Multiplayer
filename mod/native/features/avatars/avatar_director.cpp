@@ -56,6 +56,9 @@ struct AvatarDirector::Avatar {
   std::string waiting;                // why a spawn waits (logged when it changes)
   std::uint32_t dress_seq = 0;
   bool clock_warned = false;
+  std::uint16_t want_team = 0;        // the player moved to this team (roster); 0 = no move pending (M3-18)
+  bool owner_applied = false;         // SetComponentOwner done for want_team, only the EntityChange is still owed
+  double team_retry_at = 0;
 };
 
 AvatarDirector::AvatarDirector(IAvatarEnv& env) : env_(env) {}
@@ -187,7 +190,33 @@ void AvatarDirector::do_rebind() {
     const auto it = std::find_if(pool.begin(), pool.end(), [&](const Candidate& c) { return c.id == id; });
     if (it != pool.end() && it->name != av.rec.name) av.wanted_dress = true;  // the name never got applied before the save: dress again
   }
-  for (const auto ri : br.lost) {
+  // A moved player whose ship already wears the new faction (the save came after the move, the record before): look under the new faction too.
+  std::vector<std::size_t> lost = br.lost;
+  std::vector<Candidate> pool2 = pool;
+  for (const auto& [ri, id] : br.bound) pool2.erase(std::remove_if(pool2.begin(), pool2.end(), [&](const Candidate& c) { return c.id == id; }), pool2.end());
+  std::vector<std::size_t> still_lost;
+  for (const auto ri : lost) {
+    Avatar& av = *open[ri];
+    const std::string nf = av.want_team != 0 ? env_.faction_of_team(av.want_team) : std::string{};
+    bool found = false;
+    if (!nf.empty()) {
+      Record r = av.rec;
+      r.owner = nf;
+      const BindResult b2 = bind_records({r}, pool2);
+      if (!b2.bound.empty()) {
+        av.local_id = b2.bound.front().second;
+        pool2.erase(std::remove_if(pool2.begin(), pool2.end(), [&](const Candidate& c) { return c.id == av.local_id; }), pool2.end());
+        av.rec.team = av.want_team;
+        av.rec.owner = nf;
+        av.want_team = 0;
+        av.owner_applied = false;
+        ++stats_.bound;
+        found = true;
+      }
+    }
+    if (!found) still_lost.push_back(ri);
+  }
+  for (const auto ri : still_lost) {
     Avatar& av = *open[ri];
     av.stage = Stage::Wanted;
     av.local_id = 0;
@@ -247,6 +276,19 @@ void AvatarDirector::on_roster(const RosterIn& roster) {
     if (Avatar* av = find(p.id)) {
       av->suspended = !p.online && av->rec.online;
       if (av->rec.online && av->rec.team == 0) av->rec.team = p.team;
+      if (p.team != 0 && av->rec.team != 0) {
+        if (p.team != av->rec.team) {  // the player moved team: the avatar follows (applied in step() once the ship is live)
+          if (av->want_team != p.team) {
+            av->want_team = p.team;
+            av->owner_applied = false;
+            av->team_retry_at = 0;
+            env_.log(LogLevel::Info, std::format("avatars: player {} moved to team {}: the avatar (net_id {}) is re-owned", p.id, p.team, av->rec.net_id));
+          }
+        } else if (av->want_team != 0) {
+          av->want_team = 0;  // moved back before it was applied
+          av->owner_applied = false;
+        }
+      }
     }
   }
   for (const auto id : roster.removed) {
@@ -398,6 +440,12 @@ void AvatarDirector::try_start_spawn(Avatar& av) {
     av.rec.team = rit->second.team;
     if (av.rec.name.empty()) av.rec.name = avatar_name(rit->second.name);
   }
+  if (rit != roster_.end() && rit->second.team != 0) {  // a (re)spawn is under the team the player is in NOW, never an old faction (M3-18)
+    const std::string f = env_.faction_of_team(rit->second.team);
+    if (!f.empty()) av.rec.owner = f;
+    av.want_team = 0;
+    av.owner_applied = false;
+  }
   if (av.rec.team == 0 && av.rec.owner.empty()) return wait("the roster does not name the player's team yet");
   if (av.rec.name.empty()) av.rec.name = avatar_name(std::format("Player{}", av.rec.player_id));
   if (av.rec.owner.empty()) av.rec.owner = env_.faction_of_team(av.rec.team);
@@ -514,6 +562,29 @@ void AvatarDirector::park(Avatar& av) {
   mark_dirty();
 }
 
+// M3-18: the player's team changed. Re-own the live ship to the new team faction (it stays inert, named, min-hull: SetComponentOwner changes
+// nothing else), update and persist the record, tell the server once. Retried every kRetryS until both the game call and the send went through.
+void AvatarDirector::apply_team_move(Avatar& av) {
+  if (now_s_ < av.team_retry_at) return;
+  av.team_retry_at = now_s_ + kRetryS;
+  if (!env_.factions_ready()) return;
+  const std::string faction = env_.faction_of_team(av.want_team);
+  if (faction.empty()) return;  // the team has no faction slot yet: the next team table fixes it
+  if (!av.owner_applied) {
+    if (!env_.valid(av.local_id) || !env_.set_owner(av.local_id, faction)) return;
+    env_.activate(av.local_id, false);
+    av.owner_applied = true;
+    av.rec.team = av.want_team;
+    av.rec.owner = faction;
+    ++stats_.reowned;
+    env_.log(LogLevel::Info, std::format("avatars: re-owned the avatar of player {} (id {}, net_id {}) to {} (team {})", av.rec.player_id, av.local_id, av.rec.net_id, faction, av.rec.team));
+    mark_dirty();
+  }
+  if (av.rec.net_id != 0 && av.announced && !env_.send_owner(av.rec.net_id, av.rec.team, faction)) return;  // an unannounced avatar carries the new owner in its spawn
+  av.want_team = 0;
+  av.owner_applied = false;
+}
+
 void AvatarDirector::remember(Avatar& av) {
   if (av.local_id == 0) return;
   std::uint64_t sec = 0;
@@ -628,6 +699,7 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
       case Stage::Live:
         drive(av, server_now_us);
         maintain(av);
+        if (av.want_team != 0) apply_team_move(av);
         break;
     }
   }

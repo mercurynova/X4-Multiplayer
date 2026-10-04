@@ -136,6 +136,7 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
     return ctx->game.spawn_object(macro.c_str(), sector, to_pod(pose), owner.c_str());
   }
   void activate(std::uint64_t id, bool active) override { ctx->game.activate_object(id, active); }
+  bool set_owner(std::uint64_t id, const std::string& faction) override { return ctx->game.set_component_owner(id, faction.c_str()); }
   bool valid(std::uint64_t id) override { return id != 0 && ctx->game.is_valid_component(id) && !ctx->game.component_wrecked(id); }
   std::string idcode(std::uint64_t id) override { return ctx->game.object_id_code(id).value_or(std::string{}); }
   bool read_pose(std::uint64_t id, std::uint64_t& sector, av::Pose& pose) override {
@@ -216,6 +217,12 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
   }
   bool send_controller(std::uint32_t net_id, std::uint16_t player) override {
     return av::avatar_hub().services().send_control(static_cast<std::uint16_t>(P::MsgType::EntityChange), av::encode_controller_change(net_id, player));
+  }
+
+  bool send_owner(std::uint32_t net_id, std::uint16_t team, const std::string& faction) override {
+    const std::uint32_t ref = av::avatar_hub().services().string_ref(av::StrKind::Faction, faction);
+    if (ref == 0) return false;
+    return av::avatar_hub().services().send_control(static_cast<std::uint16_t>(P::MsgType::EntityChange), av::encode_owner_change(net_id, ref, team));
   }
 
   // ---- persistence, log ----

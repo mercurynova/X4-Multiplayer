@@ -42,6 +42,10 @@ struct FakeEnv final : IAvatarEnv {
   std::vector<DressAsk> dress_asks;
   std::vector<std::vector<auth::SpawnEntity>> spawns_sent;
   std::vector<std::pair<std::uint32_t, std::uint16_t>> controllers;
+  struct OwnerSent { std::uint32_t net; std::uint16_t team; std::string faction; };
+  std::vector<OwnerSent> owners_sent;
+  int set_owner_calls = 0;
+  bool owner_fails = false;
   std::vector<std::vector<VelHint>> velocities;
   std::vector<std::uint64_t> removed;
   std::string saved;
@@ -83,6 +87,16 @@ struct FakeEnv final : IAvatarEnv {
   }
   void activate(std::uint64_t id, bool a) override {
     if (auto it = objs.find(id); it != objs.end()) it->second.active = a;
+  }
+  bool set_owner(std::uint64_t id, const std::string& f) override {
+    ++set_owner_calls;
+    if (owner_fails || !objs.count(id)) return false;
+    objs[id].owner = f;
+    return true;
+  }
+  bool send_owner(std::uint32_t n, std::uint16_t t, const std::string& f) override {
+    owners_sent.push_back({n, t, f});
+    return true;
   }
   bool valid(std::uint64_t id) override { return objs.count(id) != 0; }
   std::string idcode(std::uint64_t id) override { return objs.count(id) ? objs[id].idcode : ""; }
@@ -676,4 +690,108 @@ TEST_CASE("avatars.director: no avatar before the authority is connected and the
   env.net = true;
   run(d, c, 0.2);
   CHECK(env.safe_asks.size() == 1);
+}
+
+TEST_CASE("avatars.director: a player moving team re-owns the avatar (M3-18)", "[avatars]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Alice");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  env.dress_asks.clear();
+  CHECK(env.owners_sent.empty());
+
+  SECTION("the roster's new team: SetComponentOwner once, one EntityChange, record + persist follow, ship stays inert and unmoved") {
+    const auto pose = env.objs[id].pose;
+    d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+    run(d, c, 0.5);
+    CHECK(env.objs[id].owner == "x4mp_team_2");
+    CHECK(env.set_owner_calls == 1);
+    CHECK_FALSE(env.objs[id].active);
+    CHECK(env.objs[id].name == "[MP] Alice");
+    CHECK(env.objs[id].pose.x == pose.x);
+    REQUIRE(env.owners_sent.size() == 1);
+    CHECK(env.owners_sent[0].net == net);
+    CHECK(env.owners_sent[0].team == 2);
+    CHECK(env.owners_sent[0].faction == "x4mp_team_2");
+    CHECK(d.views()[0].rec.team == 2);
+    CHECK(d.views()[0].rec.owner == "x4mp_team_2");
+    CHECK(d.stats().reowned == 1);
+    CHECK(env.spawn_calls == 1);  // never a second ship
+    CHECK(env.removed.empty());
+    d.persist_now();
+    CHECK(records_from_text(env.saved).records.at(0).owner == "x4mp_team_2");
+    // the same roster again changes nothing
+    d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+    run(d, c, 3);
+    CHECK(env.set_owner_calls == 1);
+    CHECK(env.owners_sent.size() == 1);
+  }
+
+  SECTION("a failing game call is retried, the change is sent only after it worked") {
+    env.owner_fails = true;
+    d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+    run(d, c, 5);
+    CHECK(env.set_owner_calls >= 2);
+    CHECK(env.owners_sent.empty());
+    env.owner_fails = false;
+    run(d, c, 3);
+    CHECK(env.objs[id].owner == "x4mp_team_2");
+    CHECK(env.owners_sent.size() == 1);
+  }
+
+  SECTION("waits for the team factions") {
+    env.factions = false;
+    d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+    run(d, c, 3);
+    CHECK(env.set_owner_calls == 0);
+    env.factions = true;
+    run(d, c, 3);
+    CHECK(env.objs[id].owner == "x4mp_team_2");
+    CHECK(env.owners_sent.size() == 1);
+  }
+
+  SECTION("a rebind after a save load finds the ship under the new faction (record written after the move)") {
+    d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+    run(d, c, 0.5);
+    d.persist_now();
+    const std::string saved = env.saved;
+    env.renumber();
+    AvatarDirector d2(env);
+    d2.load_records(records_from_text(saved).records);
+    run(d2, c, 0.5);
+    CHECK(d2.stats().bound == 1);
+    CHECK(env.spawn_calls == 1);
+  }
+
+  SECTION("a rebind where the ship wears the new faction but the record is old: found through the pending team") {
+    d.persist_now();
+    const std::string saved = env.saved;  // team 1
+    env.objs[id].owner = "x4mp_team_2";   // the move was applied in game, the record write never happened
+    env.renumber();
+    AvatarDirector d2(env);
+    d2.on_roster(roster_with({{2, {"Alice", 1}}}));
+    d2.load_records(records_from_text(saved).records);
+    d2.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+    run(d2, c, 0.5);
+    CHECK(d2.stats().bound == 1);
+    CHECK(d2.stats().lost == 0);
+    CHECK(env.spawn_calls == 1);
+  }
+
+  SECTION("a lost avatar of a moved player is respawned under the new team") {
+    d.persist_now();
+    const std::string saved = env.saved;
+    env.objs.erase(id);
+    AvatarDirector d2(env);
+    d2.on_roster(roster_with({{2, {"Alice", 2}}}));
+    d2.load_records(records_from_text(saved).records);
+    run(d2, c, 0.5);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d2.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d2, c, 0.5);
+    CHECK(env.count_owned("x4mp_team_2") == 1);
+    CHECK(env.count_owned("x4mp_team_1") == 0);
+  }
 }

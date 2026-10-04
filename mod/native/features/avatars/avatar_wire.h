@@ -87,5 +87,7 @@ struct AvatarInfo {
 
 // EntityChange{fields = Controller, controller_player = player} for an avatar (player 0 = parked).
 [[nodiscard]] std::vector<std::uint8_t> encode_controller_change(std::uint32_t net_id, std::uint16_t player);
+// EntityChange{Owner|OwnerTeam} (M3-18): the avatar is now owned by faction `owner_ref` (string table ref) and team `team`; owner_player is untouched.
+[[nodiscard]] std::vector<std::uint8_t> encode_owner_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint16_t team);
 
 }  // namespace x4mp::features::avatars

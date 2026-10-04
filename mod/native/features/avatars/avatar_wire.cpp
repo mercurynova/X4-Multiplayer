@@ -166,4 +166,11 @@ std::vector<std::uint8_t> encode_controller_change(std::uint32_t net_id, std::ui
   return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
 }
 
+std::vector<std::uint8_t> encode_owner_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint16_t team) {
+  flatbuffers::FlatBufferBuilder fbb(128);
+  const auto off = P::CreateEntityChange(fbb, /*journal_seq*/ 0, net_id, P::ChangeField::Owner | P::ChangeField::OwnerTeam, owner_ref, team);
+  fbb.Finish(off);
+  return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
+}
+
 }  // namespace x4mp::features::avatars

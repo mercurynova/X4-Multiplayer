@@ -16,6 +16,9 @@
 //   player left         -> park: stop driving, keep the ship exactly where it is, EntityChange{Controller=0}. A parked avatar is snapped back to
 //                          its pose when something pushes it (S13.2 collision note). The "(offline)" suffix is the clients' business.
 //   EntityDespawn{Removed} (admin kick/ban with asset removal) -> remove the real ship through SafeRemove (never the player's own ship).
+//   player moved team  -> (M3-18) the roster upsert carries a new team id: the avatar is re-owned to x4mp_team_<slot> (SetComponentOwner, still inert),
+//                          the record follows (owner, team; persisted) and ONE EntityChange{Owner|OwnerTeam} goes to the server (mirror + all clients).
+//                          Trigger = the roster, not ReassignPlayerAssets: that message is gated by MoveAssetsWithPlayer and says nothing about avatars.
 //   save load / new universe -> ids are void: the AvatarBinder (bind_records) finds the ships again by idcode among the objects of the team
 //                          factions; records nothing matches are respawned at their last pose; the survivors are announced again.
 //
@@ -64,6 +67,7 @@ class IAvatarEnv {
   virtual std::uint16_t sector_index_of_macro(const std::string& macro) = 0;
   virtual std::uint64_t spawn(const std::string& macro, std::uint64_t sector, const Pose& pose, const std::string& owner) = 0;  // 0 = failed
   virtual void activate(std::uint64_t id, bool active) = 0;
+  virtual bool set_owner(std::uint64_t id, const std::string& faction) = 0;  // SetComponentOwner; false = the call was not made (retried)
   virtual bool valid(std::uint64_t id) = 0;
   virtual std::string idcode(std::uint64_t id) = 0;
   virtual bool read_pose(std::uint64_t id, std::uint64_t& sector, Pose& pose) = 0;
@@ -82,6 +86,8 @@ class IAvatarEnv {
   virtual double game_time() = 0;  // > 0 when valid
   virtual bool send_spawn(const std::vector<authority::SpawnEntity>& entities, double game_time) = 0;
   virtual bool send_controller(std::uint32_t net_id, std::uint16_t player) = 0;
+  // EntityChange{Owner|OwnerTeam}: the avatar now belongs to `team` / `faction` (M3-18, the player moved team). false = retried next frame.
+  virtual bool send_owner(std::uint32_t net_id, std::uint16_t team, const std::string& faction) = 0;
   // ---- persistence, log ----
   virtual void save_records(const std::string& text) = 0;
   virtual void log(LogLevel level, const std::string& text) = 0;
@@ -91,7 +97,7 @@ struct DirectorStats {
   std::uint32_t requests = 0, provisioned = 0, refreshed = 0, spawn_failed = 0, safepos_replies = 0, safepos_timeouts = 0;
   std::uint32_t bound = 0, lost = 0, strays = 0, respawned = 0, parked = 0, removed = 0, remove_refused = 0;
   std::uint32_t states_in = 0, states_unknown = 0, set_pose_calls = 0, unmapped_sector = 0, repairs = 0, vel_hints = 0;
-  std::uint32_t dress_ok = 0, dress_failed = 0, announced = 0;
+  std::uint32_t dress_ok = 0, dress_failed = 0, announced = 0, reowned = 0;
 };
 
 class AvatarDirector {
@@ -160,6 +166,7 @@ class AvatarDirector {
   void spawn_at(Avatar& av, const Pose& pose, const char* why);
   void announce(Avatar& av, bool force_controller_zero = false);
   void park(Avatar& av);
+  void apply_team_move(Avatar& av);
   void drive(Avatar& av, std::int64_t server_now_us);
   void maintain(Avatar& av);
   void remember(Avatar& av);
