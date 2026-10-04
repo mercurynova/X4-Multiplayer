@@ -378,6 +378,31 @@ B.on("open", function() end) -- the screens (x4mp_menu.lua) add their own handle
 B.remembered = nil -- M3-07: last x4mp.remembered payload { address, name } (x4mp_menu.lua adds its own handler)
 B.on("remembered", function(p) B.remembered = p end)
 
+-- M3-12 begin (own block). The client takeover's HUD hint (features/avatars/avatars_client.cpp).
+--   x4mp.hint      (native -> Lua) {"v":1,"id":"takeover","show":true|false,"text":"Sit in the pilot seat to take over your ship"}
+--                  Shown while the teleport into the avatar is refused (the player has to sit in the pilot seat first); native repeats show=true every
+--                  30 s and sends show=false once the takeover worked. B.hint holds the visible hint (nil = none); every show=true also goes out
+--                  as the HUD notification ("X4MP","notify", text), the same cue the connection HUD and the player list use.
+--   x4mp.takeover  (native -> Lua) {"v":1,"stage":"requesting|locating|teleporting|confirming|removing|done","net_id":N,"avatar":"<id>","hint":bool,
+--                  "requests","bound","spawned","refusals","teleports","removed"}   on every stage change (B.takeover keeps the last one)
+B.TOPICS[#B.TOPICS + 1] = "hint"
+B.TOPICS[#B.TOPICS + 1] = "takeover"
+B.hint = nil
+B.takeover = nil
+B.on("hint", function(p)
+	if type(p) ~= "table" then return end
+	if p.show == true then
+		B.hint = p
+		if type(AddUITriggeredEvent) == "function" and type(p.text) == "string" and p.text ~= "" then
+			pcall(AddUITriggeredEvent, "X4MP", "notify", p.text)
+		end
+	else
+		B.hint = nil
+	end
+end)
+B.on("takeover", function(p) B.takeover = p end)
+-- M3-12 end
+
 --- Save name sanity: no path parts, no extension, printable.
 function B.validSaveName(name)
 	if type(name) ~= "string" then return nil end

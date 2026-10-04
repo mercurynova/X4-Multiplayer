@@ -48,6 +48,11 @@ class SelfShipHub {
   void publish(const SelfShipStatus& s) noexcept { status_ = s; }
   [[nodiscard]] const SelfShipStatus& status() const noexcept { return status_; }
 
+  // M3-12: a client holds its PlayerState stream back until its avatar is taken over (m3-plan 4.3 step 6): until then the own ship is the host's
+  // and its pose must not move the avatar on the authority. The avatar hub sets it with the client link; the takeover machine lifts it.
+  void set_state_hold(bool hold) noexcept { state_hold_ = hold; }
+  [[nodiscard]] bool state_hold() const noexcept { return state_hold_; }
+
   void set_own_net_id(std::uint32_t id) noexcept { own_net_id_ = id; }
   [[nodiscard]] std::uint32_t own_net_id() const noexcept { return own_net_id_; }
 
@@ -61,6 +66,7 @@ class SelfShipHub {
   SelfShipLink link_;
   SelfShipStatus status_;
   std::uint32_t own_net_id_ = 0;
+  bool state_hold_ = false;
   const GalaxyMap* map_ = nullptr;
 };
 

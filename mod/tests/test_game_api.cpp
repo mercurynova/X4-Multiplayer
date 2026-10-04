@@ -55,7 +55,7 @@ void fk_setpos(UniverseId, UniverseId sector, PosRotPod pos) {
 }
 PosRotPod fk_getpos(UniverseId) { return g_set_pos; }
 bool fk_teleport(UniverseId id, bool, bool, bool) { return id == 9001; }
-const char* fk_canteleport(UniverseId id, bool, bool) { return id == 9001 ? "" : "no such ship"; }
+const char* fk_canteleport(UniverseId id, bool, bool) { return id == 9001 ? "granted" : "no such ship"; }
 std::string g_owner;
 void fk_setowner(UniverseId, const char* f) { g_owner = f; }
 void fk_radar(UniverseId, bool v) { g_radar = v; }
@@ -188,8 +188,12 @@ TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][
   CHECK_FALSE(api.object_position(0));
   CHECK(api.teleport_player_to(9001, true, true, true));
   CHECK_FALSE(api.teleport_player_to(5, true, true, true));
-  CHECK(api.can_teleport_player_to(9001, true, false) == std::string());
+  CHECK(api.can_teleport_player_to(9001, true, false) == std::string("granted"));  // the real game says "granted" (S13.6), not ""
+  CHECK(is_teleport_granted(api.can_teleport_player_to(9001, true, false)));
   CHECK(api.can_teleport_player_to(5, true, false) == std::string("no such ship"));
+  CHECK_FALSE(is_teleport_granted(api.can_teleport_player_to(5, true, false)));
+  CHECK_FALSE(is_teleport_granted(std::string()));  // "" is not an approval
+  CHECK_FALSE(is_teleport_granted(std::nullopt));
   CHECK(api.set_component_owner(9001, "x4mp_team_2"));
   CHECK(g_owner == "x4mp_team_2");
   CHECK_FALSE(api.set_component_owner(9001, nullptr));

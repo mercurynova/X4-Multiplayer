@@ -14,6 +14,7 @@
 #include "core/ghost/registry.h"
 #include "features/avatars/avatar_director.h"
 #include "features/avatars/avatar_hub.h"
+#include "features/avatars/avatars_client.h"
 #include "features/diag/diag_hub.h"
 #include "features/join/platform_stash.h"
 #include "features/selfship/galaxy_map.h"
@@ -82,6 +83,7 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
   std::unique_ptr<join::PlatformStash> reg_stash, rec_stash;
   std::filesystem::path records_file;
   std::unique_ptr<av::AvatarDirector> dir;
+  std::unique_ptr<av::ClientTakeover> client;  // M3-12: the client half (takeover)
   av::AvatarSettings settings;
   double now_s = 0;
   double next_stats_s = 5;
@@ -310,6 +312,8 @@ void AvatarsFeature::on_init(host::HostContext& ctx) {
     s.dir->load_records(parsed.records, hints);
     ctx.log.raw(Cat::Ghost, Level::Info, "avatars: " + std::to_string(parsed.records.size()) + " avatar record(s) restored (" + std::to_string(parsed.bad_lines) + " bad lines); the binder runs when the universe is ready");
   }
+  s.client = std::make_unique<av::ClientTakeover>();
+  s.client->init(ctx, [self = &s]() { return self->team_candidates(); });
   av::avatar_hub().set_max_net_id(s.dir->max_net_id());
   av::avatar_hub().set_snapshot_fn([&s]() { return s.dir->snapshot(); });
   Impl* self = &s;
@@ -326,12 +330,14 @@ void AvatarsFeature::on_game_loaded(host::HostContext& ctx) {
   auto& s = *impl_;
   s.ctx = &ctx;
   if (s.dir) s.dir->new_universe();  // every local id is void
+  if (s.client) s.client->game_loaded(ctx);
 }
 
 void AvatarsFeature::on_shutdown(host::HostContext& ctx) {
   auto& s = *impl_;
   s.ctx = &ctx;
   av::avatar_hub().set_snapshot_fn({});
+  if (s.client) s.client->shutdown(ctx);
   if (s.dir && s.dir->size() > 0) s.dir->persist_now();
 }
 
@@ -349,7 +355,13 @@ void AvatarsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
     md.swap(s.inbox);
   }
   for (const auto& m : md) s.handle_md(m);
-  if (!hub.authority()) return;  // clients have no avatars (they take theirs over, M3-12)
+  if (!hub.authority()) {  // clients have no avatars of their own to drive: they take theirs over (M3-12)
+    if (s.client) {
+      s.client->apply(in, in.settings.empty() ? nullptr : &s.settings);
+      s.client->frame(ctx, s.now_s);
+    }
+    return;
+  }
   std::int64_t server_now = 0;
   bool have_clock = selfship::selfship_hub().server_now(server_now);
   if (!have_clock) {  // the same estimate from the net layer (local steady clock + the applied offset)

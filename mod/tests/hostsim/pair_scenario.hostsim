@@ -20,17 +20,88 @@ frame 60Hz 180
 expect-lua x4mp.status 5000 json $.state == ingame
 expect-admin /api/v1/players $[name==${name}].online == true
 
-# ---- M3-09 own ship (features/selfship): every process has its own fake universe; the server sees the PlayerState stream ----
-# the mod asks MD for the sector map at universe ready; this script plays MD/Lua (macros sort to cluster_01 = index 1, cluster_02 = 2)
+# ---- M3-12 client takeover (features/avatars, client half), first half: the game REFUSES the teleport ----
+# The player stands in the host's ship (the fake world's player ship 200001, no seat). The authority (FakeNode) answers PlayerShip with the avatar; the mod
+# needs the sector map before it can place the local copy, so the script plays MD/Lua here (macros sort to cluster_01 = index 1, cluster_02 = 2).
+world teleport deny the pilot seat is not taken
 expect-lua x4mp.sector_map_collect 5000
 lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_02_sector001_macro|100002;cluster_01_sector001_macro|100001"}
 lua-raw x4mp.sector_map {"v":1,"data":"E;2"}
 expect-lua x4mp.seta_block 5000 json $.on == true
-# seat off: the ship is known from the container, but no state goes out
+frame 60Hz 600
+expect-file extension/logs/x4mp.log selfship: sector map ready: 2 sectors
+expect-file extension/logs/x4mp.log takeover: standing in ship 200001
+expect-file extension/logs/x4mp.log takeover: avatar granted
+expect-file extension/logs/x4mp.log takeover: the avatar is not in the loaded save: spawned a local copy
+expect-file extension/logs/x4mp.log takeover: teleport into ship
+# refused: the HUD hint, the host ship copy is untouched, no PlayerState (it would move the avatar on the authority), nothing removed
+expect-lua x4mp.hint 5000 json $.show == true
+expect-lua x4mp.hint 5000 contains pilot seat
+expect-lua x4mp.takeover 5000 json $.stage == teleporting
+expect-lua x4mp.takeover 5000 json $.refusals >= 3
+expect-state teleports == 0
+expect-state removed == 0
+expect-object 200001 exists
+expect-object player id == 200001
+expect-lua x4mp.selfship 3000 json $.sent == 0
+
+# /reloadui in the middle of the takeover (the stash keeps the record, the new DLL instance reuses the spawned copy)
+drop-lua x4mp.sector_map_collect
+reload
+frame 60Hz 5
+load_save x4mp_pair_e2e
+frame 60Hz 5
+expect-lua x4mp.sector_map_collect 5000
+lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_02_sector001_macro|100002;cluster_01_sector001_macro|100001"}
+lua-raw x4mp.sector_map {"v":1,"data":"E;2"}
+frame 60Hz 240
+expect-file extension/logs/x4mp.log takeover: record found (phase 1
+expect-state removed == 0
+expect-state teleports == 0
+expect-object count == 1 macro=ship_arg_s_fighter_01_a_macro
+
+# second half: the game allows it. A sit-down (what the hint asks for) retries at once; the guard needs 10 frames; only then the host copy goes
+world teleport allow
+frame 60Hz 480
+expect-lua x4mp.hint 5000 json $.show == false
+expect-lua x4mp.takeover 12000 json $.stage == done
+expect-file extension/logs/x4mp.log takeover: teleported the player into ship
+expect-file extension/logs/x4mp.log takeover: the guard confirmed
+expect-file extension/logs/x4mp.log takeover: removed the local copy 200001
+expect-state teleports == 1
+expect-state removed == 1
+expect-object 200001 absent
+expect-object player owner == player
+expect-object player macro == ship_arg_s_fighter_01_a_macro
+expect-object count == 1 macro=ship_arg_s_fighter_01_a_macro
+expect-state seat == 1
+# no second spawn, the copy the reload found is the one the player flies; PlayerState flows now (the held stream was released)
+frame 60Hz 120
+expect-lua x4mp.selfship 3000 json $.sent > 0
+expect-admin /api/v1/players $[name==${name}].online == true
+
+# /reloadui after the takeover: Done at once from the record, no new request, the same ship
+reload
+frame 60Hz 5
+load_save x4mp_pair_e2e
+frame 60Hz 5
+expect-lua x4mp.sector_map_collect 5000
+lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_02_sector001_macro|100002;cluster_01_sector001_macro|100001"}
+lua-raw x4mp.sector_map {"v":1,"data":"E;2"}
+frame 60Hz 180
+expect-file extension/logs/x4mp.log takeover: record found (phase 3
+expect-state teleports == 1
+expect-state removed == 1
+expect-object player owner == player
+
+# ---- M3-09 own ship (features/selfship): every process has its own fake universe; the server sees the PlayerState stream ----
+# (the takeover above already played the map and seated the player in the avatar)
+expect-lua x4mp.seta_block 5000 json $.on == true
+# stand up first: one Hidden state, then silence
+seat off
 frame 60Hz 150
 expect-file extension/logs/x4mp.log selfship: sector map ready: 2 sectors
 expect-lua x4mp.selfship 3000 json $.map_ready == true
-expect-lua x4mp.selfship 3000 json $.sent == 0
 # sit down and fly a circle: 20 Hz, the first state is immediate (sit-down), the server learns the sector
 drop-lua x4mp.selfship
 ship place sector=100001 pos=0,0,0

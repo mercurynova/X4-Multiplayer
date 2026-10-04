@@ -13,6 +13,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "features/avatars/avatar_director.h"
@@ -29,7 +30,14 @@ struct AuthorityServices {
   std::function<bool(std::uint16_t type, std::vector<std::uint8_t> payload)> send_control;
 };
 
+// M3-12: what a CLIENT node's takeover needs from the session (installed by the join feature while the node is in game and not the authority).
+struct ClientLink {
+  std::function<std::uint16_t()> player_id;                                   // the own player id (0 = unknown)
+  std::function<bool(std::uint16_t type, std::vector<std::uint8_t> payload)> send_control;
+};
+
 struct HubInputs {
+  std::vector<AvatarInfo> avatar_spawns;  // M3-12: EntitySpawn avatars (client)
   std::vector<RosterIn> rosters;
   std::vector<PlayerShipReq> ships;
   std::vector<PlayerStateIn> states;
@@ -47,6 +55,17 @@ class AvatarHub {
   void on_welcome() { inputs_.welcomed = true; }
   void on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id);
   void session_ended();
+
+  // ---- join feature, client role (M3-12) ----
+  // Installed while this node is in game as a client; also holds the PlayerState stream back (selfship hub) until the takeover lifts it.
+  void set_client_link(ClientLink link);
+  void clear_client_link();
+  [[nodiscard]] bool client_linked() const noexcept { return static_cast<bool>(client_.send_control); }
+  [[nodiscard]] const ClientLink& client_link() const noexcept { return client_; }
+  // The checkpoint manifest this node downloaded (x4mp_<sha12>.x4mf in the save folder); the takeover reads its avatar entries. "" = none.
+  void set_manifest_file(std::string path) { manifest_file_ = std::move(path); manifest_dirty_ = true; }
+  [[nodiscard]] const std::string& manifest_file() const noexcept { return manifest_file_; }
+  [[nodiscard]] bool take_manifest_dirty() noexcept { return std::exchange(manifest_dirty_, false); }
 
   // ---- authority flow ----
   void set_services(AuthorityServices s) { services_ = std::move(s); have_services_ = true; }
@@ -69,6 +88,9 @@ class AvatarHub {
 
  private:
   HubInputs inputs_;
+  ClientLink client_;
+  std::string manifest_file_;
+  bool manifest_dirty_ = false;
   AuthorityServices services_;
   bool have_services_ = false;
   std::function<std::vector<Record>()> snapshot_fn_;

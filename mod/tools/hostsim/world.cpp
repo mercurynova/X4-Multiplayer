@@ -147,11 +147,11 @@ std::string World::can_teleport(std::uint64_t id) {
   if (!o) return "hostsim: no such object";
   if (o->cls != "ship") return "hostsim: not a ship";
   if (!teleport_allowed) return teleport_reason;
-  return "";
+  return "granted";  // what the real game answers when the teleport is allowed (session-4 S13.6)
 }
 
 bool World::teleport(std::uint64_t id, bool allow_controlling) {
-  if (!can_teleport(id).empty()) return false;
+  if (can_teleport(id) != "granted") return false;
   if (allow_controlling) {
     player_ship = id;
     seat = true;

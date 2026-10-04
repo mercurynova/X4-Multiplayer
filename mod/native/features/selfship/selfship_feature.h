@@ -61,6 +61,7 @@ class SelfShipFeature final : public host::IFeature {
   std::int64_t map_asked_us_ = 0;
   bool map_logged_ready_ = false;
   bool was_linked_ = false;
+  bool was_held_ = false;  // M3-12: the takeover held the PlayerState stream last frame
   bool block_sent_ = false;
   bool block_value_ = false;
   std::uint64_t block_epoch_ = 0;

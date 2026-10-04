@@ -103,7 +103,7 @@ class World {
   [[nodiscard]] std::uint64_t controlled() const { return seat && (!docked || controlled_when_docked) ? player_ship : 0; }
   [[nodiscard]] std::uint64_t container() const { return docked ? kStation : player_ship; }
   [[nodiscard]] std::uint64_t context(std::uint64_t id, const std::string& cls, bool include_self);
-  [[nodiscard]] std::string can_teleport(std::uint64_t id);  // "" = allowed
+  [[nodiscard]] std::string can_teleport(std::uint64_t id);  // "granted" = allowed (as the real game), else the reason
   bool teleport(std::uint64_t id, bool allow_controlling);
 
   // ---- scripted player-ship flight ----

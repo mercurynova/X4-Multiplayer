@@ -100,7 +100,7 @@ The DLL-free smoke is ctest `hostsim.world_objects`, `hostsim.world_ship` (the s
 SDK function table) and `hostsim.world_failure_exit_code`.
 
 The fake game also answers (resolved by name, not in the SDK table; M3-11) `GetNumAllFactions` / `GetAllFactions` (player, argon, paranid, `x4mp_team_1..8`) and
-`GetNumAllFactionShips` / `GetAllFactionShips` (the ships of an owner), which the avatar binder and the janitor use.
+`GetNumAllFactionShips` / `GetAllFactionShips` (the ships of an owner), which the avatar binder and the janitor use, and (M3-12) `RemoveComponent` (drops the object; the player's current ship and the station are refused) so `game::safe_remove` works. `CanTeleportPlayerTo` answers `granted` when allowed, like the real game (S13.6).
 
 ### Avatar run (M3-11, not in CI)
 `mod/tests/hostsim/avatars_run.ps1` (ports 47944-47946, about 2 minutes; needs `mod/build.ps1` and `tools/e2e.ps1 -Steps Publish`): the real DLL is the authority of a

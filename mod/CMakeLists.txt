@@ -595,6 +595,16 @@ endif()
 # END M3-11 avatars on the authority
 
 # =============================================================================================
+# BEGIN M3-12 client takeover (features/avatars/avatar_takeover.cpp + avatars_client.cpp come with the features glob). Appended by M3-12.
+#   x4mp_host_tests += tests/test_takeover.cpp (AvatarTakeover over a fake game: refusal/retry, guard, removal order, reload records, wire decoders)
+#   The live scenario (client ends in its avatar, host copy removed after the guard, reload mid-takeover) is tests/hostsim/pair_scenario.hostsim
+#   and tests/hostsim/takeover.hostsim (tools/e2e.ps1 -Steps HostSimPair, HostSim).
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_takeover.cpp)
+endif()
+# END M3-12 client takeover
+
 # BEGIN M3-10 features/ghosts (client ghosts: spawn, dress, move, hide, adopt). Appended by M3-10.
 #   x4mp_game  += game/ghosts_api.cpp (native calls on top of GameApi, pose convention, faction / ship lists by name)
 #   x4mp_host  += features/ghosts/*.cpp (picked up by the M2-04 features glob)

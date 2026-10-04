@@ -66,6 +66,25 @@ struct SettingsIn {
 [[nodiscard]] std::optional<DespawnIn> decode_despawn(std::span<const std::uint8_t> payload);
 [[nodiscard]] std::optional<SettingsIn> decode_settings(std::span<const std::uint8_t> payload);
 
+// ---- client side (M3-12) ----------------------------------------------------------------------------------------------------
+// One avatar named by an EntitySpawn (origin PlayerShip) or by the checkpoint manifest (ManifestEntry origin PlayerShip).
+struct AvatarInfo {
+  std::uint32_t net_id = 0;
+  std::uint16_t owner_player = 0;
+  std::uint16_t controller_player = 0;  // 0 = parked / unknown
+  std::uint16_t owner_team = 0;
+  std::string name;                     // "" in a manifest entry
+  std::string idcode;
+  std::uint16_t sector = 0;             // GalaxyMetadata index
+  Pose pose;                            // sector-relative; a manifest entry has no rotation (zero)
+};
+// Every entity of an EntitySpawn with origin PlayerShip. nullopt = not a verifiable EntitySpawn.
+[[nodiscard]] std::optional<std::vector<AvatarInfo>> decode_avatar_spawns(std::span<const std::uint8_t> payload);
+// Every manifest entry with origin PlayerShip (the checkpoint's avatars). nullopt = not a verifiable manifest.
+[[nodiscard]] std::optional<std::vector<AvatarInfo>> decode_manifest_avatars(std::span<const std::uint8_t> payload);
+// The PlayerShip request ("I stand in the host's ship here, give me my avatar"). The key is the idempotency key (random per request).
+[[nodiscard]] std::vector<std::uint8_t> encode_player_ship(const PlayerShipReq& request, std::uint64_t key_lo, std::uint64_t key_hi, std::uint64_t local_component_id);
+
 // EntityChange{fields = Controller, controller_player = player} for an avatar (player 0 = parked).
 [[nodiscard]] std::vector<std::uint8_t> encode_controller_change(std::uint32_t net_id, std::uint16_t player);
 

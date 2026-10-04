@@ -117,6 +117,8 @@ void GhostFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
   // The stream clock (ghost_core.h StreamClock): the Replication time base is the authority's, not necessarily the server clock.
   const std::int64_t now_server = steady + c.clock_offset_us - c.stream_clock.bias_us();
 
+  if (ghosts::ghost_hub().spawn_hold()) return;  // M3-12: the client takeover is not Done yet
+
   if (c.driver.has_pending_adoption()) c.driver.adopt(*stash_, now_server);
 
   const auto* map = selfship::selfship_hub().map();
