@@ -75,6 +75,20 @@ $null = Invoke-RestMethod -Method Post -Uri "$url/api/v1/saves/uploads/$($begin.
 Write-Host "Uploaded. The save is now in the GUI Sessions page > Saves library (sha256 $sha)."
 if ($NoSession) { return }
 
+# A session left over from an earlier run (the server database persists; Ctrl+C kills the server mid-session) blocks a new one: stop it first.
+$stoppable = @('WaitingForAuthority', 'AuthorityLoading', 'Running', 'Paused', 'AuthorityLost', 'Migrating')
+$current = $null
+try { $current = Invoke-RestMethod -Method Get -Uri "$url/api/v1/sessions/current" -Headers $h -WebSession $s } catch { $current = $null }
+if ($current -and $current.id -and ($stoppable -contains [string]$current.state)) {
+    Write-Host "Stopping the earlier session '$($current.name)' ($($current.state)) without a final save..."
+    $null = Invoke-RestMethod -Method Post -Uri "$url/api/v1/sessions/$($current.id)/stop" -Headers $h -WebSession $s -ContentType 'application/json' -Body (@{ requestFinalSave = $false } | ConvertTo-Json)
+    $deadline = (Get-Date).AddSeconds(60)
+    do {
+        Start-Sleep -Milliseconds 500
+        $current = Invoke-RestMethod -Method Get -Uri "$url/api/v1/sessions/current" -Headers $h -WebSession $s
+    } while ($current -and ($stoppable -contains [string]$current.state) -and (Get-Date) -lt $deadline)
+    if ($current -and ($stoppable -contains [string]$current.state)) { throw "The earlier session is still $($current.state) after 60 s; stop it in the GUI (Sessions > Stop session) and run again." }
+}
 $created = Invoke-RestMethod -Method Post -Uri "$url/api/v1/sessions" -Headers $h -WebSession $s -ContentType 'application/json' -Body (@{ name = $SessionName; saveId = $sha } | ConvertTo-Json)
 $null = Invoke-RestMethod -Method Post -Uri "$url/api/v1/sessions/$($created.id)/start" -Headers $h -WebSession $s -ContentType 'application/json' -Body '{}'
 Write-Host "Session '$SessionName' (id $($created.id)) created from the upload and started: it waits for an authority."
