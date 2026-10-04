@@ -1,0 +1,38 @@
+# M3-21 part B: the authority's GAME restarted after part A (fresh process, no resume token; the session is AuthorityLost on the server, which has
+# a current checkpoint). The fresh join must be sent the CURRENT checkpoint (cache hit: the x4mp_ckpt_ file is already in the save folder, copied by the
+# runner), load it, report ready, answer the new-authority checkpoint request and take the session back to Running.
+# Run by authority_flow_run.ps1 (vars: tcp, apw, sim, ckpt_src2).
+init
+set game_time 6000
+frame 60Hz 10
+seat on
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-file extension/logs/x4mp.log (roles 3, fresh)
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-lua loadSave 3000 contains x4mp_
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_restart_load
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+expect-lua x4mp.status 3000 json $.role == authority
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;2"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_01_sector001_macro|ship_s|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src2}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":6100.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+expect-no-log self-spawn sent
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown

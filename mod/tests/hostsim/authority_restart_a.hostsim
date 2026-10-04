@@ -1,0 +1,32 @@
+# M3-21 part A (the M2-09 start): the authority starts a session from the uploaded save, stores its first checkpoint, spawns itself, the session is Running.
+# Then the game is killed: NO disconnect, the process just ends (the server sees a lost socket: Running -> AuthorityLost). Part B (authority_restart_b) is the restart.
+# Run by authority_flow_run.ps1 (vars: tcp, apw, sim, ckpt_src).
+init
+set game_time 4000
+frame 60Hz 10
+seat on
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-lua loadSave 3000 contains x4mp_
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_authority_e2e
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;2"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_01_sector001_macro|ship_s|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-file extension/logs/x4mp.log self-spawn sent net_id=1
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+frame 60Hz 30
+shutdown

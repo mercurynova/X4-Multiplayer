@@ -38,7 +38,7 @@
     ReloadSurvival  (Windows, M2-14) reload_survival_run.ps1: 20 seeded reloads at random phases, always resumed, same player id,
                 no leave. Ports 47953-47955.
     AuthorityFlow   (Windows, M2-14) authority_flow_run.ps1: the real x4mp.dll as the AUTHORITY for a session made from an admin
-                upload, 3 FakeNode clients verify the checkpoint, self-spawn game_time. Ports 47956-47958.
+                upload, 3 FakeNode clients verify the checkpoint, self-spawn game_time; M3-21: + the authority game killed and restarted (fresh join gets the current checkpoint). Ports 47956-47958.
     UdpLane     (Windows, M3-03/M3-14) mod/tests/hostsim/udp_lane_run.ps1: the mod's UDP realtime lane (x4mp-headless against the real server): forced,
                 5 % loss, blocked from the start (TCP fallback within 3 s), blocked after binding (fallback within 3.5 s, no disconnect), off.
                 Ports 47920-47922.
