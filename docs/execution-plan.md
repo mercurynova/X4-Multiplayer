@@ -60,6 +60,29 @@ winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passi
   (e.g. `x4mp`) and push, or keep it local until M1. CI tasks can be written before a
   remote exists; they just can't run.
 
+### 3.1 Worktree cleanup (user request, 2026-10-04)
+
+Every agent worktree is a full repo copy plus its own build output (~1.5-3 GB each; 26 of them reached 43 GB). The lead
+cleans them up on a fixed rhythm instead of letting them pile up.
+
+**A worktree is removed when all of these hold:**
+1. Its branch is merged into `main`, and `main` is pushed.
+2. The lead verified `main` after that merge (build + tests / e2e as for the task) and CI on the push is green.
+3. No follow-up to that agent is expected: no open question, no "send it back for a fix", no rebase pending. In
+   practice: the **wave it belongs to is closed** (all of the wave's tasks merged), or the task is two waves old.
+4. `git -C <worktree> status --porcelain` is empty (no uncommitted work). A dirty worktree is never deleted: the lead
+   looks at what is in it first and asks the user if it is not obviously disposable.
+
+**Never removed automatically:** a branch that is not merged (abandoned or failed tasks: ask the user), a worktree of an
+agent that is still running or might be resumed, and anything outside `.claude/worktrees/`.
+
+**When:** at the end of every wave (after the wave's last merge is verified), at the end of a milestone, and before a
+history rewrite. A quick look at `.claude/worktrees` size is part of the wave-end checklist.
+
+**How:** `git worktree remove <path>` then `git branch -d <branch>` (the safe `-d`, which refuses unmerged branches; never
+`-D` without the user's OK), then `git worktree prune`. The Claude desktop app's worktree clean-up tool may be used for the
+same set. Report the freed space in one line.
+
 ## 4. Delegation waves
 
 Each box is one Sonnet agent. Agents in the same wave run in parallel. A wave starts when

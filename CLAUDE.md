@@ -26,6 +26,7 @@ run `gh auth switch -u mercurynova`.
   git worktree. Don't start big coding tasks in the Opus session. Planning is always fine.
 - The user works from **multiple computers**. Claude's memory is per-machine, so record
   anything that must persist in this repo (this file, `docs/`), not only in memory.
+- **Clean up agent worktrees** once their wave is merged, verified and closed (rules in `docs/execution-plan.md` §3.1).
 - **No attribution lines** in commit messages or PR descriptions (no `Co-Authored-By:` trailer, no "Generated with" line). History was rewritten on 2026-10-04 to remove the old ones.
 - The user is the in-game tester. Claude can't play X4. Give them step-by-step test
   scripts and ask for logs.
