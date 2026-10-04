@@ -71,6 +71,7 @@ SelfShipFeature::~SelfShipFeature() = default;
 
 void SelfShipFeature::on_init(host::HostContext& ctx) {
   selfship::selfship_hub().reset();
+  selfship::selfship_hub().set_map(&map_);  // M3-11: the avatars read index <-> macro <-> id from it
   const auto in = inbox_;
   (void)ctx.platform.subscribe_event("x4mp.sector_map", [in](std::string_view text) {
     if (text.size() <= 64 * 1024) in->push(0, std::string(text));
@@ -79,7 +80,10 @@ void SelfShipFeature::on_init(host::HostContext& ctx) {
   X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: ready (20 Hz moving / 5 Hz idle / 1 Hz hidden, SETA blocked while connected)");
 }
 
-void SelfShipFeature::on_shutdown(host::HostContext&) { selfship::selfship_hub().clear_link(); }
+void SelfShipFeature::on_shutdown(host::HostContext&) {
+  selfship::selfship_hub().clear_link();
+  selfship::selfship_hub().set_map(nullptr);
+}
 
 void SelfShipFeature::on_game_loaded(host::HostContext&) {
   // a new universe: everything about the old one is stale

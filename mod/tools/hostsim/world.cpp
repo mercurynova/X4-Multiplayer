@@ -93,6 +93,34 @@ bool World::remove(std::uint64_t id) {
   return true;
 }
 
+std::size_t World::renumber() {
+  std::map<std::uint64_t, Obj> next;
+  std::size_t changed = 0;
+  std::uint64_t last = last_;
+  for (auto& [id, o] : objs_) {
+    if (id == kPlayerShip || id == kStation || id == player_ship) {
+      next[id] = o;
+      continue;
+    }
+    const std::uint64_t nid = next_id_++;
+    o.id = nid;
+    next[nid] = o;
+    if (id == last_) last = nid;
+    ++changed;
+  }
+  objs_ = std::move(next);
+  last_ = last;
+  return changed;
+}
+
+std::vector<std::uint64_t> World::ships_of(const std::string& faction) const {
+  std::vector<std::uint64_t> out;
+  for (const auto& [id, o] : objs_) {
+    if (o.cls == "ship" && o.owner == faction) out.push_back(id);
+  }
+  return out;
+}
+
 std::vector<Obj> World::snapshot() const {
   std::vector<Obj> out;
   out.reserve(objs_.size());

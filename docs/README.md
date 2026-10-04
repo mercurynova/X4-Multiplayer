@@ -32,6 +32,7 @@ below. The repo is the only memory that follows you between computers.
 | [research/save-analyzer-notes.md](research/save-analyzer-notes.md) | Facts learned from the user's save analyzer (reference only, GPL): save format, money units, fleets, trade offers, game-data extraction |
 | [research/tatertrader-notes.md](research/tatertrader-notes.md) | TaterTrader "DeadTater" auto-trade logic (reference only, GPL): deal scoring, per-faction queue, design sketch for the ADR-050 P3 trade-route finder |
 | [research/player-portal.md](research/player-portal.md) | Player-facing web tab: market knowledge, fleets, empire notes and naming (ADR-050, post-M5) |
+| [research/starter-ships.md](research/starter-ships.md) | What the vanilla game starts give per race / story (ship macro + equipment macro ids): the source of the avatar starter ship + early-game loadout table (M3-11, ADR-049/051) |
 | [research/library-mods.md](research/library-mods.md) | SirNukes Mod Support APIs and kuertee UI Extensions: licenses, internals, coexistence (ADR-043) |
 | `../x4-unpacked/` (local only) | Extracted game Lua/MD/libraries; search for `ffi.cdef` signatures and MD usage |
 | `../reference/` (local only) | Old mod clone: lessons only, never copy code |

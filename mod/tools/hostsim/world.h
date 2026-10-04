@@ -77,6 +77,11 @@ class World {
   bool add_sector(std::uint64_t id) { return sectors_.insert(id).second; }
   [[nodiscard]] bool has_sector(std::uint64_t id) const { return sectors_.count(id) != 0; }
   bool remove(std::uint64_t id);  // never the player ship
+  // A save load: every spawned (mod or scripted) object gets a new id, like the game's component ids; positions, names, id codes stay. The player ship,
+  // the station and the sectors keep theirs. Returns how many objects changed id.
+  std::size_t renumber();
+  // The ships owned by a faction (GetAllFactionShips).
+  [[nodiscard]] std::vector<std::uint64_t> ships_of(const std::string& faction) const;
   [[nodiscard]] std::vector<Obj> snapshot() const;
   [[nodiscard]] std::uint64_t last_spawned() const { return last_; }
   void set_last(std::uint64_t id) { last_ = id; }

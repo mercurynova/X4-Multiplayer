@@ -580,3 +580,16 @@ if(X4MP_TESTS)
   cmake_language(DEFER CALL x4mp_assert_no_sdk x4mp_selfship_alloc_tests)
 endif()
 # END M3-09 own-ship tracker
+
+# =============================================================================================
+# BEGIN M3-11 avatars on the authority (features/avatars/*.cpp is picked up by the M2-04 features glob). Appended by M3-11.
+#   x4mp_game       += game/avatars_api.cpp (team-faction ship enumeration for the binder; resolved by name, GameFns stays frozen)
+#   x4mp_host_tests += tests/test_avatars.cpp (plan, records, binder, AvatarDirector over a fake world)
+#   The MD half (md/x4mp_avatars.xml) is checked by tools/validate-x4-xml.py, the Lua half by tests/lua/test_avatars.lua; the live round trip
+#   (real DLL as authority + FakeNode bots) is tests/hostsim/avatars_run.ps1.
+# =============================================================================================
+target_sources(x4mp_game PRIVATE native/game/avatars_api.cpp)
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_avatars.cpp)
+endif()
+# END M3-11 avatars on the authority

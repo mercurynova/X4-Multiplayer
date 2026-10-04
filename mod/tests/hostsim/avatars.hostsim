@@ -1,0 +1,125 @@
+# M3-11 acceptance: the real DLL is the AUTHORITY, FakeNode bots (--avatars) are the players. Run by avatars_run.ps1
+# (vars: tcp, tcpport, apw, sim, fake, bots, tmp, ckpt_src, ckpt_src2, admin_url, admin_pw).
+# The script plays the Lua/MD side: sector map, team-faction report, MD safe position and dress answers.
+init
+set game_time 4000
+world sector add 100003
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_authority_e2e
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+
+# the sector map (macros sort to cluster_01 = 1, cluster_02 = 2, cluster_03 = 3) and the team factions (the MD report is played here)
+expect-lua x4mp.sector_map_collect 5000
+lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_03_sector001_macro|100003;cluster_02_sector001_macro|100002;cluster_01_sector001_macro|100001"}
+lua-raw x4mp.sector_map {"v":1,"data":"E;3"}
+expect-lua x4mp.teams_apply 5000
+lua-raw x4mp.teams_md {"v":1,"data":"R;1;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;2;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;3;1;0;0;1;1"}
+frame 60Hz 60
+
+# the first checkpoint: MD reports the galaxy and the host's ship
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 150
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+
+# the host sits in its ship in sector 1; the teams are ready
+ship place sector=100001 pos=0,0,0
+seat on
+lua-raw x4mp.teams_md {"v":1,"data":"R;1;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;2;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;3;1;0;0;1;1"}
+frame 60Hz 60
+
+# ---- bot 1 joins: PlayerShip -> avatar ----
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Duration 40 -Out "${tmp}\bot1.txt" -PidFile "${tmp}\bots.pid"
+frame 60Hz 300
+expect-lua x4mp.avatars_safepos 8000 json $.seq == 1
+lua-raw x4mp.avatars_md {"v":1,"data":"P;1;1;123;45;678"}
+frame 60Hz 120
+expect-file extension/logs/x4mp.log avatars: spawned the avatar of player
+expect-object count == 1 owner=x4mp_team_1
+# driven from the bot's states right after the spawn: it left the safe spot\nexpect-object owner=x4mp_team_1 x != 123
+expect-object owner=x4mp_team_1 active == false
+expect-object owner=x4mp_team_1 macro == ship_arg_s_fighter_01_a_macro
+expect-lua x4mp.avatars_dress 3000 json $.basic == true
+lua-raw x4mp.avatars_md {"v":1,"data":"D;2;1;loadout:basic"}
+# the avatar is driven from the bot's relayed PlayerState, with the velocity hint
+frame 60Hz 300
+expect-state set_pos_calls > 100
+expect-lua x4mp.avatars_vel 3000
+expect-admin /api/v1/dashboard $.players[name==Bot01].sectorId == 1 timeout=5000
+
+# ---- bot 2: no MD answer for the safe position -> the wanted spot after the timeout ----
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Prefix Zed -Duration 30 -Out "${tmp}\bot2.txt" -PidFile "${tmp}\bots.pid"
+frame 60Hz 600
+expect-file extension/logs/x4mp.log (no MD answer for
+expect-object count == 2 owner=x4mp_team_1
+
+# ---- both bots leave: the avatars are parked where they are ----
+frame 60Hz 1500
+expect-file extension/logs/x4mp.log stays parked at its pose
+expect-object count == 2 owner=x4mp_team_1
+expect-state spawns == 2
+
+# something pushes a parked avatar: it is snapped back
+world object pos owner=x4mp_team_1 99999,0,0
+frame 60Hz 180
+expect-object owner=x4mp_team_1 x != 99999
+
+# ---- "Save now": the manifest lists both avatars ----
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode post -Url "${admin_url}" -Password "${admin_pw}" -Path "/api/v1/sessions/{current}/request-save"
+frame 60Hz 60
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src2}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4300.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log manifest lists 2 avatar(s)
+
+# ---- a save load: every component id changes; the binder finds both avatars again, nothing is respawned ----
+world renumber
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_authority_e2e
+frame 60Hz 180
+expect-lua x4mp.sector_map_collect 5000
+lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_03_sector001_macro|100003;cluster_02_sector001_macro|100002;cluster_01_sector001_macro|100001"}
+lua-raw x4mp.sector_map {"v":1,"data":"E;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;1;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;2;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;3;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;4;1;0;0;1;1"}
+frame 60Hz 240
+expect-file extension/logs/x4mp.log avatars: 2 avatar record(s) restored
+expect-file extension/logs/x4mp.log avatars: rebound player
+expect-object count == 2 owner=x4mp_team_1
+expect-state spawns == 2
+expect-no-log SpawnObjectAtPos2 failed
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown

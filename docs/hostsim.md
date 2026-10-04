@@ -78,6 +78,8 @@ Selectors: `<id>`, `last` (newest object, spawned by the mod or by `world object
 | `world sector add <id>` | a new sector id |
 | `world object add macro=M sector=S [owner=O] [pos=x,y,z] [name=N] [yaw=deg] [class=station]` | scripted placement (not counted as a mod spawn; prints the id) |
 | `world object wreck\|unwreck\|remove <sel>`, `world object owner <sel> <faction>`, `world object name <sel> <text>` | edit; the player ship and the station cannot be removed |
+| `world renumber` | a save load: every spawned / scripted object (not the player ship, the station, the sectors) gets a new id; positions, names, id codes stay (M3-11: the avatar binder test) |
+| `world object pos <sel> x,y,z` | something pushed the object (a parked avatar is snapped back) |
 | `world spawn-fail <n>` | the next n `SpawnObjectAtPos2` calls return 0 |
 | `world teleport allow\|deny [reason]`, `world controlled-when-docked on\|off` | behaviour switches (assumptions: m3-plan section 8, M3-04) |
 | `expect-object <sel> exists\|absent` | the object exists / does not |
@@ -90,6 +92,16 @@ Selectors: `<id>`, `last` (newest object, spawned by the mod or by `world object
 path_active gate_jumps`. Checks run on the script thread right where they stand, so `frame` first (the mod acts on frames).
 The DLL-free smoke is ctest `hostsim.world_objects`, `hostsim.world_ship` (the stub extension drives the fake through the real
 SDK function table) and `hostsim.world_failure_exit_code`.
+
+The fake game also answers (resolved by name, not in the SDK table; M3-11) `GetNumAllFactions` / `GetAllFactions` (player, argon, paranid, `x4mp_team_1..8`) and
+`GetNumAllFactionShips` / `GetAllFactionShips` (the ships of an owner), which the avatar binder and the janitor use.
+
+### Avatar run (M3-11, not in CI)
+`mod/tests/hostsim/avatars_run.ps1` (ports 47944-47946, about 2 minutes; needs `mod/build.ps1` and `tools/e2e.ps1 -Steps Publish`): the real DLL is the authority of a
+session from an uploaded save, FakeNode bots (`avatars_sim.ps1` starts them without waiting, so the authority keeps ticking) are the players. `avatars.hostsim` plays
+the Lua/MD side and checks: avatar spawned under `x4mp_team_1`, inert, at the MD safe position (and at the wanted spot after the timeout when MD does not answer), early-game
+dress request, driven from the bot's `PlayerState` with velocity hints, parked on leave, snapped back when pushed, the checkpoint manifest lists both avatars, and after
+`world renumber` + reload both are bound again by idcode with no second spawn.
 
 ### Pair runs (M3-04, CI step `HostSimPair`)
 `mod/tests/hostsim/pair_run.ps1` starts the published server, a FakeNode authority serving a dummy save and **two** hostsim
