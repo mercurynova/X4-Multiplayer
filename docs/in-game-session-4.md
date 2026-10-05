@@ -153,6 +153,37 @@ Quit X4, `collect-logs.ps1 -Label s1`, `sync-report.ps1`.
 
 ---
 
+## Finding 4 experiments (M3-23): why does the client lose its map knowledge? (one PC, sitting-1 setup)
+
+**The problem.** Sitting 1 (Finding 4): as a client the map shows only the radar bubble, explored areas are fog, the HUD says "To: Unknown Sector", stations carry "?". Single player with the mod and the authority role are fine. So something client-only (takeover, client janitor, ghosts, the client's download/load path) costs the player's knowledge. M3-23 adds a **knowledge probe** and four **switches** (all off by default) so four short runs narrow it down. Same setup as sitting 1: window 1 `tools\session4\start-fake-authority.ps1 -SaveName save_004 -FreshDownload -Wingmen 2`, join as `Tester`.
+
+**The probe.** One line in the mod log (`Documents\Egosoft\X4\x4mp\logs\x4mp.log`; also forwarded to the server log as `[knowledge]`):
+
+`knowledge: sectors_known=N/M stations_known=x/y gates_known=u/v clusters_known=a/b samples=[01_001=1,07_001=0,14_001=-] at='<stage>' game_age=123.4s`
+
+N/M = sectors known to the player / all sectors of the galaxy (same for stations, gates, clusters). `samples`: three named sectors (`01_001` Grand Exchange I, `07_001`, `14_001`): 1 known, 0 unknown, `-` not found. `game_age` is the game clock at the moment of the count (the answer comes back through MD a frame later, so use it to order lines). It is written at: `universe ready` (before anything else of ours runs), `takeover: avatar spawned` (or `avatar bound from the save`), `takeover: teleported`, `takeover: guard confirmed`, `takeover: original removed`, `after janitor sweep`, `after first ghost spawn`, and whenever you type **`/x4mp knowledge`** in the chat window (while connected). The counts come from the game itself (MD `find_sector/find_station/find_gate` with `known="true"`, `.isknown`).
+
+**Switches** (X4 closed!). Edit `Documents\Egosoft\X4\x4mp\x4mp.json` (create it if missing; keep the other keys, e.g. `last_address`). Add a `"diag"` object:
+
+```json
+{ "diag": { "takeover_keep_original": true } }
+```
+
+Keys (true/false, default false): `takeover_keep_original` (the takeover runs but the host ship copy is never removed), `takeover_off` (no takeover at all: you stay in the save's ship, no avatar, nothing removed; ghosts are shown, your state is not sent), `ghosts_off` (no ghosts are spawned), `janitor_off` (the load-time janitor sweep removes nothing). The log says `diag.<key>` as a warning when one is active (`takeover_keep_original: the host ship copy ... is kept`, `takeover_off: no takeover`, `ghosts: diag.ghosts_off is set`, `janitor: diag.janitor_off`). **Reset afterwards:** delete the `"diag"` object (or set every key to false) before the next normal session.
+
+**Each run:** window 1 as above (`-FreshDownload` only for run 0), join as `Tester`, wait until the log shows `janitor:` (or the `takeover_off` line), then look at the **galaxy map** (explored sectors coloured or fog?), the **HUD target line** ("To: ..." sector name or "Unknown Sector") of a gate, and **stations** (name or "?"), standing still for 30 s. Then type `/x4mp knowledge`. Quit X4, `collect-logs.ps1 -Label f4r<N>`. Send the zip names and, for each run, **what the map and the "?" looked like** plus the `knowledge:` lines (`findstr knowledge Documents\Egosoft\X4\x4mp\logs\x4mp.log`).
+
+| Run | Keys | What it tells |
+|---|---|---|
+| **0** | none | Baseline. Read the `knowledge:` lines in order: if `universe ready` already shows few sectors known, the loss is in the **load path** (the downloaded save, nothing of ours has run yet). If it drops between two later lines, the stage before the drop is the culprit (avatar spawned / teleported / guard / original removed / janitor / ghost). |
+| **1** | `takeover_keep_original` | Takeover runs, the save's original ship stays. Knowledge fine now = removing the original ship (it carries the player's knowledge) is the cause. |
+| **2** | `takeover_off` | No takeover: you stay in the save's ship. Knowledge fine = something in the takeover (the spawn, `SetComponentOwner(player)`, the teleport) is the cause; still lost = the load path or ghosts/janitor. |
+| **3** | `ghosts_off` + `janitor_off` | Neither ghosts nor sweep. Knowledge fine = ghosts or janitor; still lost = the takeover or the load path. |
+
+If every run loses it from `universe ready` on, tell Claude: the next step is comparing the loaded save with the original (the client loads `x4mp_<hash>`, a downloaded copy). If a run is fine, send which one; that run is the lead.
+
+---
+
 ## Sitting 2: real X4 = authority, FakeNode wingmen (one PC)
 
 **2.0 Start** (window 1): `powershell -ExecutionPolicy Bypass -File tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3` (`-Target` = the name you host with, default `Tester`). It starts the server, uploads the save, creates and starts the session, prints the in-game admin password (`x4mp-host-test`), then **waits until the session runs and your ship exists** before it starts the wingmen (the real authority can only place their avatars next to your ship).

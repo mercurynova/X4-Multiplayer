@@ -9,6 +9,7 @@
 
 #include "core/crypto/crypto.h"
 #include "features/avatars/avatar_takeover.h"
+#include "features/diag/knowledge_feature.h"
 #include "features/ghosts/ghost_hub.h"
 #include "features/join/platform_stash.h"
 #include "features/selfship/galaxy_map.h"
@@ -120,6 +121,7 @@ struct ClientTakeover::Impl final : ITakeoverEnv {
     j["text"] = text;
     (void)ctx->platform.raise_lua("x4mp.hint", j.dump());
   }
+  void probe(const std::string& tag) override { knowledge_probe(tag); }  // M3-23
   void save_record(const std::string& text) override {
     if (stash) stash->put(kRecordKey, text);
   }
@@ -212,6 +214,7 @@ void ClientTakeover::frame(host::HostContext& ctx, double now_s) {
     }
     s.read_manifest(hub.manifest_file());
   }
+  s.machine->set_diag(ctx.config.diag);  // M3-23
   s.machine->step(now_s);
   s.announce(now_s);
 }

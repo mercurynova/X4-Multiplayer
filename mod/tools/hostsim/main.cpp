@@ -389,6 +389,7 @@ class Runner {
     else if (cmd == "expect-log") cmd_expect_log(t, rest_from(1));
     else if (cmd == "expect-no-log") { need(t, 2, "expect-no-log <text>"); if (host_.log_contains(rest_from(1))) throw ScriptFail("the mod log contains '" + rest_from(1) + "'"); }
     else if (cmd == "expect-file") cmd_expect_file(t, rest_from(2));
+    else if (cmd == "expect-file-order") cmd_expect_file_order(t, rest_from(2));
     else if (cmd == "write-file") cmd_write_file(t, rest_from(2));
     else if (cmd == "expect-no-file") cmd_expect_no_file(t);
     else if (cmd == "expect-admin") cmd_expect_admin(t);
@@ -730,6 +731,44 @@ class Runner {
     }
   }
 
+  // expect-file-order <path> <a> >> <b> >> <c> [timeout=<ms>]: the file holds the texts in this order, each one after the end of the previous one (M3-23).
+  void cmd_expect_file_order(const std::vector<std::string>& t, const std::string& text_in) {
+    need(t, 3, "expect-file-order <path> <a> >> <b> [>> <c> ...] [timeout=<ms>]");
+    fs::path p = t[1];
+    if (p.is_relative()) p = work_ / p;
+    std::string text = text_in;
+    long long timeout_ms = 3000;
+    if (const auto sp = text.rfind(" timeout="); sp != std::string::npos && is_number(text.substr(sp + 9))) {
+      timeout_ms = std::atoll(text.c_str() + sp + 9);
+      text = trim(text.substr(0, sp));
+    }
+    std::vector<std::string> needles;
+    for (std::size_t pos = 0;;) {
+      const auto sep = text.find(" >> ", pos);
+      needles.push_back(trim(text.substr(pos, sep == std::string::npos ? std::string::npos : sep - pos)));
+      if (sep == std::string::npos) break;
+      pos = sep + 4;
+    }
+    const auto deadline = Clock::now() + scaled(timeout_ms);
+    for (;;) {
+      std::ifstream f(p, std::ios::binary);
+      const std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+      std::size_t at = 0;
+      std::string missing;
+      for (const auto& n : needles) {
+        const auto i = data.find(n, at);
+        if (i == std::string::npos) {
+          missing = n;
+          break;
+        }
+        at = i + n.size();
+      }
+      if (missing.empty()) return;
+      if (Clock::now() >= deadline) throw ScriptFail(p.string() + " does not contain '" + missing + "' in the expected order");
+      std::this_thread::sleep_for(100ms);
+    }
+  }
+
   void cmd_expect_admin(const std::vector<std::string>& t) {
     need(t, 2, "expect-admin <path> [<jsonpath> [op value]] [timeout=<ms>]");
     long long timeout = 10000;
@@ -807,6 +846,7 @@ class Runner {
     else if (n == "dress_events") got = static_cast<double>(host_.world.dress_events);
     else if (n == "velocity_events") got = static_cast<double>(host_.world.velocity_events);
     else if (n == "teams_applies") got = static_cast<double>(host_.world.teams_applies);
+    else if (n == "knowledge_probes") got = static_cast<double>(host_.world.knowledge_probes);
     else if (n == "seat") got = host_.world.seat ? 1 : 0;
     else if (n == "docked") got = host_.world.docked ? 1 : 0;
     else if (n == "seta") got = host_.world.seta ? 1 : 0;

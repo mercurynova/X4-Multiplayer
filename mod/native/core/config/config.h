@@ -32,6 +32,18 @@ struct LaunchRequest {
   std::string password_ref;  // "prompt" | "inline" | ""
 };
 
+// M3-23: diagnostic switches for the "client loses the map knowledge" investigation (docs/in-game-session-4.md "Finding 4 experiments").
+// All default to false = no behaviour change. x4mp.json: {"diag": {"takeover_keep_original": true, ...}}; the flat keys
+// "diag.takeover_keep_original" etc. are accepted too (the same names the docs use).
+struct DiagConfig {
+  bool takeover_keep_original = false;  // the takeover runs but never removes the host's ship copy (the save's original player ship)
+  bool takeover_off = false;            // no takeover at all: the player stays in the save's ship, the avatar stays unbound
+  bool ghosts_off = false;              // the client spawns no ghosts
+  bool janitor_off = false;             // the load-time janitor sweep never removes anything
+  [[nodiscard]] bool any() const { return takeover_keep_original || takeover_off || ghosts_off || janitor_off; }
+  bool operator==(const DiagConfig&) const = default;
+};
+
 struct Config {
   std::string server_host = "127.0.0.1";
   int tcp_port = 47780;
@@ -47,6 +59,7 @@ struct Config {
   // (known list in host/host_log.h), not here. Last occurrence wins; order is the JSON key order.
   std::vector<std::pair<std::string, log::Level>> log_categories;
   LaunchRequest launch;
+  DiagConfig diag;  // M3-23
 };
 
 struct Diagnostic {

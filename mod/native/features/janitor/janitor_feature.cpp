@@ -6,6 +6,7 @@
 
 #include "features/avatars/avatar_hub.h"
 #include "features/diag/diag_hub.h"
+#include "features/diag/knowledge_feature.h"
 #include "features/ghosts/ghost_hub.h"
 #include "game/game_api.h"
 #include "game/main_thread.h"
@@ -214,6 +215,13 @@ void JanitorFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
     return;
   }
 
+  if (ctx.config.diag.janitor_off) {  // M3-23 diagnostic: the load-time sweep never removes anything
+    pending_ = false;
+    swept_ = true;
+    emit(ctx, Level::Warn, "diag.janitor_off: the load-time sweep is skipped, nothing is removed");
+    knowledge_probe("after janitor sweep (skipped by diag.janitor_off)");
+    return;
+  }
   const JanitorProtection prot = build_protection(ctx);
   const JanitorResult pass = run_pass(ctx, prot, /*do_remove=*/true, &acted_);
   last_ = pass;
@@ -248,6 +256,7 @@ void JanitorFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
              std::to_string(total_.scanned) + " scanned (" + std::to_string(total_.marked) + " carry the prefix); kept: ghosts " +
              std::to_string(total_.kept_ghost) + ", avatars " + std::to_string(total_.kept_avatar) + ", own copy " + std::to_string(total_.kept_own) +
              ", guarded " + std::to_string(total_.kept_guarded) + "; " + std::to_string(passes_) + " pass(es)");
+    knowledge_probe("after janitor sweep");  // M3-23
   }
 }
 

@@ -50,6 +50,8 @@ class GhostFeature final : public host::IFeature {
   std::int64_t last_save_us_ = 0;
   std::int64_t last_report_us_ = 0;
   bool warned_no_map_ = false;
+  bool warned_diag_off_ = false;      // M3-23: diag.ghosts_off was logged
+  bool first_spawn_probed_ = false;   // M3-23: the knowledge probe after the first ghost spawn was asked
   bool warned_no_clock_ = false;
   ghost::PercentileWindow<512> frame_cost_us_;
   double frame_cost_max_us_ = 0;

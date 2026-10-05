@@ -152,6 +152,8 @@ struct FakeTake final : ITakeoverEnv {
   void show_hint(bool show, const std::string& text) override { hints.emplace_back(show, text); }
   void save_record(const std::string& text) override { record = text; }
   void log(LogLevel, const std::string& text) override { logs.push_back(text); }
+  std::vector<std::string> probes;  // M3-23: the knowledge probes the machine asked for, in order
+  void probe(const std::string& tag) override { probes.push_back(tag); }
 };
 
 constexpr double kDt = 1.0 / 60.0;
@@ -304,6 +306,58 @@ TEST_CASE("takeover: a new player (no avatar in the save) spawns a copy, telepor
   const auto rec = takeover_record_from_text(r.env.record);
   REQUIRE(rec);
   CHECK(rec->phase == TakeoverRecord::Phase::Done);
+}
+
+TEST_CASE("takeover diag (M3-23): a knowledge probe is asked after each stage, in order", "[takeover][diag]") {
+  Rig r;
+  r.env.seat_delay_frames = 1;
+  r.frames(5);
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(2);
+  REQUIRE(r.m.done());
+  const std::vector<std::string> want = {"takeover: avatar spawned", "takeover: teleported", "takeover: guard confirmed", "takeover: original removed"};
+  CHECK(r.env.probes == want);
+}
+
+TEST_CASE("takeover diag (M3-23): takeover_keep_original runs the whole takeover but never removes the host ship copy", "[takeover][diag]") {
+  Rig r;
+  r.env.seat_delay_frames = 1;
+  x4mp::config::DiagConfig d;
+  d.takeover_keep_original = true;
+  r.m.set_diag(d);
+  const auto bob = r.other_avatar("[MP] Bob", "BOB-001", 2);
+  r.frames(5);
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(2);
+  REQUIRE(r.m.done());
+  CHECK_FALSE(r.gone(r.host));  // the original stays
+  CHECK(r.gone(bob));           // everything else works as before
+  CHECK(r.env.net_id_set == 41);
+  CHECK(r.env.teleports == 1);
+  CHECK_FALSE(r.env.held);
+  CHECK(r.env.probes.back() == "takeover: original removal skipped (diag)");
+  CHECK(std::none_of(r.env.removed.begin(), r.env.removed.end(), [&](std::uint64_t id) { return id == r.host; }));
+}
+
+TEST_CASE("takeover diag (M3-23): takeover_off does nothing to the game: no request, no spawn, no teleport, no removal; ghosts released, states held", "[takeover][diag]") {
+  Rig r;
+  x4mp::config::DiagConfig d;
+  d.takeover_off = true;
+  r.m.set_diag(d);
+  r.frames(5);
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(15);
+  CHECK(r.m.done());  // Done at once: the janitor must not wait for it for ever
+  CHECK(r.env.requests == 0);
+  CHECK(r.env.spawns == 0);
+  CHECK(r.env.teleports == 0);
+  CHECK(r.env.removed.empty());
+  CHECK(r.env.held);  // the host's ship must never move the avatar on the authority
+  CHECK_FALSE(r.env.ghosts_held);
+  CHECK(r.env.net_id_set == 0);
+  CHECK(r.env.record.empty());  // no Done record that a later run without the switch could trust
+  CHECK_FALSE(r.gone(r.host));
+  CHECK(r.env.probes == std::vector<std::string>{"takeover_off: nothing done"});
 }
 
 TEST_CASE("takeover: an avatar that is in the save is bound by idcode, becomes the player's and nothing is spawned", "[takeover][flow]") {

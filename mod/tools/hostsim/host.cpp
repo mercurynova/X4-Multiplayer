@@ -534,6 +534,12 @@ void Host::emulate_md(const std::string& topic, const std::string& param) {
         }
       }
     }
+  } else if (topic == "x4mp.knowledge_ask") {  // M3-23: the knowledge probe; the fake world answers FIXED numbers (3/7 sectors, 2/4 clusters, 5/9 stations, 1/6 gates)
+    const auto j = nlohmann::json::parse(param, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("seq")) return;
+    ++world.knowledge_probes;
+    md_answers_.emplace_back("x4mp.knowledge_md",
+                             nlohmann::json{{"v", 1}, {"data", "K;" + std::to_string(j["seq"].get<unsigned>()) + ";123.4;3;7;2;4;5;9;1;6;01_001=1,07_001=0,14_001=-"}}.dump());
   } else if (topic == "x4mp.sector_map_collect") {  // M3-09 asks MD for the sector list: answer it (the ghosts use that map)
     for (const auto& data : world.md_sector_map) md_answers_.emplace_back("x4mp.sector_map", nlohmann::json{{"v", 1}, {"data", data}}.dump());
   } else if (topic == "x4mp.avatars_safepos") {  // M3-14: the authority's MD get_safe_pos; the fake universe has no station in the way: the wanted spot is safe

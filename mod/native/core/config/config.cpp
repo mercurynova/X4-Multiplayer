@@ -63,6 +63,45 @@ void warn_unknown(const Json& doc, std::initializer_list<std::string_view> known
   }
 }
 
+bool read_bool(const Json& doc, std::string_view key, bool& out, std::string_view source, Diags& diags, std::string_view shown_key = {}) {
+  const auto it = doc.find(std::string(key));
+  if (it == doc.end()) return false;
+  if (it->is_boolean()) {
+    out = it->get<bool>();
+    return true;
+  }
+  bad(diags, source, shown_key.empty() ? key : shown_key, "must be true or false");
+  return false;
+}
+
+// M3-23: {"diag": {"takeover_keep_original": true, ...}} and/or the flat keys "diag.takeover_keep_original" (the flat one wins when both exist).
+void apply_diag(DiagConfig& d, const Json& doc, std::string_view source, Diags& diags) {
+  struct Field {
+    const char* name;
+    bool DiagConfig::*member;
+  };
+  static constexpr Field kFields[] = {{"takeover_keep_original", &DiagConfig::takeover_keep_original},
+                                      {"takeover_off", &DiagConfig::takeover_off},
+                                      {"ghosts_off", &DiagConfig::ghosts_off},
+                                      {"janitor_off", &DiagConfig::janitor_off}};
+  if (const auto it = doc.find("diag"); it != doc.end()) {
+    if (!it->is_object()) {
+      bad(diags, source, "diag", "must be an object of switch name to true or false");
+    } else {
+      for (const auto& f : kFields) read_bool(*it, f.name, d.*f.member, source, diags, std::string("diag.") + f.name);
+      for (auto cit = it->begin(); cit != it->end(); ++cit) {
+        bool known = false;
+        for (const auto& f : kFields) known = known || cit.key() == f.name;
+        if (!known) add(diags, log::Level::Warn, "config " + std::string(source) + ": unknown key 'diag." + cit.key() + "' ignored");
+      }
+    }
+  }
+  for (const auto& f : kFields) {
+    const std::string flat = std::string("diag.") + f.name;
+    read_bool(doc, flat, d.*f.member, source, diags);
+  }
+}
+
 void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& diags) {
   read_string(doc, "server_host", false, cfg.server_host, source, diags);
   if (long long v = 0; read_int(doc, "tcp_port", 1, 65535, v, source, diags)) cfg.tcp_port = static_cast<int>(v);
@@ -101,8 +140,9 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
       if (ok || !cats.empty()) cfg.log_categories = std::move(cats);
     }
   }
+  apply_diag(cfg.diag, doc, source, diags);
   warn_unknown(doc,
-               {"server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
+               {"diag", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
                 "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest", "last_address", "last_name"},  // last_*: remembered Join fields (M3-07)
                source, diags);
 }
@@ -253,6 +293,12 @@ std::string describe(const Config& c) {
   out += "outbox_byte_cap=" + std::to_string(c.outbox_byte_cap) + "\n";
   out += "frame_budget_us=" + std::to_string(c.frame_budget_us) + "\n";
   for (const auto& [name, level] : c.log_categories) out += "log_category." + name + "=" + log::level_name(level) + "\n";
+  if (c.diag.any()) {
+    out += std::string("diag.takeover_keep_original=") + (c.diag.takeover_keep_original ? "true" : "false") + "\n";
+    out += std::string("diag.takeover_off=") + (c.diag.takeover_off ? "true" : "false") + "\n";
+    out += std::string("diag.ghosts_off=") + (c.diag.ghosts_off ? "true" : "false") + "\n";
+    out += std::string("diag.janitor_off=") + (c.diag.janitor_off ? "true" : "false") + "\n";
+  }
   out += std::string("launch_active=") + (c.launch.active ? "true" : "false") + "\n";
   return out;
 }

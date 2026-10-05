@@ -240,6 +240,14 @@ function C.handleCommand(cmd, param)
 			C.sendLine("whisper", row.id, rest)
 		end
 		return true
+	elseif cmd == "x4mp" then
+		-- M3-23 diagnostic: "/x4mp knowledge" logs the map-knowledge counts (X4MPDiag, x4mp_diag.lua); other "/x4mp ..." go to the previous function
+		local D = rawget(_G, "X4MPDiag")
+		if trim(param):lower() == "knowledge" and type(D) == "table" and type(D.requestKnowledge) == "function" then
+			D.requestKnowledge()
+			C.systemLine("Knowledge probe requested: see the line 'knowledge:' in the x4mp log.")
+			return true
+		end
 	end
 	return false
 end

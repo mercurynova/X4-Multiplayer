@@ -263,3 +263,57 @@ TEST_CASE("frame_budget_us and log_categories (M2-04)", "[config]") {
   REQUIRE(cfg);
   CHECK(errors.find("log_categories") != std::string::npos);
 }
+
+TEST_CASE("diag switches (M3-23): default off, nested object and flat keys, invalid values keep the default", "[config][diag]") {
+  std::string errors;
+  auto cfg = parse_json(R"({})", &errors);
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.any());
+  CHECK(describe(*cfg).find("diag.") == std::string::npos);  // nothing printed while every switch is off
+
+  cfg = parse_json(R"({"diag":{"takeover_keep_original":true,"ghosts_off":true}})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.takeover_keep_original);
+  CHECK(cfg->diag.ghosts_off);
+  CHECK_FALSE(cfg->diag.takeover_off);
+  CHECK_FALSE(cfg->diag.janitor_off);
+  CHECK(describe(*cfg).find("diag.takeover_keep_original=true") != std::string::npos);
+  CHECK(describe(*cfg).find("diag.janitor_off=false") != std::string::npos);
+
+  cfg = parse_json(R"({"diag.takeover_off":true,"diag.janitor_off":true})", &errors);  // the flat spelling the docs use
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.takeover_off);
+  CHECK(cfg->diag.janitor_off);
+  CHECK_FALSE(cfg->diag.ghosts_off);
+
+  cfg = parse_json(R"({"diag":{"takeover_off":true},"diag.takeover_off":false})", &errors);  // the flat key wins
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.takeover_off);
+
+  errors.clear();
+  cfg = parse_json(R"({"diag":{"takeover_off":"yes","ghosts_off":1}})", &errors);
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.any());
+  CHECK(errors.find("diag.takeover_off") != std::string::npos);
+  CHECK(errors.find("diag.ghosts_off") != std::string::npos);
+  CHECK(errors.find("yes") == std::string::npos);  // values are never echoed
+
+  errors.clear();
+  cfg = parse_json(R"({"diag":true})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.find("'diag'") != std::string::npos);
+}
+
+TEST_CASE("diag switches (M3-23): the user file layer reads them and an unknown inner key only warns", "[config][diag]") {
+  TempDir dir;
+  LoadOptions o;
+  o.user_file = dir.write("x4mp.json", R"({"diag":{"janitor_off":true,"nonsense":true},"log_level":"debug"})");
+  const auto r = load(o);
+  CHECK(r.config.diag.janitor_off);
+  CHECK_FALSE(r.config.diag.takeover_off);
+  CHECK(r.config.log_level == x4mp::log::Level::Debug);
+  CHECK(has_diag(r, x4mp::log::Level::Warn, "diag.nonsense"));
+  CHECK_FALSE(has_diag(r, x4mp::log::Level::Warn, "unknown key 'diag'"));
+}

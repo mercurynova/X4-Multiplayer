@@ -244,6 +244,20 @@ TEST_CASE("janitor: after a save load it removes only '[MP] ' objects, ships and
   CHECK(g_removed.size() == n);  // one sweep per universe
 }
 
+TEST_CASE("janitor (M3-23): diag.janitor_off skips the load-time sweep, removes nothing and says so", "[janitor][m323]") {
+  Fixture f;
+  f.exports();
+  f.dir.write("x4mp.json", R"({"diag":{"janitor_off":true}})");
+  g_world = {{2, "[MP] Bob", "player", ""}, {4, "[MP] Station", "x4mp_team_1", "", true}};
+  Rig r(f);
+  r.load_save();
+  r.sweep_after_grace();
+  CHECK(r.jan->swept());
+  CHECK(g_removed.empty());
+  CHECK(r.f.forwarded_contains("diag.janitor_off"));
+  CHECK_FALSE(r.f.forwarded_contains("swept:"));
+}
+
 TEST_CASE("janitor: a game that keeps listing a removed object does not make it act twice", "[janitor][m313]") {
   Fixture f;
   f.exports();
