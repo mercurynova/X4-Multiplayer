@@ -153,7 +153,7 @@ function Get-FirewallCommands($Only = $null) {
     $lines = New-Object System.Collections.Generic.List[string]
     foreach ($p in Get-ServerPortList) {
         if ($null -ne $Only -and @($Only | Where-Object { $_.Protocol -eq $p.Protocol -and $_.Port -eq $p.Port }).Count -eq 0) { continue }
-        $lines.Add("New-NetFirewallRule -DisplayName '$($p.Name)' -Direction Inbound -Action Allow -Protocol $($p.Protocol) -LocalPort $($p.Port) -RemoteAddress LocalSubnet")
+        $lines.Add("New-NetFirewallRule -DisplayName '$($p.Name)' -Direction Inbound -Action Allow -Protocol $($p.Protocol) -LocalPort $($p.Port) -RemoteAddress LocalSubnet,100.64.0.0/10")   # 100.64.0.0/10: Tailscale (tailnet) peers
     }
     return $lines.ToArray()
 }

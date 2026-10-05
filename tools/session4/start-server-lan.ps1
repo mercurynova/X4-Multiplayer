@@ -49,7 +49,7 @@ $addrs = @(Get-LanAddresses)
 Write-Host 'This PC (PC A) on the network:'
 if ($addrs.Count -eq 0) { Write-Warning '  no LAN address found (is the PC connected?).' }
 foreach ($a in $addrs) { Write-Host ("  {0,-16} {1}" -f $a.Address, $a.Interface) }
-if ($addrs.Count -gt 0) { Write-Host "PC B joins: $($addrs[0].Address):$($Ports.Tcp)   (several adapters listed? use the one on the same network as PC B)" }
+if ($addrs.Count -gt 0) { Write-Host "PC B joins: $($addrs[0].Address):$($Ports.Tcp)   (several adapters listed? use the one on the same network as PC B; over Tailscale use the 100.x address of the Tailscale adapter)" }
 
 # ---- 2. firewall (read only) ------------------------------------------------------------------------------------------------------
 Write-Host ''
@@ -65,7 +65,7 @@ if ($missing.Count -gt 0) {
     Write-Host ''
     Write-Host 'To open the missing ports, run this in an ELEVATED PowerShell on PC A (right-click PowerShell > Run as administrator). This script does not run it:'
     foreach ($c in Get-FirewallCommands -Only $missing) { Write-Host "  $c" }
-    Write-Host '  (The rules apply to every network profile but only accept connections from the local subnet.)'
+    Write-Host '  (The rules apply to every network profile but only accept connections from the local subnet and from Tailscale (tailnet, 100.64.0.0/10) peers.)'
 }
 $udpCmd = Get-UdpToggleCommands
 Write-Host ''
