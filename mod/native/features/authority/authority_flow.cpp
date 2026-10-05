@@ -496,6 +496,13 @@ void AuthorityFlow::on_checkpoint_stored(host::HostContext& ctx) {
   ++stored_total_;
   ++state_.checkpoints;
   state_.loaded_sha = ready_.save.sha256;  // this game is the source of that checkpoint
+  {  // M3-22: the checkpoint joins the avatar lineage ledger: a later load of exactly this save keeps the avatars its manifest lists
+    std::vector<std::string> idcodes;
+    for (const auto& r : manifest_avatars_) {
+      if (!r.idcode.empty()) idcodes.push_back(r.idcode);
+    }
+    avatars::avatar_hub().note_checkpoint(crypto::to_hex(std::span<const std::uint8_t>(ready_.save.sha256)), std::move(idcodes));
+  }
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: checkpoint {} stored (save {}, request {})", save_name_, hex12(ready_.save.sha256), request_id_);
   std::error_code ec;
   fs::remove(ready_.manifest_path, ec);  // our own temporary manifest file

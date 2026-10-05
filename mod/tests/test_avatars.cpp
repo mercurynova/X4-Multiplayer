@@ -826,3 +826,125 @@ TEST_CASE("avatars.director: a player moving team re-owns the avatar (M3-18)", "
     CHECK(env.count_owned("x4mp_team_1") == 0);
   }
 }
+
+// ---- M3-22: avatar records belong to one session lineage ----------------------------------------------------------------------------
+TEST_CASE("avatars.plan: the lineage (session + checkpoint ledger) round trips; the old format has no session", "[avatars][m322]") {
+  Lineage l;
+  l.session = "0123456789abcdef0123456789abcdef";
+  l.ledger.push_back({"aa11", {"AAA-111", "BBB-222"}});
+  l.ledger.push_back({"bb22", {}});
+  const auto parsed = records_from_text(records_to_text({}, l));
+  REQUIRE(parsed.header_ok);
+  CHECK(parsed.lineage == l);
+  CHECK(parsed.bad_lines == 0);
+  const auto old = records_from_text("x4av 1\n");
+  CHECK(old.header_ok);
+  CHECK(old.lineage.session.empty());
+}
+
+TEST_CASE("avatars.director: records are dropped unless they belong to this session and the loaded save is its checkpoint (M3-22)", "[avatars][m322]") {
+  FakeEnv env;
+  const std::string session_a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const std::string session_b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  std::string saved;
+  std::uint64_t id2 = 0, id3 = 0;
+  {
+    AvatarDirector d(env);
+    Clock c;
+    d.on_session(session_a);
+    d.on_roster(roster_with({{2, {"Alice", 1}}, {3, {"Bob", 2}}}));
+    id2 = provision(d, env, c, 2, 1, "Alice");
+    id3 = provision(d, env, c, 3, 2, "Bob");
+    const auto snap = d.snapshot();
+    REQUIRE(snap.size() == 2);
+    // the checkpoint "ck1" lists only Alice; Bob joined after it
+    std::string alice_code;
+    for (const auto& r : snap) {
+      if (r.player_id == 2) alice_code = r.idcode;
+    }
+    d.on_checkpoint_stored("ck1", {alice_code});
+    d.persist_now();
+    saved = env.saved;
+  }
+  REQUIRE(id2 != 0);
+  REQUIRE(id3 != 0);
+  const auto has_log = [&](const std::string& part) {
+    return std::any_of(env.logs.begin(), env.logs.end(), [&](const std::string& l) { return l.find(part) != std::string::npos; });
+  };
+  const auto restore = [&](AvatarDirector& d) {
+    const auto parsed = records_from_text(saved);
+    d.set_lineage(parsed.lineage);
+    d.load_records(parsed.records);
+    REQUIRE(d.size() == 2);
+  };
+
+  SECTION("another session: everything is dropped, one log line, and the file is rewritten for the new session") {
+    AvatarDirector d(env);
+    restore(d);
+    env.logs.clear();
+    d.on_session(session_b);
+    CHECK(d.size() == 0);
+    CHECK_FALSE(d.rebind_pending());
+    CHECK(has_log("2 avatar record(s) dropped"));
+    const auto parsed = records_from_text(env.saved);
+    CHECK(parsed.records.empty());
+    CHECK(parsed.lineage.session == session_b);
+    CHECK(parsed.lineage.ledger.empty());
+  }
+  SECTION("a records text without a session (old format) is foreign") {
+    AvatarDirector d(env);
+    const auto parsed = records_from_text(saved);
+    d.load_records(parsed.records);  // no lineage: like an old file
+    d.on_session(session_a);
+    CHECK(d.size() == 0);
+  }
+  SECTION("the same session keeps the records (a rejoin, a stash reload of the same universe)") {
+    AvatarDirector d(env);
+    restore(d);
+    d.on_session(session_a);
+    CHECK(d.size() == 2);
+    CHECK(d.rebind_pending());
+  }
+  SECTION("loading a checkpoint of this session keeps the avatars its manifest lists") {
+    AvatarDirector d(env);
+    restore(d);
+    d.on_session(session_a);
+    d.on_loaded_save("ck1");
+    REQUIRE(d.size() == 1);
+    CHECK(d.views().at(0).rec.player_id == 2);
+    CHECK(d.rebind_pending());
+    CHECK(has_log("1 of 2 avatar record(s) kept"));
+  }
+  SECTION("loading the plain start save keeps none") {
+    AvatarDirector d(env);
+    restore(d);
+    d.on_session(session_a);
+    d.on_loaded_save("plain-start-save");
+    CHECK(d.size() == 0);
+    CHECK_FALSE(d.rebind_pending());
+    CHECK(has_log("0 of 2 avatar record(s) kept"));
+    CHECK(records_from_text(env.saved).records.empty());
+  }
+  SECTION("a session that starts from a plain save provisions only on a PlayerShip request") {
+    AvatarDirector d(env);
+    restore(d);
+    const auto asks_before = env.safe_asks.size();
+    d.on_session(session_b);
+    d.on_loaded_save("plain-start-save");
+    d.new_universe();
+    Clock c;
+    run(d, c, 1.0);
+    CHECK(d.size() == 0);
+    CHECK(env.safe_asks.size() == asks_before);
+    d.on_roster(roster_with({{2, {"Alice", 1}}}));
+    provision(d, env, c, 2, 1, "Alice");
+    CHECK(d.size() == 1);
+  }
+  SECTION("the ledger keeps the newest checkpoints only") {
+    AvatarDirector d(env);
+    restore(d);
+    for (int i = 0; i < 12; ++i) d.on_checkpoint_stored("c" + std::to_string(i), {});
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger);
+    CHECK(d.lineage().ledger.back().sha == "c11");
+  }
+}

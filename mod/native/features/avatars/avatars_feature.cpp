@@ -264,6 +264,12 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
       for (const auto& [k, v] : s.entries) settings.apply(k, v);
     }
     if (!in.settings.empty()) dir->set_settings(settings);
+    for (const auto& ev : in.lineage) {  // M3-22: in the order they happened
+      using K = av::HubInputs::LineageEvent::Kind;
+      if (ev.kind == K::Session) dir->on_session(ev.text);
+      else if (ev.kind == K::LoadedSave) dir->on_loaded_save(ev.text);
+      else dir->on_checkpoint_stored(ev.text, ev.idcodes);
+    }
     if (in.welcomed) dir->on_welcome();
     if (in.session_ended) lost_authority_logged = false;
     for (const auto& r : in.rosters) dir->on_roster(r);
@@ -315,6 +321,7 @@ void AvatarsFeature::on_init(host::HostContext& ctx) {
     for (const auto& a : regs.avatars.entries()) hints.emplace_back(a.player_id, a.local_id);
   }
   const auto parsed = av::records_from_text(text);
+  s.dir->set_lineage(parsed.lineage);  // M3-22: the records belong to this session; the join feature names the live one after the welcome
   if (!parsed.records.empty()) {
     s.dir->load_records(parsed.records, hints);
     ctx.log.raw(Cat::Ghost, Level::Info, "avatars: " + std::to_string(parsed.records.size()) + " avatar record(s) restored (" + std::to_string(parsed.bad_lines) + " bad lines); the binder runs when the universe is ready");

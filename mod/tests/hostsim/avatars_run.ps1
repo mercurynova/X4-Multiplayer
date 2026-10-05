@@ -120,6 +120,22 @@ try {
     $srv = Start-FreshServer 'a'
     Publish-SessionFromUpload $srv.Session $dummy $sha
     Run-Scenario 'avatars' 'work-host' @('--var', "ckpt_src=$ckpt1", '--var', "ckpt_src2=$ckpt2")
+
+    # ---- M3-22: a NEW session (new server = new session id) from a plain save, on the authority that still has session A's avatar-records.txt ----
+    $pidFile = Join-Path $tmp 'bots.pid'
+    if (Test-Path $pidFile) { foreach ($l in Get-Content $pidFile) { try { & taskkill /PID ([int]$l) /T /F 2>$null | Out-Null } catch { } } ; Remove-Item $pidFile -Force }
+    Stop-All
+    $records = Join-Path $tmp 'work-host\extension\avatar-records.txt'
+    if (-not (Test-Path $records)) { throw "session A left no avatar-records.txt at $records" }
+    if ((Get-Content $records -Raw) -notmatch '(?m)^A\|') { throw 'session A left no avatar records' }
+    $work2 = Join-Path $tmp 'work-host2'
+    New-Item -ItemType Directory -Force (Join-Path $work2 'extension') | Out-Null
+    Copy-Item $records (Join-Path $work2 'extension')
+    $plainB = Join-Path $tmp 'start_save_b.xml.gz'; $shaB = New-GzSave $plainB 9
+    $srvB = Start-FreshServer 'b'
+    Publish-SessionFromUpload $srvB.Session $plainB $shaB
+    Run-Scenario 'avatars_session2' 'work-host2' @('--var', "ckpt_src=$ckpt1")
+    Write-Host '  M3-22: the second session started with no avatars and provisioned only on a PlayerShip request' -ForegroundColor Green
     $exit = 0
 }
 catch { Write-Host "AVATARS E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }

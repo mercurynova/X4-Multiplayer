@@ -68,6 +68,7 @@ void AvatarHub::session_ended() {
   inputs_.ships.clear();
   inputs_.states.clear();
   inputs_.despawns.clear();
+  inputs_.lineage.clear();
   inputs_.session_ended = true;
 }
 
