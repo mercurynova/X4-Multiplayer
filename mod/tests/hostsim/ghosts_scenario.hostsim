@@ -61,6 +61,13 @@ expect-state removed == 1
 expect-state spawns == 4
 # M3-13: the janitor swept after the takeover was Done and removed nothing live (ghosts, own avatar copy)
 expect-file extension/logs/x4mp.log janitor: swept: 0 leftover
+# M3-23 knowledge probe (the fake world answers fixed numbers): one line per stage, in this order, before / during / after the takeover
+expect-file-order extension/logs/x4mp.log knowledge: sectors_known=3/7 stations_known=5/9 gates_known=1/6 clusters_known=2/4 samples=[01_001=1,07_001=0,14_001=-] at='universe ready' >> at='takeover: avatar spawned' >> at='takeover: teleported' >> at='takeover: guard confirmed' >> at='takeover: original removed'
+expect-file extension/logs/x4mp.log at='after janitor sweep'
+expect-file extension/logs/x4mp.log at='after first ghost spawn'
+lua-raw x4mp.knowledge_cmd {"v":1}
+until 5000 expect-file extension/logs/x4mp.log at='chat command /x4mp knowledge' timeout=0
+expect-state knowledge_probes >= 8
 
 # mode c: the flying bots get velocity hints, the parked Host does not move
 until 20000 expect-object count == 2 moving=1 owner=x4mp_team_1

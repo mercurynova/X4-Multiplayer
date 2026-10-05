@@ -15,6 +15,7 @@
 #include "host/mod_host.h"
 
 // ---- feature includes (append, one per feature) ----
+#include "features/diag/knowledge_feature.h"
 #include "features/janitor/janitor_feature.h"
 #include "features/saves/saves_feature.h"
 #include "features/selftest/selftest_feature.h"
@@ -31,6 +32,7 @@ namespace x4mp::host {
 
 void register_builtin_features(FeatureRegistry& registry) {
   // ---- registry (append, one line per feature) ----
+  registry.add(std::make_unique<x4mp::features::KnowledgeFeature>());  // FIRST: its universe-ready probe runs before anything else of ours (M3-23)
   registry.add(std::make_unique<x4mp::features::SavesFeature>());
   registry.add(std::make_unique<x4mp::features::SelfTestFeature>());
   registry.add(std::make_unique<x4mp::features::JanitorFeature>());

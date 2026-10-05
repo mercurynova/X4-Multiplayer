@@ -43,6 +43,7 @@
 #include <string_view>
 #include <vector>
 
+#include "core/config/config.h"
 #include "features/avatars/avatar_director.h"
 #include "features/avatars/avatar_plan.h"
 #include "features/avatars/avatar_wire.h"
@@ -112,6 +113,8 @@ class ITakeoverEnv {
   virtual void show_hint(bool show, const std::string& text) = 0;
   virtual void save_record(const std::string& text) = 0;
   virtual void log(LogLevel level, const std::string& text) = 0;
+  // M3-23: asks for a knowledge probe line (features/diag/knowledge_feature.h) labelled `tag`; a diagnostic only, the default does nothing.
+  virtual void probe(const std::string& tag) { (void)tag; }
 };
 
 struct TakeoverStats {
@@ -138,6 +141,9 @@ class AvatarTakeover {
   explicit AvatarTakeover(ITakeoverEnv& env) : env_(env) {}
 
   void set_settings(const AvatarSettings& settings) { settings_ = settings; }
+  // M3-23 diagnostic switches (x4mp.json "diag"): takeover_off = no takeover (the machine goes straight to Done, the player stays in the save's
+  // ship, PlayerState stays held, ghosts are released); takeover_keep_original = the host ship copy is never removed.
+  void set_diag(const config::DiagConfig& diag) { diag_ = diag; }
   // The record of an earlier DLL instance (stash). Validated at the first ready step.
   void load_record(const TakeoverRecord& record) { loaded_ = record; }
   // Avatars named by an EntitySpawn (the own one starts the takeover) or by the checkpoint manifest (only their idcodes are used).
@@ -186,6 +192,7 @@ class AvatarTakeover {
 
   ITakeoverEnv& env_;
   AvatarSettings settings_;
+  config::DiagConfig diag_;
   std::optional<TakeoverRecord> loaded_;
   std::vector<AvatarInfo> manifest_;
   bool manifest_loaded_ = false;  // the checkpoint manifest was read (an empty list counts): then only listed idcodes are avatar copies

@@ -207,6 +207,16 @@ test("chat: /t sends team chat, /t without text explains", function()
 	t.contains(OnlineGetChatMessages()[1].text, "/t message")
 end)
 
+test("chat: /x4mp knowledge asks the knowledge probe (M3-23); other /x4mp commands pass through", function()
+	fresh()
+	env.load("x4mp_diag.lua")
+	ExecuteDebugCommand("x4mp", "knowledge")
+	eq(#env.raisedNamed("x4mp.knowledge_cmd"), 1)
+	eq(#env.commands, 0, "the command was ours")
+	ExecuteDebugCommand("x4mp", "status") -- not ours: the menu's own /x4mp wrapper below ours handles it, the probe is not asked again
+	eq(#env.raisedNamed("x4mp.knowledge_cmd"), 1)
+end)
+
 test("chat: /w resolves the player (blanks in names, unique prefix) and refuses unknown names", function()
 	fresh()
 	players({ { id = 1, name = "Me" }, { id = 2, name = "Bob Smith" }, { id = 3, name = "Carol" } }, 1)

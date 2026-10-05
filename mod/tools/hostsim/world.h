@@ -76,7 +76,7 @@ class World {
   // x4mp.ghost_velocity stores the velocity hint, x4mp.teams_apply is answered with the matching x4mp.teams_md report (M3-08).
   bool md_emulate = false;
   std::vector<std::string> md_sector_map;  // `world md-sectors`: the x4mp.sector_map payloads (S;.. / E;n) sent when selfship asks (x4mp.sector_map_collect)
-  long long dress_events = 0, velocity_events = 0, teams_applies = 0;
+  long long dress_events = 0, velocity_events = 0, teams_applies = 0, knowledge_probes = 0;
 
   // counters (expect-state)
   long long spawns = 0, set_pos_calls = 0, teleports = 0, owner_calls = 0, activate_calls = 0, radar_calls = 0, removed = 0;

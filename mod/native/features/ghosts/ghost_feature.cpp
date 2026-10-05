@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "features/diag/diag_hub.h"
+#include "features/diag/knowledge_feature.h"
 #include "features/ghosts/ghost_hub.h"
 #include "features/join/platform_stash.h"
 #include "features/selfship/galaxy_map.h"
@@ -117,6 +118,13 @@ void GhostFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
   // The stream clock (ghost_core.h StreamClock): the Replication time base is the authority's, not necessarily the server clock.
   const std::int64_t now_server = steady + c.clock_offset_us - c.stream_clock.bias_us();
 
+  if (ctx.config.diag.ghosts_off) {  // M3-23 diagnostic: the client spawns no ghosts
+    if (!warned_diag_off_) {
+      warned_diag_off_ = true;
+      X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag.ghosts_off is set: no ghosts are spawned on this node");
+    }
+    return;
+  }
   if (ghosts::ghost_hub().spawn_hold()) return;  // M3-12: the client takeover is not Done yet
 
   if (c.driver.has_pending_adoption()) c.driver.adopt(*stash_, now_server);
@@ -130,6 +138,10 @@ void GhostFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
   const ghosts::FrameStats fs = c.driver.frame(now_server);
   const double cost_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
   last_visible_ = fs.visible;
+  if (!first_spawn_probed_ && c.driver.counters().spawned > 0) {  // M3-23: the knowledge probe after the first ghost spawn
+    first_spawn_probed_ = true;
+    knowledge_probe("after first ghost spawn");
+  }
   if (fs.tracked > 0) {  // an idle node (no ghosts) must not dilute the percentile
     frame_cost_us_.push(cost_us);
     frame_cost_max_us_ = std::max(frame_cost_max_us_, cost_us);

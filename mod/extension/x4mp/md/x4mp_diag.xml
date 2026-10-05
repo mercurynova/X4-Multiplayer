@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP diagnostics, MD side (M3-23, Finding 4: the client loses the player's map knowledge). Lua side: ui/x4mp_diag.lua;
+  native side: features/diag/knowledge_feature.* (the log line "knowledge: sectors_known=N/M ...").
+
+  Lua -> MD  AddUITriggeredEvent("X4MP_Diag", "probe", <seq>)   count what the player knows (event.param3 = the sequence number, echoed)
+  MD -> Lua  raise_lua_event 'x4mp.md_knowledge' <string>, forwarded unchanged to native (verb x4mp.knowledge_md):
+               K;<seq>;<age>;<sectors_known>;<sectors>;<clusters_known>;<clusters>;<stations_known>;<stations>;<gates_known>;<gates>;<sample>=<1|0|->,...
+             age = player.age (the game clock, seconds), so a line can be placed among the neighbouring log lines;
+             sample: 1 = the sector is known to the player, 0 = unknown, - = the sector was not found.
+
+  What counts as "known to the player" (X4 9.00 script data, x4-unpacked):
+    sectors / stations / gates  find_sector / find_station / find_gate over the whole galaxy, once plain and once with the search attribute
+                                known="true" ("Known to player?", libraries/common.xsd:5709) or knownto="faction.player" (the attribute md/cinematiccamera.xml:183
+                                and md/rml_map_space.xml:58 use for sectors / zones)
+    clusters, samples           the property .isknown ("true iff the component is known to the player", libraries/scriptproperties.xml:89), as md/diplomacy.xml:7218 and
+                                md/setup.xml:891 use it on a cluster / sector
+  find_station with space="player.galaxy" and multiple="true" is the pattern of md/conversations.xml:495.
+
+  Read-only: nothing here changes the game.
+-->
+<mdscript name="X4MP_Diag" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Diag_Probe" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Diag'" control="'probe'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Seq" exact="event.param3"/>
+
+        <find_sector name="$AllSectors" multiple="true"/>
+        <find_sector name="$KnownSectors" multiple="true" knownto="faction.player"/>
+
+        <find_cluster name="$AllClusters" multiple="true"/>
+        <set_value name="$KnownClusterCount" exact="0"/>
+        <do_for_each name="$Cl" in="$AllClusters">
+          <do_if value="$Cl.isknown">
+            <set_value name="$KnownClusterCount" exact="$KnownClusterCount + 1"/>
+          </do_if>
+        </do_for_each>
+
+        <find_station name="$AllStations" space="player.galaxy" multiple="true"/>
+        <find_station name="$KnownStations" space="player.galaxy" multiple="true" known="true"/>
+
+        <find_gate name="$AllGates" space="player.galaxy" multiple="true"/>
+        <find_gate name="$KnownGates" space="player.galaxy" multiple="true" known="true"/>
+
+        <!-- three named sample sectors: Grand Exchange I (the game start of the mod's test saves), cluster 07, cluster 14 -->
+        <set_value name="$Samples" exact="''"/>
+        <find_sector name="$Sample1" macro="macro.cluster_01_sector001_macro"/>
+        <do_if value="@$Sample1.exists">
+          <set_value name="$Samples" exact="'01_001=' + (if $Sample1.isknown then 1 else 0)"/>
+        </do_if>
+        <do_else>
+          <set_value name="$Samples" exact="'01_001=-'"/>
+        </do_else>
+        <find_sector name="$Sample2" macro="macro.cluster_07_sector001_macro"/>
+        <do_if value="@$Sample2.exists">
+          <set_value name="$Samples" exact="$Samples + ',07_001=' + (if $Sample2.isknown then 1 else 0)"/>
+        </do_if>
+        <do_else>
+          <set_value name="$Samples" exact="$Samples + ',07_001=-'"/>
+        </do_else>
+        <find_sector name="$Sample3" macro="macro.cluster_14_sector001_macro"/>
+        <do_if value="@$Sample3.exists">
+          <set_value name="$Samples" exact="$Samples + ',14_001=' + (if $Sample3.isknown then 1 else 0)"/>
+        </do_if>
+        <do_else>
+          <set_value name="$Samples" exact="$Samples + ',14_001=-'"/>
+        </do_else>
+
+        <raise_lua_event name="'x4mp.md_knowledge'"
+                         param="'K;' + $Seq + ';' + player.age + ';' + $KnownSectors.count + ';' + $AllSectors.count + ';' + $KnownClusterCount + ';' + $AllClusters.count + ';' + $KnownStations.count + ';' + $AllStations.count + ';' + $KnownGates.count + ';' + $AllGates.count + ';' + $Samples"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>
