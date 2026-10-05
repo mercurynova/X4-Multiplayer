@@ -175,17 +175,36 @@ Quit X4, `collect-logs.ps1 -Label s2`, `sync-report.ps1`.
 
 > **2026-10-04 (user): PC B is on a different network, joined over Tailscale (tailnet).** PC B joins `<PC A's 100.x Tailscale address>:47780`; the firewall commands `start-server-lan.ps1` prints allow `LocalSubnet,100.64.0.0/10`. UDP datagrams are capped at 1200 bytes, inside Tailscale's 1280 MTU. Expect real internet latency/jitter: this is the first real-world network test (criterion 6 latency, UDP lane, fallback).
 
-**3.0 Network.** PC A: `powershell -ExecutionPolicy Bypass -File tools\session4\make-client-kit.ps1` (zip in `out\session4\`; it contains the built mod, X4Native and the install / uninstall / log scripts, no secrets) and copy it to PC B (USB stick or share); on PC B unzip anywhere and follow `START-HERE-PC-B.txt` (`tools\session4\install.ps1`; no build tools needed). PC A: `tools\session4\start-server-lan.ps1 -Check` first: it prints PC A's LAN address(es) (**PC B joins `<address>:47780`**) and reads (never changes) the firewall for TCP 47780, UDP 47781, TCP 47790; for a missing one it prints the exact `New-NetFirewallRule ...` command: run it yourself in an **elevated** PowerShell, then `-Check` again. Both PCs: same DLCs, build 611726.
+> **One operator (2026-10-04, user):** PC B is reached over **Parsec** from PC A, so there is one person, one screen at a time, no quick typing on both. Every step below is **sequential**: start something on PC A, switch to PC B, look, switch back. PC A's ship moves on its own via **autopilot** (map: right-click a far station > Fly to / set as guidance, then autopilot on) so PC B always has a moving target to watch. Parsec costs frames on the PC it streams from: FPS numbers taken while streaming are rough only. Record on **both** PCs (OBS + clock with seconds) and note which PC you are on when you write a time down.
 
-**3.1 Join over the LAN.** PC A window 1: `tools\session4\start-server-lan.ps1 -SaveName save_004` (add `-JoinPassword <throwaway>` if the LAN is not yours). PC A starts X4 and hosts as in 2.1 (`127.0.0.1:47780`, name `Alice`, authority Yes, the printed admin password), stands, sits. PC B starts X4: Join `<PC A address>:47780`, name `Bob`. *Look for:* PC B shows the **download progress** (session-3 open item 10: invisible on loopback), takeover on PC B (as 1.1), each sees the other as `[MP] <name>`; GUI Players > Bob: **Realtime lane: UDP**, Players > Alice likewise.
+**3.0 Network (PC A, then PC B).**
+1. PC A, window 2: `powershell -ExecutionPolicy Bypass -File tools\session4\make-client-kit.ps1`. Copy the zip from `out\session4\` to PC B (Parsec file transfer, a share or a USB stick). On PC B: unzip anywhere and follow `START-HERE-PC-B.txt` (`install.ps1`; no build tools).
+2. PC A, window 2: `powershell -ExecutionPolicy Bypass -File tools\session4\start-server-lan.ps1 -Check`. Note the **Tailscale address** (`100.x.x.x`, adapter "Tailscale"): PC B joins `<that address>:47780`. For every port it reports as not open, it prints a `New-NetFirewallRule ...` line: run those yourself in an **elevated** PowerShell on PC A, then `-Check` again.
+3. PC B: `tailscale ping <PC A address>` (or `ping`): write down the round trip (sitting 3 prep: ~14 ms).
 
-**3.2 Fly together 30 minutes (criteria 1, 2).** PC A: give your ship an autopilot trip through >= 5 sectors including a gate and a highway (Q2); PC B flies alongside, then swap halfway (the autopilot ship is on PC A's side only while PC A flies: the host's autopilot works as vanilla). *Look for:* smoothness (1-5) on both screens; the ghost never far off where the other really is; no Game Over; `[sync]` numbers.
+**3.1 Join (PC A, then PC B).**
+1. PC A, window 1: `powershell -ExecutionPolicy Bypass -File tools\session4\start-server-lan.ps1 -SaveName save_004`.
+2. PC A: start X4, host (`127.0.0.1:47780`, name **`Alice`**, Host = Yes, the printed admin password), sit down. Map: pick a station **3-5 sectors away through a gate** and turn the **autopilot** on. Leave PC A flying.
+3. Switch to PC B: start X4, Join `<PC A Tailscale address>:47780`, name **`Bob`**. *Look for:* the **download progress** on the status line (a real download, ~30 MB over the internet), load, takeover into Bob's fighter, then `[MP] Alice` as a ghost (it is flying away on autopilot: find it on the map).
+4. GUI on PC A (`http://127.0.0.1:47790`, Players > Bob and > Alice): **Realtime lane UDP**, ping (expect ~15 ms).
 
-**3.3 Chat and relations (criteria 9, 10).** Chat both ways (All and `/t`). Two-team check (Q10, 5 minutes): GUI Teams & Factions: move Bob to a new team 2, relation **Hostile**, then **Allied**: the colours of the other player's ghost on both screens within 2 s. No PvP damage yet.
+**3.2 Fly together (criteria 1, 2; about 30 min, mostly hands-off).**
+1. PC B: set the **same destination** as Alice on the map, autopilot on, so both ships travel the same route; catch up with travel drive if needed.
+2. While both fly (switch every ~5 minutes, note the time and which PC): on **PC B** rate Alice's ghost: smoothness 1-5, facing, pops, its speed in the target info; on **PC A** do the same for `[MP] Bob`.
+3. The route must include a **gate** and a **highway** (local or super) and **>= 5 sectors** in total over the 30 minutes: set the next destination when one is reached. *Look for:* the ghost of the other player follows through the gate within a few seconds; no Game Over; nothing attacks the ghosts.
+4. Map check on PC B (Finding 4): does Bob see explored areas or only the radar bubble?
 
-**3.4 Leave / rejoin, reload, checkpoint.** PC B: `/reloadui`; quit to the menu and rejoin (back in its avatar where it parked, no duplicate); PC A: **Request save now** during flight (PC B keeps flying; note the host's ~5 s save screen); PC B leaves: its ship stays parked on PC A as `[MP] Bob (offline)`. A newer checkpoint, then PC B rejoins: it takes over the avatar again (`takeover: the avatar is in the loaded save: local ship ...` is expected only if PC B loaded a save that contains it).
+**3.3 Chat and relations (criteria 9, 10).**
+1. PC B: chat `hi from Bob`; switch to PC A: is it there (and did a **toast** show if PC A's chat window was closed: the toast check sitting 1 could not do)? PC A: `/t team only`, then switch to PC B and check.
+2. GUI on PC A: Teams & Factions: move **Bob** to team 2, relation **Hostile**, apply; check `[MP] Alice`'s colour on PC B and `[MP] Bob`'s on PC A (red). Then **Allied**. Then move Bob back to team 1.
 
-**3.5 UDP fallback (criterion 13).** In an elevated PowerShell on PC A run the line `start-server-lan.ps1 -Check` printed for blocking UDP (`Disable-NetFirewallRule -DisplayName 'X4MP game UDP'`): within 3 s the GUI shows **TCP** for Bob (the mod logs only `net: udp: binding to ...` at the start; the state change is visible in the GUI), no disconnect, the flight continues; after a minute run the enable line (`Enable-NetFirewallRule -DisplayName 'X4MP game UDP'`): UDP returns within about 30 s (re-probe). This script never changes the firewall; only you do.
+**3.4 Reload, checkpoint, leave, rejoin.**
+1. PC B: `/reloadui`: Alice's ghost stays (adopted, no duplicate).
+2. PC A: GUI **Request save now** (PC A shows a ~5 s save screen; PC B keeps flying).
+3. PC B: Esc > exit to the main menu, Multiplayer > **Disconnect**: on PC A `[MP] Bob` stops and stays parked (no back and forth).
+4. PC B: Join again: back in Bob's fighter where it was parked, no second Bob on PC A.
+
+**3.5 UDP fallback (criterion 13).** Only PC A, no timing pressure: in the elevated PowerShell run the `Disable-NetFirewallRule -DisplayName 'X4MP game UDP'` line `-Check` printed; within ~3 s GUI Players > Bob shows **TCP**, Bob stays connected (check on PC B that Alice still moves). After a minute run the `Enable-NetFirewallRule ...` line: UDP comes back within ~30 s.
 
 Quit X4 on both, `collect-logs.ps1 -Label s3a` (PC A) / `-Label s3b` (PC B; send the zip), `sync-report.ps1` on both.
 
