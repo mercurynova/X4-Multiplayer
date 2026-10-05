@@ -132,9 +132,14 @@ std::uint8_t ship_kind_of_macro(std::string_view macro) noexcept {
 
 // ---- records --------------------------------------------------------------------------------------------------------------------
 // A|player|team|net|online|macro|idcode|owner|sector_macro|x|y|z|yaw|pitch|roll|name
-std::string records_to_text(const std::vector<Record>& records) {
+std::string records_to_text(const std::vector<Record>& records, const Lineage& lineage) {
   std::ostringstream out;
-  out << "x4av 1\n";
+  out << "x4av 2\n";
+  for (const auto& c : lineage.ledger) {
+    out << "C|" << clean_field(c.sha, 64) << '|';
+    for (std::size_t i = 0; i < c.idcodes.size(); ++i) out << (i ? ";" : "") << clean_field(c.idcodes[i], 24);
+    out << '\n';
+  }
   for (const auto& r : records) {
     out << "A|" << r.player_id << '|' << r.team << '|' << r.net_id << '|' << (r.online ? 1 : 0) << '|' << clean_field(r.macro, 96) << '|'
         << clean_field(r.idcode, 24) << '|' << clean_field(r.owner, 32) << '|' << clean_field(r.sector_macro, 96) << '|' << fmt_double(r.pose.x) << '|'
@@ -157,11 +162,34 @@ ParsedRecords records_from_text(std::string_view text) {
     if (line.empty()) continue;
     if (first) {
       first = false;
-      out.header_ok = (line == "x4av 1");
-      if (!out.header_ok) return out;  // not ours / another version: nothing is read
+      if (line == "x4av 1") {
+        out.header_ok = true;  // M3-22: the old format has no ledger: a save load keeps none of its records
+      } else if (line == "x4av 2" || line.substr(0, 7) == "x4av 2 ") {
+        out.header_ok = true;
+      } else {
+        return out;  // not ours / another version: nothing is read
+      }
       continue;
     }
     const auto f = split_bar(line);
+    if (!f.empty() && f[0] == "C") {
+      if (f.size() != 3 || f[1].empty()) {
+        ++out.bad_lines;
+        continue;
+      }
+      CheckpointNote c;
+      c.sha = std::string(f[1]);
+      std::string_view ids = f[2];
+      while (!ids.empty()) {
+        const auto semi = ids.find(';');
+        const auto one = ids.substr(0, semi);
+        if (!one.empty()) c.idcodes.emplace_back(one);
+        if (semi == std::string_view::npos) break;
+        ids.remove_prefix(semi + 1);
+      }
+      out.lineage.ledger.push_back(std::move(c));
+      continue;
+    }
     if (f.size() != 16 || f[0] != "A") {
       ++out.bad_lines;
       continue;

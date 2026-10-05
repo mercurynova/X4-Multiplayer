@@ -120,6 +120,45 @@ try {
     $srv = Start-FreshServer 'a'
     Publish-SessionFromUpload $srv.Session $dummy $sha
     Run-Scenario 'avatars' 'work-host' @('--var', "ckpt_src=$ckpt1", '--var', "ckpt_src2=$ckpt2")
+
+    $pidFile = Join-Path $tmp 'bots.pid'
+    if (Test-Path $pidFile) { foreach ($l in Get-Content $pidFile) { try { & taskkill /PID ([int]$l) /T /F 2>$null | Out-Null } catch { } } ; Remove-Item $pidFile -Force }
+    Stop-All
+
+    # ---- M3-22: the SERVER is restarted (same data dir: the session and its checkpoints persist, the process has a new ServerHello session GUID) and the
+    # authority's game restarts: it is sent the newest checkpoint and the avatars that checkpoint listed are kept (the loaded save decides, not the session id) ----
+    $records = Join-Path $tmp 'work-host\extension\avatar-records.txt'
+    if (-not (Test-Path $records)) { throw "session A left no avatar-records.txt at $records" }
+    if ((Get-Content $records -Raw) -notmatch '(?m)^A\|') { throw 'session A left no avatar records' }
+    $workR = Join-Path $tmp 'work-restart'
+    New-Item -ItemType Directory -Force (Join-Path $workR 'extension'), (Join-Path $workR 'saves') | Out-Null
+    Copy-Item $records (Join-Path $workR 'extension')
+    Copy-Item (Join-Path $tmp 'work-host\saves\x4mp_ckpt_*.xml.gz') (Join-Path $workR 'saves')
+    Copy-Item (Join-Path $tmp 'work-host\extension\player.key') (Join-Path $workR 'extension')
+    $dataA = Join-Path $tmp 'data-a'
+    $envR = @{ X4MP__Net__NodeTcpEndpoint = "127.0.0.1:$TcpPort"; X4MP__Net__UdpPort = "$UdpPort"; X4MP__Net__ModBuildStrict = 'false'
+        X4MP__Net__MaxPlayers = '8'; X4MP__Net__MaxConnectionsPerIp = '64'; X4MP__Net__AdminPassword = $nodeAdminPassword }
+    $script:server = Start-P $serverExe @('--data-dir', $dataA, '--port', "$HttpPort") (Join-Path $tmp 'server-a2.out.txt') $envR
+    Wait-Until 'the restarted server' { (Invoke-WebRequest -UseBasicParsing "$url/healthz" -TimeoutSec 2).StatusCode -eq 200 }
+    # the admin starts the session again from the newest stored checkpoint (the checkpoint files live in the server's store)
+    $webR = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $null = Invoke-RestMethod -Method Post -Uri "$url/api/v1/auth/login" -Headers $h -WebSession $webR -ContentType 'application/json' -Body (@{ username = 'admin'; password = $adminPassword } | ConvertTo-Json)
+    $shaCk2 = Get-Sha256Hex $ckpt2
+    $createdR = Invoke-RestMethod -Method Post -Uri "$url/api/v1/sessions" -Headers $h -WebSession $webR -ContentType 'application/json' -Body (@{ name = 'Restarted from the checkpoint'; saveId = $shaCk2 } | ConvertTo-Json)
+    $null = Invoke-RestMethod -Method Post -Uri "$url/api/v1/sessions/$($createdR.id)/start" -Headers $h -WebSession $webR -ContentType 'application/json' -Body '{}'
+    Run-Scenario 'avatars_restart' 'work-restart' @()
+    Write-Host '  M3-22: after a server restart the loaded checkpoint kept the avatars its manifest listed' -ForegroundColor Green
+    Stop-All
+
+    # ---- M3-22: a NEW session (new server = new session id) from a plain save, on the authority that still has session A's avatar-records.txt ----
+    $work2 = Join-Path $tmp 'work-host2'
+    New-Item -ItemType Directory -Force (Join-Path $work2 'extension') | Out-Null
+    Copy-Item $records (Join-Path $work2 'extension')
+    $plainB = Join-Path $tmp 'start_save_b.xml.gz'; $shaB = New-GzSave $plainB 9
+    $srvB = Start-FreshServer 'b'
+    Publish-SessionFromUpload $srvB.Session $plainB $shaB
+    Run-Scenario 'avatars_session2' 'work-host2' @('--var', "ckpt_src=$ckpt1")
+    Write-Host '  M3-22: the second session started with no avatars and provisioned only on a PlayerShip request' -ForegroundColor Green
     $exit = 0
 }
 catch { Write-Host "AVATARS E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }

@@ -58,6 +58,13 @@ struct HubInputs {
   std::vector<DespawnIn> despawns;
   std::vector<SettingsIn> settings;
   bool welcomed = false;
+  // M3-22: the lineage events in order (a save this node loads, a stored checkpoint).
+  struct LineageEvent {
+    enum class Kind : std::uint8_t { LoadedSave, Checkpoint } kind = Kind::LoadedSave;
+    std::string text;                  // save sha hex
+    std::vector<std::string> idcodes;  // Checkpoint: the manifest's avatars
+  };
+  std::vector<LineageEvent> lineage;
   bool session_ended = false;
 };
 
@@ -67,6 +74,12 @@ class AvatarHub {
 
   // ---- join feature ----
   void on_welcome() { inputs_.welcomed = true; }
+  // M3-22: this node is about to LOAD this save (sha256 hex): not called when the running universe is kept.
+  void note_loaded_save(std::string sha_hex) { inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::LoadedSave, std::move(sha_hex), {}}); }
+  // M3-22: a checkpoint of the session was stored (authority): the avatars its manifest lists.
+  void note_checkpoint(std::string sha_hex, std::vector<std::string> idcodes) {
+    inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::Checkpoint, std::move(sha_hex), std::move(idcodes)});
+  }
   void on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id);
   void session_ended();
 

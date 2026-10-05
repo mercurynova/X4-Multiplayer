@@ -130,6 +130,38 @@ void AvatarDirector::load_records(const std::vector<Record>& records, const std:
   rebind_tries_ = 0;
 }
 
+void AvatarDirector::on_loaded_save(const std::string& sha_hex) {
+  const auto n = avatars_.size();
+  const CheckpointNote* note = nullptr;
+  for (const auto& c : lineage_.ledger) {
+    if (c.sha == sha_hex) note = &c;
+  }
+  if (n == 0) return;
+  std::size_t kept = 0;
+  if (note != nullptr) {
+    std::vector<std::unique_ptr<Avatar>> keep;
+    for (auto& a : avatars_) {
+      if (!a->rec.idcode.empty() && std::find(note->idcodes.begin(), note->idcodes.end(), a->rec.idcode) != note->idcodes.end()) keep.push_back(std::move(a));
+    }
+    kept = keep.size();
+    avatars_ = std::move(keep);
+  } else {
+    avatars_.clear();
+  }
+  env_.log(LogLevel::Info, std::string("avatars: loading ") + (note != nullptr ? "a checkpoint of the ledger" : "a save that is no checkpoint of the ledger") + ": " +
+                               std::to_string(kept) + " of " + std::to_string(n) + " avatar record(s) kept");
+  rebind_pending_ = !avatars_.empty();
+  persist_now();
+}
+
+void AvatarDirector::on_checkpoint_stored(const std::string& sha_hex, const std::vector<std::string>& idcodes) {
+  if (sha_hex.empty()) return;
+  std::erase_if(lineage_.ledger, [&](const CheckpointNote& c) { return c.sha == sha_hex; });
+  lineage_.ledger.push_back({sha_hex, idcodes});
+  while (lineage_.ledger.size() > Lineage::kMaxLedger) lineage_.ledger.erase(lineage_.ledger.begin());
+  persist_now();
+}
+
 void AvatarDirector::new_universe() {
   for (auto& a : avatars_) {
     a->local_id = 0;
@@ -780,7 +812,7 @@ void AvatarDirector::persist_now() {
     if (up->rec.net_id == 0) continue;
     recs.push_back(up->rec);
   }
-  env_.save_records(records_to_text(recs));
+  env_.save_records(records_to_text(recs, lineage_));
 }
 
 }  // namespace x4mp::features::avatars

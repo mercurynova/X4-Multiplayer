@@ -812,6 +812,7 @@ static std::string manifest_file_of(host::HostContext& ctx, const session::SaveI
 
 void JoinFeature::handle_save_ready(host::HostContext& ctx) {
   if (!save_) return;
+  avatars::avatar_hub().note_loaded_save(crypto::to_hex(std::span<const std::uint8_t>(save_->sha256)));  // M3-22: only a checkpoint of the session keeps avatars
   avatars::avatar_hub().set_manifest_file(manifest_file_of(ctx, *save_));
   save_sha_ = save_->sha256;
   checkpoint_ = save_->checkpoint_id;

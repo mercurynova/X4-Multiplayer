@@ -134,6 +134,16 @@ class AvatarDirector {
   // The session (re)welcomed the authority: announce every avatar again on the next step (the server may have lost its mirror).
   void on_welcome() { announce_pending_ = true; }
 
+  // ---- M3-22: the records belong to one session lineage (see Lineage in avatar_plan.h) ----
+  // The lineage read from the file / stash together with the records (before load_records).
+  void set_lineage(Lineage lineage) { lineage_ = std::move(lineage); }
+  [[nodiscard]] const Lineage& lineage() const noexcept { return lineage_; }
+  // A save THIS node is about to load (not a kept universe): a checkpoint in the ledger keeps the avatars its manifest listed (any session /
+  // server process); any other save (the plain start save) keeps none. One log line with the counts.
+  void on_loaded_save(const std::string& sha_hex);
+  // A checkpoint was stored: its manifest's avatars (idcodes) join the ledger (persisted at once).
+  void on_checkpoint_stored(const std::string& sha_hex, const std::vector<std::string>& idcodes);
+
   // ---- inputs ----
   void on_roster(const RosterIn& roster);
   void on_player_ship(const PlayerShipReq& request);
@@ -187,6 +197,7 @@ class AvatarDirector {
   double rebind_since_ = 0;
   int rebind_tries_ = 0;
   bool announce_pending_ = false;
+  Lineage lineage_;
   bool dirty_ = false;
   double now_s_ = 0;
   double next_vel_s_ = 0;

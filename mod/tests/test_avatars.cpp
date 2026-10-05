@@ -826,3 +826,116 @@ TEST_CASE("avatars.director: a player moving team re-owns the avatar (M3-18)", "
     CHECK(env.count_owned("x4mp_team_1") == 0);
   }
 }
+
+// ---- M3-22: which avatars exist in a loaded universe is decided by the loaded SAVE (checkpoint ledger), not by the process or the session id -----------------
+TEST_CASE("avatars.plan: the checkpoint ledger round trips; the old format has an empty ledger", "[avatars][m322]") {
+  Lineage l;
+  l.ledger.push_back({"aa11", {"AAA-111", "BBB-222"}});
+  l.ledger.push_back({"bb22", {}});
+  const auto parsed = records_from_text(records_to_text({}, l));
+  REQUIRE(parsed.header_ok);
+  CHECK(parsed.lineage == l);
+  CHECK(parsed.bad_lines == 0);
+  const auto old = records_from_text("x4av 1\n");
+  CHECK(old.header_ok);
+  CHECK(old.lineage.ledger.empty());
+}
+
+TEST_CASE("avatars.director: a loaded save keeps exactly the avatars its checkpoint listed; a plain save keeps none (M3-22)", "[avatars][m322]") {
+  FakeEnv env;
+  std::string saved;
+  std::uint64_t id2 = 0, id3 = 0;
+  {
+    AvatarDirector d(env);
+    Clock c;
+    d.on_roster(roster_with({{2, {"Alice", 1}}, {3, {"Bob", 2}}}));
+    id2 = provision(d, env, c, 2, 1, "Alice");
+    id3 = provision(d, env, c, 3, 2, "Bob");
+    const auto snap = d.snapshot();
+    REQUIRE(snap.size() == 2);
+    // the checkpoint "ck1" lists only Alice; Bob joined after it
+    std::string alice_code;
+    for (const auto& r : snap) {
+      if (r.player_id == 2) alice_code = r.idcode;
+    }
+    d.on_checkpoint_stored("ck1", {alice_code});
+    d.persist_now();
+    saved = env.saved;
+  }
+  REQUIRE(id2 != 0);
+  REQUIRE(id3 != 0);
+  const auto has_log = [&](const std::string& part) {
+    return std::any_of(env.logs.begin(), env.logs.end(), [&](const std::string& l) { return l.find(part) != std::string::npos; });
+  };
+  // a new process (a restarted game and / or a restarted server: nothing but the file survives)
+  const auto restore = [&](AvatarDirector& d) {
+    const auto parsed = records_from_text(saved);
+    d.set_lineage(parsed.lineage);
+    d.load_records(parsed.records);
+    REQUIRE(d.size() == 2);
+  };
+
+  SECTION("server restart, same session, the newest checkpoint is loaded: its manifest's avatars are kept and rebound, nothing is spawned") {
+    env.renumber();
+    const auto spawns_before = env.spawn_calls;
+    AvatarDirector d(env);
+    restore(d);
+    d.on_loaded_save("ck1");
+    REQUIRE(d.size() == 1);
+    CHECK(d.views().at(0).rec.player_id == 2);
+    CHECK(d.rebind_pending());
+    CHECK(has_log("1 of 2 avatar record(s) kept"));
+    d.new_universe();
+    Clock c;
+    run(d, c, 0.5);
+    CHECK_FALSE(d.rebind_pending());
+    CHECK(d.stats().bound == 1);
+    CHECK(env.spawn_calls == spawns_before);  // no second ship
+  }
+  SECTION("loading the plain start save keeps none") {
+    AvatarDirector d(env);
+    restore(d);
+    d.on_loaded_save("plain-start-save");
+    CHECK(d.size() == 0);
+    CHECK_FALSE(d.rebind_pending());
+    CHECK(has_log("0 of 2 avatar record(s) kept"));
+    CHECK(records_from_text(env.saved).records.empty());
+    CHECK(records_from_text(env.saved).lineage.ledger.size() == 1);  // the ledger itself survives
+  }
+  SECTION("a records file of the old format keeps nothing on a load, everything without one") {
+    AvatarDirector d(env);
+    d.load_records(records_from_text(saved).records);  // no ledger, like an old file
+    d.on_loaded_save("ck1");
+    CHECK(d.size() == 0);
+    AvatarDirector d2(env);
+    d2.load_records(records_from_text(saved).records);
+    CHECK(d2.size() == 2);  // a kept universe
+  }
+  SECTION("a kept universe (stash reload, resumed welcome) keeps every record") {
+    AvatarDirector d(env);
+    restore(d);
+    CHECK(d.size() == 2);
+    CHECK(d.rebind_pending());
+  }
+  SECTION("a session that starts from a plain save provisions only on a PlayerShip request") {
+    AvatarDirector d(env);
+    restore(d);
+    const auto asks_before = env.safe_asks.size();
+    d.on_loaded_save("plain-start-save");
+    d.new_universe();
+    Clock c;
+    run(d, c, 1.0);
+    CHECK(d.size() == 0);
+    CHECK(env.safe_asks.size() == asks_before);
+    d.on_roster(roster_with({{2, {"Alice", 1}}}));
+    provision(d, env, c, 2, 1, "Alice");
+    CHECK(d.size() == 1);
+  }
+  SECTION("the ledger keeps the newest checkpoints only") {
+    AvatarDirector d(env);
+    restore(d);
+    for (int i = 0; i < 12; ++i) d.on_checkpoint_stored("c" + std::to_string(i), {});
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger);
+    CHECK(d.lineage().ledger.back().sha == "c11");
+  }
+}

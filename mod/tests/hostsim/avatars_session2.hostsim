@@ -1,0 +1,68 @@
+# M3-22: a NEW session B (new server, started from a plain save) on an authority whose avatar-records.txt still holds the avatars of session A (the runner
+# copied the file from the first scenario's work dir). The loaded save is no checkpoint of the ledger: the records are dropped with one log line, nothing is rebound or
+# provisioned (no safe position question, no dress, no spawn), the first checkpoint lists no avatars, and a PlayerShip request still provisions as usual.
+# Run by avatars_run.ps1 (vars: tcp, tcpport, apw, sim, fake, bots, tmp, ckpt_src, admin_url, admin_pw).
+init
+set game_time 4000
+world sector add 100003
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-file extension/logs/x4mp.log avatars: 2 avatar record(s) restored
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+expect-file extension/logs/x4mp.log 0 of 2 avatar record(s) kept
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_authority_e2e
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+
+expect-lua x4mp.sector_map_collect 5000
+lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_03_sector001_macro|100003;cluster_02_sector001_macro|100002;cluster_01_sector001_macro|100001"}
+lua-raw x4mp.sector_map {"v":1,"data":"E;3"}
+expect-lua x4mp.teams_apply 5000
+lua-raw x4mp.teams_md {"v":1,"data":"R;1;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;2;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;3;1;0;0;1;1"}
+frame 60Hz 60
+
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 150
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+ship place sector=100001 pos=0,0,0
+seat on
+lua-raw x4mp.teams_md {"v":1,"data":"R;1;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;2;1;0;0;1;1"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;3;1;0;0;1;1"}
+frame 60Hz 120
+
+# nothing of session A came back: no binder, no respawn, no avatar in the world, none in the checkpoint manifest
+expect-no-log avatars: rebound player
+expect-no-log avatars: spawned the avatar of player
+expect-no-log manifest lists
+expect-object count == 0 owner=x4mp_team_1
+
+# a PlayerShip request provisions normally
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Duration 25 -Out "${tmp}\bot3.txt" -PidFile "${tmp}\bots.pid"
+frame 60Hz 300
+expect-lua x4mp.avatars_safepos 8000 json $.seq == 1
+lua-raw x4mp.avatars_md {"v":1,"data":"P;1;1;123;45;678"}
+frame 60Hz 120
+expect-file extension/logs/x4mp.log avatars: spawned the avatar of player
+expect-object count == 1 owner=x4mp_team_1
+
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown
