@@ -67,17 +67,6 @@ void wipe(std::string& s) {
   std::fill(s.begin(), s.end(), '\0');
   s.clear();
 }
-
-// M3-22: the session id as 32 lowercase hex digits (hi then lo).
-std::string session_id_hex(const session::Id128& id) {
-  static constexpr char kHex[] = "0123456789abcdef";
-  std::string out(32, '0');
-  for (int i = 0; i < 16; ++i) {
-    out[15 - i] = kHex[(id.hi >> (4 * i)) & 0xF];
-    out[31 - i] = kHex[(id.lo >> (4 * i)) & 0xF];
-  }
-  return out;
-}
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -727,7 +716,6 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
                 static_cast<int>(session_->welcome().granted_roles), session_->welcome().resumed);
       last_net_error_.clear();
       welcomed_at_ = Clock::now();
-      avatars::avatar_hub().set_session(session_id_hex(session_->server().session_id));  // M3-22: avatar records belong to one session
       teams::team_hub().on_welcome(std::span<const std::uint8_t>(e.payload));  // M3-08: team table + relation matrix for the faction setup
       mod_policy_json_ = join::mod_policy_json_from_welcome(std::span<const std::uint8_t>(e.payload));  // M2-X3
       if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);

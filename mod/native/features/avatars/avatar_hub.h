@@ -58,10 +58,10 @@ struct HubInputs {
   std::vector<DespawnIn> despawns;
   std::vector<SettingsIn> settings;
   bool welcomed = false;
-  // M3-22: the lineage events in order (session id after a welcome, a save this node loads, a stored checkpoint).
+  // M3-22: the lineage events in order (a save this node loads, a stored checkpoint).
   struct LineageEvent {
-    enum class Kind : std::uint8_t { Session, LoadedSave, Checkpoint } kind = Kind::Session;
-    std::string text;                  // session hex / save sha hex
+    enum class Kind : std::uint8_t { LoadedSave, Checkpoint } kind = Kind::LoadedSave;
+    std::string text;                  // save sha hex
     std::vector<std::string> idcodes;  // Checkpoint: the manifest's avatars
   };
   std::vector<LineageEvent> lineage;
@@ -74,8 +74,6 @@ class AvatarHub {
 
   // ---- join feature ----
   void on_welcome() { inputs_.welcomed = true; }
-  // M3-22: the server's session id (lowercase hex) of the session this node was welcomed to.
-  void set_session(std::string hex) { inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::Session, std::move(hex), {}}); }
   // M3-22: this node is about to LOAD this save (sha256 hex): not called when the running universe is kept.
   void note_loaded_save(std::string sha_hex) { inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::LoadedSave, std::move(sha_hex), {}}); }
   // M3-22: a checkpoint of the session was stored (authority): the avatars its manifest lists.

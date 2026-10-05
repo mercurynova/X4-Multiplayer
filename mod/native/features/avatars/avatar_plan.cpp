@@ -134,7 +134,7 @@ std::uint8_t ship_kind_of_macro(std::string_view macro) noexcept {
 // A|player|team|net|online|macro|idcode|owner|sector_macro|x|y|z|yaw|pitch|roll|name
 std::string records_to_text(const std::vector<Record>& records, const Lineage& lineage) {
   std::ostringstream out;
-  out << "x4av 2 " << clean_field(lineage.session, 64) << '\n';
+  out << "x4av 2\n";
   for (const auto& c : lineage.ledger) {
     out << "C|" << clean_field(c.sha, 64) << '|';
     for (std::size_t i = 0; i < c.idcodes.size(); ++i) out << (i ? ";" : "") << clean_field(c.idcodes[i], 24);
@@ -163,10 +163,9 @@ ParsedRecords records_from_text(std::string_view text) {
     if (first) {
       first = false;
       if (line == "x4av 1") {
-        out.header_ok = true;  // M3-22: the old format has no session: its records are foreign to every session
+        out.header_ok = true;  // M3-22: the old format has no ledger: a save load keeps none of its records
       } else if (line == "x4av 2" || line.substr(0, 7) == "x4av 2 ") {
         out.header_ok = true;
-        if (line.size() > 7) out.lineage.session = std::string(line.substr(7));
       } else {
         return out;  // not ours / another version: nothing is read
       }

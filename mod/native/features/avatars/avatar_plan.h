@@ -82,25 +82,25 @@ struct Record {
   bool operator==(const Record&) const = default;
 };
 
-// M3-22: the lineage the records belong to. Avatar records are valid for ONE session only (the server's session id from ServerHello; a new session
-// has a new id) and, after a save load WE did, only when that save is a checkpoint this authority made in the session: the ledger holds
-// `sha256 hex of the checkpoint save -> the idcodes of the avatars its manifest lists`. A load of any other save (the plain start save) keeps nothing;
-// a kept universe (stash reload, "this game already runs it") keeps everything. A file/stash text without a session (the old "x4av 1") is foreign.
+// M3-22: which avatars exist in a universe is decided by the SAVE that was loaded, never by the process or the server's session id (ServerHello carries a
+// per-process GUID: it changes on every server restart, while the session and its checkpoints persist). The ledger holds
+// `sha256 hex of a checkpoint save this authority stored -> the idcodes of the avatars its manifest lists`. After a save load WE did, a save in the
+// ledger keeps exactly its listed avatars (whatever the session or server process), any other save (a plain start save) keeps none. A kept universe
+// (stash reload, "this game already runs it") keeps everything.
 struct CheckpointNote {
   std::string sha;                   // lowercase hex of the checkpoint save
   std::vector<std::string> idcodes;  // the manifest's avatars
   bool operator==(const CheckpointNote&) const = default;
 };
 struct Lineage {
-  std::string session;                 // lowercase hex of the session id, "" = unknown (foreign)
   std::vector<CheckpointNote> ledger;  // newest last, at most kMaxLedger
   bool operator==(const Lineage&) const = default;
   static constexpr std::size_t kMaxLedger = 8;
 };
 
-// One line per record, fields separated by '|' (sanitised: no '|' or line breaks inside a field), preceded by "x4av 2 <session>" and the ledger
-// lines "C|<sha>|<idcode>;<idcode>". Tolerant reader: lines that do not parse are skipped and counted; "x4av 1" (no session) is read with an empty
-// session. Local component ids are NOT part of it (they change on every load).
+// One line per record, fields separated by '|' (sanitised: no '|' or line breaks inside a field), preceded by "x4av 2" and the ledger
+// lines "C|<sha>|<idcode>;<idcode>". Tolerant reader: lines that do not parse are skipped and counted; "x4av 1" (no ledger) is read with an empty
+// ledger. Local component ids are NOT part of it (they change on every load).
 [[nodiscard]] std::string records_to_text(const std::vector<Record>& records, const Lineage& lineage = {});
 struct ParsedRecords {
   std::vector<Record> records;

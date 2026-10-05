@@ -1,5 +1,5 @@
 # M3-22: a NEW session B (new server, started from a plain save) on an authority whose avatar-records.txt still holds the avatars of session A (the runner
-# copied the file from the first scenario's work dir). The records belong to another session: they are dropped with one log line, nothing is rebound or
+# copied the file from the first scenario's work dir). The loaded save is no checkpoint of the ledger: the records are dropped with one log line, nothing is rebound or
 # provisioned (no safe position question, no dress, no spawn), the first checkpoint lists no avatars, and a PlayerShip request still provisions as usual.
 # Run by avatars_run.ps1 (vars: tcp, tcpport, apw, sim, fake, bots, tmp, ckpt_src, admin_url, admin_pw).
 init
@@ -12,7 +12,7 @@ frame 60Hz 360
 expect-file extension/logs/x4mp.log avatars: 2 avatar record(s) restored
 expect-lua x4mp.load_save 3000 contains x4mp_
 expect-file extension/logs/x4mp.log SessionSaveInfo:
-expect-file extension/logs/x4mp.log avatar record(s) dropped
+expect-file extension/logs/x4mp.log 0 of 2 avatar record(s) kept
 reload
 frame 60Hz 240
 expect-file extension/logs/x4mp.log resuming the session after an extension reload

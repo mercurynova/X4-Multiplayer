@@ -130,22 +130,6 @@ void AvatarDirector::load_records(const std::vector<Record>& records, const std:
   rebind_tries_ = 0;
 }
 
-void AvatarDirector::on_session(const std::string& session) {
-  if (session.empty() || lineage_.session == session) return;
-  const bool had_session = !lineage_.session.empty();
-  const auto n = avatars_.size();
-  if (n > 0) {
-    env_.log(LogLevel::Info, "avatars: " + std::to_string(n) + " avatar record(s) dropped: they belong to " +
-                                 (had_session ? "another session (" + lineage_.session.substr(0, 8) + ")" : std::string("an unknown session (old records file)")) +
-                                 ", this is session " + session.substr(0, 8));
-  }
-  avatars_.clear();
-  rebind_pending_ = false;
-  lineage_.session = session;
-  lineage_.ledger.clear();
-  persist_now();
-}
-
 void AvatarDirector::on_loaded_save(const std::string& sha_hex) {
   const auto n = avatars_.size();
   const CheckpointNote* note = nullptr;
@@ -164,7 +148,7 @@ void AvatarDirector::on_loaded_save(const std::string& sha_hex) {
   } else {
     avatars_.clear();
   }
-  env_.log(LogLevel::Info, std::string("avatars: loading ") + (note != nullptr ? "a checkpoint of this session" : "a save that is no checkpoint of this session") + ": " +
+  env_.log(LogLevel::Info, std::string("avatars: loading ") + (note != nullptr ? "a checkpoint of the ledger" : "a save that is no checkpoint of the ledger") + ": " +
                                std::to_string(kept) + " of " + std::to_string(n) + " avatar record(s) kept");
   rebind_pending_ = !avatars_.empty();
   persist_now();
