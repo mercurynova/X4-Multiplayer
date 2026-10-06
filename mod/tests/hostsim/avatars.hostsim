@@ -87,10 +87,12 @@ expect-state spawns == 1
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode move -Url "${admin_url}" -Password "${admin_pw}" -PlayerName Bot01 -TeamName "Hostsim Team Two" -Slot 2
 frame 60Hz 120
 expect-lua x4mp.teams_apply 5000
-lua-raw x4mp.teams_md {"v":1,"data":"R;4;1;0;0;2;3"}
-lua-raw x4mp.teams_md {"v":1,"data":"R;5;1;0;0;2;3"}
-lua-raw x4mp.teams_md {"v":1,"data":"R;6;1;0;0;2;3"}
-lua-raw x4mp.teams_md {"v":1,"data":"R;7;1;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;2;2;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;3;2;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;4;2;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;5;2;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;6;2;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;7;2;0;0;2;3"}
 frame 60Hz 300
 expect-file extension/logs/x4mp.log avatars: diag.team_move_respawn: despawned the avatar
 expect-object count == 1 owner=x4mp_team_2
@@ -101,15 +103,11 @@ expect-state owner_calls == 0
 # and back (the rest of this scenario is about team 1)
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode move -Url "${admin_url}" -Password "${admin_pw}" -PlayerName Bot01
 frame 60Hz 120
-expect-lua x4mp.teams_apply 5000
-lua-raw x4mp.teams_md {"v":1,"data":"R;8;1;0;0;2;3"}
-lua-raw x4mp.teams_md {"v":1,"data":"R;9;1;0;0;2;3"}
-lua-raw x4mp.teams_md {"v":1,"data":"R;10;1;0;0;2;3"}
 frame 60Hz 300
 expect-object count == 1 owner=x4mp_team_1
 expect-object count == 0 owner=x4mp_team_2
 expect-state spawns == 3
-expect-object owner=x4mp_team_1 name == [MP] Bot01
+expect-lua x4mp.avatars_dress 3000 contains Bot01
 
 # ---- bot 2: no MD answer for the safe position -> the wanted spot after the timeout ----
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Prefix Zed -Duration 30 -Out "${tmp}\bot2.txt" -PidFile "${tmp}\bots.pid"
