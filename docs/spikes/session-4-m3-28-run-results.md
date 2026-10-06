@@ -30,3 +30,28 @@ avatar: nobody re-sent their `PlayerShip` / asked the authority to provision the
 `PlayerShip from player N: provisioning a new avatar`. A real client would be stranded the same way. Fix: after a rollback (or when an
 authority finishes loading), the server must make the authority provision every online non-authority player whose ship entity is gone
 (re-send their last PlayerShip, or have the client re-announce).
+
+## Two-PC run (same day, 16:15-16:47 local; Alice = authority PC A, Bob = client PC B over Tailscale)
+
+Logs: `out/session4/logs-f4-a-*` (PC A), `logs-f4-b-*` (PC B). Both PCs had new machine-tagged identities (M3-24); the old names had to be
+released in the GUI first (expected; the refusal text was clear).
+
+**Finding 4 (client) found: the client's own avatar ship does not record explored space.** Bob's map stayed fogged with only his radar
+bubble; flying 20-30 s into fog left **no revealed trail** on Bob's map, while Alice (flying her save ship) left one. With
+`diag.takeover_off` (Bob stays in the save's original player ship, no takeover) Bob **did** leave a trail. So the ship the takeover gives the
+client (spawned for the team faction, then `SetComponentOwner(player)`; or bound from the save as a team-owned avatar copy) is not treated
+as the player's exploring ship by the engine. (Earlier sightings: sitting 1 "only the radar bubble", sitting 3 Bob showed only what the
+downloaded save had already discovered.)
+
+**Finding 18 (authority) reproduced: superhighway exit.** Bob's map-flip candidates one at a time: near Alice 90 s, a local highway: no
+flips. Bob through the **superhighway** that also triggered it in sitting 3: Alice's map "freaked out" right after; Bob's position flashed
+on ~4 spots, and it calmed down once Bob's avatar caught up. Alice's watch: Bob's avatar `TLH-305` **bounced between two sectors**
+(`cluster_04_sector002` <-> `cluster_04_sector001`) at 20:45:03-20:45:07 UTC, and at 20:45:18 it was briefly `live=1` (in the authority
+player's live view; normally `live=0`). Bob's client sent no state from 20:44:40 to 20:45:09 (`selfship: no state is sent: the ship's
+sector is not in the sector map`, inside the superhighway) and then `teleport state, sector 6`. Watch otherwise constant for the avatar:
+`own=t1 rel=1 radar=1 gravidar=0 active=1 known=1`. One avatar for Bob (no duplicate after the takeover_off run).
+
+**Fix directions:** (4) give the client a ship the engine treats as the player's own explorer (create it player-owned, or keep the save's
+player ship and make it the avatar copy); (18) the authority must move a player's avatar exactly once at a superhighway exit (no sector
+ping-pong between the last known state and extrapolation / velocity hints), plus consider the +0.99 own-team relation so a team ship is
+never the engine's `self` range.
