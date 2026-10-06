@@ -4,7 +4,7 @@
 .DESCRIPTION
   Removes only the two folders install.ps1 created (and, with -RemoveKit, also the sitting-0 kit folders x4mp_probe / x4mp_spike when they are
   still there). Afterwards it lists x4mp_*.xml.gz files (downloaded session saves, authority checkpoints) in the X4 save folder and tells you where
-  the X4MP config folder is (Documents\Egosoft\X4\x4mp) so you can delete them yourself. Never touches saves. Supports -WhatIf.
+  the X4MP config folder is (%LocalAppData%\X4MP) so you can delete them yourself. Never touches saves. Supports -WhatIf.
 .PARAMETER X4Dir      Folder containing X4.exe (default: auto-detected via Steam).
 .PARAMETER UserId     The numeric folder under Documents\Egosoft\X4 (only needed when there are several).
 .PARAMETER RemoveKit  Also remove x4mp_probe and x4mp_spike (sitting-0 kit) if present.

@@ -331,7 +331,7 @@ Near-grid cell change using a `SectorGraph` k-hop cache and per-sector uniform g
 | Authority save folder | `x4mp_<sessionId>_<n>.xml.gz` (+ optional local manifest copy) | Mod (authority) |
 | Client save folder | `x4mp_<sha12>.xml.gz` downloaded copies | Mod (client) |
 | X4Native stash | session intent, resume token, ghost registry, NetMap, universe epoch, `next_net_id` | Mod (in-process, survives reloads) |
-| Mod config | `%USERPROFILE%\Documents\Egosoft\X4\x4mp\x4mp.json` (+ one-shot `launch.json`) | Mod (no env vars) |
+| Mod config and machine-local state | `%LocalAppData%\X4MP\` (M3-24: `x4mp.json`, one-shot `launch.json`, `player.key` with a machine tag, `logs\`, `ext-hash-cache.json`, `avatar-records.txt`, `authority-saves.json`, `authority\`); portable mode = the extension folder. Per machine on purpose: Documents may be OneDrive-redirected and shared by several PCs | Mod (no env vars) |
 | Lua `__X4MP_USER` (uidata.xml) | last address/name, HUD/chat position; never passwords | Mod |
 
 Retention: events/chat 30 days; unpinned unreferenced saves beyond 10 deleted.

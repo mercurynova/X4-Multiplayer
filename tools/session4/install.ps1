@@ -73,8 +73,10 @@ if ($dry) {
 & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File $deploy @dArgs
 if ($LASTEXITCODE -ne 0) { throw "deploy.ps1 failed (exit $LASTEXITCODE)" }
 foreach ($id in 'x4native', $ProductExtension) {
-    $r = Set-ExtensionEnabled $user $id $true
+    try { $r = Set-ExtensionEnabled $user $id $true }
+    catch { Write-Warning "Could not enable $id in content.xml ($($_.Exception.Message)). Enable x4native and x4mp in X4 > Settings > Extensions."; continue }
     if ($r -eq 'changed') { Write-Host "  content.xml: $id enabled" }
+    elseif ($r -eq 'unavailable') { Write-Host "  content.xml: $id NOT changed (start OneDrive, or enable x4native and x4mp in X4 > Settings > Extensions)" }
 }
 Write-Host ''
 Write-Host 'Next: in X4 > Settings > Extensions: Protected UI Mode OFF; x4native and x4mp enabled; the sitting-0 kit (x4mp_probe, x4mp_spike) gone or disabled.'

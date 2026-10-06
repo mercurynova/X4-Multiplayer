@@ -21,13 +21,22 @@ $script:ScratchOnlyBlocks = @('takeover', 'takeover_docked', 'persist_spawn')
 function Test-X4Running { return [bool](Get-Process -Name 'X4' -ErrorAction SilentlyContinue) }
 
 # Sets enabled="true|false" on an EXISTING <extension id="..."> entry of the X4 user content.xml (X4 keeps the Extensions on/off switches
-# there). Never creates entries. Makes content.xml.x4mp-bak once before the first change. Returns 'changed', 'unchanged' or 'absent'.
+# there). Never creates entries. Makes content.xml.x4mp-bak once before the first change. Returns 'changed', 'unchanged', 'absent' or
+# 'unavailable' (content.xml cannot be read: OneDrive files-on-demand while OneDrive is stopped, "The cloud file provider is not running";
+# a warning tells the user what to do instead, and the caller carries on: nothing was changed).
 function Set-ExtensionEnabled([string]$UserDir, [string]$Id, [bool]$Enabled, [switch]$Preview) {
     $file = Join-Path $UserDir 'content.xml'
     if (-not (Test-Path $file)) { return 'absent' }
     $xml = New-Object System.Xml.XmlDocument
     $xml.PreserveWhitespace = $true
-    $xml.Load($file)
+    try { $xml.Load($file) }
+    catch {
+        $e = $_.Exception; $msg = ''
+        while ($e) { $msg += ' ' + $e.Message; $e = $e.InnerException }
+        if ($msg -notmatch 'cloud file provider|cloud operation') { throw }
+        Write-Warning "Could not read $file ($($_.Exception.Message.Trim())). Start OneDrive, or enable x4native and x4mp in X4 > Settings > Extensions yourself. The install itself is not affected."
+        return 'unavailable'
+    }
     $node = $xml.SelectSingleNode("//extension[@id='$Id']")
     if (-not $node) { return 'absent' }
     $want = if ($Enabled) { 'true' } else { 'false' }

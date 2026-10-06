@@ -3,7 +3,7 @@
   Session 3: removes x4mp and x4native from <X4 install>\extensions\, then LISTS (never deletes) saves the session created.
 .DESCRIPTION
   Removes only the two folders install.ps1 created. Afterwards it lists x4mp_*.xml.gz files (downloaded session saves,
-  authority checkpoints) in the X4 save folder and the X4MP config folder (Documents\Egosoft\X4\x4mp) so you can delete them yourself.
+  authority checkpoints) in the X4 save folder and the X4MP config folder (%LocalAppData%\X4MP) so you can delete them yourself.
   Supports -WhatIf.
 #>
 [CmdletBinding(SupportsShouldProcess)]

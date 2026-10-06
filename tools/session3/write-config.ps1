@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Session 3: writes (or updates) Documents\Egosoft\X4\x4mp\x4mp.json, the real mod's settings file. Never writes a password.
+  Session 3: writes (or updates) %LocalAppData%\X4MP\x4mp.json (M3-24; the extension folder in portable mode), the real mod's settings file. Never writes a password.
 .DESCRIPTION
   Keys written (all optional): server_host and tcp_port (what the Join dialog proposes is remembered by the game itself, so you rarely need
   these), player_name, selftest (run the self-test at every universe ready), log_level. Existing keys you do not mention are kept.

@@ -2,7 +2,7 @@
 .SYNOPSIS
   Session 4: summarises the [sync] and [perf] lines of an X4MP mod log against the M3 targets (docs\m3-plan.md Q3, criteria 2 and 11). Reads only.
 .DESCRIPTION
-  Input: the mod log (Documents\Egosoft\X4\x4mp\logs\x4mp.log by default), or -Zip <logs zip made by collect-logs.ps1>, or -Log <file>.
+  Input: the mod log (%LocalAppData%\X4MP\logs\x4mp.log by default, or the portable extension folder's; the old Documents\Egosoft\X4\x4mp\logs\x4mp.log only when this PC has none), or -Zip <logs zip made by collect-logs.ps1>, or -Log <file>.
   What it reads (formats: mod/native/core/ghost/sync_stats.cpp, features/ghosts/ghost_feature.cpp, features/stats/stats_feature.cpp, host/mod_host.cpp):
     [sync] player=<name> net=<id> frames=.. err_p50/p95/max=a/b/c m steady_p95=.. fast_p95=.. lat_p95=.. ms ...   one per ghost per 5 s window (client)
     [sync] ghosts tracked=.. spawned=.. respawned=.. ... frame_p95_us=..                                          ghost totals + ghost-driver frame cost
@@ -66,8 +66,16 @@ if ($Zip) {
 }
 else {
     if (-not $Log) {
-        if ($env:X4MP_S2_DOCS_ROOT) { $docs = $env:X4MP_S2_DOCS_ROOT } else { $docs = [Environment]::GetFolderPath('MyDocuments') }
-        $Log = Join-Path $docs 'Egosoft\X4\x4mp\logs\x4mp.log'
+        # M3-24: per-machine log first (never another PC's). The old Documents location is a fallback for logs of older mods only.
+        . (Join-Path $PSScriptRoot 'common.ps1')
+        $Log = Join-Path (Get-X4MPConfigDir) 'logs\x4mp.log'
+        if (-not (Test-Path -LiteralPath $Log)) {
+            $old = Join-Path (Get-X4MPLegacyConfigDir) 'logs\x4mp.log'
+            if (Test-Path -LiteralPath $old) {
+                [Console]::Error.WriteLine("No log at $Log; reading the OLD location $old (mod from before M3-24; with a OneDrive-redirected Documents it may be another PC's log).")
+                $Log = $old
+            }
+        }
     }
     if (-not (Test-Path -LiteralPath $Log)) { Die "log not found: $Log (pass -Log or -Zip)" }
     $fs = [IO.File]::Open($Log, 'Open', 'Read', 'ReadWrite')

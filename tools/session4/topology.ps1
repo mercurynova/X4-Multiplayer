@@ -85,8 +85,14 @@ function Get-ServerPortList {
         [pscustomobject]@{ Protocol = 'TCP'; Port = $Ports.Http; Name = 'X4MP admin HTTP'; Purpose = 'admin GUI + save fallback' })
 }
 
-# Reads the Windows Defender Firewall (no changes): for every port, is there an ENABLED inbound ALLOW rule that covers it (any profile)?
-# Returns objects with Covered = $true|$false|$null (null = could not tell: not Windows, no cmdlets, or no rights to read).
+# Reads the Windows Defender Firewall (no changes): for every port, is there an ENABLED inbound ALLOW rule that covers it (any profile), and is
+# there a rule with EXACTLY the name step 3.5 toggles ('X4MP game TCP' / 'X4MP game UDP' / 'X4MP admin HTTP')?
+# Returns objects with Covered = $true|$false|$null (null = could not tell: not Windows, no cmdlets, or no rights to read) and, since M3-24:
+#   Named        $true|$false|$null   a rule with exactly the port's name exists (inbound; enabled or not)
+#   NamedEnabled $true|$false|$null   that rule is enabled
+#   NamedRemote  string               its remote addresses (COM path only; $null from the slow fallback)
+#   NamedTailscale $true|$false|$null does its remote scope include 100.64.0.0/10 (Tailscale) or any address
+# A port can be Covered by an unrelated rule (e.g. a program rule on all ports) while Named is $false: then the step-3.5 Disable/Enable lines do nothing.
 function Get-FirewallStatus {
     $WhatIfPreference = $false   # read only (see Get-LanAddresses)
     $ports = Get-ServerPortList
@@ -103,6 +109,15 @@ function Get-FirewallStatus {
             $lp = if ($proto -in 'TCP', 'UDP') { [string]$r.LocalPorts } else { '*' }
             $com.Add([pscustomobject]@{ Protocol = $proto; LocalPorts = @(($lp -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) | ForEach-Object { if ($_ -eq '*') { 'Any' } else { $_ } }) })
         }
+        # the rules with the exact toggle names (any action / enabled state; inbound only)
+        $names = @($ports | ForEach-Object { $_.Name })
+        $named = @{}
+        foreach ($r in $policy.Rules) {
+            if ($r.Direction -ne 1 -or $names -notcontains [string]$r.Name) { continue }
+            $remote = [string]$r.RemoteAddresses
+            $named[[string]$r.Name] = [pscustomobject]@{ Enabled = [bool]$r.Enabled; Allow = ($r.Action -eq 1); Remote = $remote
+                Tailscale = ($remote -match '^\s*\*\s*$|(?i)^any|100\.64\.0\.0') }
+        }
         foreach ($p in $ports) {
             $covered = $false
             foreach ($c in $com) {
@@ -114,7 +129,9 @@ function Get-FirewallStatus {
                 }
                 if ($covered) { break }
             }
-            $out.Add([pscustomobject]@{ Protocol = $p.Protocol; Port = $p.Port; Name = $p.Name; Purpose = $p.Purpose; Covered = $covered })
+            $n = $named[$p.Name]
+            $out.Add([pscustomobject]@{ Protocol = $p.Protocol; Port = $p.Port; Name = $p.Name; Purpose = $p.Purpose; Covered = $covered
+                Named = [bool]$n; NamedEnabled = if ($n) { [bool]($n.Enabled -and $n.Allow) } else { $false }; NamedRemote = if ($n) { $n.Remote } else { $null }; NamedTailscale = if ($n) { [bool]$n.Tailscale } else { $null } })
         }
         return $out.ToArray()
     }
@@ -143,12 +160,16 @@ function Get-FirewallStatus {
                 if ($covered) { break }
             }
         }
-        $out.Add([pscustomobject]@{ Protocol = $p.Protocol; Port = $p.Port; Name = $p.Name; Purpose = $p.Purpose; Covered = $covered })
+        # slow fallback: only the enabled allow rules were read, so a named rule is known only when enabled; its remote scope is not read
+        $named = if ($null -ne $rules) { [bool]@($rules | Where-Object { [string]$_.DisplayName -eq $p.Name }).Count } else { $null }
+        $out.Add([pscustomobject]@{ Protocol = $p.Protocol; Port = $p.Port; Name = $p.Name; Purpose = $p.Purpose; Covered = $covered
+            Named = $named; NamedEnabled = $named; NamedRemote = $null; NamedTailscale = $null })
     }
     return $out.ToArray()
 }
 
 # The exact commands the USER runs in an elevated PowerShell to open (or later close) the ports. This script never runs them.
+# -Only: the Get-FirewallStatus rows to print a command for (M3-24: every row WITHOUT a rule of the exact name, also those covered by another rule).
 function Get-FirewallCommands($Only = $null) {
     $lines = New-Object System.Collections.Generic.List[string]
     foreach ($p in Get-ServerPortList) {

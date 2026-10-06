@@ -57,13 +57,22 @@ Write-Host 'Windows Defender Firewall, inbound allow rules (read only; nothing i
 $fw = @(Get-FirewallStatus)
 $missing = @()
 foreach ($r in $fw) {
-    $state = if ($null -eq $r.Covered) { 'UNKNOWN (could not read the rules)' } elseif ($r.Covered) { 'ok' } else { 'MISSING' }
+    # M3-24: report the rule NAMED exactly like the step-3.5 lines expect, not just "some rule covers the port" (an unrelated program rule on all ports
+    # made the old check say ok while Disable/Enable-NetFirewallRule -DisplayName 'X4MP game UDP' failed with no such rule).
+    if ($null -eq $r.Covered) { $state = 'UNKNOWN (could not read the rules)' }
+    elseif ($r.Named -eq $true -and $r.NamedEnabled -eq $true) {
+        $ts = if ($null -eq $r.NamedTailscale) { '' } elseif ($r.NamedTailscale) { ', includes Tailscale 100.64.0.0/10' } else { ', does NOT include Tailscale 100.64.0.0/10 (a tailnet peer cannot connect)' }
+        $state = "ok (rule '$($r.Name)' present$ts)"
+    }
+    elseif ($r.Named -eq $true) { $state = "rule '$($r.Name)' exists but is DISABLED or not an Allow rule (step 3.5 would enable it; for now the port is $(if ($r.Covered) { 'covered by another rule' } else { 'closed' }))" }
+    elseif ($r.Covered) { $state = 'covered only by another rule (step 3.5 will not work: no rule named ' + "'$($r.Name)')" }
+    else { $state = 'MISSING' }
     Write-Host ("  {0} {1,-5} {2,-18} {3}" -f $r.Protocol, $r.Port, $r.Name, $state)
-    if ($r.Covered -ne $true) { $missing += $r }
+    if ($r.Named -ne $true) { $missing += $r }
 }
 if ($missing.Count -gt 0) {
     Write-Host ''
-    Write-Host 'To open the missing ports, run this in an ELEVATED PowerShell on PC A (right-click PowerShell > Run as administrator). This script does not run it:'
+    Write-Host 'To add the rule(s) under the exact names step 3.5 uses (also where another rule already covers the port), run this in an ELEVATED PowerShell on PC A (right-click PowerShell > Run as administrator). This script does not run it:'
     foreach ($c in Get-FirewallCommands -Only $missing) { Write-Host "  $c" }
     Write-Host '  (The rules apply to every network profile but only accept connections from the local subnet and from Tailscale (tailnet, 100.64.0.0/10) peers.)'
 }

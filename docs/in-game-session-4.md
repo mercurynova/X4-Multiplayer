@@ -131,7 +131,7 @@ Between steps you may run `run-block.ps1 s13_status` (what is active) or `run-bl
 Admin GUI: `http://127.0.0.1:47790` (password file `out\session4\admin-password.txt`, never printed).
 
 **1.1 Join and takeover (criteria 3, 14).** Start X4 (start menu): **Multiplayer > Join a server**, address `127.0.0.1:47780`, name `Tester`, Connect. Status: download (a real one, no `CACHE HIT` in window 1), load, matching, Connected. After the load you stand in the cockpit of your save's ship; within seconds you are moved into **your own fighter** (an Argon Elite) in empty space; the host ship copy is gone and reappears as the ghost `[MP] Host`.
-*Mod log* (`Documents\Egosoft\X4\x4mp\logs\x4mp.log`), in this order: `takeover: standing in ship ... requesting the avatar`, `takeover: avatar granted: net_id=`, `takeover: the avatar is not in the loaded save: spawned a local copy`, `takeover: teleported the player into ship`, `takeover: the guard confirmed (10 frames, ...)`, `takeover: removed the local copy`, `takeover: done in`, then `janitor: swept: 0 leftover`. Lines `remove_blocked_by_guard` are fine, a Game Over is not.
+*Mod log* (`%LocalAppData%\X4MP\logs\x4mp.log`), in this order: `takeover: standing in ship ... requesting the avatar`, `takeover: avatar granted: net_id=`, `takeover: the avatar is not in the loaded save: spawned a local copy`, `takeover: teleported the player into ship`, `takeover: the guard confirmed (10 frames, ...)`, `takeover: removed the local copy`, `takeover: done in`, then `janitor: swept: 0 leftover`. Lines `remove_blocked_by_guard` are fine, a Game Over is not.
 *Write down:* seconds from the end of the load to being in the fighter; whether you saw the HUD hint "Sit in the pilot seat to take over your ship" (then sit down and note it: it means the teleport was refused while standing); **what equipment the fighter has** (Info > ship: early-game parts or Mk2/Mk3? the client's local copy gets no loadout yet, so expect high-end parts; the authority's avatar gets the early-game loadout); quit and join again (**rejoin**) and check the **Last server** line and the pre-filled address and name (criterion 14).
 
 **1.2 See the wingmen (criteria 2, 6).** Fly straight, turn, boost, travel drive. *Look for:* `[MP] Wing01`, `[MP] Wing02` (they orbit you) and `[MP] Host` (parked 300-600 m away), names and colours (team 1), on the map and radar; rate **smoothness 1-5**; do the ghosts **face their direction of travel** (nose forward; sideways, upside down or nose-down means the orientation signs in `GhostsApi::to_pos_rot` must flip: say which); the ship model; no ghost pops (a ghost vanishing and reappearing). Then jump a gate (the wingmen follow and appear in the new sector, no streak), take a local highway and, if near, a superhighway, dock on a pad, dock inside, undock, walk out of the cockpit if you can.
@@ -157,13 +157,13 @@ Quit X4, `collect-logs.ps1 -Label s1`, `sync-report.ps1`.
 
 **The problem.** Sitting 1 (Finding 4): as a client the map shows only the radar bubble, explored areas are fog, the HUD says "To: Unknown Sector", stations carry "?". Single player with the mod and the authority role are fine. So something client-only (takeover, client janitor, ghosts, the client's download/load path) costs the player's knowledge. M3-23 adds a **knowledge probe** and four **switches** (all off by default) so four short runs narrow it down. Same setup as sitting 1: window 1 `tools\session4\start-fake-authority.ps1 -SaveName save_004 -FreshDownload -Wingmen 2`, join as `Tester`.
 
-**The probe.** One line in the mod log (`Documents\Egosoft\X4\x4mp\logs\x4mp.log`; also forwarded to the server log as `[knowledge]`):
+**The probe.** One line in the mod log (`%LocalAppData%\X4MP\logs\x4mp.log`; also forwarded to the server log as `[knowledge]`):
 
 `knowledge: sectors_known=N/M stations_known=x/y gates_known=u/v clusters_known=a/b samples=[01_001=1,07_001=0,14_001=-] at='<stage>' game_age=123.4s`
 
 N/M = sectors known to the player / all sectors of the galaxy (same for stations, gates, clusters). `samples`: three named sectors (`01_001` Grand Exchange I, `07_001`, `14_001`): 1 known, 0 unknown, `-` not found. `game_age` is the game clock at the moment of the count (the answer comes back through MD a frame later, so use it to order lines). It is written at: `universe ready` (before anything else of ours runs), `takeover: avatar spawned` (or `avatar bound from the save`), `takeover: teleported`, `takeover: guard confirmed`, `takeover: original removed`, `after janitor sweep`, `after first ghost spawn`, and whenever you type **`/x4mp knowledge`** in the chat window (while connected). The counts come from the game itself (MD `find_sector/find_station/find_gate` with `known="true"`, `.isknown`).
 
-**Switches** (X4 closed!). Edit `Documents\Egosoft\X4\x4mp\x4mp.json` (create it if missing; keep the other keys, e.g. `last_address`). Add a `"diag"` object:
+**Switches** (X4 closed!). Edit `%LocalAppData%\X4MP\x4mp.json` (M3-24: per PC, no longer in Documents; in portable mode it is `x4mp.json` in the extension folder; create it if missing; keep the other keys, e.g. `last_address`; a pre-M3-24 `Documents\Egosoft\X4\x4mp\x4mp.json` is copied there once at the first start). Add a `"diag"` object:
 
 ```json
 { "diag": { "takeover_keep_original": true } }
@@ -212,6 +212,9 @@ Quit X4, `collect-logs.ps1 -Label s2`, `sync-report.ps1`.
 1. PC A, window 2: `powershell -ExecutionPolicy Bypass -File tools\session4\make-client-kit.ps1`. Copy the zip from `out\session4\` to PC B (Parsec file transfer, a share or a USB stick). On PC B: unzip anywhere and follow `START-HERE-PC-B.txt` (`install.ps1`; no build tools).
 2. PC A, window 2: `powershell -ExecutionPolicy Bypass -File tools\session4\start-server-lan.ps1 -Check`. Note the **Tailscale address** (`100.x.x.x`, adapter "Tailscale"): PC B joins `<that address>:47780`. For every port it reports as not open, it prints a `New-NetFirewallRule ...` line: run those yourself in an **elevated** PowerShell on PC A, then `-Check` again.
 3. PC B: `tailscale ping <PC A address>` (or `ping`): write down the round trip (sitting 3 prep: ~14 ms).
+4. **Where each PC keeps its identity (M3-24).** The mod's own files (`player.key` = who you are on the server, `x4mp.json`, `logs\`, `launch.json`, `avatar-records.txt`, `authority-saves.json`, `authority\`, `ext-hash-cache.json`) live in **`%LocalAppData%\X4MP\`** on each PC, no longer in `Documents\Egosoft\X4\x4mp\`. Reason (sitting 3, finding 15): with Documents redirected to OneDrive both PCs read the same `player.key`, the server took Bob for Alice rejoining and dropped the authority. Each `player.key` now carries a machine tag (`machine=<hash>`, second line) and a key file that is not tagged with THIS PC is never adopted. Nothing to do for a new setup. **The workaround file `extension\x4mp\x4mp.portable` is not needed any more**; delete it, or leave it (portable mode still keeps everything in the extension folder, and a key there that is not tagged for this PC is replaced by a fresh one too).
+   - **One-time consequence of the update:** the first start after it creates a **new identity** on every PC (an old untagged `player.key` is never reused, it may be shared; the log says so: `a new player identity was created`). The server still has the old identity bound to the name, so the first join with `Alice` / `Bob` says **name is bound to another player**. Fix once on PC A: GUI **Players** > the old `Alice` row (the player must be offline: **Kick** first) > **Release name**; do the same for `Bob`; then join again. Release only renames the old row to `released-<id>` (history stays); the new identity gets a fresh player row (wallet and team start new). Two players that are ONLINE at the same time can never share a name.
+   - `x4mp.json` (diag switches, last address) is copied once from the old Documents folder to the new one at the first start; the old file is kept.
 
 **3.1 Join (PC A, then PC B).**
 1. PC A, window 1: `powershell -ExecutionPolicy Bypass -File tools\session4\start-server-lan.ps1 -SaveName save_004`.
@@ -291,6 +294,9 @@ Look at these during the sittings; each is "does it behave like the code assumes
 | No `[MP]` ghosts at all on the client | `rep_msgs=0` in the `[sync] ghosts` line = no `Replication`: is the host ship in the GUI Players list with a ship (authority), is the session Running |
 | Stuck in the host's ship after the load | Look for `takeover:` lines; sit in the pilot seat (hint); send the log |
 | `start-server-lan.ps1` says `UNKNOWN (could not read the rules)` | Normal without admin rights for some profiles; use the printed commands in an elevated PowerShell, test the join from PC B |
+| Join says `name is bound to another player` after updating to M3-24 | Expected once: the new identity does not own the old row. GUI Players > old row > Kick (if online) > **Release name**, then join again (sitting 3, step 3.0.4) |
+| `start-server-lan.ps1 -Check` says `covered only by another rule` | Some other rule opens the port but no rule is named `X4MP game TCP/UDP` / `X4MP admin HTTP`, so the step-3.5 `Disable-NetFirewallRule -DisplayName ...` line does nothing. Run the printed `New-NetFirewallRule` lines (elevated) to add the named rules |
+| `install.ps1` warns `The cloud file provider is not running` | OneDrive (files on demand) is stopped and `content.xml` cannot be read. The install itself worked; start OneDrive and run it again, or enable `x4native` and `x4mp` in X4 > Settings > Extensions |
 | PC B cannot connect | `Test-NetConnection <PC A address> -Port 47780` on PC B; the three firewall rules on PC A; same network (not "guest") |
 | X4 crashes or Game Over | Quit, **collect the logs**, note the last step and the clock time |
 | `collect-logs.ps1` says no lines | The launch option `-debug all -logfile x4mp_s4.log` is missing |
@@ -298,7 +304,7 @@ Look at these during the sittings; each is "does it behave like the code assumes
 
 ## Sending results
 
-Zips `out\session4\logs-<label>-<time>.zip` (game log `x4mp_s4.log`, `x4native\`, `Documents\Egosoft\X4\x4mp\` incl. `x4mp-lines.txt` and `sync-report.txt`, server and FakeNode logs; never saves, passwords, `launch.json` or the database); your notes with clock times; ratings; the `sync-report.ps1` output; screenshots of anything odd.
+Zips `out\session4\logs-<label>-<time>.zip` (game log `x4mp_s4.log`, `x4native\`, the mod's per-PC folder `%LocalAppData%\X4MP\` (`logs\`, `x4mp.json`, ...; never `player.key`) incl. `x4mp-lines.txt` and `sync-report.txt`, server and FakeNode logs; never saves, passwords, `launch.json` or the database); your notes with clock times; ratings; the `sync-report.ps1` output; screenshots of anything odd.
 
 ## Quick reference
 
@@ -306,7 +312,7 @@ Zips `out\session4\logs-<label>-<time>.zip` (game log `x4mp_s4.log`, `x4native\`
 |---|---|
 | Scripts | `tools\session4\`: `install.ps1`, `uninstall.ps1`, `start-fake-authority.ps1 [-Wingmen N] [-HostStand x,y,z]`, `start-fake-clients.ps1 [-Wingmen N] [-Target name]`, `start-server-lan.ps1 [-Check]`, `upload-save.ps1`, `make-client-kit.ps1`, `collect-logs.ps1 -Label`, `sync-report.ps1 [-Log \| -Zip]`, `savescan.ps1` |
 | Admin GUI | `http://<server PC>:47790` (password file `out\session4\admin-password.txt`) |
-| Mod log | `Documents\Egosoft\X4\x4mp\logs\x4mp.log` (`[sync]`, `[perf]`, `takeover:`, `ghost`, `avatars:`, `janitor:`, `selfship:`, `authority:`) |
+| Mod log | `%LocalAppData%\X4MP\logs\x4mp.log` (`[sync]`, `[perf]`, `takeover:`, `ghost`, `avatars:`, `janitor:`, `selfship:`, `authority:`) |
 | Game log | `Documents\Egosoft\X4\<id>\x4mp_s4.log` |
 | Ports | TCP 47780, UDP 47781, HTTP 47790 |
 | Targets (`sync-report.ps1`) | path error p95 < 50 m (< 10 m steady below 300 m/s), display latency <= 200 ms, mod main-thread p95 < 0.2 ms, < 20 kB/s per client, < 10 log lines/s, 0 ghost respawns |
