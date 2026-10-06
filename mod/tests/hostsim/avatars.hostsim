@@ -103,6 +103,12 @@ lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4300.0}
 frame 60Hz 720
 expect-file extension/logs/x4mp.log manifest lists 2 avatar(s)
 
+# M3-25: an observer (no avatar of its own) stays connected through the authority's restart of avatars_rejoin.hostsim: its ghosts are what the rolled-back
+# world must not duplicate. The mirror holds the host ship and the two parked avatars (3 entities).
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Prefix Obs -NoAvatars -Duration 600 -Out "${tmp}\obs.txt" -PidFile "${tmp}\obs.pid"
+frame 60Hz 300
+expect-admin /api/v1/dashboard $.entitiesInMirror == 3 timeout=20000
+
 # ---- a save load: every component id changes; the binder finds both avatars again, nothing is respawned ----
 world renumber
 reload
@@ -124,7 +130,7 @@ expect-object count == 2 owner=x4mp_team_1
 expect-state spawns == 2
 expect-no-log SpawnObjectAtPos2 failed
 
-lua-raw x4mp.disconnect {"v":1}
+# (no Disconnect: the game just ends, as when X4 is closed; the server sees a lost socket and the session goes AuthorityLost for avatars_rejoin.hostsim)
 frame 60Hz 30
 expect-no-secret ${apw}
 shutdown

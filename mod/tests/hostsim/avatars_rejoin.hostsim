@@ -1,0 +1,55 @@
+# M3-25 (session 4 finding 16): the authority's game was closed (avatars.hostsim ends without a Disconnect) and is started again while the SERVER keeps
+# running and an observer client (Obs01, FakeNode, no avatar of its own) stays connected. The fresh join is sent the session's newest checkpoint (M3-21),
+# loads it and keeps the two avatars it lists (M3-22). The server must have rolled its world back to that save before the new self-spawn: the old host ship
+# (net 1, from before the checkpoint's id range) is despawned, the authority continues its net ids from the checkpoint's next_net_id, and the mirror (the source
+# of every client's ghosts; the observer keeps being told) holds exactly the host ship + the two avatars again: ONE entity per player, never a stale second host ship.
+# Run by avatars_run.ps1 (vars: tcp, apw, sim, ckpt_src3, admin_url, admin_pw).
+world sector add 100003
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_02_sector001_macro=100002,cluster_03_sector001_macro=100003
+init
+set game_time 6000
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-file extension/logs/x4mp.log (roles 3, fresh)
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+expect-file extension/logs/x4mp.log AuthorityAssign: net ids continue from 4
+expect-lua x4mp.load_save 3000 contains x4mp_
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_rejoin_load
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+expect-file extension/logs/x4mp.log 2 of 2 avatar record(s) kept
+
+# the new-authority checkpoint (the host's ship is reported by MD again)
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 150
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src3}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":6100.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+
+# the new self-spawn continues the ids at the checkpoint's next_net_id (4): no id of the rolled-back world is reused
+expect-file extension/logs/x4mp.log self-spawn sent net_id=4
+ship place sector=100001 pos=0,0,0
+seat on
+frame 60Hz 120
+expect-no-log SpawnObjectAtPos2 failed
+
+# the mirror (what every client's ghosts come from) holds one host ship and the two parked avatars, not a stale second host ship
+expect-admin /api/v1/dashboard $.entitiesInMirror == 3 timeout=20000
+frame 60Hz 60
+expect-admin /api/v1/dashboard $.entitiesInMirror == 3
+lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown

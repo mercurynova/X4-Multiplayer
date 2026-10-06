@@ -8,7 +8,7 @@ namespace X4MP.Core.Saves;
 public sealed partial class SaveService
 {
     /// <summary>The stored save a session is started from (an admin upload or an older checkpoint): what the authority must load before the first checkpoint exists.</summary>
-    private sealed record StartSave(string Sha, long Size, string Name);
+    private sealed record StartSave(string Sha, long Size, string Name, uint NextNetId = 0);
 
     private StartSave? _startSave;
 
@@ -47,7 +47,7 @@ public sealed partial class SaveService
         }
 
         string name = Catalog.Find(sha256)?.DisplayName ?? SaveFileStore.Abbrev(sha256);
-        _startSave = new StartSave(sha256, size, name);
+        _startSave = new StartSave(sha256, size, name, Catalog.FindNextNetId(sha256) ?? 0);
         _startInfoConnection = null;
         PublishStatus();
         if (_authority is { Phase: NodePhase.SyncingSave, Announced: true } authority)
@@ -75,7 +75,7 @@ public sealed partial class SaveService
 
         if (_phase == SessionPhase.AuthorityLoading && _current.SaveSha is { } sha && Files.SizeOf(sha, UploadKind.Save) is { } size)
         {
-            return new StartSave(sha, size, _current.Name ?? SaveFileStore.Abbrev(sha));
+            return new StartSave(sha, size, _current.Name ?? SaveFileStore.Abbrev(sha), _current.NextNetId);
         }
 
         return null;
@@ -94,8 +94,11 @@ public sealed partial class SaveService
             return;
         }
 
+        // M3-25: the authority is about to run exactly this save (loaded now, or already running it): the replicated world must match it.
+        RollbackWorldToSave(node, start);
         if (LoadedSaveOf(node) is { } loaded && string.Equals(loaded, start.Sha, StringComparison.Ordinal))
         {
+            _startInfoConnection = connection;
             return; // the authority's game already runs this save: it reports ready and the session asks it for the first checkpoint
         }
 
@@ -128,6 +131,36 @@ public sealed partial class SaveService
         LogStartSaveSent(node.PlayerId, shown, start.Size);
     }
 
+    /// <summary>
+    /// M3-25: the world mirror must hold exactly what the save the authority loads contains. The authority allocates net ids upwards from the
+    /// <c>next_net_id</c> it reported in the save's <c>SaveStarted</c>, so every entity with an id at or above that value was spawned after the save
+    /// and is not in it (a plain start save has none: threshold 1 removes everything), and the authority player's own ship (a new self-spawn replaces it,
+    /// whatever its id: a later checkpoint also holds the old one in its id range). Those entities are removed through the normal despawn path
+    /// (journal, clients' ghosts, avatar bindings), and the authority is told the first id it may hand out (<c>AuthorityAssign.next_net_id</c>) so no
+    /// id that was live or is still mapped to a ghost on a client is reused.
+    /// </summary>
+    private void RollbackWorldToSave(SessionNode node, StartSave start)
+    {
+        uint threshold = Math.Max(1u, start.NextNetId);
+        int removed = _world.RollbackToNetIdFloor(threshold, node.PlayerId);
+        string shown = SaveFileStore.Abbrev(start.Sha);
+        LogWorldRolledBack(node.PlayerId, shown, threshold, removed);
+        if (threshold <= 1)
+        {
+            return;
+        }
+
+        var assign = new AuthorityAssignT
+        {
+            Grant = true,
+            Reason = "world rolled back to the loaded save",
+            CheckpointId = _current is { } cp && cp.SaveSha == start.Sha ? cp.Id.ToWire() : new Id128T(),
+            NextNetId = threshold,
+            StringTableNext = 0,
+        };
+        Send(node, ControlFrames.Encode(MsgType.AuthorityAssign, fbb => AuthorityAssign.Pack(fbb, assign).Value, 128));
+    }
+
     /// <summary>The authority loaded the start save (it reported <c>SaveReady</c> for it): move it to Loading. It makes no manifest report, nothing is replayed to it.</summary>
     private void OnStartSaveReady(SessionNode node)
     {
@@ -143,6 +176,9 @@ public sealed partial class SaveService
 
     [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "player {PlayerId}: the authority is sent the session's start save {Sha} ({Bytes} bytes) to load before the first checkpoint")]
     private partial void LogStartSaveSent(int playerId, string sha, long bytes);
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "player {PlayerId}: the authority loads save {Sha}: world rolled back to net ids below {NextNetId} ({Removed} entities removed)")]
+    private partial void LogWorldRolledBack(int playerId, string sha, uint nextNetId, int removed);
 
     [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "the session's start save {Sha} is no longer in the store: the authority is not sent it")]
     private partial void LogStartSaveMissing(string sha);

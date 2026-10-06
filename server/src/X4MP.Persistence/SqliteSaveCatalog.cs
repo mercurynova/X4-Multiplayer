@@ -67,6 +67,14 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
                 cleaned = save.GhostsCleaned ? 1 : 0,
             });
 
+    public uint? FindNextNetId(string saveSha256)
+    {
+        using var connection = factory.Open();
+        long? next = connection.ExecuteScalar<long?>(
+            "SELECT next_net_id FROM checkpoints WHERE save_sha256 = @sha AND next_net_id IS NOT NULL ORDER BY id DESC LIMIT 1", new { sha = saveSha256 });
+        return next is { } value and >= 0 and <= uint.MaxValue ? (uint)value : null;
+    }
+
     public SaveRecord? Find(string sha256)
     {
         using (var connection = factory.Open())

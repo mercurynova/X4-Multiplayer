@@ -47,6 +47,9 @@ public interface ISaveCatalog
 
     SaveRecord? Find(string sha256);
 
+    /// <summary>The <c>next_net_id</c> of the newest checkpoint row that points at this save (M3-25), or null when the save is not a checkpoint of ours.</summary>
+    uint? FindNextNetId(string saveSha256);
+
     /// <summary>Every save, newest first.</summary>
     IReadOnlyList<SaveRecord> List();
 
@@ -92,6 +95,22 @@ public sealed class InMemorySaveCatalog : ISaveCatalog
         lock (_gate)
         {
             return _saves.GetValueOrDefault(sha256);
+        }
+    }
+
+    public uint? FindNextNetId(string saveSha256)
+    {
+        lock (_gate)
+        {
+            for (int i = _checkpoints.Count - 1; i >= 0; i--)
+            {
+                if (_checkpoints[i].Checkpoint.SaveSha256 == saveSha256)
+                {
+                    return _checkpoints[i].Checkpoint.NextNetId;
+                }
+            }
+
+            return null;
         }
     }
 

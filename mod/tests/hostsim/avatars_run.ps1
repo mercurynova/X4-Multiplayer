@@ -121,8 +121,23 @@ try {
     Publish-SessionFromUpload $srv.Session $dummy $sha
     Run-Scenario 'avatars' 'work-host' @('--var', "ckpt_src=$ckpt1", '--var', "ckpt_src2=$ckpt2")
 
+    # ---- M3-25 (finding 16): the authority's game was closed and starts again while the SERVER keeps running and the observer Obs01 stays connected:
+    # the world is rolled back to the checkpoint it loads (the old host ship goes), the ids continue at the checkpoint's next_net_id, one ghost per player ----
+    $recordsA = Join-Path $tmp 'work-host\extension\avatar-records.txt'
+    $workJ = Join-Path $tmp 'work-rejoin'
+    New-Item -ItemType Directory -Force (Join-Path $workJ 'extension'), (Join-Path $workJ 'saves') | Out-Null
+    Copy-Item $recordsA (Join-Path $workJ 'extension')
+    Copy-Item (Join-Path $tmp 'work-host\saves\x4mp_ckpt_*.xml.gz') (Join-Path $workJ 'saves')
+    Copy-Item (Join-Path $tmp 'work-host\extension\player.key') (Join-Path $workJ 'extension')
+    $ckpt3 = Join-Path $tmp 'ckpt3.xml.gz'; $null = New-GzSave $ckpt3 13
+    Run-Scenario 'avatars_rejoin' 'work-rejoin' @('--var', "ckpt_src3=$ckpt3")
+    if (-not (Select-String -Path $srv.Log -Pattern 'world rolled back to net ids below 4 \(1 entities removed\)' -Quiet)) { throw "M3-25: the server log has no 'world rolled back to net ids below 4 (1 entities removed)' line ($($srv.Log))" }
+    Write-Host '  M3-25: the rejoining authority found the world rolled back to its checkpoint: one host ship, two avatars, no stale ghost' -ForegroundColor Green
+
     $pidFile = Join-Path $tmp 'bots.pid'
     if (Test-Path $pidFile) { foreach ($l in Get-Content $pidFile) { try { & taskkill /PID ([int]$l) /T /F 2>$null | Out-Null } catch { } } ; Remove-Item $pidFile -Force }
+    $obsPid = Join-Path $tmp 'obs.pid'
+    if (Test-Path $obsPid) { foreach ($l in Get-Content $obsPid) { try { & taskkill /PID ([int]$l) /T /F 2>$null | Out-Null } catch { } } ; Remove-Item $obsPid -Force }
     Stop-All
 
     # ---- M3-22: the SERVER is restarted (same data dir: the session and its checkpoints persist, the process has a new ServerHello session GUID) and the
@@ -163,8 +178,10 @@ try {
 }
 catch { Write-Host "AVATARS E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }
 finally {
-    $pidFile = Join-Path $tmp 'bots.pid'
-    if (Test-Path $pidFile) { foreach ($l in Get-Content $pidFile) { try { & taskkill /PID ([int]$l) /T /F 2>$null | Out-Null } catch { } } }
+    foreach ($f in 'bots.pid', 'obs.pid') {
+        $pidFile = Join-Path $tmp $f
+        if (Test-Path $pidFile) { foreach ($l in Get-Content $pidFile) { try { & taskkill /PID ([int]$l) /T /F 2>$null | Out-Null } catch { } } }
+    }
     Stop-All
     Write-Host ("Avatars e2e {0} in {1:N0} s. Temp tree: {2}" -f $(if ($exit -eq 0) { 'PASSED' } else { 'FAILED' }), $sw.Elapsed.TotalSeconds, $tmp)
 }

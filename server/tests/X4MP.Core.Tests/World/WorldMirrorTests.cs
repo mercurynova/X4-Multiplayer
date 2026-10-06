@@ -330,6 +330,56 @@ public sealed class WorldMirrorTests
     }
 
     [Fact]
+    public void RollbackToNetIdFloorDespawnsEveryEntityAtOrAboveItAndTellsTheObservers()
+    {
+        var mirror = new WorldMirror();
+        var recorder = new Recorder();
+        mirror.AddObserver(recorder);
+        mirror.Spawn(
+            Rec(3, EntityKind.Station, 5),
+            Rec(10, EntityKind.ShipM, 5, origin: EntityOrigin.PlayerShip, ownerPlayer: 4, controller: 4),
+            Rec(11, EntityKind.Station, 6),
+            Rec(12, EntityKind.ShipS, 6));
+        recorder.Log.Clear();
+
+        Assert.Equal(3, mirror.RollbackToNetIdFloor(10));
+
+        Assert.Equal([3u], mirror.All.Select(e => e.NetId));
+        Assert.Equal(0, mirror.AvatarCount);
+        Assert.Equal(["despawn:10:Removed", "despawn:11:Removed", "despawn:12:Removed"], recorder.Log.Select(l => string.Join(':', l.Split(':').Take(3))));
+        Assert.Equal(0, mirror.RollbackToNetIdFloor(10)); // idempotent
+        Assert.Equal(1, mirror.RollbackToNetIdFloor(1));  // floor 1 = a plain start save: nothing of the world is in it
+        Assert.Equal(0, mirror.Count);
+    }
+
+    [Fact]
+    public void ARollbackDespawnsTheRemovedPersistentEntitiesOnTheClientsSoTheirGhostsGo()
+    {
+        var rig = new InterestRig(4);
+        rig.Activate(InterestRig.Bob);
+        rig.Mirror.Spawn(Rec(3, EntityKind.Station, 2), Rec(12, EntityKind.Station, 3, origin: EntityOrigin.PlayerShip, ownerPlayer: 4));
+        rig.ClearSent();
+
+        Assert.Equal(1, rig.Mirror.RollbackToNetIdFloor(10));
+
+        Assert.Equal([12u], rig.Despawned(InterestRig.Bob, DespawnReason.Removed));
+    }
+
+    [Fact]
+    public void RollbackAlsoDropsTheAuthorityPlayersOwnShipButKeepsOtherPlayersAvatarsBelowTheFloor()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(
+            Rec(3, EntityKind.ShipM, 5, origin: EntityOrigin.PlayerShip, ownerPlayer: 4, controller: 4),   // the authority player's ship (an older id than the floor)
+            Rec(4, EntityKind.ShipM, 5, origin: EntityOrigin.PlayerShip, ownerPlayer: 5),                  // another player's parked avatar: part of the checkpoint
+            Rec(5, EntityKind.Station, 6));
+
+        Assert.Equal(1, mirror.RollbackToNetIdFloor(10, authorityPlayerId: 4));
+        Assert.Equal([4u, 5u], mirror.All.Select(e => e.NetId).Order());
+        Assert.Equal(1, mirror.AvatarCount);
+    }
+
+    [Fact]
     public void PooledRecordsAreFullyResetOnReuse()
     {
         var mirror = new WorldMirror();
