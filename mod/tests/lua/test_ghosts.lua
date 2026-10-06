@@ -22,6 +22,13 @@ test("dress: native event -> MD control with the component, the name and the min
 	eq(triggers[1].value[1].component, "169452728")
 	eq(triggers[1].value[2], "[MP] Pia")
 	eq(triggers[1].value[3], 100)
+	eq(triggers[1].value[4], 0, "M3-28: radar + known stay on by default")
+end)
+
+test("dress (M3-28): skip_radar_known is the 4th element 1", function()
+	local _, triggers = setup()
+	env.fire("x4mp.ghost_dress", '{"v":1,"id":"169452728","name":"[MP] Pia","minhull":100,"skip_radar_known":true}')
+	eq(triggers[1].value[4], 1)
 end)
 
 test("dress: a damaged payload or a bad id is dropped without an error", function()

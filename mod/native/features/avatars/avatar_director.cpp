@@ -50,6 +50,7 @@ struct AvatarDirector::Avatar {
   double retry_at = 0;
   double next_validity = 0;
   double next_inert = 0;
+  double last_inert_s = -1e9;         // when ActivateObject(false) was last called (M3-28 inert throttle)
   double next_snap = 0;
   VelHint last_hint{};
   bool hint_nonzero = false;
@@ -277,6 +278,7 @@ void AvatarDirector::do_rebind() {
     av.stage = Stage::Live;
     av.announced = false;
     env_.activate(av.local_id, false);
+    av.last_inert_s = now_s_;
     env_.log(LogLevel::Info, std::format("avatars: rebound player {} net_id={} to the ship in the loaded universe (idcode '{}')", av.rec.player_id, av.rec.net_id, av.rec.idcode));
     if (av.wanted_dress) {
       av.wanted_dress = false;
@@ -521,6 +523,7 @@ void AvatarDirector::spawn_at(Avatar& av, const Pose& pose, const char* why) {
     return;
   }
   env_.activate(id, false);  // inert: no pilot, no orders (S13.1: stays put, drift 0.000 m)
+  av.last_inert_s = now_s_;
   av.local_id = id;
   av.sector_id = av.spawn_sector;
   av.tries = 0;
@@ -605,9 +608,11 @@ void AvatarDirector::apply_team_move(Avatar& av) {
   if (!env_.factions_ready()) return;
   const std::string faction = env_.faction_of_team(av.want_team);
   if (faction.empty()) return;  // the team has no faction slot yet: the next team table fixes it
+  if (!av.owner_applied && diag_.team_move_respawn && respawn_for_team_move(av, faction)) return;
   if (!av.owner_applied) {
     if (!env_.valid(av.local_id) || !env_.set_owner(av.local_id, faction)) return;
     env_.activate(av.local_id, false);
+    av.last_inert_s = now_s_;
     av.owner_applied = true;
     av.rec.team = av.want_team;
     av.rec.owner = faction;
@@ -618,6 +623,35 @@ void AvatarDirector::apply_team_move(Avatar& av) {
   if (av.rec.net_id != 0 && av.announced && !env_.send_owner(av.rec.net_id, av.rec.team, faction)) return;  // an unannounced avatar carries the new owner in its spawn
   av.want_team = 0;
   av.owner_applied = false;
+}
+
+// M3-28 diag.team_move_respawn (hypothesis H2: the native re-own of a live avatar leaves stale engine state): despawn the avatar through SafeRemove and spawn a
+// fresh ship under the new team faction at the very same sector + pose (no safe-position round trip). The record keeps the player id, name and NET ID; the
+// idcode changes (the new ship's), and the record is persisted at once (the next checkpoint manifest lists the new idcode, so the M3-22 ledger follows).
+// The server mirror and the clients get ONE refreshing EntitySpawn for the same net id (new owner, team, idcode): no EntityChange and no despawn, so a ghost is
+// updated in place. true = handled (done, or spawn failed and the normal retry path owns the avatar now); false = could not start, caller re-owns natively.
+bool AvatarDirector::respawn_for_team_move(Avatar& av, const std::string& faction) {
+  if (!env_.valid(av.local_id)) return false;
+  remember(av);  // current pose + sector into the record
+  const std::uint64_t sector = av.sector_id;
+  if (sector == 0) return false;
+  const Pose pose = av.rec.pose;
+  const std::uint64_t old_id = av.local_id;
+  if (!env_.remove(old_id)) return false;  // refused (SafeRemove guard): the caller falls back to the native re-own, as without the switch
+  av.local_id = 0;
+  av.rec.team = av.want_team;
+  av.rec.owner = faction;
+  av.spawn_sector = sector;
+  av.spawn_target = pose;
+  av.want_team = 0;
+  av.owner_applied = false;
+  av.have_last_set = false;
+  ++stats_.team_respawned;
+  env_.log(LogLevel::Warn, std::format("avatars: diag.team_move_respawn: despawned the avatar of player {} (old id {}) and spawning a fresh one under {} (team {}) at the same pose (net_id {} kept)",
+                                       av.rec.player_id, old_id, faction, av.rec.team, av.rec.net_id));
+  spawn_at(av, pose, "diag.team_move_respawn");  // on failure the stage is Failed: the normal retry path (try_start_spawn) respawns it under the roster's team
+  mark_dirty();
+  return true;
 }
 
 void AvatarDirector::remember(Avatar& av) {
@@ -708,7 +742,11 @@ void AvatarDirector::maintain(Avatar& av) {
   }
   if (now_s_ >= av.next_inert) {
     av.next_inert = now_s_ + kInertPeriodS;
-    env_.activate(av.local_id, false);
+    // M3-28 diag.avatars_inert_once: only with a read-back that shows the ship active (the real adapters have none yet: then never)
+    if (inert_reassert_due(diag_.inert_once, diag_.inert_once ? env_.is_active(av.local_id) : std::nullopt, now_s_, av.last_inert_s)) {
+      env_.activate(av.local_id, false);
+      av.last_inert_s = now_s_;
+    }
   }
 }
 

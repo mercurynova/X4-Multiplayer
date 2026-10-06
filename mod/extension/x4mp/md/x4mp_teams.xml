@@ -13,6 +13,10 @@
                    by more than 0.001 (both directions of every pair), player_locked = 1 when faction.player reports a locked relation (must be 0)
                E;<seq>;<reason>                                                    the payload was not usable (bad_payload)
 
+  M3-28 (diag switches of x4mp.json "diag"): a relation value of 0.99 for player <-> own team arrives in the list like any other value
+  (diag.team_self_relation_099, decided natively; the read-back below compares with the written value); ONE trailing 1 after the relations
+  (list length 3 + nSlots + 3 * nRel + 1) means diag.no_set_faction_known: step 2 skips set_faction_known.
+
   Order of the calls (native build_calls() lists the same order; ADR-016 unlock-set-relock): 1. unlock every team faction of the plan,
   2. activate it and mark it known, 3. set every relation in both directions, 4. lock every team faction again.
   `player` is never locked or unlocked here: locking it would freeze all of the player's NPC relations (faction-wide lock, ADR-016 correction).
@@ -33,7 +37,11 @@
           <set_value name="$Seq" exact="$P.{1}"/>
           <set_value name="$NSlots" exact="$P.{2}"/>
           <set_value name="$NRel" exact="$P.{3}"/>
-          <do_if value="$P.count != 3 + $NSlots + $NRel * 3 or $NSlots gt 8 or $NSlots lt 0 or $NRel lt 0">
+          <set_value name="$SkipKnown" exact="false"/>  <!-- M3-28 diag.no_set_faction_known: one trailing 1 after the relations -->
+          <do_if value="$P.count == 3 + $NSlots + $NRel * 3 + 1 and @$P.{3 + $NSlots + $NRel * 3 + 1} == 1">
+            <set_value name="$SkipKnown" exact="true"/>
+          </do_if>
+          <do_if value="($P.count != 3 + $NSlots + $NRel * 3 and not $SkipKnown) or $NSlots gt 8 or $NSlots lt 0 or $NRel lt 0">
             <set_value name="$Seq" exact="0 - $Seq"/>  <!-- marks the payload as unusable below -->
           </do_if>
         </do_if>
@@ -57,7 +65,9 @@
             <set_value name="$Code" exact="$P.{3 + $I}"/>
             <set_value name="$Fac" exact="$Facs.{$Code + 1}"/>
             <set_faction_active faction="$Fac" active="true"/>
-            <set_faction_known faction="$Fac" known="true"/>
+            <do_if value="not $SkipKnown">
+              <set_faction_known faction="$Fac" known="true"/>
+            </do_if>
           </do_all>
           <!-- 3. relations, both directions -->
           <do_all exact="$NRel" counter="$J">

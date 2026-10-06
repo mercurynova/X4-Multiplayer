@@ -67,6 +67,11 @@ class IAvatarEnv {
   virtual std::uint16_t sector_index_of_macro(const std::string& macro) = 0;
   virtual std::uint64_t spawn(const std::string& macro, std::uint64_t sector, const Pose& pose, const std::string& owner) = 0;  // 0 = failed
   virtual void activate(std::uint64_t id, bool active) = 0;
+  // Read-back of the ship's active state (M3-28 diag.avatars_inert_once). nullopt = the game offers no read here (the real adapters: no native getter exists).
+  virtual std::optional<bool> is_active(std::uint64_t id) {
+    (void)id;
+    return std::nullopt;
+  }
   virtual bool set_owner(std::uint64_t id, const std::string& faction) = 0;  // SetComponentOwner; false = the call was not made (retried)
   virtual bool valid(std::uint64_t id) = 0;
   virtual std::string idcode(std::uint64_t id) = 0;
@@ -93,11 +98,18 @@ class IAvatarEnv {
   virtual void log(LogLevel level, const std::string& text) = 0;
 };
 
+// M3-28 diagnostic switches (x4mp.json "diag"; docs/in-game-session-4.md "M3-28 map fog experiment"). All false = today's behaviour.
+struct DirectorDiag {
+  bool team_move_respawn = false;  // a team move despawns the avatar and spawns a fresh one (same net id, same pose) instead of SetComponentOwner
+  bool inert_once = false;         // ActivateObject(false) only at spawn / re-own / rebind, then only after a read-back shows the ship active (max every 30 s)
+  bool operator==(const DirectorDiag&) const = default;
+};
+
 struct DirectorStats {
   std::uint32_t requests = 0, provisioned = 0, refreshed = 0, spawn_failed = 0, safepos_replies = 0, safepos_timeouts = 0;
   std::uint32_t bound = 0, lost = 0, strays = 0, respawned = 0, parked = 0, removed = 0, remove_refused = 0;
   std::uint32_t states_in = 0, states_unknown = 0, set_pose_calls = 0, unmapped_sector = 0, repairs = 0, vel_hints = 0;
-  std::uint32_t dress_ok = 0, dress_failed = 0, announced = 0, reowned = 0;
+  std::uint32_t dress_ok = 0, dress_failed = 0, announced = 0, reowned = 0, team_respawned = 0;
 };
 
 class AvatarDirector {
@@ -125,6 +137,8 @@ class AvatarDirector {
 
   void set_settings(const AvatarSettings& settings) { settings_ = settings; }
   [[nodiscard]] const AvatarSettings& settings() const noexcept { return settings_; }
+  void set_diag(const DirectorDiag& diag) { diag_ = diag; }
+  [[nodiscard]] const DirectorDiag& diag() const noexcept { return diag_; }
 
   // The identity records of an earlier run (stash / file). Local ids are unknown: the binder finds the ships. `hint_ids` (player id -> local id)
   // are ids that the registry adoption kept; they are accepted only when the object still has the record's idcode and name.
@@ -177,6 +191,7 @@ class AvatarDirector {
   void announce(Avatar& av, bool force_controller_zero = false);
   void park(Avatar& av);
   void apply_team_move(Avatar& av);
+  bool respawn_for_team_move(Avatar& av, const std::string& faction);  // M3-28 diag.team_move_respawn
   void drive(Avatar& av, std::int64_t server_now_us);
   void maintain(Avatar& av);
   void remember(Avatar& av);
@@ -185,6 +200,7 @@ class AvatarDirector {
 
   IAvatarEnv& env_;
   AvatarSettings settings_;
+  DirectorDiag diag_;
   std::vector<std::unique_ptr<Avatar>> avatars_;
   struct RosterEntry {
     std::string name;

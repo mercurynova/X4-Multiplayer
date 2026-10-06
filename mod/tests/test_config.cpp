@@ -306,6 +306,41 @@ TEST_CASE("diag switches (M3-23): default off, nested object and flat keys, inva
   CHECK(errors.find("'diag'") != std::string::npos);
 }
 
+TEST_CASE("diag switches (M3-28): the five map fog switches parse in both spellings, default off, are described, and unknown ones still warn", "[config][diag][m328]") {
+  std::string errors;
+  auto cfg = parse_json(R"({})", &errors);
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.team_self_relation_099);
+  CHECK_FALSE(cfg->diag.team_move_respawn);
+  CHECK_FALSE(cfg->diag.avatars_inert_once);
+  CHECK_FALSE(cfg->diag.dress_no_radar_no_known);
+  CHECK_FALSE(cfg->diag.no_set_faction_known);
+
+  cfg = parse_json(R"({"diag":{"team_self_relation_099":true,"avatars_inert_once":true}})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.any());
+  CHECK(cfg->diag.team_self_relation_099);
+  CHECK(cfg->diag.avatars_inert_once);
+  CHECK_FALSE(cfg->diag.team_move_respawn);
+  CHECK(describe(*cfg).find("diag.team_self_relation_099=true") != std::string::npos);
+  CHECK(describe(*cfg).find("diag.no_set_faction_known=false") != std::string::npos);
+
+  cfg = parse_json(R"({"diag.team_move_respawn":true,"diag.dress_no_radar_no_known":true,"diag.no_set_faction_known":true})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.team_move_respawn);
+  CHECK(cfg->diag.dress_no_radar_no_known);
+  CHECK(cfg->diag.no_set_faction_known);
+  CHECK_FALSE(cfg->diag.team_self_relation_099);
+
+  errors.clear();
+  cfg = parse_json(R"({"diag":{"team_move_respawn":"yes"}})", &errors);
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.any());
+  CHECK(errors.find("diag.team_move_respawn") != std::string::npos);
+}
+
 TEST_CASE("diag switches (M3-23): the user file layer reads them and an unknown inner key only warns", "[config][diag]") {
   TempDir dir;
   LoadOptions o;

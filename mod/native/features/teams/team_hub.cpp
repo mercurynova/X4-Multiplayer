@@ -98,7 +98,7 @@ std::optional<Pending> TeamHub::poll(bool universe_ready, std::uint64_t universe
     }
   }
   if (!model_.has_baseline() || !universe_ready) return std::nullopt;
-  const Plan plan = model_.plan();
+  const Plan plan = model_.plan(own_value_);
   if (plan.slots.empty()) {
     if (dirty_) dirty_ = false;
     dirty_reason_.clear();
@@ -113,6 +113,7 @@ std::optional<Pending> TeamHub::poll(bool universe_ready, std::uint64_t universe
   }
   Pending p;
   p.plan = plan;
+  p.skip_known = skip_known_;
   p.seq = ++seq_;
   p.reason = new_epoch ? "universe_ready" : (dirty_reason_.empty() ? "teams" : dirty_reason_);
   sent_plan_opt_ = plan;

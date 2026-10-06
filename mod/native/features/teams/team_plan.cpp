@@ -72,12 +72,13 @@ std::string call_text(const Call& c) {
   return {};
 }
 
-std::string plan_json(const Plan& plan, std::uint32_t seq, std::string_view reason) {
+std::string plan_json(const Plan& plan, std::uint32_t seq, std::string_view reason, bool skip_known) {
   json j;
   j["v"] = 1;
   j["seq"] = seq;
   j["reason"] = std::string(reason);
   j["own"] = plan.own_slot;
+  if (skip_known) j["skip_known"] = true;
   j["slots"] = json::array();
   for (const auto s : plan.slots) j["slots"].push_back(static_cast<int>(s));
   j["rel"] = json::array();
@@ -186,7 +187,7 @@ bool TeamModel::apply_frame(std::uint16_t type, std::span<const std::uint8_t> pa
   return false;
 }
 
-Plan TeamModel::plan() const {
+Plan TeamModel::plan(double own_value) const {
   Plan p;
   std::set<std::uint8_t> slots;
   std::map<std::uint8_t, std::uint16_t> team_of_slot;
@@ -205,7 +206,7 @@ Plan TeamModel::plan() const {
   if (own >= 1 && own <= kMaxSlots && slots.count(own) != 0) {
     p.own_slot = own;
     for (const auto s : slots) {
-      p.relations.push_back({0, s, s == own ? kOwnTeamValue : relation_value(relation(own_team_, team_of_slot[s]))});
+      p.relations.push_back({0, s, s == own ? own_value : relation_value(relation(own_team_, team_of_slot[s]))});
     }
   }
   return p;

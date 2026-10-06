@@ -49,6 +49,8 @@ function T.flatten(p)
 		out[#out + 1] = r[2]
 		out[#out + 1] = r[3]
 	end
+	-- M3-28 diag.no_set_faction_known: ONE trailing 1 (the list is then 3 + nSlots + 3 * nRel + 1 long; MD skips set_faction_known)
+	if p.skip_known == true then out[#out + 1] = 1 end
 	return out
 end
 

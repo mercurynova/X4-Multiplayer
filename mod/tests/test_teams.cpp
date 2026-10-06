@@ -241,6 +241,38 @@ TEST_CASE("teams: plan_json is what the Lua side flattens", "[teams]") {
   CHECK(j["rel"][1] == nlohmann::json::array({0, 1, 1.0}));
 }
 
+TEST_CASE("teams (M3-28): diag.team_self_relation_099 writes 0.99 for player <-> own team only; skip_known rides in the payload", "[teams][m328]") {
+  CHECK(own_team_value(false) == 1.0);
+  CHECK(own_team_value(true) == 0.99);
+  TeamModel m;
+  REQUIRE(m.apply_welcome(two_team_welcome()));
+  const Plan def = m.plan();
+  CHECK(def.relations[1] == RelationTriple{0, 1, 1.0});
+  const Plan diag = m.plan(own_team_value(true));
+  REQUIRE(diag.relations.size() == def.relations.size());
+  CHECK(diag.relations[0] == def.relations[0]);                   // team <-> team untouched
+  CHECK(diag.relations[1] == RelationTriple{0, 1, 0.99});         // player <-> own team
+  CHECK(diag.relations[2] == def.relations[2]);                   // player <-> the other team untouched
+  // the call list writes the value in both directions
+  const auto calls = texts(build_calls(diag));
+  CHECK(std::find(calls.begin(), calls.end(), "relation 0 1 0.99") != calls.end());
+  CHECK(std::find(calls.begin(), calls.end(), "relation 1 0 0.99") != calls.end());
+  // payload
+  CHECK_FALSE(nlohmann::json::parse(plan_json(diag, 1, "x")).contains("skip_known"));
+  CHECK(nlohmann::json::parse(plan_json(diag, 1, "x", true))["skip_known"] == true);
+  CHECK(nlohmann::json::parse(plan_json(diag, 1, "x", true))["rel"][1][2] == 0.99);
+}
+
+TEST_CASE("teams hub (M3-28): the diag values reach the pending plan", "[teams][m328]") {
+  TeamHub hub;
+  hub.set_diag(own_team_value(true), true);
+  hub.on_welcome(two_team_welcome());
+  const auto p = hub.poll(true, 1, 0.016);
+  REQUIRE(p);
+  CHECK(p->skip_known);
+  CHECK(p->plan.relations[1] == RelationTriple{0, 1, 0.99});
+}
+
 // ---- hub -------------------------------------------------------------------------------------------------------------------------------
 
 TEST_CASE("teams hub: setup waits for the universe, applies once, re-applies a relation change in the same poll", "[teams]") {

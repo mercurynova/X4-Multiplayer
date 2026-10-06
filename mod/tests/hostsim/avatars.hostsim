@@ -1,6 +1,8 @@
 # M3-11 acceptance: the real DLL is the AUTHORITY, FakeNode bots (--avatars) are the players. Run by avatars_run.ps1
 # (vars: tcp, tcpport, apw, sim, fake, bots, tmp, ckpt_src, ckpt_src2, admin_url, admin_pw).
 # The script plays the Lua/MD side: sector map, team-faction report, MD safe position and dress answers.
+# M3-28: the diag switch under test (docs/in-game-session-4.md "M3-28 map fog experiment"): a team move respawns the avatar instead of re-owning it
+write-file extension/x4mp.json {"diag":{"team_move_respawn":true}}
 init
 set game_time 4000
 world sector add 100003
@@ -48,8 +50,20 @@ lua-raw x4mp.teams_md {"v":1,"data":"R;2;1;0;0;1;1"}
 lua-raw x4mp.teams_md {"v":1,"data":"R;3;1;0;0;1;1"}
 frame 60Hz 60
 
+# ---- M3-28: /x4mp knowledge watch (the chat command arrives as x4mp.knowledge_cmd): MD is asked, its answer is logged as one header line + changed ship lines ----
+lua-raw x4mp.knowledge_cmd {"v":1,"watch":"on"}
+frame 60Hz 20
+expect-lua x4mp.knowledge_watch 3000 json $.max == 12
+lua-raw x4mp.knowledge_md {"v":1,"data":"W;1;321.5;cluster_01_sector001_macro;HSP-001;none;1|AAA-111,x4mp_team_1,1.0,1,0,0,0,1,cluster_01_sector001_macro"}
+frame 60Hz 20
+expect-file extension/logs/x4mp.log knowledge-watch: age=321.5s psector=cluster_01_sector001_macro pship=HSP-001 undisc2km=none ships=1/1
+expect-file extension/logs/x4mp.log knowledge-watch:   AAA-111 own=t1 rel=1.0 radar=1 live=0 gravidar=0 active=0 known=1
+lua-raw x4mp.knowledge_cmd {"v":1,"watch":"off"}
+frame 60Hz 10
+expect-file extension/logs/x4mp.log knowledge-watch: OFF
+
 # ---- bot 1 joins: PlayerShip -> avatar ----
-exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Duration 40 -Out "${tmp}\bot1.txt" -PidFile "${tmp}\bots.pid"
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Duration 55 -Out "${tmp}\bot1.txt" -PidFile "${tmp}\bots.pid"
 frame 60Hz 300
 expect-lua x4mp.avatars_safepos 8000 json $.seq == 1
 lua-raw x4mp.avatars_md {"v":1,"data":"P;1;1;123;45;678"}
@@ -67,6 +81,36 @@ expect-state set_pos_calls > 100
 expect-lua x4mp.avatars_vel 3000
 expect-admin /api/v1/dashboard $.players[name==Bot01].sectorId == 1 timeout=5000
 
+# ---- M3-28: x4mp.json diag.team_move_respawn is set (top of this file): a team move gives exactly ONE avatar, a fresh ship under the new faction ----
+expect-file extension/logs/x4mp.log diag.team_move_respawn is set
+expect-state spawns == 1
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode move -Url "${admin_url}" -Password "${admin_pw}" -PlayerName Bot01 -TeamName "Hostsim Team Two" -Slot 2
+frame 60Hz 120
+expect-lua x4mp.teams_apply 5000
+lua-raw x4mp.teams_md {"v":1,"data":"R;4;1;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;5;1;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;6;1;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;7;1;0;0;2;3"}
+frame 60Hz 300
+expect-file extension/logs/x4mp.log avatars: diag.team_move_respawn: despawned the avatar
+expect-object count == 1 owner=x4mp_team_2
+expect-object count == 0 owner=x4mp_team_1
+expect-state spawns == 2
+expect-state removed == 1
+expect-state owner_calls == 0
+# and back (the rest of this scenario is about team 1)
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode move -Url "${admin_url}" -Password "${admin_pw}" -PlayerName Bot01
+frame 60Hz 120
+expect-lua x4mp.teams_apply 5000
+lua-raw x4mp.teams_md {"v":1,"data":"R;8;1;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;9;1;0;0;2;3"}
+lua-raw x4mp.teams_md {"v":1,"data":"R;10;1;0;0;2;3"}
+frame 60Hz 300
+expect-object count == 1 owner=x4mp_team_1
+expect-object count == 0 owner=x4mp_team_2
+expect-state spawns == 3
+expect-object owner=x4mp_team_1 name == [MP] Bot01
+
 # ---- bot 2: no MD answer for the safe position -> the wanted spot after the timeout ----
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 1 -Prefix Zed -Duration 30 -Out "${tmp}\bot2.txt" -PidFile "${tmp}\bots.pid"
 frame 60Hz 600
@@ -77,7 +121,7 @@ expect-object count == 2 owner=x4mp_team_1
 frame 60Hz 1500
 expect-file extension/logs/x4mp.log stays parked at its pose
 expect-object count == 2 owner=x4mp_team_1
-expect-state spawns == 2
+expect-state spawns == 4
 
 # M3-20: parking sends one zero-velocity hint, and the parked avatars are never repaired while nothing pushes them (30 s)
 expect-lua x4mp.avatars_vel 3000 contains ,0.0,0.0,0.0]
@@ -127,7 +171,7 @@ frame 60Hz 240
 expect-file extension/logs/x4mp.log avatars: 2 avatar record(s) restored
 expect-file extension/logs/x4mp.log avatars: rebound player
 expect-object count == 2 owner=x4mp_team_1
-expect-state spawns == 2
+expect-state spawns == 4
 expect-no-log SpawnObjectAtPos2 failed
 
 # (no Disconnect: the game just ends, as when X4 is closed; the server sees a lost socket and the session goes AuthorityLost for avatars_rejoin.hostsim)

@@ -48,7 +48,7 @@ RegisterEvent("x4mp.ghost_dress", function(_, param)
 		return
 	end
 	G.dressCount = G.dressCount + 1
-	trigger("dress", { lid, p.name, tonumber(p.minhull) or 100 })
+	trigger("dress", { lid, p.name, tonumber(p.minhull) or 100, p.skip_radar_known == true and 1 or 0 })
 end)
 
 -- ---- velocity hints ----------------------------------------------------------------------------------------------

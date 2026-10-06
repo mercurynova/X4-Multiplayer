@@ -114,6 +114,7 @@ struct GhostConfig {
   std::int64_t zero_hint_interval_us = 2'000'000;    // a stationary ghost gets its zero velocity re-sent this often
   std::int64_t parked_set_interval_us = 250'000;     // unchanged pose: re-assert this often (puts a pushed ghost back)
   std::int64_t inert_interval_us = 5'000'000;        // ActivateObject(false) again (m3-plan 4.2)
+  bool inert_once = false;                           // M3-28 diag.avatars_inert_once: ActivateObject(false) only right after the spawn, never re-asserted
   std::int64_t validity_interval_us = 500'000;       // IsValidComponent / wrecked check
   std::int64_t dress_check_delay_us = 2'000'000;     // after a spawn / rename: is the name there? else dress again
   std::int64_t dress_check_interval_us = 5'000'000;

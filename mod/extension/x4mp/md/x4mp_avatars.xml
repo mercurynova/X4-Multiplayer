@@ -7,7 +7,7 @@
   Lua -> MD  AddUITriggeredEvent("X4MP_Avatars", <control>, <list>)
     safepos   { seq, sector, x, y, z, radius }       a safe spot for a ship near (x,y,z) of `sector`: a spawn 300 m from a docked ship landed INSIDE the
                                                    station (session-4 S13.6), get_safe_pos moves it clear of stations, gates and other ships
-    dress     { seq, object, name, min_hull, loadout, basic }   name "[MP] <player>", minimum hull (the avatar cannot die before M5), forced radar,
+    dress     { seq, object, name, min_hull, loadout, basic, skip_radar_known }   name "[MP] <player>", minimum hull (the avatar cannot die before M5), forced radar,
                                                    known, and the EARLY-GAME loadout instead of the spawn default (which is Mk2/Mk3 gear, user note):
                                                    `loadout` = a vanilla loadout id (libraries/loadouts.xml) when the server setting names one,
                                                    else (`basic` = 1) the basic start loadout of the Argon Elite (the vanilla intro start's gear with
@@ -72,8 +72,10 @@
         <do_else>
           <set_object_name object="$Obj" name="$Name"/>
           <set_object_min_hull object="$Obj" exact="$MinHull"/>
-          <set_object_forced_radar_visible object="$Obj" visible="true"/>
-          <set_known object="$Obj" known="true"/>
+          <do_if value="@event.param3.{7} != 1">  <!-- M3-28 diag.dress_no_radar_no_known: 7th element 1 = skip forced radar + known -->
+            <set_object_forced_radar_visible object="$Obj" visible="true"/>
+            <set_known object="$Obj" known="true"/>
+          </do_if>
 
           <set_value name="$Applied" exact="'none'"/>
           <do_if value="$LoadoutId != ''">

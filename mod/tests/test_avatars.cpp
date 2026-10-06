@@ -98,6 +98,11 @@ struct FakeEnv final : IAvatarEnv {
     owners_sent.push_back({n, t, f});
     return true;
   }
+  bool report_active = false;  // M3-28: the fake game offers an isactive read-back
+  std::optional<bool> is_active(std::uint64_t id) override {
+    if (!report_active || !objs.count(id)) return std::nullopt;
+    return objs[id].active;
+  }
   bool valid(std::uint64_t id) override { return objs.count(id) != 0; }
   std::string idcode(std::uint64_t id) override { return objs.count(id) ? objs[id].idcode : ""; }
   bool read_pose(std::uint64_t id, std::uint64_t& sector, Pose& pose) override {
@@ -825,6 +830,137 @@ TEST_CASE("avatars.director: a player moving team re-owns the avatar (M3-18)", "
     CHECK(env.count_owned("x4mp_team_2") == 1);
     CHECK(env.count_owned("x4mp_team_1") == 0);
   }
+}
+
+// ---- M3-28 map fog experiment switches --------------------------------------------------------------------------------------------------------------
+TEST_CASE("avatars.plan (M3-28): inert_reassert_due only throttles with the switch, and needs a read-back that says active", "[avatars][m328]") {
+  CHECK(inert_reassert_due(false, std::nullopt, 10, 9));  // today: the director's 5 s period decides
+  CHECK(inert_reassert_due(false, false, 10, 9));
+  CHECK_FALSE(inert_reassert_due(true, std::nullopt, 1000, 0));  // no read-back: never
+  CHECK_FALSE(inert_reassert_due(true, false, 1000, 0));         // the ship is inactive: nothing to do
+  CHECK_FALSE(inert_reassert_due(true, true, 20, 0));            // active but re-asserted less than 30 s ago
+  CHECK(inert_reassert_due(true, true, 31, 0));
+  CHECK_FALSE(inert_reassert_due(true, true, 40, 31));
+}
+
+TEST_CASE("avatars.director (M3-28): avatars_inert_once stops the 5 s ActivateObject(false) re-assert", "[avatars][m328]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Alice");
+
+  SECTION("default: an avatar pushed active is made inert again within 5 s") {
+    env.objs[id].active = true;
+    run(d, c, 6);
+    CHECK_FALSE(env.objs[id].active);
+  }
+  SECTION("switch on, no read-back: never re-asserted") {
+    d.set_diag({false, true});
+    env.objs[id].active = true;
+    run(d, c, 120);
+    CHECK(env.objs[id].active);
+  }
+  SECTION("switch on with a read-back: re-asserted only after the ship shows active, and at most every 30 s") {
+    d.set_diag({false, true});
+    env.report_active = true;
+    run(d, c, 25);  // inactive: nothing to do
+    CHECK_FALSE(env.objs[id].active);
+    env.objs[id].active = true;
+    run(d, c, 3);  // active, but the last call (spawn) is < 30 s ago
+    CHECK(env.objs[id].active);
+    run(d, c, 10);
+    CHECK_FALSE(env.objs[id].active);
+  }
+}
+
+TEST_CASE("avatars.director (M3-28): team_move_respawn replaces the ship under the new faction at the same pose, one avatar, same net id", "[avatars][m328]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  d.set_diag({true, false});
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Alice");
+  run(d, c, 0.5);
+  REQUIRE(env.spawns_sent.size() == 1);
+  const auto net = env.spawns_sent[0][0].net_id;
+  const auto old_idcode = env.objs[id].idcode;
+  const auto pose = env.objs[id].pose;
+  const auto sector = env.objs[id].sector;
+  const auto spawns_before = env.spawn_calls;
+
+  d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+  run(d, c, 1);
+
+  REQUIRE(env.removed.size() == 1);
+  CHECK(env.removed[0] == id);
+  CHECK(env.spawn_calls == spawns_before + 1);
+  CHECK(env.set_owner_calls == 0);  // never the native re-own
+  CHECK(env.objs.size() == 1);      // exactly one avatar in the world
+  CHECK(env.count_owned("x4mp_team_2") == 1);
+  CHECK(env.count_owned("x4mp_team_1") == 0);
+  const auto& obj = env.objs.begin()->second;
+  CHECK(obj.sector == sector);
+  CHECK(obj.pose.x == pose.x);
+  CHECK(obj.pose.y == pose.y);
+  CHECK(obj.pose.z == pose.z);
+  CHECK_FALSE(obj.active);
+  CHECK(obj.name == "[MP] Alice");  // dressed again
+  CHECK(obj.idcode != old_idcode);
+  CHECK(env.owners_sent.empty());  // no EntityChange: the refreshing EntitySpawn carries the new owner
+  REQUIRE(env.spawns_sent.size() == 2);
+  CHECK(env.spawns_sent[1][0].net_id == net);
+  CHECK(env.spawns_sent[1][0].owner_team == 2);
+  CHECK(env.spawns_sent[1][0].idcode == obj.idcode);
+  const auto views = d.views();
+  REQUIRE(views.size() == 1);
+  CHECK(views[0].rec.team == 2);
+  CHECK(views[0].rec.owner == "x4mp_team_2");
+  CHECK(views[0].rec.idcode == obj.idcode);
+  CHECK(views[0].rec.net_id == net);
+  CHECK(d.stats().team_respawned == 1);
+  CHECK(d.stats().reowned == 0);
+  d.persist_now();
+  const auto rec = records_from_text(env.saved).records.at(0);
+  CHECK(rec.owner == "x4mp_team_2");
+  CHECK(rec.idcode == obj.idcode);
+  // the same roster again does nothing more
+  d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+  run(d, c, 3);
+  CHECK(env.removed.size() == 1);
+  CHECK(env.spawn_calls == spawns_before + 1);
+}
+
+TEST_CASE("avatars.director (M3-28): team_move_respawn that cannot spawn leaves the retry path to bring the avatar back under the new team", "[avatars][m328]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  d.set_diag({true, false});
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  provision(d, env, c, 2, 1, "Alice");
+  env.spawn_fail_budget = 1;
+  d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+  run(d, c, 1);
+  CHECK(env.objs.empty());
+  run(d, c, 4);  // kRetryS later: Wanted -> safe position question
+  REQUIRE_FALSE(env.safe_asks.empty());
+  d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+  run(d, c, 0.5);
+  CHECK(env.objs.size() == 1);
+  CHECK(env.count_owned("x4mp_team_2") == 1);
+}
+
+TEST_CASE("avatars.director (M3-28): without the switch a team move still re-owns natively", "[avatars][m328]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Alice");
+  d.on_roster(roster_with({{2, {"Alice", 2}}}, false));
+  run(d, c, 1);
+  CHECK(env.set_owner_calls == 1);
+  CHECK(env.removed.empty());
+  CHECK(env.objs.count(id) == 1);
 }
 
 // ---- M3-22: which avatars exist in a loaded universe is decided by the loaded SAVE (checkpoint ledger), not by the process or the session id -----------------

@@ -42,6 +42,13 @@ void TeamsFeature::on_init(host::HostContext& ctx) {
   // The MD report, forwarded by ui/x4mp_teams.lua. May arrive on any thread: copy only.
   const bool ok = ctx.platform.subscribe_event("x4mp.teams_md", [inbox](std::string_view text) { inbox->push(text); });
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "teams: bridge verb x4mp.teams_md {}", ok ? "subscribed" : "not available");
+  teams::team_hub().set_diag(teams::own_team_value(ctx.config.diag.team_self_relation_099), ctx.config.diag.no_set_faction_known);
+  if (ctx.config.diag.team_self_relation_099) {
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Warn, "teams: diag.team_self_relation_099 is set: player <-> own team is written as +0.99 instead of +1.0 (M3-28 experiment)");
+  }
+  if (ctx.config.diag.no_set_faction_known) {
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Warn, "teams: diag.no_set_faction_known is set: the team apply skips set_faction_known (M3-28 experiment)");
+  }
 }
 
 void TeamsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
@@ -67,7 +74,7 @@ void TeamsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
 
   const auto before = hub.state();
   if (const auto pending = hub.poll(info.universe_ready, ctx.gates.universe_epoch, info.delta_s)) {
-    const std::string json = teams::plan_json(pending->plan, pending->seq, pending->reason);
+    const std::string json = teams::plan_json(pending->plan, pending->seq, pending->reason, pending->skip_known);
     if (ctx.platform.raise_lua("x4mp.teams_apply", json)) {
       ++counters_.applies;
       std::string slots;

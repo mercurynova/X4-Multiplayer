@@ -243,9 +243,18 @@ function C.handleCommand(cmd, param)
 	elseif cmd == "x4mp" then
 		-- M3-23 diagnostic: "/x4mp knowledge" logs the map-knowledge counts (X4MPDiag, x4mp_diag.lua); other "/x4mp ..." go to the previous function
 		local D = rawget(_G, "X4MPDiag")
-		if trim(param):lower() == "knowledge" and type(D) == "table" and type(D.requestKnowledge) == "function" then
+		local sub = trim(param):lower()
+		if sub == "knowledge" and type(D) == "table" and type(D.requestKnowledge) == "function" then
 			D.requestKnowledge()
 			C.systemLine("Knowledge probe requested: see the line 'knowledge:' in the x4mp log.")
+			return true
+		end
+		-- M3-28: "/x4mp knowledge watch" toggles the live-view watch (lines 'knowledge-watch:' every 2 s), "watch off" / "watch on" set it
+		if (sub == "knowledge watch" or sub == "knowledge watch on" or sub == "knowledge watch off") and type(D) == "table" and type(D.requestWatch) == "function" then
+			local mode = sub:match("(%a+)$")
+			if mode ~= "on" and mode ~= "off" then mode = "toggle" end
+			D.requestWatch(mode)
+			C.systemLine("Knowledge watch " .. mode .. ": see the lines 'knowledge-watch:' in the x4mp log.")
 			return true
 		end
 	end

@@ -190,6 +190,7 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
     j["macro"] = st.macro;
     j["loadout"] = st.loadout;
     j["basic"] = st.basic_loadout;
+    if (ctx->config.diag.dress_no_radar_no_known) j["skip_radar_known"] = true;  // M3-28
     if (!ctx->platform.raise_lua("x4mp.avatars_dress", j.dump())) ctx->log.raw(Cat::Md, Level::Warn, "avatars: x4mp.avatars_dress could not be raised (Lua bridge)");
   }
   void send_velocity(const std::vector<av::VelHint>& hints) override {
@@ -304,6 +305,15 @@ void AvatarsFeature::on_init(host::HostContext& ctx) {
   s.rec_stash = std::make_unique<join::PlatformStash>(ctx.platform, "");
   if (ctx.paths != nullptr && !ctx.paths->dir.empty()) s.records_file = ctx.paths->dir / kRecordsFile;
   s.dir = std::make_unique<av::AvatarDirector>(s);
+  {  // M3-28 diagnostic switches (each logs one WARN while active)
+    av::DirectorDiag dd;
+    dd.team_move_respawn = ctx.config.diag.team_move_respawn;
+    dd.inert_once = ctx.config.diag.avatars_inert_once;
+    s.dir->set_diag(dd);
+    if (dd.team_move_respawn) ctx.log.raw(Cat::Ghost, Level::Warn, "avatars: diag.team_move_respawn is set: a team move despawns and respawns the avatar instead of SetComponentOwner (M3-28 experiment)");
+    if (dd.inert_once) ctx.log.raw(Cat::Ghost, Level::Warn, "avatars: diag.avatars_inert_once is set: ActivateObject(false) on avatars runs at spawn / re-own / rebind only (M3-28 experiment)");
+    if (ctx.config.diag.dress_no_radar_no_known) ctx.log.raw(Cat::Ghost, Level::Warn, "avatars: diag.dress_no_radar_no_known is set: the avatar dress skips forced radar visibility and set_known (M3-28 experiment)");
+  }
 
   // the identity records of an earlier run: the stash first (survives reloads), else the file (survives a game restart)
   std::string text = s.rec_stash->get(kRecordsKey).value_or(std::string{});

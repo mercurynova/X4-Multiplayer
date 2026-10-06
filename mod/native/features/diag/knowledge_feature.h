@@ -53,6 +53,56 @@ struct KnowledgeCounts {
 // The full log line text, starting with "knowledge: ".
 [[nodiscard]] std::string format_knowledge_line(const KnowledgeCounts& c, std::string_view tag);
 
+// ---- M3-28: `/x4mp knowledge watch` (docs/spikes/finding-4-map-fog-analysis.md section 5.2) -------------------------------------------------------
+// Every kWatchPeriodS the feature asks MD for the live-view state of the team ships (x4mp_team_1..8) near the player; the answer is
+//   W;<seq>;<age>;<player sector macro|->;<player ship idcode|->;<undiscovered 2km: x:y:z|none|->;<team ships total>|<ship>|<ship>...
+//   <ship> = <idcode>,<owner faction id>,<relation to the player>,<radar 0|1>,<liveview 0|1>,<gravidar 0|1>,<active 0|1>,<known 0|1>,<sector macro|->
+// and is logged as ONE header line per tick plus one line per ship whose state CHANGED since it was last logged (or every kWatchFullEveryS):
+//   knowledge-watch: age=123.4s psector=cluster_22_sector001 pship=ABC-123 undisc2km=none ships=3/3
+//   knowledge-watch:   DEF-456 own=t1 rel=1.0 radar=1 live=0 gravidar=0 active=0 known=1 sec=cluster_22_sector001
+// radar = isradarvisible, live = isinliveview, gravidar = isgravidarplayeraccessible, active = isactive, known = isknown (libraries/scriptproperties.xml).
+inline constexpr double kWatchPeriodS = 2.0;
+inline constexpr double kWatchFullEveryS = 20.0;     // an unchanged ship is repeated this often
+inline constexpr double kWatchAnswerTimeoutS = 6.0;  // no answer by then: ask again
+inline constexpr double kWatchAutoOffS = 3600.0;     // the watch switches itself off (log size)
+inline constexpr int kWatchMaxShips = 12;
+
+struct WatchShip {
+  std::string idcode, owner, relation, sector;
+  char radar = '-', live = '-', gravidar = '-', active = '-', known = '-';
+};
+struct WatchTick {
+  std::uint32_t seq = 0;
+  double age_s = 0.0;
+  std::string player_sector, player_ship, undiscovered;
+  std::uint32_t total = 0;
+  std::vector<WatchShip> ships;
+};
+// "W;..." -> tick. nullopt when it is not a W message or a field is unreadable.
+[[nodiscard]] std::optional<WatchTick> parse_watch(std::string_view data);
+// The header line + the changed ship lines (all of them when `full`); `last` = idcode -> the state text last logged, updated here. Texts start with "knowledge-watch: ".
+[[nodiscard]] std::vector<std::string> format_watch_lines(const WatchTick& tick, std::map<std::string, std::string>& last, bool full);
+
+// The scheduling of the watch (pure, tested): on/off, one ask per period, never two outstanding asks, auto-off.
+class WatchSchedule {
+ public:
+  [[nodiscard]] bool on() const noexcept { return on_; }
+  void set(bool on, double now_s);  // switching on starts at once
+  // true = ask MD now
+  [[nodiscard]] bool due(double now_s);
+  void asked(double now_s) {
+    outstanding_ = true;
+    asked_at_ = now_s;
+    next_ = now_s + kWatchPeriodS;
+  }
+  void answered() noexcept { outstanding_ = false; }
+
+ private:
+  bool on_ = false;
+  bool outstanding_ = false;
+  double started_ = 0, next_ = 0, asked_at_ = 0;
+};
+
 class KnowledgeHub {
  public:
   using Sender = std::function<void(const std::string& tag)>;
@@ -89,12 +139,21 @@ class KnowledgeFeature final : public host::IFeature {
   struct Inbox;
   void ask(host::HostContext& ctx, const std::string& tag);
   void handle_answer(host::HostContext& ctx, const std::string& text);
+  void handle_watch_answer(host::HostContext& ctx, const std::string& data);
+  void handle_command(host::HostContext& ctx, const std::string& text);
+  void ask_watch(host::HostContext& ctx);
 
   std::shared_ptr<Inbox> inbox_;
   host::HostContext* ctx_ = nullptr;
   std::uint32_t seq_ = 0;
   std::map<std::uint32_t, std::string> pending_;  // seq -> tag
   std::uint32_t answered_ = 0;
+  // M3-28 watch
+  WatchSchedule watch_;
+  double clock_s_ = 0;
+  double last_full_s_ = -1e9;
+  std::uint32_t watch_seq_ = 0;
+  std::map<std::string, std::string> watch_last_;
 };
 
 }  // namespace x4mp::features

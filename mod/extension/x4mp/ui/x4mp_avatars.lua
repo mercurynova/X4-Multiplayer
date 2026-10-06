@@ -5,7 +5,7 @@
 --   native -> Lua  x4mp.avatars_safepos {"v":1,"seq":N,"sector":"<id>","x":..,"y":..,"z":..,"radius":..}
 --                  -> AddUITriggeredEvent("X4MP_Avatars", "safepos", { seq, <sector lua id>, x, y, z, radius })
 --   native -> Lua  x4mp.avatars_dress   {"v":1,"seq":N,"id":"<id>","name":S,"min_hull":P,"macro":S,"loadout":S,"basic":bool}
---                  -> AddUITriggeredEvent("X4MP_Avatars", "dress", { seq, <object lua id>, name, min_hull, loadout, basic(1|0) })
+--                  -> AddUITriggeredEvent("X4MP_Avatars", "dress", { seq, <object lua id>, name, min_hull, loadout, basic(1|0), skip_radar_known(1|0) })
 --   native -> Lua  x4mp.avatars_vel     {"v":1,"h":[["<id>",vx,vy,vz],...]}   (5 Hz)
 --                  -> AddUITriggeredEvent("X4MP_Avatars", "velocity", { n, <lua id>, vx, vy, vz, ... })
 --   MD -> Lua      x4mp.md_avatars <string>   "P;seq;ok;x;y;z" (safe position) or "D;seq;ok;detail" (dressed)
@@ -84,7 +84,7 @@ B.on("avatars_dress", function(p)
 		send("D;" .. seq .. ";0;bad_request")
 		return
 	end
-	local ok, why = toMD("dress", { seq, obj, p.name, p.min_hull, tostring(p.loadout or ""), p.basic and 1 or 0 })
+	local ok, why = toMD("dress", { seq, obj, p.name, p.min_hull, tostring(p.loadout or ""), p.basic and 1 or 0, p.skip_radar_known == true and 1 or 0 })
 	if not ok then send("D;" .. seq .. ";0;" .. tostring(why)) end
 end)
 

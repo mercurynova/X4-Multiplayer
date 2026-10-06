@@ -31,6 +31,7 @@ struct Pending {
   Plan plan;
   std::uint32_t seq = 0;
   std::string reason;  // "universe_ready" | "welcome" | "teams"
+  bool skip_known = false;  // M3-28 diag.no_set_faction_known
 };
 
 struct MdReport {
@@ -54,6 +55,11 @@ class TeamHub {
   void on_welcome(std::span<const std::uint8_t> payload);
   void on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id);
   void session_ended();
+  // M3-28 diag switches: the player <-> own team relation value and whether MD skips set_faction_known. Set once at feature init.
+  void set_diag(double own_value, bool skip_known) {
+    own_value_ = own_value;
+    skip_known_ = skip_known;
+  }
 
   // Feature side. delta_s = frame time since the last call. nullopt = nothing to send.
   [[nodiscard]] std::optional<Pending> poll(bool universe_ready, std::uint64_t universe_epoch, double delta_s);
@@ -78,6 +84,8 @@ class TeamHub {
 
  private:
   TeamModel model_;
+  double own_value_ = kOwnTeamValue;
+  bool skip_known_ = false;
   std::uint16_t self_id_ = 0;
   bool dirty_ = false;
   std::string dirty_reason_;

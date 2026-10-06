@@ -75,5 +75,87 @@
       </actions>
     </cue>
 
+    <!-- M3-28: the live-view watch (`/x4mp knowledge watch`, native features/diag/knowledge_feature.* kWatch*). Read-only.
+         Lua -> MD  AddUITriggeredEvent("X4MP_Diag", "watch", { seq, max })
+         MD -> Lua  'x4mp.md_knowledge' (same path as above):
+           W;<seq>;<age>;<player sector macro|->;<player ship idcode|->;<undiscovered|none|->;<team ships total>|<ship>|<ship>...
+           <ship> = <idcode>,<owner id>,<relation to player>,<radar>,<liveview>,<gravidar>,<active>,<known>,<sector macro|->  (flags 1 / 0)
+         Properties (libraries/scriptproperties.xml): isradarvisible :222, isinliveview :193, isgravidarplayeraccessible :289, isactive :144, isknown :89,
+         relationto.{faction} :94 / :1845, idcode :198, owner :71, sector :40. find_ship ... owner= space="player.galaxy" multiple: md/factionlogic.xml:1020.
+         find_closest_undiscovered_position (libraries/common.xsd:27045, null = nothing undiscovered within range): the position of the player's ship, 2 km. -->
+    <cue name="X4MP_Diag_Watch" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Diag'" control="'watch'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Seq" exact="@event.param3.{1}"/>
+        <set_value name="$Max" exact="@event.param3.{2}"/>
+        <do_if value="not $Max or $Max gt 12">
+          <set_value name="$Max" exact="12"/>
+        </do_if>
+
+        <set_value name="$PSector" exact="'-'"/>
+        <do_if value="@player.sector.exists">
+          <set_value name="$PSector" exact="player.sector.macro.id"/>
+        </do_if>
+        <set_value name="$PShip" exact="'-'"/>
+        <do_if value="@player.occupiedship.exists">
+          <set_value name="$PShip" exact="player.occupiedship.idcode"/>
+        </do_if>
+        <set_value name="$Undisc" exact="'-'"/>
+        <do_if value="@player.sector.exists and @player.occupiedship.exists">
+          <find_closest_undiscovered_position result="$UndiscPos" sector="player.sector" range="2km">
+            <position object="player.occupiedship"/>
+            <rangecenter object="player.occupiedship"/>
+          </find_closest_undiscovered_position>
+          <do_if value="$UndiscPos?">
+            <set_value name="$Undisc" exact="$UndiscPos.x + ':' + $UndiscPos.y + ':' + $UndiscPos.z"/>
+          </do_if>
+          <do_else>
+            <set_value name="$Undisc" exact="'none'"/>
+          </do_else>
+        </do_if>
+
+        <!-- team ships: the ones in the player's sector first, then the rest of the galaxy -->
+        <set_value name="$Facs" exact="[faction.x4mp_team_1, faction.x4mp_team_2, faction.x4mp_team_3, faction.x4mp_team_4, faction.x4mp_team_5, faction.x4mp_team_6, faction.x4mp_team_7, faction.x4mp_team_8]"/>
+        <set_value name="$Here" exact="[]"/>
+        <set_value name="$There" exact="[]"/>
+        <do_for_each name="$Fac" in="$Facs">
+          <find_ship name="$Found" space="player.galaxy" owner="$Fac" multiple="true"/>
+          <do_for_each name="$Ship" in="$Found">
+            <do_if value="@$Ship.sector == @player.sector and @player.sector.exists">
+              <append_to_list name="$Here" exact="$Ship"/>
+            </do_if>
+            <do_else>
+              <append_to_list name="$There" exact="$Ship"/>
+            </do_else>
+          </do_for_each>
+        </do_for_each>
+        <set_value name="$Total" exact="$Here.count + $There.count"/>
+        <set_value name="$Ordered" exact="[]"/>
+        <do_for_each name="$Ship" in="$Here">
+          <append_to_list name="$Ordered" exact="$Ship"/>
+        </do_for_each>
+        <do_for_each name="$Ship" in="$There">
+          <append_to_list name="$Ordered" exact="$Ship"/>
+        </do_for_each>
+
+        <set_value name="$Out" exact="'W;' + $Seq + ';' + player.age + ';' + $PSector + ';' + $PShip + ';' + $Undisc + ';' + $Total"/>
+        <set_value name="$N" exact="0"/>
+        <do_for_each name="$Ship" in="$Ordered">
+          <do_if value="$N lt $Max">
+            <set_value name="$N" operation="add"/>
+            <set_value name="$SecId" exact="'-'"/>
+            <do_if value="@$Ship.sector.exists">
+              <set_value name="$SecId" exact="$Ship.sector.macro.id"/>
+            </do_if>
+            <set_value name="$OwnId" exact="@$Ship.owner.id"/>
+            <set_value name="$Out" exact="$Out + '|' + $Ship.idcode + ',' + $OwnId + ',' + $Ship.relationto.{faction.player} + ',' + (if $Ship.isradarvisible then 1 else 0) + ',' + (if $Ship.isinliveview then 1 else 0) + ',' + (if $Ship.isgravidarplayeraccessible then 1 else 0) + ',' + (if $Ship.isactive then 1 else 0) + ',' + (if $Ship.isknown then 1 else 0) + ',' + $SecId"/>
+          </do_if>
+        </do_for_each>
+        <raise_lua_event name="'x4mp.md_knowledge'" param="$Out"/>
+      </actions>
+    </cue>
+
   </cues>
 </mdscript>
