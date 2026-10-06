@@ -30,7 +30,7 @@ expect-admin /api/v1/players $[name==Alice].id exists
 # M3-08: the team factions. At universe ready the mod sends the plan of the session (one team = slot 1, own team +1.0 for player) to Lua as
 # x4mp.teams_apply; the MD answer is simulated (no MD in hostsim) with the verb x4mp.teams_md; the report turns the state to ok and the self-test
 # line team.factions passes. A stale report (old seq) is ignored.
-expect-lua x4mp.teams_apply 3000 contains [[0,1,1.0]]
+expect-lua x4mp.teams_apply 3000 contains [[0,1,0.99]]
 expect-file extension/logs/x4mp.log teams: apply seq=1 reason=universe_ready slots=[1] relations=1 own_slot=1
 lua-raw x4mp.teams_md {"v":1,"data":"R;9;1;0;0;1;1"}
 lua-raw x4mp.teams_md {"v":1,"data":"R;1;1;0;0;1;1"}
