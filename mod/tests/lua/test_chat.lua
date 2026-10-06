@@ -217,6 +217,22 @@ test("chat: /x4mp knowledge asks the knowledge probe (M3-23); other /x4mp comman
 	eq(#env.raisedNamed("x4mp.knowledge_cmd"), 1)
 end)
 
+test("chat (M3-28): /x4mp knowledge watch toggles, 'watch off' stops, the plain probe is unchanged", function()
+	fresh()
+	env.load("x4mp_diag.lua")
+	ExecuteDebugCommand("x4mp", "knowledge watch")
+	ExecuteDebugCommand("x4mp", "Knowledge Watch Off")
+	ExecuteDebugCommand("x4mp", "knowledge watch on")
+	local sent = env.raisedNamed("x4mp.knowledge_cmd")
+	eq(#sent, 3)
+	t.contains(sent[1], '"watch":"toggle"')
+	t.contains(sent[2], '"watch":"off"')
+	t.contains(sent[3], '"watch":"on"')
+	eq(#env.commands, 0, "the commands were ours")
+	ExecuteDebugCommand("x4mp", "knowledge watch maybe") -- not a watch command: not ours
+	eq(#env.raisedNamed("x4mp.knowledge_cmd"), 3)
+end)
+
 test("chat: /w resolves the player (blanks in names, unique prefix) and refuses unknown names", function()
 	fresh()
 	players({ { id = 1, name = "Me" }, { id = 2, name = "Bob Smith" }, { id = 3, name = "Carol" } }, 1)

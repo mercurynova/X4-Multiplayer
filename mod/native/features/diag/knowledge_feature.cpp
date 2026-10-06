@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -86,6 +87,73 @@ std::string format_knowledge_line(const KnowledgeCounts& c, std::string_view tag
                     " clusters_known=" + std::to_string(c.clusters_known) + "/" + std::to_string(c.clusters) + " samples=[" + samples + "] at='" +
                     std::string(tag) + "' game_age=" + age + "s";
   return out;
+}
+
+// ---- M3-28 watch ---------------------------------------------------------------------------------------------------------------
+std::optional<WatchTick> parse_watch(std::string_view data) {
+  const auto parts = split(data, '|');
+  const auto h = split(parts[0], ';');
+  if (h.size() != 7 || h[0] != "W") return std::nullopt;
+  WatchTick t;
+  if (!to_u32(h[1], t.seq) || !to_double(h[2], t.age_s) || !to_u32(h[6], t.total)) return std::nullopt;
+  t.player_sector = std::string(h[3]);
+  t.player_ship = std::string(h[4]);
+  t.undiscovered = std::string(h[5]);
+  for (std::size_t i = 1; i < parts.size(); ++i) {
+    if (parts[i].empty()) continue;
+    const auto f = split(parts[i], ',');
+    if (f.size() != 9) return std::nullopt;
+    WatchShip s;
+    s.idcode = std::string(f[0]);
+    s.owner = std::string(f[1]);
+    s.relation = std::string(f[2]);
+    s.sector = std::string(f[8]);
+    char* flags[] = {&s.radar, &s.live, &s.gravidar, &s.active, &s.known};
+    for (int k = 0; k < 5; ++k) {
+      const auto v = f[static_cast<std::size_t>(3 + k)];
+      if (v.size() != 1 || (v[0] != '0' && v[0] != '1' && v[0] != '-')) return std::nullopt;
+      *flags[k] = v[0];
+    }
+    t.ships.push_back(std::move(s));
+  }
+  return t;
+}
+
+std::vector<std::string> format_watch_lines(const WatchTick& t, std::map<std::string, std::string>& last, bool full) {
+  std::vector<std::string> out;
+  char age[32];
+  std::snprintf(age, sizeof age, "%.1f", t.age_s);
+  out.push_back(std::string("knowledge-watch: age=") + age + "s psector=" + t.player_sector + " pship=" + t.player_ship + " undisc2km=" + t.undiscovered +
+                " ships=" + std::to_string(t.ships.size()) + "/" + std::to_string(t.total));
+  std::map<std::string, std::string> seen;
+  for (const auto& s : t.ships) {
+    std::string owner = s.owner;
+    if (owner.rfind("x4mp_team_", 0) == 0) owner = "t" + owner.substr(10);
+    const std::string state = std::string(s.idcode) + " own=" + owner + " rel=" + s.relation + " radar=" + s.radar + " live=" + s.live + " gravidar=" + s.gravidar +
+                              " active=" + s.active + " known=" + s.known + " sec=" + s.sector;
+    seen[s.idcode] = state;
+    const auto it = last.find(s.idcode);
+    if (full || it == last.end() || it->second != state) out.push_back("knowledge-watch:   " + state);
+  }
+  last = std::move(seen);  // a ship that left the list is logged again when it comes back
+  return out;
+}
+
+void WatchSchedule::set(bool on, double now_s) {
+  on_ = on;
+  outstanding_ = false;
+  started_ = now_s;
+  next_ = now_s;
+}
+
+bool WatchSchedule::due(double now_s) {
+  if (!on_) return false;
+  if (now_s - started_ >= kWatchAutoOffS) {
+    on_ = false;
+    return false;
+  }
+  if (outstanding_ && now_s - asked_at_ < kWatchAnswerTimeoutS) return false;
+  return now_s >= next_;
 }
 
 // ---- the hub ---------------------------------------------------------------------------------------------------------------------
@@ -189,6 +257,51 @@ void KnowledgeFeature::ask(host::HostContext& ctx, const std::string& tag) {
   }
 }
 
+void KnowledgeFeature::ask_watch(host::HostContext& ctx) {
+  nlohmann::json j;
+  j["v"] = 1;
+  j["seq"] = ++watch_seq_;
+  j["max"] = kWatchMaxShips;
+  watch_.asked(clock_s_);
+  if (!ctx.platform.raise_lua("x4mp.knowledge_watch", j.dump())) {
+    watch_.answered();
+    ctx.log.raw(Cat::Md, Level::Warn, "knowledge-watch: probe not sent (the Lua bridge is not available)");
+  }
+}
+
+void KnowledgeFeature::handle_command(host::HostContext& ctx, const std::string& text) {
+  const auto j = nlohmann::json::parse(text, nullptr, false);
+  std::string watch;
+  if (j.is_object() && j.contains("watch") && j["watch"].is_string()) watch = j["watch"].get<std::string>();
+  if (watch.empty()) {
+    ask(ctx, "chat command /x4mp knowledge");
+    return;
+  }
+  const bool want = watch == "off" ? false : (watch == "on" ? true : !watch_.on());
+  watch_.set(want, clock_s_);
+  watch_last_.clear();
+  last_full_s_ = -1e9;
+  const std::string line = want ? "knowledge-watch: ON (every 2 s; switches itself off after 60 min; type /x4mp knowledge watch again to stop)" : "knowledge-watch: OFF";
+  ctx.log.raw(Cat::Md, Level::Info, line);
+  diag_hub().forward_log(Level::Info, "[knowledge] " + line);
+}
+
+void KnowledgeFeature::handle_watch_answer(host::HostContext& ctx, const std::string& data) {
+  watch_.answered();
+  const auto tick = parse_watch(data);
+  if (!tick) {
+    ctx.log.raw(Cat::Md, Level::Warn, "knowledge-watch: unreadable MD answer (" + data.substr(0, 80) + ")");
+    return;
+  }
+  if (!watch_.on()) return;  // switched off while the question was out
+  const bool full = clock_s_ - last_full_s_ >= kWatchFullEveryS;
+  if (full) last_full_s_ = clock_s_;
+  for (const auto& line : format_watch_lines(*tick, watch_last_, full)) {
+    ctx.log.raw(Cat::Md, Level::Info, line);
+    diag_hub().forward_log(Level::Info, "[knowledge] " + line);
+  }
+}
+
 void KnowledgeFeature::handle_answer(host::HostContext& ctx, const std::string& text) {
   const auto j = nlohmann::json::parse(text, nullptr, false);
   if (j.is_discarded() || !j.is_object() || !j.contains("data") || !j["data"].is_string()) {
@@ -196,6 +309,10 @@ void KnowledgeFeature::handle_answer(host::HostContext& ctx, const std::string& 
     return;
   }
   const std::string data = j["data"].get<std::string>();
+  if (data.rfind("W;", 0) == 0) {
+    handle_watch_answer(ctx, data);
+    return;
+  }
   const auto counts = parse_knowledge(data);
   if (!counts) {
     ctx.log.raw(Cat::Md, Level::Warn, "knowledge: unreadable MD answer (" + data.substr(0, 80) + ")");
@@ -217,16 +334,18 @@ void KnowledgeFeature::on_universe_ready(host::HostContext& ctx) {
   ask(ctx, ctx.gates.universe_ready_after_reload ? "universe ready (after /reloadui)" : "universe ready");
 }
 
-void KnowledgeFeature::on_frame(host::HostContext& ctx, const host::FrameInfo&) {
+void KnowledgeFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
   ctx_ = &ctx;
+  clock_s_ += info.delta_s;
   for (const auto& tag : knowledge_hub().take_queued()) ask(ctx, tag);  // asked before the sender was installed
   for (auto& [verb, text] : inbox_->take()) {
     if (verb == "knowledge_md") {
       handle_answer(ctx, text);
     } else if (verb == "knowledge_cmd") {
-      ask(ctx, "chat command /x4mp knowledge");
+      handle_command(ctx, text);
     }
   }
+  if (watch_.due(clock_s_)) ask_watch(ctx);
 }
 
 }  // namespace x4mp::features

@@ -227,8 +227,23 @@ function H.liveBlockers()
 	return #names > 0 and table.concat(names, ",") or nil
 end
 
+--- M3-28: another menu (the map) can destroy our frame before onCloseElement ran; menu.frames[layer] then holds an id the engine no longer knows and
+--- Helper.clearDataForRefresh -> GetChildren(frame) logs "invalid frame ID" (helper.lua:2418; 14 errors in the sitting 3 authority log). Drop a stale id
+--- first. No IsValidWidgetElement = no signal = nothing is dropped (as before). Returns true when an id was dropped.
+function H.dropStaleFrame(layer)
+	local frames = menu.frames
+	if type(frames) ~= "table" or frames[layer] == nil or type(IsValidWidgetElement) ~= "function" then return false end
+	local ok, valid = pcall(IsValidWidgetElement, frames[layer])
+	if ok and valid ~= true then
+		frames[layer] = nil
+		return true
+	end
+	return false
+end
+
 function menu.display()
 	local cfg = H.config
+	H.dropStaleFrame(cfg.layer)
 	Helper.clearDataForRefresh(menu, cfg.layer)
 	local width = Helper.scaleX(cfg.width)
 	menu.frame = Helper.createFrameHandle(menu, {

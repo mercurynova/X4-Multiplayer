@@ -184,6 +184,55 @@ If every run loses it from `universe ready` on, tell Claude: the next step is co
 
 ---
 
+## M3-28 map fog experiment (Finding 18: the authority's map flips to fog; one PC, sitting-2 setup)
+
+**The problem.** Sitting 3 (Finding 18): the authority's map flips every ~10-17 s between the normal explored view and "the whole sector black except one radar bubble", and in the fog state the bubble sits around ANOTHER ship (probably a remote player's avatar), as if the engine took a team ship for the player's own. Analysis and ranked hypotheses: [spikes/finding-4-map-fog-analysis.md](spikes/finding-4-map-fog-analysis.md). M3-28 adds five **switches** (all off by default) and a **live-view watch** so one operator can find the cause in about 1.5 hours. Setup is the sitting 2 one: real X4 = **authority**, FakeNode wingmen: `powershell -ExecutionPolicy Bypass -File tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 2`, host as `Tester` (section 2.1). The GUI is `http://127.0.0.1:47790`.
+
+**The watch.** Type **`/x4mp knowledge watch`** in the chat window (again to stop; `/x4mp knowledge watch off` also stops; it switches itself off after 60 min). Every 2 s the mod log (`%LocalAppData%\X4MP\logs\x4mp.log`, also the server log as `[knowledge]`) gets one header line and one line per team ship **whose state changed** (all of them every 20 s):
+
+```
+knowledge-watch: age=456.7s psector=cluster_22_sector001 pship=ABC-123 undisc2km=none ships=2/2
+knowledge-watch:   DEF-456 own=t1 rel=1.0 radar=1 live=0 gravidar=0 active=0 known=1 sec=cluster_22_sector001
+```
+
+`psector` / `pship` = your sector and ship (`-` = none, e.g. on the highway); `undisc2km` = the closest undiscovered position within 2 km of your ship (`none` = the area around you counts as discovered; `x:y:z` = a position; `-` = not asked); `ships=shown/total` = team ships listed (max 12, your sector first); per ship: `own` team faction, `rel` relation to you, `radar` isradarvisible, `live` isinliveview, `gravidar` isgravidarplayeraccessible, `active` isactive, `known` isknown, `sec` its sector. `age` is the game clock (the log line's own time is the wall clock). **A flip shows as a changed ship line (and/or `undisc2km` changing) at the time the map flips.** Note the local clock time of every flip.
+
+**Switches** (X4 closed!). Edit `%LocalAppData%\X4MP\x4mp.json` (keep the other keys, e.g. `last_address`) and add ONE key to a `"diag"` object, e.g. `{ "diag": { "team_self_relation_099": true } }`. The log shows `diag.<key> is set` as a warning when active. All keys are true/false, default false.
+
+| Key | What it changes | Hypothesis | If the flip stops = |
+|---|---|---|---|
+| `team_self_relation_099` | the team apply writes **+0.99** instead of +1.0 for you <-> your own team (the read-back check uses the written value) | H1 | +1.0 is the engine's `self` range: team ships were treated as yours |
+| `team_move_respawn` | a team move **despawns the avatar and spawns a fresh one** under the new team at the same pose (same net id; clients see a refreshing spawn) instead of `SetComponentOwner` | H2 | the native re-own leaves stale state |
+| `avatars_inert_once` | `ActivateObject(false)` on avatars and ghosts only at spawn / re-own / load (not every 5 s) | H3 | the periodic inert write toggles the avatar's radar |
+| `dress_no_radar_no_known` | the avatar / ghost dress skips forced radar visibility and `set_known` | H4 | the forced-visible, known avatar is drawn as live view |
+| `no_set_faction_known` | the team apply skips `set_faction_known` | (side path) | the faction-known flag matters |
+
+**Steps.** Window 1: start-fake-clients as above, host as `Tester`, wait for `Starting 2 wingman bot(s)`. Run **step 0 first (no switch)**; then repeat steps 1-5 one switch at a time, each with X4 closed while editing the file (change only that one key). Each run is the same 6 actions:
+
+- **A.** Start X4 and host (same name, it loads the newest checkpoint). Wait until both bots appear (`[MP] Wing01`, `Wing02`).
+- **B.** Fly (gates or highway) to a sector that is **not the start sector**; the bots follow. Wait until they are next to you.
+- **C.** Open the **map** (on that sector). Type `/x4mp knowledge watch`. Watch the map for **90 s** and note the local time of every flip (or screen-record).
+- **D.** GUI **Players**: move **Wing01 to team 2**. Back in X4 watch the map **60 s**, note flips.
+- **E.** GUI **Players**: move Wing01 **back to team 1**. Watch **60 s**, note flips.
+- **F.** `/x4mp knowledge watch` (stops it), quit X4, `powershell -ExecutionPolicy Bypass -File tools\session4\collect-logs.ps1 -Label f18-<run>` (`f18-0`, `f18-1` ...).
+
+| Step | Switch | Stop at the first run where the flips are gone in B-E |
+|---|---|---|
+| 0 | none (reproduce; the watch must show the changing ship line when the map flips) | if it does not flip at all here, tell Claude (it may need the real second player) |
+| 1 | `team_self_relation_099` | |
+| 2 | `avatars_inert_once` | |
+| 3 | `team_move_respawn` (only D and E differ: look at whether the flips start after the first move) | |
+| 4 | `dress_no_radar_no_known` | |
+| 5 | `no_set_faction_known` | |
+
+If one switch stops the flips, send which one (that is the cause; Claude then makes it the default and removes the others). If none does, send all zips: the watch lines still show which flag changes at the flip times. Also grep the game log (`x4mp_s4.log`) for `invalid frame ID`: the HUD fix of this task should make it 0.
+
+**Reset.** Delete the `"diag"` object from `x4mp.json` (or set every key to false) before the next normal session. Nothing else is changed by the experiment (no save format, no server setting).
+
+**Send:** the zips, and for every run the list of local flip times per phase (B, C-E) plus where the bubble was centred in the fog state (on you, on a bot, on nothing).
+
+---
+
 ## Sitting 2: real X4 = authority, FakeNode wingmen (one PC)
 
 **2.0 Start** (window 1): `powershell -ExecutionPolicy Bypass -File tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3` (`-Target` = the name you host with, default `Tester`). It starts the server, uploads the save, creates and starts the session, prints the in-game admin password (`x4mp-host-test`), then **waits until the session runs and your ship exists** before it starts the wingmen (the real authority can only place their avatars next to your ship).

@@ -38,6 +38,17 @@ test("teams_apply becomes one flat list for MD: seq, counts, slots, then triples
 	eq(#env.raisedNamed("x4mp.teams_md"), 0, "no error was reported")
 end)
 
+test("skip_known (M3-28 diag.no_set_faction_known) appends ONE trailing 1; 0.99 is a normal relation value", function()
+	local log = setup()
+	env.fire("x4mp.teams_apply", '{"v":1,"seq":4,"reason":"teams","own":1,"slots":[1,2],"rel":[[0,1,0.99]],"skip_known":true}')
+	local l = log.md[1][3]
+	eq(#l, 3 + 2 + 3 + 1)
+	eq(l[8], 0.99)
+	eq(l[9], 1)
+	env.fire("x4mp.teams_apply", '{"v":1,"seq":5,"reason":"teams","own":1,"slots":[1,2],"rel":[[0,1,1.0]]}')
+	eq(#log.md[2][3], 3 + 2 + 3, "no trailing flag without the switch")
+end)
+
 test("a plan with no relations and one slot is valid", function()
 	local log = setup()
 	env.fire("x4mp.teams_apply", '{"v":1,"seq":1,"slots":[1],"rel":[]}')

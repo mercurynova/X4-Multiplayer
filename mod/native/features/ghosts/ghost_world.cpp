@@ -29,6 +29,7 @@ void GameGhostWorld::place(std::uint64_t id, std::uint64_t sector, const Pose& p
 
 void GameGhostWorld::dress(std::uint64_t id, std::string_view label, int min_hull_percent) {
   nlohmann::json j = {{"v", 1}, {"id", std::to_string(id)}, {"name", std::string(label)}, {"minhull", min_hull_percent}};
+  if (skip_radar_known_) j["skip_radar_known"] = true;
   platform_.raise_lua("x4mp.ghost_dress", j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
 }
 

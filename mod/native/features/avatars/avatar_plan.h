@@ -24,6 +24,14 @@ inline constexpr std::string_view kBasicStarterMacro = "ship_arg_s_fighter_01_a_
 inline constexpr std::string_view kAvatarNamePrefix = "[MP] ";
 inline constexpr std::string_view kTeamFactionPrefix = "x4mp_team_";
 inline constexpr double kDefaultSpawnOffsetM = 300.0;
+// M3-28 diag.avatars_inert_once: ActivateObject(false) on a live avatar is NOT repeated every 5 s. It runs at spawn / re-own / rebind only, plus when a
+// read-back says the ship became active, at most every kInertOnceMinS. `active` = nullopt means "no read-back available": never re-assert.
+inline constexpr double kInertOnceMinS = 30.0;
+[[nodiscard]] inline bool inert_reassert_due(bool inert_once, std::optional<bool> active, double now_s, double last_reassert_s) noexcept {
+  if (!inert_once) return true;  // today's behaviour: the caller's 5 s period decides
+  return active.value_or(false) && now_s - last_reassert_s >= kInertOnceMinS;
+}
+
 inline constexpr int kAvatarMinHullPercent = 100;  // Q11: the avatar cannot be killed before M5 (min hull)
 
 struct Pose {

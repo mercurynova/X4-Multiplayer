@@ -464,7 +464,7 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       g.dress_retries = 0;
       g.dress_check_us = now_us + cfg_.dress_check_delay_us;
     }
-    if (now_us - g.last_inert_us >= cfg_.inert_interval_us) {
+    if (!cfg_.inert_once && now_us - g.last_inert_us >= cfg_.inert_interval_us) {
       g.last_inert_us = now_us;
       world_->make_inert(g.local_id);
     }

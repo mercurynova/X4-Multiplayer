@@ -30,6 +30,8 @@ class GameGhostWorld final : public IGhostWorld {
   void make_inert(std::uint64_t id) override { api_.make_inert(id); }
   void place(std::uint64_t id, std::uint64_t sector, const Pose& pose) override;
   void dress(std::uint64_t id, std::string_view label, int min_hull_percent) override;
+  // M3-28 diag.dress_no_radar_no_known: the MD dress skips set_object_forced_radar_visible and set_known.
+  void set_dress_skip_radar_known(bool skip) noexcept { skip_radar_known_ = skip; }
   void hint_velocities(std::span<const VelocityHint> hints) override;
   void set_owner(std::uint64_t id, std::string_view owner) override;
   bool valid(std::uint64_t id) override { return api_.valid(id); }
@@ -47,6 +49,7 @@ class GameGhostWorld final : public IGhostWorld {
   game::GhostsApi& api_;
   host::IPlatform& platform_;
   std::string velocity_buf_;
+  bool skip_radar_known_ = false;
 };
 
 }  // namespace x4mp::features::ghosts

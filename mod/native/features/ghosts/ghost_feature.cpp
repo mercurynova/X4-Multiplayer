@@ -64,12 +64,21 @@ GhostFeature::~GhostFeature() { ghosts::ghost_hub().detach(); }
 
 void GhostFeature::on_init(host::HostContext& ctx) {
   host::HostLog* log = &ctx.log;
-  core_ = std::make_unique<ghosts::GhostCore>(ghosts::GhostConfig{}, [log](int level, const std::string& text) {
+  ghosts::GhostConfig gcfg{};
+  gcfg.inert_once = ctx.config.diag.avatars_inert_once;
+  core_ = std::make_unique<ghosts::GhostCore>(gcfg, [log](int level, const std::string& text) {
     log->raw(Cat::Ghost, to_level(level), text);
   });
   auto get = [&ctx](const char* name) { return ctx.platform.get_game_function(name); };
   api_ = std::make_unique<game::GhostsApi>(ctx.game, get);
   world_ = std::make_unique<ghosts::GameGhostWorld>(*api_, ctx.platform);
+  world_->set_dress_skip_radar_known(ctx.config.diag.dress_no_radar_no_known);
+  if (ctx.config.diag.avatars_inert_once) {
+    X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag.avatars_inert_once is set: ActivateObject(false) runs once per ghost spawn, never re-asserted (M3-28 experiment)");
+  }
+  if (ctx.config.diag.dress_no_radar_no_known) {
+    X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag.dress_no_radar_no_known is set: the ghost dress skips forced radar visibility and set_known (M3-28 experiment)");
+  }
   core_->driver.bind_world(world_.get());
   stash_ = std::make_unique<join::PlatformStash>(ctx.platform, "");
 

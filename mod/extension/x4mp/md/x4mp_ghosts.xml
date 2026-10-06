@@ -7,7 +7,7 @@
 
   Lua -> MD  AddUITriggeredEvent("X4MP_Ghosts", control, value), value = event.param3 (a Lua table arrives as an MD list, a component
              as the component):
-    dress      [obj, name, minhull]              set_object_name, set_object_min_hull (Q11: indestructible locally until M5),
+    dress      [obj, name, minhull, skip_radar_known]              set_object_name, set_object_min_hull (Q11: indestructible locally until M5),
                                                  forced radar, known. Proven in session-4 sitting 0 (S13.1 / S13.7: name, owner
                                                  x4mp_team_k, radar, min hull held at exactly the set value under fire)
     velocity   [obj, vx, vy, vz, obj, vx, ...]   set_object_velocity (m/s, sector frame): the "mode c" velocity hint at 5 Hz that makes
@@ -39,8 +39,10 @@
         <do_else>
           <set_object_name object="$Obj" name="$Name"/>
           <set_object_min_hull object="$Obj" exact="$MinHull"/>
-          <set_object_forced_radar_visible object="$Obj" visible="true"/>
-          <set_known object="$Obj" known="true"/>
+          <do_if value="@event.param3.{4} != 1">  <!-- M3-28 diag.dress_no_radar_no_known: 4th element 1 = skip forced radar + known -->
+            <set_object_forced_radar_visible object="$Obj" visible="true"/>
+            <set_known object="$Obj" known="true"/>
+          </do_if>
         </do_else>
       </actions>
     </cue>

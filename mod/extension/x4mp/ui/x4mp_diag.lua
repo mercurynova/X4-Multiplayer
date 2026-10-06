@@ -5,6 +5,9 @@
 --   Lua -> native  x4mp.knowledge_md {"v":1,"data":"<string>"}
 --   chat command   "/x4mp knowledge" (x4mp_chat.lua) calls X4MPDiag.requestKnowledge(): Lua -> native x4mp.knowledge_cmd {"v":1}; native asks for a probe.
 --
+--   M3-28: chat command "/x4mp knowledge watch [off]" -> X4MPDiag.requestWatch(): native x4mp.knowledge_cmd {"v":1,"watch":"toggle|on|off"}; native then asks
+--   every 2 s: native -> Lua x4mp.knowledge_watch {"v":1,"seq":N,"max":12} -> MD control "watch" { seq, max }; MD answers 'W;...' via x4mp.md_knowledge.
+--
 -- A diagnostic only; nothing here changes the game.
 --
 -- luacheck: globals X4MPBridge X4MPDiag DebugError RegisterEvent AddUITriggeredEvent
@@ -63,5 +66,23 @@ function D.requestKnowledge()
 	if not ok then log("knowledge command failed: " .. tostring(err)) end
 	return ok
 end
+
+--- M3-28 "/x4mp knowledge watch [on|off]": mode "toggle" | "on" | "off"; native owns the 2 s timer and logs the lines
+function D.requestWatch(mode)
+	if mode ~= "on" and mode ~= "off" then mode = "toggle" end
+	local ok, err = sendRaw("knowledge_cmd", { watch = mode })
+	if not ok then log("knowledge watch command failed: " .. tostring(err)) end
+	return ok
+end
+
+--- native -> MD: one watch question {"v":1,"seq":N,"max":12} -> control "watch" { seq, max } (MD answers 'W;...' through x4mp.md_knowledge)
+RegisterEvent("x4mp.knowledge_watch", function(_, param)
+	local p = B.json.decode(type(param) == "string" and param or "")
+	local seq = type(p) == "table" and tonumber(p.seq) or nil
+	if not seq then return end
+	if type(AddUITriggeredEvent) ~= "function" then return end
+	local ok, err = pcall(AddUITriggeredEvent, D.MD_SCREEN, "watch", { seq, tonumber(p.max) or 12 })
+	if not ok then log("AddUITriggeredEvent watch failed: " .. tostring(err)) end
+end)
 
 log("loaded")

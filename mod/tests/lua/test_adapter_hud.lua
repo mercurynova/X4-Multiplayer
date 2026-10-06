@@ -551,6 +551,26 @@ test("hud: stale entry with no valid frame is forced after blockedMax even when 
 	_G.IsValidWidgetElement = nil
 end)
 
+test("hud (M3-28): display() drops a frame id the engine already destroyed before clearDataForRefresh; a valid one stays", function()
+	hudSetup()
+	status(INGAME)
+	local seen
+	_G.Helper.clearDataForRefresh = function(m, layer) seen = m.frames and m.frames[layer] end
+	local layer = X4MPHud.config.layer
+	X4MPHud.menu.frames = { [layer] = 99 }
+	_G.IsValidWidgetElement = function() return false end
+	X4MPHud.menu.display()
+	eq(seen, nil, "the stale id was dropped before the helper looked at it")
+	X4MPHud.menu.frames = { [layer] = 99 }
+	_G.IsValidWidgetElement = function(f) return f == 99 end
+	X4MPHud.menu.display()
+	eq(seen, 99, "a valid id is left alone")
+	X4MPHud.menu.frames = { [layer] = 99 }
+	_G.IsValidWidgetElement = nil -- no signal: nothing is dropped
+	X4MPHud.menu.display()
+	eq(seen, 99)
+end)
+
 test("hud: notify mode sends one notification per change, never a frame", function()
 	hudSetup({ hudMode = "notify" })
 	status(INGAME)

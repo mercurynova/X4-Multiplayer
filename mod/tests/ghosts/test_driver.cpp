@@ -39,6 +39,24 @@ TEST_CASE("a player ship becomes a dressed, inert ghost under the team faction",
   CHECK(r.driver->counters().spawned == 1);
 }
 
+TEST_CASE("M3-28 inert_once: ActivateObject(false) runs once at the spawn, never re-asserted (default: every 5 s)", "[ghosts][driver][m328]") {
+  {
+    Rig r;
+    r.add(11, circle_track(1000, 150), Rig::info(11, 2, "Pax", 2));
+    r.run(20.0);
+    CHECK(r.world.inert_calls >= 3);  // spawn + the 5 s re-asserts
+  }
+  {
+    GhostConfig cfg;
+    cfg.inert_once = true;
+    Rig r(cfg);
+    r.add(11, circle_track(1000, 150), Rig::info(11, 2, "Pax", 2));
+    r.run(20.0);
+    CHECK(r.world.inert_calls == 1);  // the spawn only
+    CHECK(r.world.objs.begin()->second.inert);
+  }
+}
+
 TEST_CASE("the ghost follows the analytic track (path error well under 2 m)", "[ghosts][driver]") {
   for (const auto& [name, track, bound] : {std::tuple{"circle", circle_track(1500, 250), 0.5}, std::tuple{"line", line_track(300), 0.5},
                                            std::tuple{"accel", accel_track(20, 450), 0.5}}) {

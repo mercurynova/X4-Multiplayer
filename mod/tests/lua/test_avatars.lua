@@ -51,6 +51,13 @@ test("dress: seq, object lua id, name, min hull, loadout, basic flag", function(
 	local a, b = log.md[1][3], log.md[2][3]
 	eq(a[1], 7) eq(a[2], "ID:5001") eq(a[3], "[MP] Alice") eq(a[4], 100) eq(a[5], "") eq(a[6], 1)
 	eq(b[1], 8) eq(b[5], "scenario_basic_fighter") eq(b[6], 0)
+	eq(a[7], 0, "M3-28: radar + known stay on by default")
+end)
+
+test("dress (M3-28): skip_radar_known reaches MD as a 7th element 1", function()
+	local log = setup()
+	env.fire("x4mp.avatars_dress", '{"v":1,"seq":7,"id":"5001","name":"[MP] Alice","min_hull":100,"macro":"m","loadout":"","basic":true,"skip_radar_known":true}')
+	eq(log.md[1][3][7], 1)
 end)
 
 test("dress without a usable id is answered with ok = 0", function()

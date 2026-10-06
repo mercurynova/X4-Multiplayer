@@ -27,6 +27,9 @@ enum class Rel : std::int8_t { Hostile = -1, Neutral = 0, Allied = 1 };  // = Te
 
 inline constexpr double kAlliedValue = 0.75;  // X4 ally band, ADR-016
 inline constexpr double kOwnTeamValue = 1.0;
+// M3-28 diag.team_self_relation_099: 0.99 is inside the ally range (0.5..1.0) but not the engine's `self` range (exactly 1.0, libraries/factions.xml header comment).
+inline constexpr double kOwnTeamValueDiag = 0.99;
+[[nodiscard]] constexpr double own_team_value(bool diag_self_relation_099) noexcept { return diag_self_relation_099 ? kOwnTeamValueDiag : kOwnTeamValue; }
 inline constexpr double kHostileValue = -1.0;
 inline constexpr int kMaxSlots = 8;
 
@@ -69,8 +72,9 @@ struct Call {
 [[nodiscard]] std::vector<Call> build_calls(const Plan& plan);
 // "unlock 1", "activate 2", "known 2", "relation 0 1 1.00", "lock 1" (for logs and tests).
 [[nodiscard]] std::string call_text(const Call& call);
-// The payload of the Lua topic x4mp.teams_apply: {"v":1,"seq":N,"reason":"..","own":S,"slots":[..],"rel":[[a,b,value],..]}
-[[nodiscard]] std::string plan_json(const Plan& plan, std::uint32_t seq, std::string_view reason);
+// The payload of the Lua topic x4mp.teams_apply: {"v":1,"seq":N,"reason":"..","own":S,"slots":[..],"rel":[[a,b,value],..]} plus "skip_known":true
+// only when diag.no_set_faction_known (M3-28) wants MD to skip set_faction_known.
+[[nodiscard]] std::string plan_json(const Plan& plan, std::uint32_t seq, std::string_view reason, bool skip_known = false);
 
 // What the mod knows about the session's teams.
 class TeamModel {
@@ -81,7 +85,8 @@ class TeamModel {
   // TeamTable / TeamRelations / TeamMemberChanged frames; anything else is ignored. true when the model changed.
   bool apply_frame(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id);
 
-  [[nodiscard]] Plan plan() const;
+  // own_value = the player <-> own team relation (kOwnTeamValue; kOwnTeamValueDiag for diag.team_self_relation_099).
+  [[nodiscard]] Plan plan(double own_value = kOwnTeamValue) const;
   [[nodiscard]] std::uint16_t own_team() const noexcept { return own_team_; }
   [[nodiscard]] bool has_baseline() const noexcept { return baseline_; }
   [[nodiscard]] const std::map<std::uint16_t, TeamEntry>& teams() const noexcept { return teams_; }

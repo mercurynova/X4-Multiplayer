@@ -2,6 +2,8 @@
 // returns fixed numbers: the "MD" is the test, which fires the Lua verb x4mp.knowledge_md the way x4mp_diag.lua would).
 
 #include <algorithm>
+#include <cstdio>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -171,6 +173,115 @@ TEST_CASE("knowledge: the chat command asks a probe; an unreadable or unknown an
   CHECK(log.find("at='chat command /x4mp knowledge'") != std::string::npos);
   CHECK(log.find("at='?'") != std::string::npos);
   CHECK(log.find("unreadable") != std::string::npos);
+}
+
+// ---- M3-28 watch --------------------------------------------------------------------------------------------------------------------------------
+namespace {
+const char* kWatchAnswer =
+    "W;%u;456.7;cluster_22_sector001;ABC-123;none;3|DEF-456,x4mp_team_1,1.0,1,0,0,0,1,cluster_22_sector001|GHI-789,x4mp_team_2,0.0,0,1,0,1,1,cluster_04_sector001";
+std::string watch_answer(std::uint32_t seq) {
+  char buf[512];
+  std::snprintf(buf, sizeof buf, kWatchAnswer, seq);
+  return buf;
+}
+}  // namespace
+
+TEST_CASE("knowledge watch: the W answer decodes; damaged answers are refused", "[knowledge][m328]") {
+  const auto t = parse_watch(watch_answer(7));
+  REQUIRE(t);
+  CHECK(t->seq == 7);
+  CHECK(t->age_s == 456.7);
+  CHECK(t->player_sector == "cluster_22_sector001");
+  CHECK(t->player_ship == "ABC-123");
+  CHECK(t->undiscovered == "none");
+  CHECK(t->total == 3);
+  REQUIRE(t->ships.size() == 2);
+  CHECK(t->ships[0].idcode == "DEF-456");
+  CHECK(t->ships[0].owner == "x4mp_team_1");
+  CHECK(t->ships[0].relation == "1.0");
+  CHECK(t->ships[0].radar == '1');
+  CHECK(t->ships[0].live == '0');
+  CHECK(t->ships[1].live == '1');
+  CHECK(t->ships[1].active == '1');
+  CHECK(parse_watch("W;1;1.0;-;-;-;0"));  // no ships is fine
+  CHECK_FALSE(parse_watch("K;1;1.0;-;-;-;0"));
+  CHECK_FALSE(parse_watch("W;1;1.0;-;-;0"));                       // header too short
+  CHECK_FALSE(parse_watch("W;x;1.0;-;-;-;0"));
+  CHECK_FALSE(parse_watch("W;1;1.0;-;-;-;1|A,b,0,1,1,1,1"));      // ship with too few fields
+  CHECK_FALSE(parse_watch("W;1;1.0;-;-;-;1|A,b,0,1,1,1,1,2,s"));   // a flag is 0, 1 or -
+}
+
+TEST_CASE("knowledge watch: one header line per tick, a ship line only when its state changed (or on a full tick)", "[knowledge][m328]") {
+  std::map<std::string, std::string> last;
+  const auto t = *parse_watch(watch_answer(1));
+  auto lines = format_watch_lines(t, last, false);
+  REQUIRE(lines.size() == 3);
+  CHECK(lines[0] == "knowledge-watch: age=456.7s psector=cluster_22_sector001 pship=ABC-123 undisc2km=none ships=2/3");
+  CHECK(lines[1] == "knowledge-watch:   DEF-456 own=t1 rel=1.0 radar=1 live=0 gravidar=0 active=0 known=1 sec=cluster_22_sector001");
+  CHECK(lines[2].find("GHI-789 own=t2 rel=0.0 radar=0 live=1 gravidar=0 active=1 known=1 sec=cluster_04_sector001") != std::string::npos);
+  lines = format_watch_lines(t, last, false);
+  CHECK(lines.size() == 1);  // unchanged: the header only
+  auto t2 = t;
+  t2.ships[0].live = '1';  // the flip we are hunting
+  lines = format_watch_lines(t2, last, false);
+  REQUIRE(lines.size() == 2);
+  CHECK(lines[1].find("DEF-456") != std::string::npos);
+  CHECK(lines[1].find("live=1") != std::string::npos);
+  CHECK(format_watch_lines(t2, last, true).size() == 3);  // a full tick repeats everything
+}
+
+TEST_CASE("knowledge watch: schedule asks once per period, never two outstanding questions, switches itself off", "[knowledge][m328]") {
+  WatchSchedule s;
+  CHECK_FALSE(s.due(0));
+  s.set(true, 10.0);
+  CHECK(s.due(10.0));
+  s.asked(10.0);
+  CHECK_FALSE(s.due(12.5));  // no answer yet, within the timeout
+  s.answered();
+  CHECK_FALSE(s.due(11.0));  // answered, but not due before 2 s
+  CHECK(s.due(12.0));
+  s.asked(12.0);
+  CHECK_FALSE(s.due(15.0));  // outstanding
+  CHECK(s.due(18.5));        // no answer for 6 s: asks again
+  s.set(false, 20.0);
+  CHECK_FALSE(s.due(25.0));
+  s.set(true, 100.0);
+  CHECK(s.due(100.0));
+  CHECK_FALSE(s.due(100.0 + kWatchAutoOffS + 1));
+  CHECK_FALSE(s.on());
+}
+
+TEST_CASE("knowledge watch: the chat verb toggles it, MD is asked every 2 s, answers are logged and forwarded, off stops it", "[knowledge][m328]") {
+  KFixture f;
+  KRig r(f);
+  r.frames(1);
+  const auto asks = [&] { return f.platform.raised_named("x4mp.knowledge_watch").size(); };
+  CHECK(asks() == 0);
+  f.platform.fire("x4mp.knowledge_cmd", R"({"v":1,"watch":"toggle"})");
+  r.frames(1);
+  REQUIRE(asks() == 1);
+  CHECK(nlohmann::json::parse(f.platform.raised_named("x4mp.knowledge_watch")[0])["max"] == kWatchMaxShips);
+  nlohmann::json a;
+  a["v"] = 1;
+  a["data"] = watch_answer(1);
+  f.platform.fire("x4mp.knowledge_md", a.dump());
+  r.frames(1);
+  CHECK(asks() == 1);  // within 2 s: no new question (16 ms frames)
+  r.frames(130);       // > 2 s of frames
+  CHECK(asks() == 2);
+  const std::string log = r.log_text();
+  CHECK(log.find("knowledge-watch: ON") != std::string::npos);
+  CHECK(log.find("knowledge-watch: age=456.7s psector=cluster_22_sector001") != std::string::npos);
+  CHECK(log.find("knowledge-watch:   DEF-456 own=t1") != std::string::npos);
+  CHECK(std::ranges::any_of(f.forwarded, [](const auto& p) { return p.second.find("[knowledge] knowledge-watch: age=456.7s") != std::string::npos; }));
+  f.platform.fire("x4mp.knowledge_cmd", R"({"v":1,"watch":"off"})");
+  r.frames(200);
+  CHECK(asks() == 2);
+  CHECK(r.log_text().find("knowledge-watch: OFF") != std::string::npos);
+  // the plain command is unchanged and the one-shot probe still works with the watch off
+  f.platform.fire("x4mp.knowledge_cmd", R"({"v":1})");
+  r.frames(1);
+  CHECK_FALSE(r.asked_seqs().empty());
 }
 
 TEST_CASE("knowledge: without a Lua bridge the probe says so instead of failing", "[knowledge][m323]") {
