@@ -1,0 +1,55 @@
+# M3-29 (session 4 finding 20), life 2 of the AUTHORITY: the game starts again while the SERVER keeps running and the two bots of avatars_stranded_a.hostsim
+# stay connected. The fresh join is sent the session-start checkpoint (M3-21), which holds no avatars: the director keeps none (M3-22: 0 of 2), the server rolls
+# its world back (M3-25: net ids below 1, host ship + 2 avatars removed). The bots keep flying on their own PCs and never ask again: the server must send
+# their PlayerShip to the new authority, which provisions exactly ONE new avatar for each. Run by avatars_run.ps1 (vars: tcp, apw, sim, ckpt_src3, admin_url, admin_pw).
+world sector add 100003
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_02_sector001_macro=100002,cluster_03_sector001_macro=100003
+init
+set game_time 6000
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-file extension/logs/x4mp.log (roles 3, fresh)
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+expect-lua x4mp.load_save 3000 contains x4mp_
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_stranded_load
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+expect-file extension/logs/x4mp.log 0 of 2 avatar record(s) kept
+
+# the new-authority checkpoint (still no avatar in it)
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 150
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src3}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":6100.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+ship place sector=100001 pos=0,0,0
+seat on
+frame 60Hz 120
+
+# each stranded bot gets exactly one avatar again, within the deadline, with no restart of the bots
+until 60000 expect-object count == 2 owner=x4mp_team_1
+expect-file extension/logs/x4mp.log avatars: PlayerShip from player
+expect-state spawns == 2
+expect-admin /api/v1/dashboard $.entitiesInMirror == 3 timeout=20000
+# a while later: still two (no duplicate from a repeated request) and the mirror agrees
+frame 60Hz 900
+expect-object count == 2 owner=x4mp_team_1
+expect-state spawns == 2
+expect-admin /api/v1/dashboard $.entitiesInMirror == 3
+expect-no-log SpawnObjectAtPos2 failed
+frame 60Hz 30
+expect-no-secret ${apw}
+lua-raw x4mp.disconnect {"v":1}
+shutdown

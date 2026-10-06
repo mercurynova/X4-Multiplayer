@@ -31,6 +31,8 @@ avatar: nobody re-sent their `PlayerShip` / asked the authority to provision the
 authority finishes loading), the server must make the authority provision every online non-authority player whose ship entity is gone
 (re-send their last PlayerShip, or have the client re-announce).
 
+**Status (M3-29): fixed, in-game check pending.** The server re-sends the stranded player's last PlayerShip (pose refreshed from their newest PlayerState) to the next authority once it is in game; the client follows a replaced avatar net id without a new takeover. See docs/m3-plan.md section 8, M3-29.
+
 ## Two-PC run (same day, 16:15-16:47 local; Alice = authority PC A, Bob = client PC B over Tailscale)
 
 Logs: `out/session4/logs-f4-a-*` (PC A), `logs-f4-b-*` (PC B). Both PCs had new machine-tagged identities (M3-24); the old names had to be

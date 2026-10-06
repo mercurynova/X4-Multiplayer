@@ -1,0 +1,46 @@
+# M3-29 (session 4 finding 20), life 1 of the AUTHORITY: the session starts from a plain save and its only checkpoint is the session-start one; two FakeNode
+# bots join AFTER it and get avatars (so no checkpoint lists them). The game then ends without a Disconnect (avatars_stranded_b.hostsim re-hosts while the bots
+# stay connected). Run by avatars_run.ps1 (vars: tcp, apw, sim, fake, bots, tmp, ckpt_src, admin_url, admin_pw).
+world sector add 100003
+world md-emulate on
+world md-sectors cluster_01_sector001_macro=100001,cluster_02_sector001_macro=100002,cluster_03_sector001_macro=100003
+init
+set game_time 4000
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"HostAlice","password":"","admin_password":"${apw}","role":"authority","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+expect-file extension/logs/x4mp.log SessionSaveInfo:
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_authority_e2e
+frame 60Hz 240
+expect-file extension/logs/x4mp.log NodeReady sent
+
+# the session-start checkpoint: the host's ship only, no avatars
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|cluster_02_sector001_macro;cluster_02_sector001_macro|cluster_02_macro|Gate Two|argon|10|0|0|cluster_01_sector001_macro,cluster_03_sector001_macro;cluster_03_sector001_macro|cluster_03_macro|Far Out||20|0|5|cluster_02_sector001_macro"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;3"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_m_fighter_01_a_macro|Hostsim Hawk|HSP-001|cluster_01_sector001_macro|ship_m|player"}
+frame 60Hz 150
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4242.5}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log stored (save
+expect-admin /api/v1/sessions/current $.state == Running timeout=10000
+ship place sector=100001 pos=0,0,0
+seat on
+frame 60Hz 60
+
+# two bots join AFTER the checkpoint (the finding: no later checkpoint exists) and get avatars; they stay connected for the whole run
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${bots}" -Mode start -Fake "${fake}" -Port ${tcpport} -Clients 2 -Prefix Str -Duration 420 -Out "${tmp}\strbots.txt" -PidFile "${tmp}\bots.pid"
+until 60000 expect-object count == 2 owner=x4mp_team_1
+expect-admin /api/v1/dashboard $.entitiesInMirror == 3 timeout=20000
+expect-no-log SpawnObjectAtPos2 failed
+# (no Disconnect: the game just ends, as when X4 is closed)
+frame 60Hz 30
+expect-no-secret ${apw}
+shutdown

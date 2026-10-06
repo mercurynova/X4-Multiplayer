@@ -396,7 +396,7 @@ if ($Steps -contains 'HostSimGhosts') {
 
 if ($Steps -contains 'HostSimAvatars') {
   Invoke-Step 'HostSimAvatars (real x4mp.dll as authority, FakeNode bots as players: avatars, parking, manifest, rebind after a save load)' {
-    Invoke-HostSimScript 'hostsimavatars' 'mod/tests/hostsim/avatars_run.ps1' 300
+    Invoke-HostSimScript 'hostsimavatars' 'mod/tests/hostsim/avatars_run.ps1' 600
   }
 }
 

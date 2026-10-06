@@ -119,7 +119,7 @@ class ITakeoverEnv {
 
 struct TakeoverStats {
   std::uint32_t requests = 0, grants = 0, bound = 0, spawned = 0, spawn_failed = 0, refusals = 0, teleports = 0, guard_resets = 0;
-  std::uint32_t removed = 0, remove_refused = 0, hints = 0, restarts = 0;
+  std::uint32_t removed = 0, remove_refused = 0, hints = 0, restarts = 0, replaced = 0;
 };
 
 class AvatarTakeover {
