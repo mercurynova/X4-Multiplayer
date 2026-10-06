@@ -8,11 +8,13 @@
 #>
 param(
     [Parameter(Mandatory)][ValidateSet('start', 'stop')][string]$Mode,
-    [string]$Fake, [int]$Port, [int]$Clients = 1, [int]$Duration = 60, [string]$Out, [string]$PidFile, [string]$Prefix = 'Bot'
+    [string]$Fake, [int]$Port, [int]$Clients = 1, [int]$Duration = 60, [string]$Out, [string]$PidFile, [string]$Prefix = 'Bot',
+    [switch]$NoAvatars   # an observer: joins and listens, asks for no avatar (M3-25)
 )
 $ErrorActionPreference = 'Stop'
 if ($Mode -eq 'start') {
-    $a = @('swarm', '--server', "127.0.0.1:$Port", '--clients', "$Clients", '--avatars', '--duration', "$Duration", '--name-prefix', $Prefix)
+    $a = @('swarm', '--server', "127.0.0.1:$Port", '--clients', "$Clients", '--duration', "$Duration", '--name-prefix', $Prefix)
+    if (-not $NoAvatars) { $a += '--avatars' }
     $p = Start-Process -FilePath $Fake -ArgumentList $a -PassThru -NoNewWindow -RedirectStandardOutput $Out -RedirectStandardError ($Out + '.err')
     Add-Content -Path $PidFile -Value $p.Id
     Write-Host "avatars_sim: started $Clients bot(s) (pid $($p.Id))"

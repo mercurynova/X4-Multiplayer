@@ -455,6 +455,45 @@ public sealed partial class WorldMirror : ISessionModule
         }
     }
 
+    /// <summary>
+    /// The authority loads a save whose <c>next_net_id</c> was <paramref name="nextNetId"/> (M3-25): every entity with a net id at or above it was
+    /// spawned after that save and is not in it. Removes them like authority despawns (journaled, observers tell the clients, the avatar bindings
+    /// are dropped). Returns how many were removed.
+    /// <para>
+    /// <paramref name="authorityPlayerId"/> (when not 0) also drops the authority player's own ship (a <see cref="EntityOrigin.PlayerShip"/> it owns):
+    /// that ship is not part of any save (the avatars of the manifest are the other players'); a fresh authority self-spawns it again, so the old
+    /// one, even from before the checkpoint, would become a second ship of the same player.
+    /// </para>
+    /// </summary>
+    public int RollbackToNetIdFloor(uint nextNetId, int authorityPlayerId = 0)
+    {
+        List<uint>? stale = null;
+        foreach (var (id, entity) in _entities)
+        {
+            if (id >= nextNetId || (authorityPlayerId != 0 && entity.Origin == EntityOrigin.PlayerShip && entity.OwnerPlayer == authorityPlayerId))
+            {
+                (stale ??= []).Add(id);
+            }
+        }
+
+        if (stale is null)
+        {
+            return 0;
+        }
+
+        stale.Sort();
+        int removed = 0;
+        foreach (uint id in stale)
+        {
+            if (Remove(id, DespawnReason.Removed))
+            {
+                removed++;
+            }
+        }
+
+        return removed;
+    }
+
     /// <summary>Removes an entity (a despawn from the authority). Returns false when the net_id is unknown.</summary>
     public bool Remove(uint netId, DespawnReason reason, uint killerNetId = 0, bool journal = true)
     {

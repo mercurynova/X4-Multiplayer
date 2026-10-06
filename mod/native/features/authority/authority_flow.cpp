@@ -12,6 +12,7 @@
 #include "features/avatars/avatar_hub.h"
 #include "features/chat/chat_json.h"
 #include "features/selfship/selfship_hub.h"
+#include "session_generated.h"
 #include "world_generated.h"
 #include "features/janitor/janitor_feature.h"
 #include "common_generated.h"
@@ -178,6 +179,20 @@ bool AuthorityFlow::send_control(std::uint16_t type, const std::vector<std::uint
 }
 
 bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::span<const std::uint8_t> payload) {
+  if (type == T(P::MsgType::AuthorityAssign)) {
+    // M3-25: the server rolled its world back to the save this game loads; ids from `next_net_id` up are free, every lower one may still be live
+    // (the server's mirror, the clients' ghosts). Only ever raises the counter (a fresh join restarted it at 1).
+    flatbuffers::Verifier v(payload.data(), payload.size());
+    if (!payload.empty() && v.VerifyBuffer<P::AuthorityAssign>(nullptr)) {
+      const auto* a = flatbuffers::GetRoot<P::AuthorityAssign>(payload.data());
+      const std::uint32_t floor = a->next_net_id();
+      if (floor != 0xFFFFFFFFu) {
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: AuthorityAssign: net ids continue from {} (counter was {})", floor, state_.next_net_id);
+        if (floor > 1) reserve_net_ids_above(floor - 1);
+      }
+    }
+    return true;
+  }
   if (type == T(P::MsgType::RequestSave)) {
     const auto req = x4mp::authority::parse_request_save(payload);
     if (!req) return true;
