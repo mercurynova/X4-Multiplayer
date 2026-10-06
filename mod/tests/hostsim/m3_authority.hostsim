@@ -67,6 +67,18 @@ until 240000 expect-file ${sync}/client.pathdone ok timeout=0
 ship place sector=100001 pos=0,0,0 yaw=1.2
 write-file ${sync}/auth.turned ok
 
+# ---- M3-26 turning in place: the same spot, new headings in steps; the client acknowledges each before the next ----
+until 60000 expect-file ${sync}/client.turn0 ok timeout=0
+ship place sector=100001 pos=0,0,0 yaw=-0.8
+write-file ${sync}/auth.turn1 ok
+until 60000 expect-file ${sync}/client.turn1 ok timeout=0
+ship place sector=100001 pos=0,0,0 yaw=2.0
+write-file ${sync}/auth.turn2 ok
+until 60000 expect-file ${sync}/client.turn2 ok timeout=0
+ship place sector=100001 pos=0,0,0 yaw=0.3
+write-file ${sync}/auth.turn3 ok
+until 60000 expect-file ${sync}/client.turn3 ok timeout=0
+
 # ---- chat with the real client and the bots' echo ----
 until 120000 expect-file ${sync}/client.chat ready timeout=0
 until 30000 expect-lua x4mp.chat 0 contains hello from Pia

@@ -8,9 +8,9 @@
 //
 // Sample time = Replication.server_time_us + TIME offset (ms); without TIME the entry stands for server_time_us itself.
 //
-//   * entry WITH a position (kRepPos): emits a pose sample to the sink -> Interpolator::push.
-//   * entry WITHOUT a position (flags / status / velocity only): emits a state update -> Interpolator::apply_state (a pose sample
-//     with a stale position would be a lie). Velocity-only entries are folded into the baseline for the next pose.
+//   * entry with Pos, Rot or Vel (the timed fields): emits a pose sample to the sink -> Interpolator::push. An omitted Pos means "same
+//     as the baseline" (the ship did not move), so a rotation-only entry (a ship turning in place) is a true pose sample (M3-26).
+//   * entry with none of them (flags / status only): emits a state update -> Interpolator::apply_state (no TIME, no pose).
 //
 // Allocation: the baseline table is a sorted vector reserved at construction; the only allocation after that is the first entry of
 // a new net_id beyond the reserve (a spawn, not the per-frame path). decode() itself never allocates.
@@ -32,7 +32,7 @@ namespace x4mp::ghost {
 struct EntityUpdate {
   std::uint32_t net_id = 0;
   std::uint8_t mask = 0;       // wire mask of the entry (which fields were present)
-  bool has_pose = false;       // kRepPos present: `sample` is a full pose sample
+  bool has_pose = false;       // kRepPos, kRepRot or kRepVel present: `sample` is a full pose sample
   Sample sample{};             // merged with the baseline; t_us is the sample time
 };
 
