@@ -141,7 +141,7 @@ TEST_CASE("teams: a welcome with two teams gives slots, the team pair and the pl
   CHECK(p.own_slot == 1);
   REQUIRE(p.relations.size() == 3);
   CHECK(p.relations[0] == RelationTriple{1, 2, -1.0});   // team 1 <-> team 2 hostile
-  CHECK(p.relations[1] == RelationTriple{0, 1, 1.0});    // player <-> own team +1.0
+  CHECK(p.relations[1] == RelationTriple{0, 1, 0.99});   // player <-> own team +0.99 (M3-31: +1.0 is the engine's self range)
   CHECK(p.relations[2] == RelationTriple{0, 2, -1.0});   // player <-> the hostile team
 }
 
@@ -163,7 +163,7 @@ TEST_CASE("teams: a one-team session has one slot and only the own-team value fo
   const Plan p = m.plan();
   CHECK(p.slots == std::vector<std::uint8_t>{1});
   REQUIRE(p.relations.size() == 1);
-  CHECK(p.relations[0] == RelationTriple{0, 1, 1.0});
+  CHECK(p.relations[0] == RelationTriple{0, 1, 0.99});
 }
 
 TEST_CASE("teams: without an own team nothing about player is planned; teams without a slot are ignored", "[teams]") {
@@ -183,7 +183,7 @@ TEST_CASE("teams: the call list unlocks, activates, sets both directions and rel
   REQUIRE(m.apply_welcome(two_team_welcome()));
   const auto calls = texts(build_calls(m.plan()));
   const std::vector<std::string> expected = {"unlock 1",        "unlock 2",        "activate 1",      "known 1",         "activate 2",      "known 2",
-                                             "relation 1 2 -1.00", "relation 2 1 -1.00", "relation 0 1 1.00", "relation 1 0 1.00",
+                                             "relation 1 2 -1.00", "relation 2 1 -1.00", "relation 0 1 0.99", "relation 1 0 0.99",
                                              "relation 0 2 -1.00", "relation 2 0 -1.00", "lock 1",          "lock 2"};
   CHECK(calls == expected);
   for (const auto& c : calls) CHECK(c != "lock 0");
@@ -214,7 +214,7 @@ TEST_CASE("teams: TeamMemberChanged for the own player moves the own team; other
   const Plan p = m.plan();
   CHECK(p.own_slot == 2);
   CHECK(p.relations[1] == RelationTriple{0, 1, -1.0});
-  CHECK(p.relations[2] == RelationTriple{0, 2, 1.0});
+  CHECK(p.relations[2] == RelationTriple{0, 2, 0.99});
 }
 
 TEST_CASE("teams: garbage and unrelated frames are ignored", "[teams]") {
@@ -238,34 +238,36 @@ TEST_CASE("teams: plan_json is what the Lua side flattens", "[teams]") {
   CHECK(j["slots"] == nlohmann::json::array({1, 2}));
   REQUIRE(j["rel"].size() == 3);
   CHECK(j["rel"][0] == nlohmann::json::array({1, 2, -1.0}));
-  CHECK(j["rel"][1] == nlohmann::json::array({0, 1, 1.0}));
+  CHECK(j["rel"][1] == nlohmann::json::array({0, 1, 0.99}));
 }
 
-TEST_CASE("teams (M3-28): diag.team_self_relation_099 writes 0.99 for player <-> own team only; skip_known rides in the payload", "[teams][m328]") {
-  CHECK(own_team_value(false) == 1.0);
-  CHECK(own_team_value(true) == 0.99);
+TEST_CASE("teams (M3-31): player <-> own team is +0.99 by default, diag.team_self_relation_100 brings back +1.0; skip_known rides in the payload", "[teams][m328][m331]") {
+  CHECK(kOwnTeamValue == 0.99);
+  CHECK(kOwnTeamValue < 1.0);  // never the engine's `self` range (exactly 1.0)
+  CHECK(own_team_value(false) == 0.99);
+  CHECK(own_team_value(true) == 1.0);
   TeamModel m;
   REQUIRE(m.apply_welcome(two_team_welcome()));
   const Plan def = m.plan();
-  CHECK(def.relations[1] == RelationTriple{0, 1, 1.0});
-  const Plan diag = m.plan(own_team_value(true));
-  REQUIRE(diag.relations.size() == def.relations.size());
-  CHECK(diag.relations[0] == def.relations[0]);                   // team <-> team untouched
-  CHECK(diag.relations[1] == RelationTriple{0, 1, 0.99});         // player <-> own team
-  CHECK(diag.relations[2] == def.relations[2]);                   // player <-> the other team untouched
+  CHECK(def.relations[1] == RelationTriple{0, 1, 0.99});
+  const Plan old = m.plan(own_team_value(true));
+  REQUIRE(old.relations.size() == def.relations.size());
+  CHECK(old.relations[0] == def.relations[0]);                   // team <-> team untouched
+  CHECK(old.relations[1] == RelationTriple{0, 1, 1.0});          // player <-> own team
+  CHECK(old.relations[2] == def.relations[2]);                   // player <-> the other team untouched
   // the call list writes the value in both directions
-  const auto calls = texts(build_calls(diag));
+  const auto calls = texts(build_calls(def));
   CHECK(std::find(calls.begin(), calls.end(), "relation 0 1 0.99") != calls.end());
   CHECK(std::find(calls.begin(), calls.end(), "relation 1 0 0.99") != calls.end());
   // payload
-  CHECK_FALSE(nlohmann::json::parse(plan_json(diag, 1, "x")).contains("skip_known"));
-  CHECK(nlohmann::json::parse(plan_json(diag, 1, "x", true))["skip_known"] == true);
-  CHECK(nlohmann::json::parse(plan_json(diag, 1, "x", true))["rel"][1][2] == 0.99);
+  CHECK_FALSE(nlohmann::json::parse(plan_json(def, 1, "x")).contains("skip_known"));
+  CHECK(nlohmann::json::parse(plan_json(def, 1, "x", true))["skip_known"] == true);
+  CHECK(nlohmann::json::parse(plan_json(def, 1, "x", true))["rel"][1][2] == 0.99);
 }
 
 TEST_CASE("teams hub (M3-28): the diag values reach the pending plan", "[teams][m328]") {
   TeamHub hub;
-  hub.set_diag(own_team_value(true), true);
+  hub.set_diag(own_team_value(false), true);
   hub.on_welcome(two_team_welcome());
   const auto p = hub.poll(true, 1, 0.016);
   REQUIRE(p);

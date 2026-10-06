@@ -91,11 +91,11 @@ TEST_CASE("Teleport and sector change snap, never interpolate", "[ghost][interp]
   in.push(mk(1150, 100005, 100, 1, 0), 0);
   (void)in.render(1100 * kMs);           // t 1000: first frame (always a snap)
   RenderPose p;
-  for (int ms = 1110; ms <= 1175; ms += 5) {  // t 1010..1075: the last part is between 1050 and the teleport sample -> holds 1050
+  for (int ms = 1110; ms <= 1175; ms += 5) {  // t 1010..1075: the last part is between 1050 and the teleport sample -> holds 1050 (M3-31: the capped extrapolation of it)
     p = in.render(ms * kMs);
     CHECK_FALSE(p.snapped);
   }
-  CHECK(p.pos.x == Approx(5.0).margin(0.5));
+  CHECK(p.pos.x == Approx(7.5).margin(0.5));  // 5 + 100 m/s x 25 ms, the same pose the render showed before the sample arrived
   p = in.render(1210 * kMs);  // t 1110: governed by the teleport sample
   CHECK(p.snapped);
   CHECK(p.pos.x == Approx(100000.0 + 10 * 0.1).margin(1e-6));
@@ -176,4 +176,42 @@ TEST_CASE("delay controller: default 100 ms, adapts to jitter within 80..250 ms,
   DelayController k(cfg);
   for (int i = 0; i < 64; ++i) k.on_sample(1'000'000 + i * 50'000 + (i % 2) * 900'000, 1'000'000 + i * 50'000, 50'000);
   CHECK(k.target_us() == 250'000);
+}
+
+// M3-31 (Finding 18): a long silent gap (a superhighway) followed by a teleport sample in another sector. The render goes stale (hidden) in the gap
+// and must NOT show the old raw sample again before the new one is reached; the move is one snap into the new sector.
+TEST_CASE("a long gap before a sector change stays hidden until the new sample, then snaps once (M3-31)", "[ghost][interp]") {
+  Interpolator in;
+  in.push(mk(1000, 0, 100), 0);
+  in.push(mk(1050, 5, 100), 0);
+  RenderPose p;
+  int snaps = 0;
+  std::uint16_t last_sector = 0;
+  int sector_changes = 0;
+  for (int ms = 1100; ms < 20000; ms += 16) {  // 19 s of silence
+    p = in.render(ms * kMs);
+    if (!p.hidden) {
+      CHECK(p.sector == 1);
+      last_sector = p.sector;
+    }
+  }
+  CHECK(p.hidden);
+  CHECK(p.state == PoseState::Stale);
+  in.push(mk(20000, 900, 100, 2, kTeleport), 0);
+  in.push(mk(20050, 905, 100, 2, 0), 0);
+  for (int ms = 20060; ms < 20400; ms += 16) {  // the new sample arrives while the render is still ~100 ms behind it
+    p = in.render(ms * kMs);
+    if (ms < 20100) {
+      CHECK(p.hidden);  // not the old sample, not the old sector
+      CHECK(p.state == PoseState::Stale);
+    }
+    if (!p.hidden) {
+      snaps += p.snapped ? 1 : 0;
+      CHECK(p.sector == 2);
+      if (last_sector != 0 && p.sector != last_sector) ++sector_changes;
+      last_sector = p.sector;
+    }
+  }
+  CHECK(snaps == 1);
+  CHECK(sector_changes == 1);
 }

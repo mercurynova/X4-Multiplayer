@@ -96,6 +96,26 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
   if (sector_idx == 0) {
     tick.blocked = Blocked::UnknownSector;
     ++counters_.blocked_frames;
+    // M3-31 (Finding 18): inside a superhighway the ship's sector is not in the sector map, so nothing is sent for a long time. Say it ONCE, at the
+    // last known place: the others hide/freeze the ghost or avatar now (no extrapolation, no stale velocity, no hold that later jumps back) and the
+    // first state after the gap is a teleport (the position is unknown for the whole gap).
+    if (sent_any_ && last_sector_idx_ != 0 && (sent_flags_ & ghost::kHidden) == 0) {
+      std::uint16_t flags = static_cast<std::uint16_t>(ghost::kPlayerControlled | ghost::kHidden | (sent_flags_ & ghost::kDocked));
+      if (obs.in_highway) flags |= ghost::kInHighway;
+      tick.out.send = true;
+      tick.out.immediate = true;
+      tick.out.sector = last_sector_idx_;
+      tick.out.flags = flags;
+      tick.out.pos = last_pos_;
+      tick.out.rot = last_rot_;
+      sent_flags_ = flags;
+      sent_sector_ = last_sector_idx_;
+      sent_t_us_ = obs.now_us;
+      next_due_us_ = obs.now_us + cfg_.hidden_interval_us;
+      ++counters_.sent;
+      ++counters_.immediate;
+    }
+    if (sent_any_) pending_teleport_ = true;
     return tick;
   }
 

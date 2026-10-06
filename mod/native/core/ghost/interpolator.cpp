@@ -120,11 +120,46 @@ Interpolator::Raw Interpolator::evaluate(std::int64_t t) const noexcept {
   while (i > 0 && ring_[i].s.t_us > t) --i;  // last sample with t_us <= t
   const Node& a = ring_[i];
 
+  // The pose of sample `i` carried on past its own time: linear extrapolation for at most extrap_cap, then held, stale after stale_us.
+  auto extrapolate = [&](std::size_t idx) {
+    const Node& n0 = ring_[idx];
+    const std::int64_t age = t - n0.s.t_us;
+    fill_static(n0, PoseState::Interpolating);
+    r.represented_t_us = t;
+    if (age <= 0) return;
+    const std::int64_t capped = std::min(age, cfg_.extrap_cap_us);
+    const double cap_s = static_cast<double>(capped) / 1e6;
+    Vec3 vel = n0.s.vel;
+    const bool have_prev_seg = idx >= 1 && !discontinuity(ring_[idx - 1].s, n0.s) && n0.s.t_us > ring_[idx - 1].s.t_us;
+    const double prev_dt_s = have_prev_seg ? static_cast<double>(n0.s.t_us - ring_[idx - 1].s.t_us) / 1e6 : 0.0;
+    // Velocity unknown (the sender gave none on two samples in a row): fall back to the finite difference. A sender that reports
+    // velocity and says it has stopped is believed.
+    if (length(vel) < 1e-9 && have_prev_seg && length(ring_[idx - 1].s.vel) < 1e-9) vel = (n0.s.pos - ring_[idx - 1].s.pos) * (1.0 / prev_dt_s);
+    r.pos = n0.s.pos + vel * cap_s;
+    r.speed = length(vel);
+    if (have_prev_seg) r.rot = quat_to_euler(slerp(ring_[idx - 1].q, n0.q, 1.0 + cap_s / prev_dt_s));
+    if (age > cfg_.stale_us) {
+      r.state = PoseState::Stale;
+      r.vel = {};
+    } else if (age > cfg_.extrap_cap_us) {
+      r.state = PoseState::Held;
+      r.vel = {};
+    } else {
+      r.state = PoseState::Extrapolating;
+      r.vel = vel;
+    }
+    r.represented_t_us = n0.s.t_us + capped;
+  };
+
   if (i + 1 < n_) {
     const Node& b = ring_[i + 1];
     if (discontinuity(a.s, b.s)) {
-      fill_static(a, PoseState::Interpolating);  // hold the earlier sample until the new one is reached, then snap
-      r.represented_t_us = t;
+      // M3-31: hold the earlier sample's pose until the new one is reached, then snap. The hold is the SAME pose the render showed before this
+      // sample arrived (the capped extrapolation, or hidden once stale): going back to the raw earlier sample made a silent gap (a superhighway)
+      // end with a jump back to the old pose and sector before the move to the new one.
+      extrapolate(i);
+      if (r.state == PoseState::Extrapolating) r.state = PoseState::Interpolating;
+      r.vel = {};
       return r;
     }
     const double seg_s = static_cast<double>(b.s.t_us - a.s.t_us) / 1e6;
@@ -145,32 +180,7 @@ Interpolator::Raw Interpolator::evaluate(std::int64_t t) const noexcept {
   }
 
   // Past (or exactly at) the newest sample.
-  const std::int64_t age = t - a.s.t_us;
-  fill_static(a, PoseState::Interpolating);
-  r.represented_t_us = t;
-  if (age <= 0) return r;
-  const std::int64_t capped = std::min(age, cfg_.extrap_cap_us);
-  const double cap_s = static_cast<double>(capped) / 1e6;
-  Vec3 vel = a.s.vel;
-  const bool have_prev_seg = n_ >= 2 && !discontinuity(ring_[n_ - 2].s, a.s) && a.s.t_us > ring_[n_ - 2].s.t_us;
-  const double prev_dt_s = have_prev_seg ? static_cast<double>(a.s.t_us - ring_[n_ - 2].s.t_us) / 1e6 : 0.0;
-  // Velocity unknown (the sender gave none on two samples in a row): fall back to the finite difference. A sender that reports
-  // velocity and says it has stopped is believed.
-  if (length(vel) < 1e-9 && have_prev_seg && length(ring_[n_ - 2].s.vel) < 1e-9) vel = (a.s.pos - ring_[n_ - 2].s.pos) * (1.0 / prev_dt_s);
-  r.pos = a.s.pos + vel * cap_s;
-  r.speed = length(vel);
-  if (have_prev_seg) r.rot = quat_to_euler(slerp(ring_[n_ - 2].q, a.q, 1.0 + cap_s / prev_dt_s));
-  if (age > cfg_.stale_us) {
-    r.state = PoseState::Stale;
-    r.vel = {};
-  } else if (age > cfg_.extrap_cap_us) {
-    r.state = PoseState::Held;
-    r.vel = {};
-  } else {
-    r.state = PoseState::Extrapolating;
-    r.vel = vel;
-  }
-  r.represented_t_us = a.s.t_us + capped;
+  extrapolate(n_ - 1);
   return r;
 }
 

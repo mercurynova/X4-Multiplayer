@@ -55,3 +55,5 @@ sector is not in the sector map`, inside the superhighway) and then `teleport st
 player ship and make it the avatar copy); (18) the authority must move a player's avatar exactly once at a superhighway exit (no sector
 ping-pong between the last known state and extrapolation / velocity hints), plus consider the +0.99 own-team relation so a team ship is
 never the engine's `self` range.
+
+**Finding 18 status (M3-31, 2026-10-06): fix in, in-game check pending.** Authority avatar: no stale velocity hint during a silent gap, one move to the exit sector (no jump back to the old pose / sector), the client sends one Hidden state when its sector leaves the sector map; player <-> own team relation is now +0.99. Script: `docs/in-game-session-4.md` "M3-31 check"; summary: `docs/m3-plan.md` "M3-31".

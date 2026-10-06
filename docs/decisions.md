@@ -209,6 +209,11 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
   **never `player`**, because locking `player` would freeze all of the local player's NPC
   relations. To change a team relation, a node unlocks the team faction, sets the relation,
   then relocks it. Re-verify in spike S11.2. MOD §11.6 follows this.
+- **Correction 2026-10-06 (M3-31, Finding 18):** player <-> **own team** is **+0.99**, not +1.0. +1.0 is the engine's `self` relation range
+  (`libraries/factions.xml` header comment): the map-flip evidence (a team ship briefly `live=1` for the authority's player) says the engine can
+  treat a +1.0 team ship as the player's own. +0.99 is still inside the ally band (0.5..1.0), so colours, docking and "friendly" logic are the same.
+  The MD apply and its read-back use the value of the plan. `x4mp.json` `diag.team_self_relation_100` writes the old +1.0 again (for comparison runs).
+  Team <-> team values are unchanged (Allied +0.75, Neutral 0, Hostile -1.0).
 
 ### ADR-017 Team policy defaults (Consolidation)
 - **Decision:** `JoinMode=Auto`, `AutoAssign=SingleTeam` (everyone co-op, so

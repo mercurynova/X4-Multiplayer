@@ -326,6 +326,55 @@ TEST_CASE("tracker: no state without a sector map, an unknown sector or a pose; 
   CHECK(s.tracker.counters().blocked_frames == 3);
 }
 
+// M3-31 (Finding 18): a superhighway. The ship's sector is not in the map for the whole transit: one Hidden state at the last known place when it
+// starts, nothing during it, then a teleport state in the exit sector (also when the exit is in the sector it entered from).
+TEST_CASE("tracker: an unknown sector after a state sends one Hidden state, then a teleport state on the exit (M3-31)", "[selfship][tracker][m331]") {
+  Sim s;
+  s.run(1.0, 60, [&](double ts) { s.o.pos = {100 + 1500 * ts, 0, 0}; });
+  s.sends.clear();
+  const auto last_pos = s.o.pos;
+  s.o.sector = 424242;  // inside the highway
+  s.o.in_highway = true;
+  s.now += 16 * kMs;
+  auto t = s.step();
+  CHECK(t.blocked == Blocked::UnknownSector);
+  REQUIRE(t.out.send);
+  CHECK(t.out.immediate);
+  CHECK((t.out.flags & gh::kHidden) != 0);
+  CHECK((t.out.flags & gh::kInHighway) != 0);
+  CHECK((t.out.flags & gh::kTeleport) == 0);
+  CHECK(t.out.sector == 1);
+  CHECK(t.out.pos.x == last_pos.x);
+  // 20 s inside: silence
+  s.sends.clear();
+  s.run(20.0, 60, [&](double ts) { s.o.pos = {9000 + 5000 * ts, 0, 0}; });
+  CHECK(s.sends.empty());
+  // the exit: another sector, visible
+  s.o.sector = 2002;
+  s.o.in_highway = false;
+  s.o.pos = {-300, 0, 0};
+  s.now += 16 * kMs;
+  t = s.step();
+  REQUIRE(t.out.send);
+  CHECK((t.out.flags & gh::kTeleport) != 0);
+  CHECK((t.out.flags & gh::kHidden) == 0);
+  CHECK(t.out.sector == 2);
+  // and when the exit is in the sector it entered from, close to the entry: still a teleport (the gap is blind)
+  s.run(2.0, 60, [&](double ts) { s.o.pos = {-300 + 100 * ts, 0, 0}; });
+  s.o.sector = 424242;
+  s.o.in_highway = true;
+  s.now += 16 * kMs;
+  t = s.step();
+  REQUIRE(t.out.send);
+  CHECK((t.out.flags & gh::kHidden) != 0);
+  s.o.sector = 2002;
+  s.o.in_highway = false;
+  s.now += 16 * kMs;
+  t = s.step();
+  REQUIRE(t.out.send);
+  CHECK((t.out.flags & gh::kTeleport) != 0);
+}
+
 TEST_CASE("tracker: force_resend (the link came up) sends a full state at once", "[selfship][tracker]") {
   Sim s;
   s.run(2.0, 60);

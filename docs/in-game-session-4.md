@@ -197,11 +197,11 @@ knowledge-watch:   DEF-456 own=t1 rel=1.0 radar=1 live=0 gravidar=0 active=0 kno
 
 `psector` / `pship` = your sector and ship (`-` = none, e.g. on the highway); `undisc2km` = the closest undiscovered position within 2 km of your ship (`none` = the area around you counts as discovered; `x:y:z` = a position; `-` = not asked); `ships=shown/total` = team ships listed (max 12, your sector first); per ship: `own` team faction, `rel` relation to you, `radar` isradarvisible, `live` isinliveview, `gravidar` isgravidarplayeraccessible, `active` isactive, `known` isknown, `sec` its sector. `age` is the game clock (the log line's own time is the wall clock). **A flip shows as a changed ship line (and/or `undisc2km` changing) at the time the map flips.** Note the local clock time of every flip.
 
-**Switches** (X4 closed!). Edit `%LocalAppData%\X4MP\x4mp.json` (keep the other keys, e.g. `last_address`) and add ONE key to a `"diag"` object, e.g. `{ "diag": { "team_self_relation_099": true } }`. The log shows `diag.<key> is set` as a warning when active. All keys are true/false, default false.
+**Switches** (X4 closed!). Edit `%LocalAppData%\X4MP\x4mp.json` (keep the other keys, e.g. `last_address`) and add ONE key to a `"diag"` object, e.g. `{ "diag": { "avatars_inert_once": true } }`. The log shows `diag.<key> is set` as a warning when active. All keys are true/false, default false.
 
 | Key | What it changes | Hypothesis | If the flip stops = |
 |---|---|---|---|
-| `team_self_relation_099` | the team apply writes **+0.99** instead of +1.0 for you <-> your own team (the read-back check uses the written value) | H1 | +1.0 is the engine's `self` range: team ships were treated as yours |
+| `team_self_relation_100` | **M3-31: +0.99 is now the default** for you <-> your own team (the M3-28 experiment switch `team_self_relation_099` was removed); this switch writes the OLD +1.0 again (the read-back check uses the written value) | H1 | +1.0 is the engine's `self` range: team ships were treated as yours |
 | `team_move_respawn` | a team move **despawns the avatar and spawns a fresh one** under the new team at the same pose (same net id; clients see a refreshing spawn) instead of `SetComponentOwner` | H2 | the native re-own leaves stale state |
 | `avatars_inert_once` | `ActivateObject(false)` on avatars and ghosts only at spawn / re-own / load (not every 5 s) | H3 | the periodic inert write toggles the avatar's radar |
 | `dress_no_radar_no_known` | the avatar / ghost dress skips forced radar visibility and `set_known` | H4 | the forced-visible, known avatar is drawn as live view |
@@ -219,7 +219,7 @@ knowledge-watch:   DEF-456 own=t1 rel=1.0 radar=1 live=0 gravidar=0 active=0 kno
 | Step | Switch | Stop at the first run where the flips are gone in B-E |
 |---|---|---|
 | 0 | none (reproduce; the watch must show the changing ship line when the map flips) | if it does not flip at all here, tell Claude (it may need the real second player) |
-| 1 | `team_self_relation_099` | |
+| 1 | (done: +0.99 is the default since M3-31; `team_self_relation_100` brings back +1.0 for a comparison run) | |
 | 2 | `avatars_inert_once` | |
 | 3 | `team_move_respawn` (only D and E differ: look at whether the flips start after the first move) | |
 | 4 | `dress_no_radar_no_known` | |
@@ -230,6 +230,18 @@ If one switch stops the flips, send which one (that is the cause; Claude then ma
 **Reset.** Delete the `"diag"` object from `x4mp.json` (or set every key to false) before the next normal session. Nothing else is changed by the experiment (no save format, no server setting).
 
 **Send:** the zips, and for every run the list of local flip times per phase (B, C-E) plus where the bubble was centred in the fog state (on you, on a bot, on nothing).
+
+## M3-31 check (Finding 18, superhighway exit; two PCs: Alice = authority, Bob = client)
+
+What changed (build with M3-31): the authority's avatar of a player in a superhighway no longer drifts or jumps back (no stale velocity hint, the pose is held, one move to the exit sector); the client says "hidden" once when its sector leaves the sector map; the player <-> own-team relation is **+0.99** (no longer the engine's `self` +1.0). Use the same setup as the two-PC run (Alice hosts, Bob joins over the VPN, Bob takes over his avatar).
+
+1. Alice opens her **map** on the sector Bob will leave and types `/x4mp knowledge watch`.
+2. Bob rides the **same superhighway** that triggered it (the one in the two-PC run), exits, flies 30 s.
+3. Alice watches the map during and 60 s after the exit. **Expected:** no flip between the explored view and the black-with-one-bubble view; in the watch lines Bob's avatar (`TLH-...`) shows `sec=` changing **once** (old sector -> exit sector), never back and forth; `live=0`; no flashing of Bob's position on four spots.
+4. Colours / relations still right: Bob's avatar is the team colour (green/ally) for Alice, `rel=0.99` in the watch line (was `rel=1`), the faction/ship list shows the team as friendly; an other-team avatar is still hostile/neutral per the GUI.
+5. Alice's log: `avatars:` lines without `repaired the parked avatar` during the ride; Bob's log: `selfship: no state is sent: the ship's sector is not in the sector map` once at the highway entry, `selfship: teleport state, sector N` once at the exit.
+
+Send: both log zips, the watch lines from 20 s before the entry to 60 s after the exit, and whether the map flipped (time).
 
 ---
 
