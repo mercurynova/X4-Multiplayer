@@ -8,7 +8,7 @@
 // Rules (docs/m3-plan.md 4.9):
 //   * team factions: every team with a slot 1..8 in the table is activated;
 //   * team <-> team: one value per pair from the matrix (Allied +0.75, Neutral 0, Hostile -1.0; the default relation for pairs not listed);
-//   * player <-> team: only when the local player's own team is known: +1.0 to the own team, the matrix value own<->other for the rest.
+//   * player <-> team: only when the local player's own team is known: +0.99 to the own team, the matrix value own<->other for the rest.
 //     Without an own team nothing about `player` is touched. `player` is NEVER locked, only the team factions are (ADR-016 correction);
 //   * the call order MD runs (md/x4mp_teams.xml) is build_calls(): unlock every team faction, activate + mark known, set every relation in both
 //     directions, lock every team faction again.
@@ -26,10 +26,12 @@ namespace x4mp::features::teams {
 enum class Rel : std::int8_t { Hostile = -1, Neutral = 0, Allied = 1 };  // = TeamRelation on the wire
 
 inline constexpr double kAlliedValue = 0.75;  // X4 ally band, ADR-016
-inline constexpr double kOwnTeamValue = 1.0;
-// M3-28 diag.team_self_relation_099: 0.99 is inside the ally range (0.5..1.0) but not the engine's `self` range (exactly 1.0, libraries/factions.xml header comment).
-inline constexpr double kOwnTeamValueDiag = 0.99;
-[[nodiscard]] constexpr double own_team_value(bool diag_self_relation_099) noexcept { return diag_self_relation_099 ? kOwnTeamValueDiag : kOwnTeamValue; }
+// M3-31 (ADR-016 correction): player <-> own team is +0.99, the DEFAULT. 0.99 is inside the ally range (0.5..1.0) but not the engine's `self` range
+// (exactly 1.0, libraries/factions.xml header comment): a team ship must never be treated as the player's own (Finding 18, map flips).
+inline constexpr double kOwnTeamValue = 0.99;
+// diag.team_self_relation_100 brings the old value back (the M3-28 experiment switch was the other way round).
+inline constexpr double kOwnTeamValueOld = 1.0;
+[[nodiscard]] constexpr double own_team_value(bool diag_self_relation_100) noexcept { return diag_self_relation_100 ? kOwnTeamValueOld : kOwnTeamValue; }
 inline constexpr double kHostileValue = -1.0;
 inline constexpr int kMaxSlots = 8;
 
@@ -85,7 +87,7 @@ class TeamModel {
   // TeamTable / TeamRelations / TeamMemberChanged frames; anything else is ignored. true when the model changed.
   bool apply_frame(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id);
 
-  // own_value = the player <-> own team relation (kOwnTeamValue; kOwnTeamValueDiag for diag.team_self_relation_099).
+  // own_value = the player <-> own team relation (kOwnTeamValue = 0.99; kOwnTeamValueOld for diag.team_self_relation_100).
   [[nodiscard]] Plan plan(double own_value = kOwnTeamValue) const;
   [[nodiscard]] std::uint16_t own_team() const noexcept { return own_team_; }
   [[nodiscard]] bool has_baseline() const noexcept { return baseline_; }

@@ -310,20 +310,20 @@ TEST_CASE("diag switches (M3-28): the five map fog switches parse in both spelli
   std::string errors;
   auto cfg = parse_json(R"({})", &errors);
   REQUIRE(cfg);
-  CHECK_FALSE(cfg->diag.team_self_relation_099);
+  CHECK_FALSE(cfg->diag.team_self_relation_100);
   CHECK_FALSE(cfg->diag.team_move_respawn);
   CHECK_FALSE(cfg->diag.avatars_inert_once);
   CHECK_FALSE(cfg->diag.dress_no_radar_no_known);
   CHECK_FALSE(cfg->diag.no_set_faction_known);
 
-  cfg = parse_json(R"({"diag":{"team_self_relation_099":true,"avatars_inert_once":true}})", &errors);
+  cfg = parse_json(R"({"diag":{"team_self_relation_100":true,"avatars_inert_once":true}})", &errors);
   REQUIRE(cfg);
   CHECK(errors.empty());
   CHECK(cfg->diag.any());
-  CHECK(cfg->diag.team_self_relation_099);
+  CHECK(cfg->diag.team_self_relation_100);
   CHECK(cfg->diag.avatars_inert_once);
   CHECK_FALSE(cfg->diag.team_move_respawn);
-  CHECK(describe(*cfg).find("diag.team_self_relation_099=true") != std::string::npos);
+  CHECK(describe(*cfg).find("diag.team_self_relation_100=true") != std::string::npos);
   CHECK(describe(*cfg).find("diag.no_set_faction_known=false") != std::string::npos);
 
   cfg = parse_json(R"({"diag.team_move_respawn":true,"diag.dress_no_radar_no_known":true,"diag.no_set_faction_known":true})", &errors);
@@ -332,7 +332,7 @@ TEST_CASE("diag switches (M3-28): the five map fog switches parse in both spelli
   CHECK(cfg->diag.team_move_respawn);
   CHECK(cfg->diag.dress_no_radar_no_known);
   CHECK(cfg->diag.no_set_faction_known);
-  CHECK_FALSE(cfg->diag.team_self_relation_099);
+  CHECK_FALSE(cfg->diag.team_self_relation_100);
 
   errors.clear();
   cfg = parse_json(R"({"diag":{"team_move_respawn":"yes"}})", &errors);

@@ -5,7 +5,7 @@
 
   Lua -> MD  AddUITriggeredEvent("X4MP_Teams", "apply", <list>)   the whole plan as one flat list of numbers (a Lua array becomes an MD list, 1-based):
                { seq, nSlots, nRel, slot_1 .. slot_nSlots, a_1, b_1, v_1, a_2, b_2, v_2, ... }
-             a and b are faction codes: 0 = player, 1..8 = x4mp_team_<n>; v is the relation (+1.0 own team, +0.75 allied, 0 neutral, -1.0 hostile).
+             a and b are faction codes: 0 = player, 1..8 = x4mp_team_<n>; v is the relation (+0.99 own team (M3-31; +1.0 is the engine's self range), +0.75 allied, 0 neutral, -1.0 hostile).
              Every team faction of the session is listed in the slots (the factions are inactive in the library; this activates them).
   MD -> Lua  raise_lua_event 'x4mp.md_teams' <string>, forwarded unchanged to native (verb x4mp.teams_md):
                R;<seq>;<active>;<mismatches>;<player_locked>;<nSlots>;<nRel>    the plan was applied and READ BACK:
@@ -14,7 +14,7 @@
                E;<seq>;<reason>                                                    the payload was not usable (bad_payload)
 
   M3-28 (diag switches of x4mp.json "diag"): a relation value of 0.99 for player <-> own team arrives in the list like any other value
-  (diag.team_self_relation_099, decided natively; the read-back below compares with the written value); ONE trailing 1 after the relations
+  (diag.team_self_relation_100 brings back +1.0, decided natively; the read-back below compares with the written value); ONE trailing 1 after the relations
   (list length 3 + nSlots + 3 * nRel + 1) means diag.no_set_faction_known: step 2 skips set_faction_known.
 
   Order of the calls (native build_calls() lists the same order; ADR-016 unlock-set-relock): 1. unlock every team faction of the plan,

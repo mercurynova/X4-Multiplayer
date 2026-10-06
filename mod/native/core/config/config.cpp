@@ -84,7 +84,7 @@ void apply_diag(DiagConfig& d, const Json& doc, std::string_view source, Diags& 
                                       {"takeover_off", &DiagConfig::takeover_off},
                                       {"ghosts_off", &DiagConfig::ghosts_off},
                                       {"janitor_off", &DiagConfig::janitor_off},
-                                      {"team_self_relation_099", &DiagConfig::team_self_relation_099},
+                                      {"team_self_relation_100", &DiagConfig::team_self_relation_100},
                                       {"team_move_respawn", &DiagConfig::team_move_respawn},
                                       {"avatars_inert_once", &DiagConfig::avatars_inert_once},
                                       {"dress_no_radar_no_known", &DiagConfig::dress_no_radar_no_known},
@@ -147,7 +147,7 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   }
   apply_diag(cfg.diag, doc, source, diags);
   warn_unknown(doc,
-               {"diag", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "diag.team_self_relation_099", "diag.team_move_respawn", "diag.avatars_inert_once",
+               {"diag", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "diag.team_self_relation_100", "diag.team_move_respawn", "diag.avatars_inert_once",
                 "diag.dress_no_radar_no_known", "diag.no_set_faction_known", "server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
                 "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest", "last_address", "last_name"},  // last_*: remembered Join fields (M3-07)
                source, diags);
@@ -304,7 +304,7 @@ std::string describe(const Config& c) {
     out += std::string("diag.takeover_off=") + (c.diag.takeover_off ? "true" : "false") + "\n";
     out += std::string("diag.ghosts_off=") + (c.diag.ghosts_off ? "true" : "false") + "\n";
     out += std::string("diag.janitor_off=") + (c.diag.janitor_off ? "true" : "false") + "\n";
-    out += std::string("diag.team_self_relation_099=") + (c.diag.team_self_relation_099 ? "true" : "false") + "\n";
+    out += std::string("diag.team_self_relation_100=") + (c.diag.team_self_relation_100 ? "true" : "false") + "\n";
     out += std::string("diag.team_move_respawn=") + (c.diag.team_move_respawn ? "true" : "false") + "\n";
     out += std::string("diag.avatars_inert_once=") + (c.diag.avatars_inert_once ? "true" : "false") + "\n";
     out += std::string("diag.dress_no_radar_no_known=") + (c.diag.dress_no_radar_no_known ? "true" : "false") + "\n";

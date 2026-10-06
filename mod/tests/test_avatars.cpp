@@ -117,8 +117,11 @@ struct FakeEnv final : IAvatarEnv {
     if (it == objs.end()) return false;
     it->second.sector = sector;
     it->second.pose = pose;
+    pose_log.push_back({id, sector, pose});
     return true;
   }
+  struct PoseSet { std::uint64_t id; std::uint64_t sector; Pose pose; };
+  std::vector<PoseSet> pose_log;  // every set_pose, in order (M3-31)
   bool remove(std::uint64_t id) override {
     if (id == player_ship || !objs.count(id)) return false;
     objs.erase(id);
@@ -1074,4 +1077,116 @@ TEST_CASE("avatars.director: a loaded save keeps exactly the avatars its checkpo
     CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger);
     CHECK(d.lineage().ledger.back().sha == "c11");
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M3-31 (Finding 18): a superhighway exit. The client sends no state while it is inside the highway (its sector is not in the sector map), then
+// a teleport state in a new sector. The authority's avatar must stop (zero velocity hint, no drift across a sector edge), stay put through the
+// gap and move exactly once to the new sector: no return to the old pose/sector in between.
+TEST_CASE("avatars.director (M3-31): a superhighway gap then a teleport state moves the avatar exactly once", "[avatars][m331]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  const auto push = [&](std::uint16_t sector, std::uint16_t flags, double x) {
+    PlayerStateIn s;
+    s.net_id = net;
+    s.sector = sector;
+    s.flags = flags;
+    s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+    s.pose = {x, 0, 0, 0, 0, 0};
+    d.on_player_state(s, s.sample_time_us);
+  };
+  // flying at 1500 m/s towards the highway ring (20 Hz states), in sector index 1
+  for (int i = 0; i < 180; ++i) {
+    c.t += 1.0 / 60.0;
+    if (i % 3 == 0) push(1, 0, 2000 + 1500.0 * c.t);
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  REQUIRE(env.objs[id].sector == 900);
+  REQUIRE(std::fabs(env.velocities.back().at(0).vx - 1500.0) < 200.0);
+  const Pose entry_pose = env.objs[id].pose;
+
+  // inside the highway: no states at all (the ship's sector is not in the map)
+  const std::size_t gap_start = env.pose_log.size();
+  const std::size_t hints_before = env.velocities.size();
+  run(d, c, 9.0);
+  // the avatar stopped within ~1.2 s: from then on no hint carries a speed
+  for (std::size_t i = hints_before + 6; i < env.velocities.size(); ++i) {
+    for (const auto& h : env.velocities[i]) {
+      CHECK(h.vx == 0);
+      CHECK(h.vy == 0);
+      CHECK(h.vz == 0);
+    }
+  }
+  // it never left the sector and stays near the entry pose (at most the 500 ms extrapolation ahead)
+  for (std::size_t i = gap_start; i < env.pose_log.size(); ++i) {
+    CHECK(env.pose_log[i].sector == 900);
+    CHECK(std::fabs(env.pose_log[i].pose.x - entry_pose.x) < 1000.0);
+  }
+  const Pose held = env.objs[id].pose;
+
+  // the exit: a teleport state in sector index 2, then normal flight
+  const std::size_t exit_start = env.pose_log.size();
+  push(2, x4mp::ghost::kTeleport, 500);
+  for (int i = 0; i < 90; ++i) {
+    c.t += 1.0 / 60.0;
+    if (i % 3 == 0) push(2, 0, 500 + 300.0 * (i / 60.0));
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  CHECK(env.objs[id].sector == 901);
+  int changes = 0;
+  std::uint64_t prev = 900;
+  bool seen_new = false;
+  for (std::size_t i = exit_start; i < env.pose_log.size(); ++i) {
+    if (env.pose_log[i].sector != prev) ++changes;
+    prev = env.pose_log[i].sector;
+    if (env.pose_log[i].sector == 901) {
+      seen_new = true;
+    } else {
+      CHECK_FALSE(seen_new);                                     // never back to the old sector after the move
+      CHECK(std::fabs(env.pose_log[i].pose.x - held.x) < 1.0);  // and until then only the held pose
+    }
+  }
+  CHECK(changes == 1);
+}
+
+TEST_CASE("avatars.director (M3-31): a hidden driven avatar that the game pushed away is put back", "[avatars][m331]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  for (int i = 0; i < 120; ++i) {
+    c.t += 1.0 / 60.0;
+    if (i % 3 == 0) {
+      PlayerStateIn s;
+      s.net_id = net;
+      s.sector = 1;
+      s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+      s.pose = {2000 + 800.0 * c.t, 0, 0, 0, 0, 0};
+      d.on_player_state(s, s.sample_time_us);
+    }
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  // the player goes Hidden (in the highway, sector known): the ship stays
+  PlayerStateIn h;
+  h.net_id = net;
+  h.sector = 1;
+  h.flags = x4mp::ghost::kHidden;
+  h.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+  h.pose = {3600, 0, 0, 0, 0, 0};
+  d.on_player_state(h, h.sample_time_us);
+  run(d, c, 1.0);
+  const Pose held = env.objs[id].pose;
+  // the engine pushes it across the sector edge: it is put back
+  env.objs[id].sector = 901;
+  env.objs[id].pose.x += 900;
+  run(d, c, 2.5);
+  CHECK(env.objs[id].sector == 900);
+  CHECK(std::fabs(env.objs[id].pose.x - held.x) < 3.0);
+  CHECK(d.stats().repairs >= 1);
 }

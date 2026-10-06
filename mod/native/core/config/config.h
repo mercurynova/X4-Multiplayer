@@ -41,13 +41,13 @@ struct DiagConfig {
   bool ghosts_off = false;              // the client spawns no ghosts
   bool janitor_off = false;             // the load-time janitor sweep never removes anything
   // M3-28: the map fog flip experiment (docs/spikes/finding-4-map-fog-analysis.md, docs/in-game-session-4.md "M3-28 map fog experiment").
-  bool team_self_relation_099 = false;   // the team apply writes +0.99 instead of +1.0 for player <-> own team (H1: +1.0 is the engine's `self` relation range)
+  bool team_self_relation_100 = false;   // M3-31: the team apply writes the OLD +1.0 instead of the default +0.99 for player <-> own team (+1.0 is the engine's `self` relation range, Finding 18/H1)
   bool team_move_respawn = false;        // authority: a team move despawns the avatar and spawns a fresh one under the new faction instead of SetComponentOwner (H2)
   bool avatars_inert_once = false;       // ActivateObject(false) on avatars / ghosts only at spawn / re-own / rebind, then only after a read-back shows the ship active (H3)
   bool dress_no_radar_no_known = false;  // the MD dress of avatars and ghosts skips set_object_forced_radar_visible and set_known (H4)
   bool no_set_faction_known = false;     // the team apply skips set_faction_known
   [[nodiscard]] bool any() const {
-    return takeover_keep_original || takeover_off || ghosts_off || janitor_off || team_self_relation_099 || team_move_respawn || avatars_inert_once ||
+    return takeover_keep_original || takeover_off || ghosts_off || janitor_off || team_self_relation_100 || team_move_respawn || avatars_inert_once ||
            dress_no_radar_no_known || no_set_faction_known;
   }
   bool operator==(const DiagConfig&) const = default;

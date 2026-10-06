@@ -179,6 +179,8 @@ verification loop the brief asked for); it is not fine if the agent is going in 
   The words "no sleep-polling loops" were read as allowing single long waits (M3 wave 4, 2026-10-06: nine
   `sleep 270..840` processes). Put this exact line in briefs: **"Never run `sleep` or `Start-Sleep` at all;
   run long commands with run_in_background and wait for the completion notification."**
+- **Never kill processes by name** (`Stop-Process -Name`, `taskkill /IM`): other agents and the lead run tests on the same machine
+  (M3-31, 2026-10-06, killed the lead's running e2e). Stop only the process ids you started. Put this line in every brief.
 - Record the reason for any run over ~1 hour in the wave status note in roadmap.md
   (what took the time, whether it was needed), so we can tune briefs.
 

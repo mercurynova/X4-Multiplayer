@@ -54,6 +54,7 @@ struct AvatarDirector::Avatar {
   double next_snap = 0;
   VelHint last_hint{};
   bool hint_nonzero = false;
+  bool holding = false;               // M3-31: driven avatar currently not moved (hidden / stale): repaired like a parked one when something pushes it
   bool zero_pending = false;          // M3-20: one zero-velocity hint is owed (parked, suspended, snapped back): the inert ship keeps its last velocity otherwise
   std::string waiting;                // why a spawn waits (logged when it changes)
   std::uint32_t dress_seq = 0;
@@ -676,6 +677,7 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
   if (rp.state == ghost::PoseState::Empty) return;
   if (rp.hidden) {  // on foot / docked inside / superhighway transit / stale: the ship stays where it is
     av.vel.sample(now_s_, 0, 0, 0, true);
+    av.holding = true;  // M3-31: and stays there (zero velocity hint, put back if the game moves it across a sector edge)
     return;
   }
   if (av.cached_index != rp.sector || av.cached_index_id == 0) {
@@ -695,12 +697,16 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
   p.pitch = rp.rot.pitch;
   p.roll = rp.rot.roll;
   const bool sector_changed = sector != av.sector_id;
+  // M3-31 (Finding 18): the velocity hint follows what is RENDERED, every frame. It used to be fed only when a pose was set, so a held avatar (no
+  // state for > 500 ms: the interpolator holds the pose) kept its last flight speed for seconds (decaying 25 % per 250 ms re-assert): the game kept
+  // flying the inert ship, across the sector edge near a superhighway ring, and the next set_pose put it back = a sector ping-pong.
+  av.vel.sample(now_s_, p.x, p.y, p.z, rp.snapped || sector_changed || rp.state == ghost::PoseState::Held || rp.state == ghost::PoseState::Early);
   const bool same = av.have_last_set && !sector_changed && distance_m(p, av.last_set) < 1e-4 && p.yaw == av.last_set.yaw && p.pitch == av.last_set.pitch &&
                     p.roll == av.last_set.roll;
   if (same && now_s_ - av.last_set_s < kIdleReassertS) return;
   if (!env_.set_pose(av.local_id, sector, p)) return;
   ++stats_.set_pose_calls;
-  av.vel.sample(now_s_, p.x, p.y, p.z, rp.snapped || sector_changed);
+  av.holding = false;
   av.last_set = p;
   av.have_last_set = true;
   av.last_set_s = now_s_;
@@ -728,7 +734,7 @@ void AvatarDirector::maintain(Avatar& av) {
       ++stats_.respawned;
       return;
     }
-    if (!av.rec.online || av.suspended) {  // parked: snap back when something pushed it
+    if (!av.rec.online || av.suspended || av.holding) {  // parked (or driven but hidden, M3-31): snap back when something pushed it
       std::uint64_t sec = 0;
       Pose p;
       if (env_.read_pose(av.local_id, sec, p) && av.sector_id != 0 && (sec != av.sector_id || distance_m(p, av.rec.pose) > kParkedSnapM)) {
@@ -803,18 +809,22 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
         av.hint_nonzero = false;
         continue;
       }
+      const bool zero_owed = av.zero_pending;  // a repaired hidden avatar (M3-31)
       av.zero_pending = false;
       if (av.vel.valid()) {
         const auto v = av.vel.velocity();
         const double sp = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        if (sp > 0.05) {
+        if (zero_owed && sp <= 0.05) {
+          hints.push_back({av.local_id, 0, 0, 0});
+          av.hint_nonzero = false;
+        } else if (sp > 0.05) {
           hints.push_back({av.local_id, v.x, v.y, v.z});
           av.hint_nonzero = true;
         } else if (av.hint_nonzero) {
           hints.push_back({av.local_id, 0, 0, 0});
           av.hint_nonzero = false;
         }
-      } else if (av.hint_nonzero) {
+      } else if (av.hint_nonzero || zero_owed) {
         hints.push_back({av.local_id, 0, 0, 0});
         av.hint_nonzero = false;
       }
