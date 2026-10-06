@@ -136,3 +136,62 @@ TEST_CASE("StreamSet: replication drives an interpolator end to end", "[ghost][r
   CHECK(set.size() == 0);
   CHECK(set.decoder().tracked() == 1);  // only 99's baseline is left
 }
+
+TEST_CASE("decode: a rotation-only entry (turning in place) is a pose sample with the baseline position", "[ghost][replication][m3-26]") {
+  ReplicationDecoder dec;
+  std::vector<EntityUpdate> out;
+  auto sink = [&](const EntityUpdate& u) { out.push_back(u); };
+  const auto first = encode({full(11, 1000.0, 0)});
+  REQUIRE(dec.decode(1'000'000, wire::ByteSpan(first), 1, sink).has_value());
+
+  wire::ReplicationEntry rot_only;  // ROT and TIME, no POS: the ship has not moved
+  rot_only.net_id = 11;
+  rot_only.mask = wire::kRepRot | wire::kRepTime;
+  rot_only.yaw = *wire::quantize_rotation(1.2);
+  rot_only.pitch = *wire::quantize_rotation(0.1);
+  rot_only.roll = *wire::quantize_rotation(-0.2);
+  rot_only.time_ms = -10;
+  wire::ReplicationEntry vel_only;  // the ship stopped: VEL and TIME
+  vel_only.net_id = 11;
+  vel_only.mask = wire::kRepVel | wire::kRepTime;
+  vel_only.time_ms = 0;
+  const auto second = encode({rot_only, vel_only});
+  out.clear();
+  REQUIRE(dec.decode(2'000'000, wire::ByteSpan(second), 2, sink).has_value());
+  REQUIRE(out.size() == 2);
+  CHECK(out[0].has_pose);
+  CHECK(out[0].sample.rot.yaw == Approx(1.2).margin(1e-4));
+  CHECK(out[0].sample.pos.x == Approx(1000.0).margin(0.02));  // baseline
+  CHECK(out[0].sample.t_us == 2'000'000 - 10'000);
+  CHECK(out[1].has_pose);
+  CHECK(out[1].sample.vel.x == Approx(0.0).margin(0.01));
+}
+
+TEST_CASE("StreamSet: a ship turning in place shows each new heading within the display delay", "[ghost][replication][m3-26]") {
+  StreamSet set;
+  set.ensure(11);
+  // keyframe at t = 1 s, then silence (the ship is still), then rotation-only entries
+  auto kf = full(11, 1000.0, 0);
+  kf.vel_x = 0;
+  const auto k = encode({kf});
+  REQUIRE(set.ingest(1'000'000, wire::ByteSpan(k), 1, 1'020'000).has_value());
+  wire::ReplicationEntry r;
+  r.net_id = 11;
+  r.mask = wire::kRepRot | wire::kRepTime;
+  r.pitch = kf.pitch;
+  r.roll = kf.roll;
+  r.time_ms = 0;
+  double yaw = 0.5;
+  std::int64_t t = 4'000'000;
+  Interpolator* in = set.find(11);
+  REQUIRE(in != nullptr);
+  for (int step = 0; step < 3; ++step, t += 1'000'000) {
+    yaw += 0.7;
+    r.yaw = *wire::quantize_rotation(yaw);
+    const auto buf = encode({r});
+    REQUIRE(set.ingest(static_cast<std::uint64_t>(t), wire::ByteSpan(buf), 1, t + 20'000).has_value());
+    const RenderPose p = in->render(t + 300'000);  // past the display delay (cap 250 ms) after the sample
+    CHECK(p.rot.yaw == Approx(yaw).margin(0.15));  // (the 1 s test steps leave a little rate extrapolation; the bug showed the old heading)
+    CHECK(p.pos.x == Approx(1000.0).margin(0.05));
+  }
+}

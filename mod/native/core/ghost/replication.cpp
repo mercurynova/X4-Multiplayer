@@ -44,7 +44,10 @@ void ReplicationDecoder::merge(std::uint64_t server_time_us, const wire::Replica
 
   out.net_id = e.net_id;
   out.mask = e.mask;
-  out.has_pose = (e.mask & wire::kRepPos) != 0;
+  // Pos, Rot and Vel are the time-dependent fields (the server sends TIME with them). An entry that carries one of them is a pose sample even
+  // without Pos: an omitted Pos means "equal to the baseline", i.e. the ship has not moved, so the baseline position is exactly right
+  // (M3-26: a ship turning in place sends Rot-only entries; treating them as state-only left the ghost's heading frozen until a keyframe).
+  out.has_pose = (e.mask & (wire::kRepPos | wire::kRepRot | wire::kRepVel)) != 0;
   out.sample = s;
 }
 

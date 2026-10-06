@@ -73,10 +73,26 @@ expect-ghost ${host} err_max < 25 timeout=0
 # client renders carries that yaw, read back from the fake world in radians (the mod wrote it in degrees like the real game) ----
 write-file ${sync}/client.pathdone ok
 until 120000 expect-file ${sync}/auth.turned ok timeout=0
-# (the ghost keeps circling until the new yaw arrives: let it settle, then check both bounds)
-frame 60Hz 300
-expect-object "name=[MP] ${host}" yaw > 1.15
-expect-object "name=[MP] ${host}" yaw < 1.25
+# (the ghost keeps circling until the new yaw arrives: wait for the heading with a deadline instead of a fixed frame count; M3-26 bound: 5 s of
+# game time covers the display delay at the cap plus the 5 Hz idle send, a ghost that waits for the next keyframe (5 s) fails it)
+until 5000 expect-object "name=[MP] ${host}" yaw > 1.15
+until 5000 expect-object "name=[MP] ${host}" yaw < 1.25
+
+# ---- M3-26 turning in place: the host (stationary now) turns in steps; the ghost follows each heading within ~1 s of game time ----
+# (Finding 17: a rotation-only Replication entry used to be dropped as a pose, so the ghost only turned at the next 5 s keyframe)
+write-file ${sync}/client.turn0 ok
+until 60000 expect-file ${sync}/auth.turn1 ok timeout=0
+until 1500 expect-object "name=[MP] ${host}" yaw > -0.9
+until 1500 expect-object "name=[MP] ${host}" yaw < -0.7
+write-file ${sync}/client.turn1 ok
+until 60000 expect-file ${sync}/auth.turn2 ok timeout=0
+until 1500 expect-object "name=[MP] ${host}" yaw > 1.9
+until 1500 expect-object "name=[MP] ${host}" yaw < 2.1
+write-file ${sync}/client.turn2 ok
+until 60000 expect-file ${sync}/auth.turn3 ok timeout=0
+until 1500 expect-object "name=[MP] ${host}" yaw > 0.25
+until 1500 expect-object "name=[MP] ${host}" yaw < 0.35
+write-file ${sync}/client.turn3 ok
 
 # ---- chat ----
 write-file ${sync}/client.chat ready
