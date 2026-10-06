@@ -133,6 +133,10 @@ The checkpoints in `out/session4/data/saves/*.xml.gz` were parsed with ad-hoc Py
 
 ## 9. Open questions
 
+**Answers from the PC A video (lead, 1 s samples, 12:05:40-12:06:20 local, authority map on Pious Mists II):**
+- **Period:** not 5 s. The states last ~10-17 s each: normal ~11 s, fog ~17 s, normal ~9 s, then a checkpoint save screen. This weakens H3 (the 5 s `ActivateObject(false)` re-assert) unless it only sometimes takes effect.
+- **Bubble centre in state (b):** NOT at the player's marker. In state (a) the player's marker (yellow person icon) sits centre-left of the explored column; in state (b) the only visible object, with the radar bubble around it, sits at the top right of the sector, a different position. So in the fog state the map shows the live view around ANOTHER ship (most likely the remote player's avatar) as if it were the player's. This strengthens H1 and H2 (the engine treats a team ship as the player's own).
+
 - Where the bubble is centred in state (b) (player, avatar, other): not visible in our data; the experiment note asks for it.
 - Whether the flip period is 5 s (H3); the video should be re-timed against the 2 s samples if the original is still available.
 - Whether the highway-entry sector glitch started before or after the 16:01 re-own (the log has no sector change line for the avatar with a time; `ghost` / `avatars` info lines would show it).
