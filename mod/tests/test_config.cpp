@@ -341,6 +341,30 @@ TEST_CASE("diag switches (M3-28): the five map fog switches parse in both spelli
   CHECK(errors.find("diag.team_move_respawn") != std::string::npos);
 }
 
+TEST_CASE("diag switch (M3-30): takeover_mode_reown parses in both spellings, defaults off and is described", "[config][diag][m330]") {
+  std::string errors;
+  auto cfg = parse_json(R"({})", &errors);
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.takeover_mode_reown);
+  CHECK_FALSE(cfg->diag.any());
+  cfg = parse_json(R"({"diag":{"takeover_mode_reown":true}})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.takeover_mode_reown);
+  CHECK(cfg->diag.any());
+  CHECK(describe(*cfg).find("diag.takeover_mode_reown=true") != std::string::npos);
+  cfg = parse_json(R"({"diag.takeover_mode_reown":true})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.takeover_mode_reown);
+  cfg = parse_json(R"({"diag":{"takeover_keep_own_ship":true}})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.takeover_keep_own_ship);
+  CHECK_FALSE(cfg->diag.takeover_mode_reown);
+  CHECK(describe(*cfg).find("diag.takeover_keep_own_ship=true") != std::string::npos);
+}
+
 TEST_CASE("diag switches (M3-23): the user file layer reads them and an unknown inner key only warns", "[config][diag]") {
   TempDir dir;
   LoadOptions o;

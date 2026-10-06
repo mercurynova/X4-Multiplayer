@@ -38,6 +38,8 @@ authority finishes loading), the server must make the authority provision every 
 Logs: `out/session4/logs-f4-a-*` (PC A), `logs-f4-b-*` (PC B). Both PCs had new machine-tagged identities (M3-24); the old names had to be
 released in the GUI first (expected; the refusal text was clear).
 
+**Status (M3-30): fix in, in-game check pending** (default takeover now creates the client's ship player-owned through MD `create_ship`; switches `diag.takeover_keep_own_ship` and `diag.takeover_mode_reown`; script `docs/in-game-session-4.md` "M3-30 check").
+
 **Finding 4 (client) found: the client's own avatar ship does not record explored space.** Bob's map stayed fogged with only his radar
 bubble; flying 20-30 s into fog left **no revealed trail** on Bob's map, while Alice (flying her save ship) left one. With
 `diag.takeover_off` (Bob stays in the save's original player ship, no takeover) Bob **did** leave a trail. So the ship the takeover gives the

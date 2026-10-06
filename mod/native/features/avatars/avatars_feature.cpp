@@ -290,6 +290,10 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
       dir->on_safepos(seq, ok, p);
     } else if (f[0] == "D") {  // D;seq;ok;detail
       dir->on_dress(seq, f[2] == "1", f.size() > 3 ? std::string(f[3]) : std::string{});
+    } else if (f[0] == "C") {  // M3-30: C;seq;ok;<created ship id> (a client's MD create_ship)
+      std::uint64_t id = 0;
+      if (f.size() > 3) id = std::strtoull(std::string(f[3]).c_str(), nullptr, 10);
+      if (client) client->on_created(seq, f[2] == "1" && id != 0, id);
     }
   }
 };

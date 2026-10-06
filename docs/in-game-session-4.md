@@ -245,6 +245,27 @@ Send: both log zips, the watch lines from 20 s before the entry to 60 s after th
 
 ---
 
+## M3-30 check: the client's own ship records explored space (Finding 4; two PCs)
+
+**What changed.** The old takeover re-owned the avatar copy of the save to the player natively (`SetComponentOwner`) and teleported the player into it; on that ship the map left no revealed trail (while the save's original ship did, `diag.takeover_off`). The default is now: the client's ship is **created by MD** (`create_ship`, `owner="faction.player"`, the engine's own path for a player ship, as the vanilla gamestarts do) at the avatar's pose (the team copy of the save, if any, only gives the pose and is removed after the guard), then the usual teleport / guard / removal of the host copy. Three modes, set in `%LocalAppData%\X4MP\x4mp.json` under `"diag"`:
+
+| Mode | Switch | What the client flies |
+|---|---|---|
+| default | none | a new MD-created, player-owned ship of the avatar's macro |
+| keep own ship | `"takeover_keep_own_ship": true` | the save's own player ship (the authority player's ship copy), bound to the avatar's net id; no teleport. An engine test: it is known to leave a trail but it is Alice's ship macro / pose |
+| old | `"takeover_mode_reown": true` | the exact pre-M3-30 flow (native spawn or native re-own of the save's copy) |
+
+1. Install the build on both PCs, start the server, Alice = authority, Bob joins (fresh download, no `diag` keys).
+2. Mod log on Bob: `takeover: asked MD to create the player's ship`, `... spawned a local copy through MD create_ship (player-owned), ship N`, `teleported the player into ship`, `the guard confirmed`, `done`. Game log (`x4mp_s4.log`): `[X4MP] avatars: created the player ship ... isplayerowned=1`. If it says `isplayerowned=0` or there is no created line, send the logs.
+3. Type `/x4mp knowledge watch` on Bob. The header shows `pship=<idcode>/<owner>/po<0|1>`: expect `/player/po1`. Fly 30 s into unexplored space. **Does the map show a revealed trail behind the ship?** `undisc2km=` should go from a position to `none` as the area is discovered.
+4. If NO trail: close X4, set `"diag": {"takeover_keep_own_ship": true}`, rejoin, repeat step 3 and report which mode leaves a trail (and the `pship=` and `undisc2km` series of both).
+5. `/reloadui` on Bob, then leave and rejoin: still exactly one ship for Bob on Alice's side (one avatar `[MP] Bob`), one player-owned ship on Bob's PC, no leftover team copy.
+6. After the takeover `/x4mp knowledge` counts (known sectors) are unchanged.
+
+Known limits: the created ship has the avatar's macro and the server's starter loadout (the early-game basic one), not the loadout of an avatar copy found in the save (a returning player's upgrades are not carried over); it keeps the macro's default name.
+
+---
+
 ## Sitting 2: real X4 = authority, FakeNode wingmen (one PC)
 
 **2.0 Start** (window 1): `powershell -ExecutionPolicy Bypass -File tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3` (`-Target` = the name you host with, default `Tester`). It starts the server, uploads the save, creates and starts the session, prints the in-game admin password (`x4mp-host-test`), then **waits until the session runs and your ship exists** before it starts the wingmen (the real authority can only place their avatars next to your ship).

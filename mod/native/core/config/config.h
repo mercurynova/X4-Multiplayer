@@ -46,9 +46,12 @@ struct DiagConfig {
   bool avatars_inert_once = false;       // ActivateObject(false) on avatars / ghosts only at spawn / re-own / rebind, then only after a read-back shows the ship active (H3)
   bool dress_no_radar_no_known = false;  // the MD dress of avatars and ghosts skips set_object_forced_radar_visible and set_known (H4)
   bool no_set_faction_known = false;     // the team apply skips set_faction_known
+  // M3-30 (Finding 4): the DEFAULT takeover CREATES the client's ship player-owned through MD create_ship (owner faction.player) and teleports the player into it.
+  bool takeover_mode_reown = false;     // the OLD takeover: the avatar copy of the save is re-owned natively (SetComponentOwner) / spawned natively as the player's
+  bool takeover_keep_own_ship = false;  // engine test: no new ship, the player keeps the save's own player ship (the host's ship copy) and it is bound to the avatar's net id
   [[nodiscard]] bool any() const {
     return takeover_keep_original || takeover_off || ghosts_off || janitor_off || team_self_relation_100 || team_move_respawn || avatars_inert_once ||
-           dress_no_radar_no_known || no_set_faction_known;
+           dress_no_radar_no_known || no_set_faction_known || takeover_mode_reown || takeover_keep_own_ship;
   }
   bool operator==(const DiagConfig&) const = default;
 };

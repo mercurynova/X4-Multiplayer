@@ -150,9 +150,11 @@ void AvatarTakeover::restart() {
   set_hint(0, false);
   stage_ = Stage::Idle;
   grant_.reset();
-  avatar_id_ = host_id_ = 0;
+  avatar_id_ = host_id_ = stale_id_ = 0;
+  stale_searched_ = creating_ = false;
   avatar_idcode_.clear();
   host_idcode_.clear();
+  stale_idcode_.clear();
   tries_ = frames_ok_ = 0;
   owner_set_ = false;
   todo_.clear();
@@ -165,7 +167,9 @@ void AvatarTakeover::session_ended() {
   stage_ = Stage::Idle;
   grant_.reset();
   seen_.clear();
-  avatar_id_ = host_id_ = 0;
+  avatar_id_ = host_id_ = stale_id_ = 0;
+  stale_searched_ = creating_ = false;
+  stale_idcode_.clear();
   tries_ = frames_ok_ = 0;
   owner_set_ = false;
   todo_.clear();
@@ -208,6 +212,7 @@ void AvatarTakeover::persist(TakeoverRecord::Phase phase) {
   r.host_id = host_id_;
   r.host_idcode = host_idcode_;
   for (const auto& t : todo_) r.remove.push_back({t.id, t.idcode});
+  if (phase == TakeoverRecord::Phase::Progress && stale_id_ != 0) r.remove.push_back({stale_id_, stale_idcode_});  // M3-30: the avatar copy still to go
   env_.save_record(takeover_record_to_text(r));
 }
 
@@ -306,7 +311,21 @@ bool AvatarTakeover::resume_from_record(double now_s, std::uint16_t player, std:
     stage_ = Stage::Removing;
     return true;
   }
-  // Progress
+  // Progress: the avatar copy of the save still to remove (create / keep modes) is the one pending entry
+  for (const auto& p : rec.remove) {
+    if (p.id != avatar_id_ && env_.valid(p.id) && env_.idcode(p.id) == p.idcode) {
+      stale_id_ = p.id;
+      stale_idcode_ = p.idcode;
+    }
+  }
+  stale_searched_ = true;
+  if (keep_ship()) {  // M3-30: the record's ship is the player's own
+    host_id_ = avatar_id_;
+    host_idcode_ = avatar_idcode_;
+    stage_ = Stage::Confirming;
+    frames_ok_ = 0;
+    return true;
+  }
   if (seated) {
     stage_ = Stage::Confirming;
     frames_ok_ = 0;
@@ -348,7 +367,13 @@ void AvatarTakeover::step_locating(double now_s) {
     stage_ = Stage::Requesting;
     return;
   }
-  if (avatar_id_ == 0 || !env_.valid(avatar_id_)) {
+  if (keep_ship()) {
+    locate_keep(now_s);
+    return;
+  }
+  if (create_mode()) {
+    if (!locate_create(now_s)) return;
+  } else if (avatar_id_ == 0 || !env_.valid(avatar_id_)) {
     avatar_id_ = 0;
     owner_set_ = false;
     const auto cands = env_.team_candidates();
@@ -391,6 +416,7 @@ void AvatarTakeover::step_locating(double now_s) {
     }
   }
   avatar_idcode_ = env_.idcode(avatar_id_);
+  creating_ = false;
   const bool was_owned = owner_set_;
   if (!owner_set_) {
     env_.set_owner(avatar_id_, "player");  // the team copy of the save becomes the player's own ship (keeps its loadout)
@@ -405,6 +431,134 @@ void AvatarTakeover::step_locating(double now_s) {
   persist(TakeoverRecord::Phase::Progress);
 }
 
+// M3-30 default: the client's ship is CREATED player-owned by MD (create_ship owner=faction.player), at the pose of the avatar (the team copy of the save
+// when it has one, else the grant's pose). The save's team copy is never re-owned; it is removed after the guard like the host copy.
+bool AvatarTakeover::locate_create(double now_s) {
+  // answers first: the one for the current request is the ship; any other (a late answer of a request that timed out) is a surplus ship to remove
+  while (const auto c = env_.take_created()) {
+    if (!c->ok || c->id == 0 || !env_.valid(c->id)) {
+      if (creating_ && c->seq == create_seq_) {
+        creating_ = false;
+        ++stats_.spawn_failed;
+        ++tries_;
+        next_action_ = now_s + teleport_backoff_s(tries_);
+        log(LogLevel::Warn, std::format("MD could not create the player's ship (try {})", tries_));
+      }
+      continue;
+    }
+    if (creating_ && c->seq == create_seq_ && avatar_id_ == 0) {
+      avatar_id_ = c->id;
+      env_.place(avatar_id_, create_sector_, create_pose_);
+      owner_set_ = true;
+      ++stats_.spawned;
+      log(LogLevel::Info, std::format("the avatar is {} the loaded save: spawned a local copy through MD create_ship (player-owned), ship {}", stale_id_ != 0 ? "in" : "not in", avatar_id_));
+    } else if (c->id != avatar_id_ && c->id != host_id_ && env_.seated_ship() != c->id) {
+      log(LogLevel::Warn, std::format("a surplus created ship {} is removed", c->id));
+      (void)env_.remove(c->id);
+    }
+  }
+  if (avatar_id_ != 0 && env_.valid(avatar_id_)) return true;
+  if (avatar_id_ != 0) {  // the created ship vanished: start over
+    avatar_id_ = 0;
+    owner_set_ = false;
+    creating_ = false;
+  }
+  if (creating_) {
+    if (now_s - create_sent_ > kCreateTimeoutS) {
+      creating_ = false;
+      ++tries_;
+      next_action_ = now_s + teleport_backoff_s(tries_);
+      log(LogLevel::Warn, std::format("no answer from MD create_ship after {:.0f} s (try {})", kCreateTimeoutS, tries_));
+    }
+    return false;
+  }
+  if (!stale_searched_) {  // never create on an enumeration that is not there: a second copy is worse than waiting
+    const auto cands = env_.team_candidates();
+    if (!cands) {
+      next_action_ = now_s + kLocateRetryS;
+      if (now_s >= next_log_) {
+        next_log_ = now_s + kLocateGiveUpLogS;
+        log(LogLevel::Warn, "the team ship list is not available: the local copy of the avatar cannot be searched yet");
+      }
+      return false;
+    }
+    if (const auto pick = pick_avatar_copy(*grant_, expected_owner(), *cands, host_id_)) {
+      stale_id_ = *pick;
+      stale_idcode_ = env_.idcode(stale_id_);
+      ++stats_.bound;
+      for (const auto& c : *cands) {
+        if (c.id == stale_id_) stale_pose_ = c.pose;
+      }
+      log(LogLevel::Info, std::format("the avatar is in the loaded save: team copy {} ({}) gives the pose and is removed after the guard (not re-owned)", stale_id_, stale_idcode_));
+    }
+    stale_searched_ = true;
+  }
+  const auto sector = env_.sector_id_of_index(grant_->sector);
+  if (sector == 0) {
+    next_action_ = now_s + kLocateRetryS;
+    if (now_s >= next_log_) {
+      next_log_ = now_s + kLocateGiveUpLogS;
+      log(LogLevel::Warn, std::format("the avatar's sector index {} is not in the local sector map yet", grant_->sector));
+    }
+    return false;
+  }
+  const auto starter = resolve_starter(settings_, grant_->owner_team);
+  create_pose_ = stale_id_ != 0 ? stale_pose_ : grant_->pose;
+  create_sector_ = sector;
+  const std::string name;  // the player's own ship keeps the macro's default name (a "[MP] <me>" name would read as an avatar to our own sweeps and checks)
+  if (!env_.request_create(++create_seq_, starter.macro, sector, create_pose_, name, starter)) {
+    ++stats_.spawn_failed;
+    ++tries_;
+    next_action_ = now_s + teleport_backoff_s(tries_);
+    log(LogLevel::Warn, std::format("the MD create_ship request could not be sent (try {}, macro {})", tries_, starter.macro));
+    return false;
+  }
+  creating_ = true;
+  create_sent_ = now_s;
+  log(LogLevel::Info, std::format("asked MD to create the player's ship ({}, request {})", starter.macro, create_seq_));
+  return false;
+}
+
+// M3-30: the keep mode keeps the ship the player already sits in (the save's own player ship: the engine records explored space for it,
+// Finding 4) and binds it to the avatar's net id. The avatar copy of the save, if any, is only found to be removed after the guard.
+void AvatarTakeover::locate_keep(double now_s) {
+  const auto seat = env_.seated_ship();
+  const auto ship = seat != 0 ? seat : env_.own_ship();
+  if (ship == 0 || !env_.valid(ship)) {
+    next_action_ = now_s + kLocateRetryS;
+    return;
+  }
+  const auto cands = env_.team_candidates();
+  if (!cands && now_s - stage_since_ < kLocateGiveUpLogS) {  // the copy is only removed, so after a while the takeover goes on without the list
+    next_action_ = now_s + kLocateRetryS;
+    if (now_s >= next_log_) {
+      next_log_ = now_s + kLocateGiveUpLogS;
+      log(LogLevel::Warn, "the team ship list is not available: the avatar copy of the save cannot be searched yet");
+    }
+    return;
+  }
+  stale_id_ = 0;
+  stale_idcode_.clear();
+  if (cands) {
+    if (const auto pick = pick_avatar_copy(*grant_, expected_owner(), *cands, ship)) {
+      stale_id_ = *pick;
+      stale_idcode_ = env_.idcode(stale_id_);
+    }
+  }
+  avatar_id_ = host_id_ = ship;
+  avatar_idcode_ = host_idcode_ = env_.idcode(ship);
+  owner_set_ = true;
+  ++stats_.kept;
+  if (stale_id_ != 0) log(LogLevel::Info, std::format("the avatar is in the loaded save: local copy {} ({}) will be removed once the player is confirmed in ship {}", stale_id_, stale_idcode_, ship));
+  log(LogLevel::Info, std::format("keeping the player's own ship {} ({}) as the avatar's pilot ship (net_id {}): no re-own, no teleport", ship, avatar_idcode_, grant_->net_id));
+  env_.probe(stale_id_ != 0 ? "takeover: own ship kept (save copy found)" : "takeover: own ship kept");
+  stage_ = Stage::Confirming;
+  stage_since_ = now_s;
+  frames_ok_ = 0;
+  tries_ = 0;
+  persist(TakeoverRecord::Phase::Progress);
+}
+
 void AvatarTakeover::refused(double now_s, const std::string& reason) {
   ++tries_;
   ++stats_.refusals;
@@ -414,6 +568,11 @@ void AvatarTakeover::refused(double now_s, const std::string& reason) {
 }
 
 void AvatarTakeover::step_teleporting(double now_s) {
+  if (keep_ship()) {  // M3-30: there is no teleport in the default takeover
+    stage_ = Stage::Locating;
+    next_action_ = now_s;
+    return;
+  }
   const auto sit = env_.sit_downs();
   const bool sat = sit != last_sit_downs_;
   last_sit_downs_ = sit;
@@ -456,12 +615,27 @@ void AvatarTakeover::step_confirming(double now_s) {
     frames_ok_ = 0;
     return;
   }
+  if (keep_ship()) {
+    const auto seat = env_.seated_ship();
+    if (seat != 0 && seat != avatar_id_ && seat != stale_id_ && frames_ok_ == 0) {  // the player changed ship before the guard: the new ship is the one
+      avatar_id_ = host_id_ = seat;
+      avatar_idcode_ = host_idcode_ = env_.idcode(seat);
+      log(LogLevel::Info, std::format("the player is now in ship {} ({}): that is the avatar's pilot ship", seat, avatar_idcode_));
+    }
+  }
   if (env_.seated_ship() == avatar_id_) {
     if (++frames_ok_ >= kGuardFrames) begin_removal(now_s);
     return;
   }
   if (frames_ok_ > 0) ++stats_.guard_resets;
   frames_ok_ = 0;
+  if (keep_ship()) {  // nothing to retry (no teleport): keep waiting for the player to be in the ship
+    if (now_s - stage_since_ > kConfirmTimeoutS) {
+      stage_since_ = now_s;
+      log(LogLevel::Warn, std::format("the player is not (yet) in ship {}: waiting", avatar_id_));
+    }
+    return;
+  }
   if (now_s - stage_since_ > kConfirmTimeoutS) {
     stage_ = Stage::Teleporting;
     refused(now_s, "the player is not in the avatar 10 s after the teleport");
@@ -480,13 +654,16 @@ void AvatarTakeover::begin_removal(double now_s) {
     if (std::any_of(todo_.begin(), todo_.end(), [&](const Todo& t) { return t.id == id; })) return;
     todo_.push_back({id, code, 0});
   };
-  if (host_id_ != 0 && host_id_ != avatar_id_ && env_.valid(host_id_)) {
+  if (stale_id_ != 0) add(stale_id_, stale_idcode_);  // the avatar copy of the save goes (create / keep modes; the reown mode re-owned it and has none)
+  if (keep_ship()) {
+    // the player's own ship stays
+  } else if (host_id_ != 0 && host_id_ != avatar_id_ && env_.valid(host_id_)) {
     if (diag_.takeover_keep_original) log(LogLevel::Warn, std::format("diag.takeover_keep_original: the host ship copy {} is kept (not removed)", host_id_));
     else add(host_id_, env_.idcode(host_id_));
   }
   if (const auto cands = env_.team_candidates()) {
     for (const auto& c : *cands) {
-      if (c.id == avatar_id_ || c.id == host_id_ || !is_team_owner(c.owner)) continue;
+      if (c.id == avatar_id_ || c.id == host_id_ || c.id == stale_id_ || !is_team_owner(c.owner)) continue;
       const bool named = !manifest_loaded_ && is_avatar_name(c.name);  // the name is only the fallback for a missing manifest
       const bool listed = known_other_idcode(c.idcode);  // the EntitySpawns and the checkpoint manifest name it
       if (named || listed) add(c.id, c.idcode);
@@ -544,7 +721,7 @@ void AvatarTakeover::finish(double now_s) {
   stage_ = Stage::Done;
   log(LogLevel::Info, std::format("done in {:.2f} s: avatar ship {} net_id {}, {} local copies removed, {} refused, {} teleport refusals", now_s - started_, avatar_id_,
                                   grant_ ? grant_->net_id : 0, stats_.removed, stats_.remove_refused, stats_.refusals));
-  env_.probe(diag_.takeover_keep_original ? "takeover: original removal skipped (diag)" : "takeover: original removed");
+  env_.probe(keep_ship() ? "takeover: done, own ship kept" : diag_.takeover_keep_original ? "takeover: original removal skipped (diag)" : "takeover: original removed");
 }
 
 }  // namespace x4mp::features::avatars

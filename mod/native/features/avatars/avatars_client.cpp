@@ -1,6 +1,7 @@
 #include "features/avatars/avatars_client.h"
 
 #include <array>
+#include <deque>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -49,6 +50,7 @@ struct ClientTakeover::Impl final : ITakeoverEnv {
   AvatarTakeover::Stage last_stage = AvatarTakeover::Stage::Done;
   bool stage_announced = false;
   std::uint32_t last_refusals = 0;
+  std::deque<Created> created;  // M3-30: MD create_ship answers
 
   // ---- node ----
   bool ready() override {
@@ -122,6 +124,28 @@ struct ClientTakeover::Impl final : ITakeoverEnv {
     (void)ctx->platform.raise_lua("x4mp.hint", j.dump());
   }
   void probe(const std::string& tag) override { knowledge_probe(tag); }  // M3-23
+  // M3-30: native -> Lua x4mp.avatars_create -> MD create_ship (owner faction.player) -> x4mp.avatars_md "C;seq;ok;id"
+  bool request_create(std::uint32_t seq, const std::string& macro, std::uint64_t sector, const Pose& pose, const std::string& name, const StarterSpec& starter) override {
+    nlohmann::json j;
+    j["v"] = 1;
+    j["seq"] = seq;
+    j["sector"] = std::to_string(sector);
+    j["x"] = pose.x;
+    j["y"] = pose.y;
+    j["z"] = pose.z;
+    j["macro"] = macro;
+    j["name"] = name;
+    j["loadout"] = starter.loadout;
+    j["basic"] = starter.basic_loadout;
+    return ctx->platform.raise_lua("x4mp.avatars_create", j.dump());
+  }
+  std::optional<Created> take_created() override {
+    if (created.empty()) return std::nullopt;
+    const Created c = created.front();
+    created.pop_front();
+    return c;
+  }
+  void place(std::uint64_t id, std::uint64_t sector, const Pose& pose) override { (void)ctx->game.set_object_sector_pos(id, sector, to_pod(pose)); }
   void save_record(const std::string& text) override {
     if (stash) stash->put(kRecordKey, text);
   }
@@ -226,6 +250,10 @@ void ClientTakeover::game_loaded(host::HostContext& ctx) {
     s.machine->restart();
     s.stage_announced = false;
   }
+}
+
+void ClientTakeover::on_created(std::uint32_t seq, bool ok, std::uint64_t id) {
+  if (impl_->created.size() < 16) impl_->created.push_back({seq, ok, id});
 }
 
 void ClientTakeover::shutdown(host::HostContext& ctx) {

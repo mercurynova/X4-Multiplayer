@@ -13,7 +13,7 @@
 -- Ids are decimal strings (UniverseID is 64 bit); ConvertStringToLuaID turns them into the ids MD understands (the same call the sitting-0
 -- spike used for its dress and velocity blocks).
 --
--- luacheck: globals X4MPBridge X4MPAvatars DebugError RegisterEvent AddUITriggeredEvent ConvertStringToLuaID
+-- luacheck: globals X4MPBridge X4MPAvatars DebugError RegisterEvent AddUITriggeredEvent ConvertStringToLuaID ConvertStringTo64Bit
 
 local B = rawget(_G, "X4MPBridge")
 if type(B) ~= "table" then
@@ -86,6 +86,40 @@ B.on("avatars_dress", function(p)
 	end
 	local ok, why = toMD("dress", { seq, obj, p.name, p.min_hull, tostring(p.loadout or ""), p.basic and 1 or 0, p.skip_radar_known == true and 1 or 0 })
 	if not ok then send("D;" .. seq .. ";0;" .. tostring(why)) end
+end)
+
+-- M3-30 (client): native asks MD to create the player's own ship (md/x4mp_avatars.xml X4MP_Avatars_Create)
+--   native -> Lua  x4mp.avatars_create {"v":1,"seq":N,"sector":"<id>","x","y","z","macro":S,"name":S,"loadout":S,"basic":bool}
+--                  -> AddUITriggeredEvent("X4MP_Avatars", "create", { seq, <sector lua id>, x, y, z, macro, name, loadout, basic(1|0) })
+--   MD -> Lua      x4mp.md_avatars_created { seq, <ship component> }  -> x4mp.avatars_md "C;seq;1;<decimal id>" (ConvertStringTo64Bit)
+B.on("avatars_create", function(p)
+	local seq = type(p) == "table" and p.seq
+	if not num(seq) then return end
+	local sector = A.luaid(p.sector)
+	if not sector or type(p.macro) ~= "string" or not (num(p.x) and num(p.y) and num(p.z)) then
+		send("C;" .. seq .. ";0")
+		return
+	end
+	local ok = toMD("create", { seq, sector, p.x, p.y, p.z, p.macro, tostring(p.name or ""), tostring(p.loadout or ""), p.basic and 1 or 0 })
+	if not ok then send("C;" .. seq .. ";0") end
+end)
+
+local function shipId(x)
+	if type(ConvertStringTo64Bit) ~= "function" then return nil end
+	local ok, r = pcall(function() return ConvertStringTo64Bit(tostring(x)) end)
+	if not ok or r == nil then return nil end
+	local n = tonumber(r)
+	if not n or n <= 0 then return nil end
+	return string.format("%.0f", n)
+end
+
+RegisterEvent("x4mp.md_avatars_created", function(_, param)
+	if type(param) ~= "table" then return end
+	local seq = tonumber(param[1])
+	if not seq then return end
+	local id = shipId(param[2])
+	local ok, err = send(id and ("C;" .. seq .. ";1;" .. id) or ("C;" .. seq .. ";0"))
+	if not ok then log("could not forward the created ship: " .. tostring(err)) end
 end)
 
 B.on("avatars_vel", function(p)

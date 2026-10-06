@@ -29,6 +29,8 @@ class ClientTakeover {
   void apply(const HubInputs& inputs, const AvatarSettings* settings);  // the hub's queued inputs (EntitySpawn avatars, session end) and new settings
   void frame(host::HostContext& ctx, double now_s);
   void game_loaded(host::HostContext& ctx);
+  // M3-30: the answer of MD create_ship ("C;seq;ok;id" on x4mp.avatars_md), queued for the takeover machine
+  void on_created(std::uint32_t seq, bool ok, std::uint64_t id);
   void shutdown(host::HostContext& ctx);
 
   [[nodiscard]] bool done() const noexcept;
