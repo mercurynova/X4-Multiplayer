@@ -105,6 +105,7 @@ add_library(x4mp_host STATIC
   native/host/feature.cpp
   native/host/feature_list.cpp
   native/host/paths.cpp
+  native/host/player_key.cpp
   native/host/mod_host.cpp
   ${X4MP_FEATURE_SOURCES})
 target_include_directories(x4mp_host PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native")
@@ -125,6 +126,7 @@ if(X4MP_TESTS)
     tests/test_host_build_check.cpp
     tests/test_host_redact.cpp
     tests/test_host_modhost.cpp
+    tests/test_host_paths.cpp
     tests/test_game_api.cpp)
   target_link_libraries(x4mp_host_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
   x4mp_set_warnings(x4mp_host_tests)

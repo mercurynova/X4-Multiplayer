@@ -133,6 +133,11 @@ two-instance checks (needed from the M3 exit; not before M2 ends).
   `player_key`, not the Steam id), but running one license on two machines at the same time
   is against Steam's terms. Steam Families does not help either: each game can only be
   played by one family member at a time unless the family owns more copies.
+- **Two PCs, one Windows/OneDrive user (M3-24).** The mod keeps `player.key`, `x4mp.json`, the log and the other
+  machine-local files in `%LocalAppData%\X4MP\` (not in `Documents`, which OneDrive may share between the PCs),
+  and tags `player.key` with a hash of the PC's MachineGuid so a key file from another PC is never adopted. Portable
+  mode (an `x4mp.portable` file in the extension folder) keeps everything in the extension folder instead. The kit
+  scripts (`collect-logs.ps1`, `sync-report.ps1`, `write-config.ps1`, `write-launch.ps1`) look in the same place.
 - **Most testing needs only one real X4.** The design lets FakeNode fill the other role:
   the real X4 as the authority with FakeNode clients, or the real X4 as a client with a
   FakeNode authority (`swarm --with-authority`). Use this for nearly all M2/M3 work.

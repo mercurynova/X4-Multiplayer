@@ -6,12 +6,13 @@
     <game log>                       the X4 -logfile (x4mp_s4.log by default) of the X4 user folder
     spike-lines.txt                  every [X4MP-SPIKE] / [X4MP-PROBE] line of the game log, in order (the quick read for Claude)
     x4native\                        the X4 user folder's x4native folder (probe logs: x4native\x4mp_probe\x4mp_probe.log)
-    x4mp\                            Documents\Egosoft\X4\x4mp\ : x4mp_probe.json (password value blanked), galaxy-dump.json, logs\x4mp.log;
-                                     launch.json is NEVER included
+    x4mp\                            the mod's per-machine folder (%LocalAppData%\X4MP, or the extension folder in portable mode; M3-24): logs\x4mp.log;
+                                     plus Documents\Egosoft\X4\x4mp\ : x4mp_probe.json (password value blanked), galaxy-dump.json (sitting 0);
+                                     launch.json and player.key are NEVER included
     galaxy-dump.json                 if the file is missing there, rebuilt from the S13.11 DATA lines of the game log (also saved to
                                      out\session4\galaxy-dump.json, which the FakeNode --galaxy-file takes in sittings 1-2)
     x4mp-lines.txt, sync-report.txt  (product mode, sittings 1-3) the [sync] / [perf] / takeover: / ghosts: / avatars: / janitor: / selfship: / chat /
-                                     warning lines of Documents\Egosoft\X4\x4mp\logs\x4mp.log, and the output of sync-report.ps1 on that log;
+                                     warning lines of this PC's x4mp.log, and the output of sync-report.ps1 on that log;
                                      x4mp\x4mp.json, x4mp\avatar-records.txt, x4mp\authority-saves.json (the mod's own files; no password is ever in them)
     server-logs\, fakenode.log, fakenode-clients.log, server.out.log, server.err.log   from out\session4\ (sittings 1-3; absent in sitting 0)
   Never included: saves, initial-admin-password*, anything named *password*, the database, launch.json. Supports -WhatIf.
@@ -33,7 +34,8 @@ if (-not $GameLogName) { $GameLogName = $GameLogDefault }
 
 $dry = [bool]$WhatIfPreference
 $user = Resolve-X4UserDir $UserId -AllowMissing:$dry
-$cfgDir = Get-X4MPConfigDir
+$cfgDir = Get-X4MPConfigDir            # M3-24: per-machine (LocalAppData\X4MP or the portable extension folder)
+$legacyDir = Get-X4MPLegacyConfigDir   # Documents\Egosoft\X4\x4mp: spike files (galaxy-dump.json) and logs of mods older than M3-24
 $items = New-Object System.Collections.Generic.List[object]
 function Add-Item([string]$path, [string]$entry) {
     if (Test-Path $path) { $items.Add(@{ Path = $path; Entry = $entry }) } else { Write-Host "  (missing, skipped) $path" }
@@ -42,8 +44,15 @@ function Add-Item([string]$path, [string]$entry) {
 $gameLog = Join-Path $user $GameLogName
 Add-Item $gameLog $GameLogName
 Add-Item (Join-Path $user 'x4native') 'x4native'
-Add-Item (Join-Path $cfgDir 'logs') 'x4mp\logs'
-Add-Item (Join-Path $cfgDir 'galaxy-dump.json') 'x4mp\galaxy-dump.json'
+# The mod log: this PC's folder only. A log in the old Documents folder is used only when this PC has none (a mod from before M3-24); on a
+# OneDrive-redirected Documents it can belong to another PC, so a warning says so.
+$modLogDir = Join-Path $cfgDir 'logs'
+if (-not (Test-Path (Join-Path $modLogDir 'x4mp.log')) -and (Test-Path (Join-Path $legacyDir 'logs\x4mp.log'))) {
+    Write-Warning "No x4mp.log in $cfgDir; using the OLD location $legacyDir\logs (mod from before M3-24). With a OneDrive-redirected Documents it may be another PC's log."
+    $modLogDir = Join-Path $legacyDir 'logs'
+}
+Add-Item $modLogDir 'x4mp\logs'
+Add-Item (Join-Path $legacyDir 'galaxy-dump.json') 'x4mp\galaxy-dump.json'
 foreach ($n in 'x4mp.json', 'avatar-records.txt', 'authority-saves.json') { Add-Item (Join-Path $cfgDir $n) ('x4mp\' + $n) }   # product mod: settings (never a password), avatar records, authority bookkeeping
 Add-Item (Join-Path $OutDir 'fakenode-clients.log') 'fakenode-clients.log'
 Add-Item (Join-Path $OutDir 'data\logs') 'server-logs'
@@ -103,7 +112,7 @@ if ($PSCmdlet.ShouldProcess($zip, 'Create log archive')) {
             if ($lines.Count -eq 0) { Write-Host "  (no [X4MP-SPIKE] / [X4MP-PROBE] lines in ${GameLogName}: normal in sittings 1-3, where the product mod runs; in sitting 0 it means the launch option -debug all -logfile $GameLogName is missing or the kit was not active)" }
         }
         # product mode (sittings 1-3): the lines that matter of the mod log, in order, plus the sync-report summary (docs\in-game-session-4.md)
-        $modLog = Join-Path $cfgDir 'logs\x4mp.log'
+        $modLog = Join-Path $modLogDir 'x4mp.log'
         if (Test-Path $modLog) {
             $keep = New-Object System.Collections.Generic.List[string]
             $fs = [IO.File]::Open($modLog, 'Open', 'Read', 'ReadWrite'); $sr = New-Object IO.StreamReader($fs)
@@ -117,7 +126,7 @@ if ($PSCmdlet.ShouldProcess($zip, 'Create log archive')) {
             catch { Write-Warning "sync-report could not run: $($_.Exception.Message)" }
         }
         # galaxy dump: file written by the spike, else rebuilt from the log chunks
-        $dumpFile = Join-Path $cfgDir 'galaxy-dump.json'
+        $dumpFile = Join-Path $legacyDir 'galaxy-dump.json'
         if (-not (Test-Path $dumpFile)) {
             $json = Convert-GalaxyDumpFromLog $gameLog
             if ($json) {
@@ -133,7 +142,7 @@ if ($PSCmdlet.ShouldProcess($zip, 'Create log archive')) {
             Write-Host "  galaxy-dump.json (written by the spike): $($check.Message)"
             Copy-Item $dumpFile (Join-Path $OutDir 'galaxy-dump.json') -Force
         }
-        Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -match 'password|launch\.json' } | Remove-Item -Force
+        Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -match 'password|launch\.json|player\.key' } | Remove-Item -Force
         Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
     }
     finally { Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue }

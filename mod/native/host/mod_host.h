@@ -53,6 +53,7 @@ struct HostOptions {
   std::function<void(FeatureRegistry&)> register_features;  // default: register_builtin_features
   ClockNs clock = nullptr;                                  // frame clock; default QPC (tests inject)
   std::filesystem::path documents_override;                 // tests: pretend Documents is here
+  std::filesystem::path local_app_data_override;            // tests: pretend LocalAppData is here
   std::int64_t perf_log_interval_ms = 5000;
 };
 

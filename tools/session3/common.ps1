@@ -9,7 +9,26 @@ $script:ExtensionNames = @('x4native', 'x4mp')                 # what install.ps
 $script:ForbiddenExtensions = @('x4mp_probe', 'x4mp_spike')   # the session-1/2 test extensions: must not run with the real mod
 $script:Admin = @{}                                           # filled by Initialize-AdminSession
 
-function Get-X4MPConfigDir { return (Join-Path (Get-X4DocsRoot) 'x4mp') }   # x4mp.json, launch.json, logs\x4mp.log live here
+# M3-24: the mod keeps its per-machine files (x4mp.json, launch.json, player.key, logs\x4mp.log, ...) in %LocalAppData%\X4MP, NOT in Documents
+# (Documents is often OneDrive-redirected and shared by every PC of one user). Portable mode (an x4mp.portable or x4mp.json file in
+# <X4 install>\extensions\x4mp) keeps everything in that extension folder. X4MP_LOCALAPPDATA_ROOT is a test-only stand-in for LocalAppData.
+function Get-X4MPPortableDir {
+    if ($env:X4MP_LOCALAPPDATA_ROOT) { return $null }   # test mode: never look at the real X4 install
+    $x4 = Find-X4Dir
+    if (-not $x4) { return $null }
+    $ext = Join-Path $x4 'extensions\x4mp'
+    if ((Test-Path (Join-Path $ext 'x4mp.portable')) -or (Test-Path (Join-Path $ext 'x4mp.json'))) { return $ext }
+    return $null
+}
+function Get-X4MPConfigDir {
+    $portable = Get-X4MPPortableDir
+    if ($portable) { return $portable }
+    $local = if ($env:X4MP_LOCALAPPDATA_ROOT) { $env:X4MP_LOCALAPPDATA_ROOT } else { [Environment]::GetFolderPath('LocalApplicationData') }
+    if ($local) { return (Join-Path $local 'X4MP') }
+    return (Get-X4MPLegacyConfigDir)
+}
+# The pre-M3-24 location (Documents\Egosoft\X4\x4mp): only read for older logs. On a OneDrive-redirected Documents it may belong to ANOTHER PC.
+function Get-X4MPLegacyConfigDir { return (Join-Path (Get-X4DocsRoot) 'x4mp') }
 
 # Which forbidden extensions are installed (folder exists) or enabled (content.xml of the X4 user folder says enabled="true").
 function Get-ForbiddenExtensionState([string]$X4Dir, [string]$UserDir) {

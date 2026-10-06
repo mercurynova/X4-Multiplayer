@@ -3,7 +3,7 @@
   Session 3: zips the logs into out\session3\logs[-<label>]-<timestamp>.zip. Uploads nothing.
 .DESCRIPTION
   Collects (what exists): the X4 -logfile (x4mp_s3.log by default), the x4native\ folder of the X4 user folder, the X4MP config folder
-  Documents\Egosoft\X4\x4mp (x4mp.json, logs\x4mp.log, authority-saves.json; never launch.json), the server log files
+  the X4MP config folder (%LocalAppData%\X4MP; x4mp.json, logs\x4mp.log, authority-saves.json; never launch.json), the server log files
   (out\session3\data\logs\), the server console logs and the FakeNode output. Never includes admin passwords, the database, uidata.xml
   or any save. Supports -WhatIf. X4 may overwrite its -logfile each time it starts: run this every time you quit X4, before starting it
   again. -Label puts a word into the zip name (for example -Label client-run).

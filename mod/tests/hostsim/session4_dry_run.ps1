@@ -36,11 +36,13 @@ $tmp = Join-Path ([IO.Path]::GetTempPath()) ('x4mp-s4-dry-' + [guid]::NewGuid().
 $docs = Join-Path $tmp 'docs'
 $userDir = Join-Path $docs 'Egosoft\X4\12345'
 $saveDir = Join-Path $userDir 'save'
-$cfgDir = Join-Path $docs 'Egosoft\X4\x4mp'
+$cfgDir = Join-Path $docs 'Egosoft\X4\x4mp'   # the OLD Documents location: spike files (x4mp_probe.json, galaxy-dump.json)
+$localRoot = Join-Path $tmp 'localappdata'
+$modCfg = Join-Path $localRoot 'X4MP'   # M3-24: the mod's per-machine folder (log, x4mp.json, avatar records, launch.json, ...)
 $outDir = Join-Path $tmp 'out'
 $fakeX4 = Join-Path $tmp 'X4 Foundations'
 $ext = Join-Path $fakeX4 'extensions'
-New-Item -ItemType Directory -Force $saveDir, $cfgDir, $outDir, (Join-Path $ext 'x4mp\ui') | Out-Null
+New-Item -ItemType Directory -Force $saveDir, $cfgDir, $modCfg, $outDir, (Join-Path $ext 'x4mp\ui') | Out-Null
 Set-Content (Join-Path $fakeX4 'X4.exe') 'stub' -Encoding ASCII
 Set-Content (Join-Path $ext 'x4mp\content.xml') '<content id="x4mp" name="X4MP" version="100"/>' -Encoding ASCII
 Set-Content (Join-Path $ext 'x4mp\ui\x4mp_menu.lua') '-- product stub' -Encoding ASCII
@@ -52,6 +54,7 @@ Set-Content $fakeDll 'stub dll' -Encoding ASCII
 Write-Host "Temp tree: $tmp"
 
 $env:X4MP_S2_DOCS_ROOT = $docs
+$env:X4MP_LOCALAPPDATA_ROOT = $localRoot
 $env:X4MP_S4_OUT_DIR = $outDir
 $saveHash = { (Get-ChildItem $saveDir -File | Sort-Object Name | ForEach-Object { $_.Name + ':' + (Get-FileHash $_.FullName).Hash }) -join ';' }
 $savesBefore = & $saveHash
@@ -300,10 +303,13 @@ if (-not `$r.File) { throw 'no DLC file' }
     }
 
     Step 'start-server-lan.ps1 -Check: addresses, firewall status and commands; it changes nothing' {
+        $fwBefore = @(Get-NetFirewallRule -DisplayName 'X4MP game TCP', 'X4MP game UDP', 'X4MP admin HTTP' -ErrorAction SilentlyContinue).Count   # a dev PC may already have them
         $r = Run-Kit 'start-server-lan.ps1' @('-Check')
         Expect-Kit $r 'start-server-lan -Check' 0 @('PC B joins: \d+\.\d+\.\d+\.\d+:47780', 'TCP 47780', 'UDP 47781', 'TCP 47790', 'New-NetFirewallRule|firewall', 'Disable-NetFirewallRule -DisplayName ''X4MP game UDP''', 'Enable-NetFirewallRule -DisplayName ''X4MP game UDP''')
         if ($r.Text -match '(?m)^\s*New-NetFirewallRule') { Check ($r.Text -match '-RemoteAddress LocalSubnet') 'the printed rule is limited to the local subnet' }
-        Check ($null -eq (Get-NetFirewallRule -DisplayName 'X4MP game TCP', 'X4MP game UDP', 'X4MP admin HTTP' -ErrorAction SilentlyContinue)) 'the script created no firewall rule'
+        Check (@(Get-NetFirewallRule -DisplayName 'X4MP game TCP', 'X4MP game UDP', 'X4MP admin HTTP' -ErrorAction SilentlyContinue).Count -eq $fwBefore) 'the script created no firewall rule'
+        Check ((@([regex]::Matches($r.Text, '(?m)^\s+(TCP|UDP) \d+\s+X4MP [^
+]*(ok \(rule|covered only by another rule|MISSING|UNKNOWN|DISABLED)')).Count) -eq 3) 'M3-24: every port line says named rule present / covered only by another rule / missing'
         Check (-not (Test-Path (Join-Path $outDir 'data'))) '-Check started no server'
     }
 
@@ -325,14 +331,14 @@ if (-not `$r.File) { throw 'no DLC file' }
     }
 
     Step 'collect-logs.ps1, product mode: mod lines, sync report, mod files, no launch.json' {
-        New-Item -ItemType Directory -Force (Join-Path $cfgDir 'logs') | Out-Null
-        New-SyntheticModLog (Join-Path $cfgDir 'logs\x4mp.log')
-        Add-Content (Join-Path $cfgDir 'logs\x4mp.log') '2026-10-04 12:01:00.000Z [INFO] [ghost] takeover: the guard confirmed (10 frames, 0.29 s after the request started): player in ship 400001, net_id 8; 1 local copies to remove'
-        Add-Content (Join-Path $cfgDir 'logs\x4mp.log') '2026-10-04 12:01:00.100Z [INFO] [ghost] janitor: swept: 0 leftover ''[MP] '' object(s) removed, 0 refused, among 1 scanned (0 carry the prefix); kept: ghosts 0, avatars 0, own copy 0, guarded 0; 1 pass(es)'
-        Add-Content (Join-Path $cfgDir 'logs\x4mp.log') '2026-10-04 12:01:00.200Z [INFO] [md] unrelated line that is not interesting'
-        Set-Content (Join-Path $cfgDir 'x4mp.json') '{"last_address":"127.0.0.1:47780","last_name":"Tester"}' -Encoding ASCII
-        Set-Content (Join-Path $cfgDir 'avatar-records.txt') 'v1' -Encoding ASCII
-        Set-Content (Join-Path $cfgDir 'launch.json') '{"password":"must-not-be-zipped"}' -Encoding ASCII
+        New-Item -ItemType Directory -Force (Join-Path $modCfg 'logs') | Out-Null
+        New-SyntheticModLog (Join-Path $modCfg 'logs\x4mp.log')
+        Add-Content (Join-Path $modCfg 'logs\x4mp.log') '2026-10-04 12:01:00.000Z [INFO] [ghost] takeover: the guard confirmed (10 frames, 0.29 s after the request started): player in ship 400001, net_id 8; 1 local copies to remove'
+        Add-Content (Join-Path $modCfg 'logs\x4mp.log') '2026-10-04 12:01:00.100Z [INFO] [ghost] janitor: swept: 0 leftover ''[MP] '' object(s) removed, 0 refused, among 1 scanned (0 carry the prefix); kept: ghosts 0, avatars 0, own copy 0, guarded 0; 1 pass(es)'
+        Add-Content (Join-Path $modCfg 'logs\x4mp.log') '2026-10-04 12:01:00.200Z [INFO] [md] unrelated line that is not interesting'
+        Set-Content (Join-Path $modCfg 'x4mp.json') '{"last_address":"127.0.0.1:47780","last_name":"Tester"}' -Encoding ASCII
+        Set-Content (Join-Path $modCfg 'avatar-records.txt') 'v1' -Encoding ASCII
+        Set-Content (Join-Path $modCfg 'launch.json') '{"password":"must-not-be-zipped"}' -Encoding ASCII
         Remove-Item (Join-Path $outDir 'logs-s1-*.zip') -ErrorAction SilentlyContinue
         $r = Run-Kit 'collect-logs.ps1' @('-Label', 's1')
         Expect-Kit $r 'collect-logs product mode' 0 @('Created', 'x4mp-lines.txt: \d+ lines of the mod log')
@@ -344,7 +350,7 @@ if (-not `$r.File) { throw 'no DLC file' }
         $lines = Read-ZipText $zip.FullName 'x4mp-lines.txt'
         Check ($lines -match '\[sync\] player=Wing01' -and $lines -match 'takeover: the guard confirmed' -and $lines -match 'janitor: swept' -and $lines -notmatch 'unrelated line') 'x4mp-lines.txt keeps the interesting lines only'
         Check ((Read-ZipText $zip.FullName 'sync-report.txt') -match 'Summary: \d+ PASS') 'sync-report.txt holds the report'
-        Remove-Item (Join-Path $cfgDir 'launch.json') -Force
+        Remove-Item (Join-Path $modCfg 'launch.json') -Force
     }
 
     Step 'savescan.ps1 on the synthetic save fixtures (through the kit script)' {
@@ -560,7 +566,7 @@ catch {
     $exit = 1
 }
 finally {
-    Remove-Item Env:\X4MP_S2_DOCS_ROOT, Env:\X4MP_S4_OUT_DIR -ErrorAction SilentlyContinue
+    Remove-Item Env:\X4MP_S2_DOCS_ROOT, Env:\X4MP_LOCALAPPDATA_ROOT, Env:\X4MP_S4_OUT_DIR -ErrorAction SilentlyContinue
     if ($exit -eq 0) { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue } else { Write-Host "Temp tree kept: $tmp" }
 }
 exit $exit

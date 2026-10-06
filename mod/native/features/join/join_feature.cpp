@@ -25,6 +25,8 @@
 #include "features/join/join_mods_json.h"
 #include "host/build_check.h"
 #include "host/extension_roots.h"
+#include "host/paths.h"
+#include "host/player_key.h"
 #include "host/status_json.h"
 #include "message_ids_generated.h"
 #include "session_generated.h"
@@ -351,26 +353,11 @@ bool JoinFeature::load_player_key(host::HostContext& ctx, std::array<std::uint8_
     key = player_key_;
     return true;
   }
+  // M3-24: the key file carries a machine tag; a file without this machine's tag is never adopted (see host/player_key.h).
   const fs::path file = (ctx.paths != nullptr && !ctx.paths->dir.empty()) ? ctx.paths->dir / "player.key" : fs::path{};
-  std::vector<std::uint8_t> bytes;
-  if (!file.empty()) {
-    std::ifstream in(file);
-    std::string hex;
-    if (in && std::getline(in, hex) && crypto::from_hex(hex, bytes) && bytes.size() == key.size()) {
-      std::copy(bytes.begin(), bytes.end(), key.begin());
-    } else {
-      bytes.clear();
-    }
-  }
-  if (bytes.empty()) {
-    if (!crypto::random_bytes(key)) return false;
-    if (!file.empty()) {
-      std::error_code ec;
-      fs::create_directories(file.parent_path(), ec);
-      std::ofstream out(file, std::ios::trunc);
-      if (out) out << crypto::to_hex(key) << "\n";  // the player's identity key: stays on this machine
-    }
-  }
+  const auto loaded = host::load_or_create_player_key(file, host::machine_tag(host::machine_guid()), key);
+  if (!loaded.ok) return false;
+  if (loaded.origin != host::KeyOrigin::Kept) X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "{}", host::describe_key_origin(loaded.origin));
   player_key_ = key;
   have_player_key_ = true;
   return true;

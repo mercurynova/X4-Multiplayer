@@ -386,8 +386,9 @@ Values are merged in this order, last wins:
 
 1. Compiled-in defaults.
 2. `extensions/x4mp/config/x4mp.defaults.json`, shipped and read-only.
-3. `%USERPROFILE%\Documents\Egosoft\X4\x4mp\x4mp.json`, the user file
-   (`SHGetKnownFolderPath(FOLDERID_Documents)`). The launcher and the installer
+3. `%LocalAppData%\X4MP\x4mp.json`, the user file
+   (`SHGetKnownFolderPath(FOLDERID_LocalAppData)`; since M3-24, before it was
+   `Documents\Egosoft\X4\x4mp\`, which OneDrive can share between PCs; copied once on first start). The launcher and the installer
    write this file. It is created with comments-as-keys documentation on first
    run.
 4. `…\x4mp\launch.json`, a **one-shot** auto-connect request written by the

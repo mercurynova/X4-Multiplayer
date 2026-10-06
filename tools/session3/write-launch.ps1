@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Session 3 (criterion 16): writes Documents\Egosoft\X4\x4mp\launch.json, the one-shot "connect without any UI" request. Never prints the password.
+  Session 3 (criterion 16): writes %LocalAppData%\X4MP\launch.json (M3-24), the one-shot "connect without any UI" request. Never prints the password.
 .DESCRIPTION
   The mod reads launch.json once, when X4 starts, deletes it immediately, and connects with its content (no Join dialog). The file holds
   {"server":"host:port","name":"...","password":"...","expires_utc":"<UTC time like 2026-10-03T12:00:00Z>"} (and, for -Role authority,

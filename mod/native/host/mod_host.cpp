@@ -66,7 +66,8 @@ InitResult ModHost::init() noexcept {
     }
 
     extension_path_ = platform_.extension_path();
-    paths_ = resolve_config_paths(extension_path_, options_.documents_override);
+    paths_ = resolve_config_paths(extension_path_, options_.documents_override, options_.local_app_data_override);
+    const bool migrated_user_config = migrate_user_config(paths_);  // M3-24: x4mp.json moves from Documents to LocalAppData
     config::LoadOptions lo;
     lo.user_file = paths_.user_file;
     // launch.json is NOT given to config::load: the launch feature (M2-12) consumes it and starts the join through the join flow.
@@ -103,6 +104,7 @@ InitResult ModHost::init() noexcept {
     ctx_ = std::make_unique<HostContext>(HostContext{config_, game_, *log_, platform_, *budget_, gates_, previous_, extension_path_, &paths_});
 
     log_header();
+    if (migrated_user_config) log_->raw(Cat::Host, Level::Info, "x4mp.json copied once from the old Documents config dir to the per-machine dir (the old file was kept)");
     platform_.native_log(log::Level::Info, version::hello_line());
 
     if (build_.status == BuildStatus::Unsupported) {
@@ -174,7 +176,7 @@ void ModHost::log_header() {
   l.raw(Cat::Host, Level::Info,
         std::string("build check: ") + std::string(build_status_name(build_.status)) + " (" + build_.reason + ")");
   l.raw(Cat::Host, Level::Info,
-        std::string("config dir=") + (paths_.portable ? "<extension folder, portable>" : "<Documents>\\Egosoft\\X4\\x4mp") +
+        std::string("config dir=") + (paths_.portable ? "<extension folder, portable>" : "<LocalAppData>\\X4MP") +
             " user_file_exists=" + (std::filesystem::exists(paths_.user_file) ? "yes" : "no"));
   if (previous_.present) {
     l.raw(Cat::Host, Level::Info,

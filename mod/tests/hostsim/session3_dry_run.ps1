@@ -36,7 +36,8 @@ $tmp = Join-Path ([IO.Path]::GetTempPath()) ('x4mp-s3-dry-' + [guid]::NewGuid().
 $docs = Join-Path $tmp 'docs'
 $userDir = Join-Path $docs 'Egosoft\X4\12345'
 $saveDir = Join-Path $userDir 'save'
-$cfgDir = Join-Path $docs 'Egosoft\X4\x4mp'
+$localRoot = Join-Path $tmp 'localappdata'
+$cfgDir = Join-Path $localRoot 'X4MP'   # M3-24: the mod's per-machine folder (was Documents\Egosoft\X4\x4mp)
 $outDir = Join-Path $tmp 'out'
 $fakeX4 = Join-Path $tmp 'X4 Foundations'
 $pw = 'Testpw-314159'
@@ -44,6 +45,7 @@ New-Item -ItemType Directory -Force $saveDir, $outDir, (Join-Path $fakeX4 'exten
 Write-Host "Temp tree: $tmp"
 
 $env:X4MP_S2_DOCS_ROOT = $docs
+$env:X4MP_LOCALAPPDATA_ROOT = $localRoot
 $env:X4MP_S3_OUT_DIR = $outDir
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $procs = New-Object System.Collections.Generic.List[object]
@@ -407,7 +409,7 @@ finally {
     Stop-All
     $left = @(Get-Process -Name 'x4mp-server', 'X4MP.FakeNode', 'x4mp-hostsim' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$repo*" })
     foreach ($l in $left) { try { Stop-Process -Id $l.Id -Force } catch { } }
-    Remove-Item Env:\X4MP_S2_DOCS_ROOT, Env:\X4MP_S3_OUT_DIR -ErrorAction SilentlyContinue
+    Remove-Item Env:\X4MP_S2_DOCS_ROOT, Env:\X4MP_LOCALAPPDATA_ROOT, Env:\X4MP_S3_OUT_DIR -ErrorAction SilentlyContinue
     Write-Host ("Session-3 dry run {0} in {1:N0} s. Temp tree kept for inspection: {2}" -f $(if ($exit -eq 0) { 'PASSED' } else { 'FAILED' }), $sw.Elapsed.TotalSeconds, $tmp)
 }
 exit $exit
