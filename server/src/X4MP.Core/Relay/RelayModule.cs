@@ -182,6 +182,8 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
         _deniedWindows.Remove(node.PlayerId);
         DropPlayerWork(node.PlayerId);
         _avatarRequests.Remove(node.PlayerId);
+        _lastShips.Remove(node.PlayerId);
+        _reprovision.Remove(node.PlayerId);
         if (node.IsAuthority)
         {
             FailAllIntents(RejectReason.AuthorityUnavailable, "the authority left");

@@ -844,3 +844,43 @@ TEST_CASE("takeover wire: EntitySpawn avatars, manifest avatars and the PlayerSh
   CHECK_FALSE(decode_avatar_spawns(std::vector<std::uint8_t>{1, 2, 3}));
   CHECK_FALSE(decode_manifest_avatars(std::vector<std::uint8_t>{1, 2, 3, 4, 5, 6, 7, 8, 9}));
 }
+
+// M3-29 ------------------------------------------------------------------------------------------------------------------------------
+TEST_CASE("takeover (M3-29): a new avatar net id for the own player after Done replaces the net id and leaves the own ship alone", "[takeover][replaced]") {
+  Rig r;
+  r.m.on_spawn_avatars({r.grant(41)});
+  r.seconds(2);
+  REQUIRE(r.m.done());
+  const auto avatar = r.m.avatar_id();
+  const int teleports = r.env.teleports, requests = r.env.requests, spawns = r.env.spawns;
+  r.env.removed.clear();
+  r.env.net_id_set = 0;
+
+  // an avatar of somebody else is not "mine replaced"
+  auto other = r.grant(77, "OTH-001", "[MP] Bob");
+  other.owner_player = other.controller_player = 9;
+  r.m.on_spawn_avatars({other});
+  CHECK(r.env.net_id_set == 0);
+
+  // the authority re-provisioned the own avatar under a new net id
+  r.m.on_spawn_avatars({r.grant(52, "AVA-009")});
+  CHECK(r.m.net_id() == 52);
+  CHECK(r.env.net_id_set == 52);
+  CHECK(r.m.stats().replaced == 1);
+  const auto rec = takeover_record_from_text(r.env.record);
+  REQUIRE(rec);
+  CHECK(rec->phase == TakeoverRecord::Phase::Done);
+  CHECK(rec->net_id == 52);
+  CHECK(std::any_of(r.env.logs.begin(), r.env.logs.end(), [](const std::string& l) { return l.find("my avatar was replaced") != std::string::npos; }));
+
+  // nothing else happens: no re-takeover, no teleport, no request, no removal; the same spawn again changes nothing
+  r.m.on_spawn_avatars({r.grant(52, "AVA-009")});
+  r.seconds(3);
+  CHECK(r.m.done());
+  CHECK(r.m.stats().replaced == 1);
+  CHECK(r.env.teleports == teleports);
+  CHECK(r.env.requests == requests);
+  CHECK(r.env.spawns == spawns);
+  CHECK(r.env.removed.empty());
+  CHECK(r.m.avatar_id() == avatar);
+}

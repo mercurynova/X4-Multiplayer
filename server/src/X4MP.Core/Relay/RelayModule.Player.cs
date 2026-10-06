@@ -23,6 +23,12 @@ public sealed partial class RelayModule
     }
 
     private readonly Dictionary<int, PlayerShipT> _avatarRequests = [];
+
+    // M3-29: the newest PlayerShip of every player, kept after the avatar was bound (_avatarRequests drops it then). When the world is rolled back
+    // for a re-hosted authority the player's avatar is gone from the mirror while the player keeps flying: this is what the new authority is asked
+    // to provision again. _reprovision = the players whose pending request is such a re-send (their pose is refreshed from the newest PlayerState).
+    private readonly Dictionary<int, PlayerShipT> _lastShips = [];
+    private readonly HashSet<int> _reprovision = [];
     private ITimer? _flushTimer;
     private int _flushArmed;
 
@@ -66,6 +72,10 @@ public sealed partial class RelayModule
         if (node.ShipNetId != 0)
         {
             state.NetId = node.ShipNetId; // the server knows the avatar even when the client has not learnt its id yet
+        }
+        else if (state.NetId != 0 && _mirror is not null && !(_mirror.TryGet(state.NetId, out var claimed) && claimed.ControllerPlayer == node.PlayerId))
+        {
+            state.NetId = 0; // M3-29: the client still names an avatar a world rollback removed (or one that is not theirs): never feed that id to the authority
         }
 
         if (flow.Dirty)
@@ -174,6 +184,8 @@ public sealed partial class RelayModule
         // request_key stays a pure idempotency key.
         ship.PlayerId = (ushort)node.PlayerId;
         _avatarRequests[node.PlayerId] = ship;
+        _lastShips[node.PlayerId] = ship;
+        _reprovision.Remove(node.PlayerId); // the player asked itself: the request is theirs, with their pose
         if (Authority is { } authority)
         {
             ForwardAvatarRequest(authority, ship);
@@ -196,10 +208,63 @@ public sealed partial class RelayModule
             return;
         }
 
-        foreach (var ship in _avatarRequests.Values)
+        foreach (var (player, ship) in _avatarRequests)
         {
+            if (_reprovision.Contains(player))
+            {
+                // M3-29: a re-send after a world rollback: the player kept flying, so the avatar starts where they are now (the authority
+                // still picks a safe position around it), not at the spot of their first request.
+                if (_flows.TryGetValue(player, out var flow) && flow.Latest is { Sector: not 0 } state)
+                {
+                    ship.Sector = state.Sector;
+                    ship.Px = state.Px;
+                    ship.Py = state.Py;
+                    ship.Pz = state.Pz;
+                    ship.Yaw = state.Yaw;
+                    ship.Pitch = state.Pitch;
+                    ship.Roll = state.Roll;
+                }
+
+                Stats.AvatarsReprovisioned++;
+                LogReprovision(player, ship.Sector);
+            }
+
             ForwardAvatarRequest(authority, ship);
         }
+    }
+
+    /// <summary>
+    /// M3-29: a player's avatar left the mirror by a rollback (<see cref="DespawnReason.Removed"/>: the authority loads a save that does not contain it)
+    /// while the player is still in the session: their last PlayerShip is held again, and goes to the authority as soon as it is in game
+    /// (<see cref="ForwardHeldAvatarRequests"/>), so the player gets a new avatar instead of staying invisible. Not for the authority's own ship (it
+    /// self-spawns), not when the player has another ship in the mirror (that one survived), not after an admin removal (those clear the last ship first).
+    /// </summary>
+    private void QueueReprovision(MirrorEntity entity, DespawnReason reason)
+    {
+        if (reason != DespawnReason.Removed || entity.Origin != EntityOrigin.PlayerShip || _mirror is null)
+        {
+            return;
+        }
+
+        int player = entity.ControllerPlayer != 0 ? entity.ControllerPlayer : entity.OwnerPlayer;
+        if (player == 0
+            || !_nodes.TryGetValue(player, out var node)
+            || node.IsAuthority
+            || !_lastShips.TryGetValue(player, out var last))
+        {
+            return;
+        }
+
+        foreach (var other in _mirror.All)
+        {
+            if (other.NetId != entity.NetId && other.Origin == EntityOrigin.PlayerShip && (other.ControllerPlayer == player || other.OwnerPlayer == player))
+            {
+                return;
+            }
+        }
+
+        _avatarRequests[player] = last;
+        _reprovision.Add(player);
     }
 
     // ------------------------------------------------------------------ the mirror tells us which ship is whose
@@ -243,6 +308,7 @@ public sealed partial class RelayModule
 
         int player = entity.ControllerPlayer;
         _avatarRequests.Remove(player);
+        _reprovision.Remove(player);
         if (!_nodes.TryGetValue(player, out var node) || node.ShipNetId == entity.NetId)
         {
             return;
@@ -293,6 +359,8 @@ public sealed partial class RelayModule
         }
 
         _avatarRequests.Remove(playerId);
+        _lastShips.Remove(playerId);
+        _reprovision.Remove(playerId);
         foreach (uint netId in found)
         {
             _mirror.Remove(netId, DespawnReason.Removed, journal: false);
@@ -314,6 +382,7 @@ public sealed partial class RelayModule
 
     public void OnEntityDespawned(MirrorEntity entity, DespawnReason reason, uint killerNetId, ulong journalSeq)
     {
+        QueueReprovision(entity, reason);
         if (entity.ControllerPlayer != 0
             && _nodes.TryGetValue(entity.ControllerPlayer, out var node)
             && node.ShipNetId == entity.NetId)
@@ -339,4 +408,7 @@ public sealed partial class RelayModule
 
         frame.Release();
     }
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "relay: player {PlayerId} lost its avatar to a world rollback: the authority is asked to provision a new one (sector {Sector}, the player's newest position)")]
+    private partial void LogReprovision(int playerId, int sector);
 }

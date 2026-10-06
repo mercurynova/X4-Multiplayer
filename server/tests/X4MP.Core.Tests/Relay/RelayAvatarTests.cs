@@ -91,6 +91,92 @@ public class RelayAvatarTests
         Assert.Empty(Ships(back));
     }
 
+    // ------------------------------------------------------------------ M3-29: a world rollback strands a flying player
+
+    [Fact]
+    public async Task ARollbackThatRemovesAnOnlinePlayersAvatarSendsThePlayerShipAgainToTheNextAuthorityWithTheNewestPoseExactlyOnce()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice");
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendAsync(alice, MsgType.PlayerShip, RelayFrames.PlayerShip(key: 21));
+        await rig.SendAsync(bob, MsgType.PlayerShip, RelayFrames.PlayerShip(key: 22));
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(alice, netId: 600)); // spawned after the checkpoint: rolled back
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(bob, netId: 400)); // in the checkpoint: survives
+        Assert.Equal(2, Ships(authority).Count);
+
+        // Alice keeps flying on her own PC
+        await rig.SendAsync(alice, MsgType.PlayerState, RelayFrames.State(1, 0, px: 64_000, sector: 9));
+
+        await DropAsync(rig, authority);
+        int removed = rig.Mirror.RollbackToNetIdFloor(500, authority.PlayerId);
+        Assert.Equal(1, removed);
+        Assert.False(rig.Mirror.TryGet(600, out _));
+        Assert.True(rig.Mirror.TryGet(400, out _));
+
+        var back = await rig.Rig.ResumeAsync("Boss", authority);
+        await rig.Actor.FlushAsync();
+
+        var request = Assert.Single(Ships(back)); // Alice only: Bob's avatar is still there
+        Assert.Equal((ushort)alice.PlayerId, request.PlayerId);
+        Assert.Equal(64_000, request.Px);
+        Assert.Equal((ushort)9, request.Sector);
+        Assert.Equal(1L, rig.Relay.Stats.AvatarsReprovisioned);
+
+        // the new avatar arrives: nothing is sent again, not even after another resume
+        await rig.SendPayloadAsync(back, MsgType.EntitySpawn, AvatarSpawn(alice, netId: 510));
+        await DropAsync(rig, back);
+        var again = await rig.Rig.ResumeAsync("Boss", back);
+        await rig.Actor.FlushAsync();
+        Assert.Empty(Ships(again));
+        Assert.Equal(1L, rig.Relay.Stats.AvatarsReprovisioned);
+    }
+
+    [Fact]
+    public async Task AnAdminRemovalOrALeavingPlayerIsNeverReprovisioned()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice");
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendAsync(alice, MsgType.PlayerShip, RelayFrames.PlayerShip(key: 31));
+        await rig.SendAsync(bob, MsgType.PlayerShip, RelayFrames.PlayerShip(key: 32));
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(alice, netId: 600));
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(bob, netId: 601));
+
+        await rig.Relay.RemoveAvatarsAsync(alice.PlayerId); // admin kick option
+        await rig.Rig.DisconnectAsync(bob, DisconnectCode.ClientQuit); // Bob leaves, his parked avatar stays
+        await rig.Actor.FlushAsync();
+        rig.Mirror.RollbackToNetIdFloor(500, authority.PlayerId);
+
+        await DropAsync(rig, authority);
+        var back = await rig.Rig.ResumeAsync("Boss", authority);
+        await rig.Actor.FlushAsync();
+        Assert.Empty(Ships(back));
+        Assert.Equal(0L, rig.Relay.Stats.AvatarsReprovisioned);
+    }
+
+    [Fact]
+    public async Task APlayerStateNamingARolledBackAvatarIsFedToTheAuthorityWithoutThatNetId()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice");
+        await rig.SendAsync(alice, MsgType.PlayerShip, RelayFrames.PlayerShip(key: 41));
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(alice, netId: 600));
+        rig.Mirror.RollbackToNetIdFloor(500, authority.PlayerId);
+
+        await rig.AdvanceAsync(1);
+        await rig.SendAsync(alice, MsgType.PlayerState, RelayFrames.State(5, 5_000_000, px: 100, netId: 600)); // the client still names the old id
+        await rig.AdvanceAsync(1);
+
+        var fed = authority.Connection.SentOf(MsgType.PlayerState)
+            .Select(f => MessageRegistry.Default.Decode<PlayerState>(new Frame(f.Type, FrameOptions.None, Lane.Realtime, f.Payload)).UnPack()).ToList();
+        Assert.NotEmpty(fed);
+        Assert.All(fed, s => Assert.Equal(0u, s.NetId));
+    }
+
     // ------------------------------------------------------------------ parked avatars (Q6)
 
     [Fact]

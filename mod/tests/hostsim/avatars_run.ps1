@@ -4,7 +4,7 @@
   are provisioned, driven, parked, listed in the checkpoint manifest and bound again after a "save load" that renumbers every id.
 .DESCRIPTION
   avatars.hostsim plays the Lua/MD side (sector map, team faction report, safe position / dress answers). Needs mod\build.ps1 and
-  tools\e2e.ps1 -Steps Publish. Ports 47944 (TCP), 47945 (UDP), 47946 (HTTP). About 3 minutes. Run:
+  tools\e2e.ps1 -Steps Publish. Ports 47944 (TCP), 47945 (UDP), 47946 (HTTP). About 5 minutes. Run:
     powershell -NoProfile -ExecutionPolicy Bypass -File mod\tests\hostsim\avatars_run.ps1
   (the text below is the M2-09 runner this one was copied from)
   Scenario 1 (authority_flow.hostsim): join as authority, SessionSaveInfo, download, "load" (reload + universe ready), NodeReady,
@@ -174,6 +174,27 @@ try {
     Publish-SessionFromUpload $srvB.Session $plainB $shaB
     Run-Scenario 'avatars_session2' 'work-host2' @('--var', "ckpt_src=$ckpt1")
     Write-Host '  M3-22: the second session started with no avatars and provisioned only on a PlayerShip request' -ForegroundColor Green
+    Stop-All
+
+    # ---- M3-29 (finding 20): the session-start checkpoint is the only one, two bots join AFTER it and get avatars, the authority's game ends and starts again
+    # while the server and the bots stay up: the checkpoint holds no avatar, the world is rolled back, and the server asks the new authority for one avatar per
+    # stranded bot (their PlayerShip is sent again): exactly 2 avatars, 3 entities in the mirror, the bots are never restarted ----
+    $plainC = Join-Path $tmp 'start_save_c.xml.gz'; $shaC = New-GzSave $plainC 15
+    $ckptC1 = Join-Path $tmp 'ckptc1.xml.gz'; $null = New-GzSave $ckptC1 21
+    $ckptC2 = Join-Path $tmp 'ckptc2.xml.gz'; $null = New-GzSave $ckptC2 22
+    $srvC = Start-FreshServer 'c'
+    Publish-SessionFromUpload $srvC.Session $plainC $shaC
+    Run-Scenario 'avatars_stranded_a' 'work-stranded-a' @('--var', "ckpt_src=$ckptC1")
+    $workS = Join-Path $tmp 'work-stranded-b'
+    New-Item -ItemType Directory -Force (Join-Path $workS 'extension'), (Join-Path $workS 'saves') | Out-Null
+    Copy-Item (Join-Path $tmp 'work-stranded-a\extension\avatar-records.txt') (Join-Path $workS 'extension')
+    Copy-Item (Join-Path $tmp 'work-stranded-a\saves\x4mp_ckpt_*.xml.gz') (Join-Path $workS 'saves')
+    Copy-Item (Join-Path $tmp 'work-stranded-a\extension\player.key') (Join-Path $workS 'extension')
+    Run-Scenario 'avatars_stranded_b' 'work-stranded-b' @('--var', "ckpt_src3=$ckptC2")
+    if (-not (Select-String -Path $srvC.Log -Pattern 'world rolled back to net ids below 1 \(3 entities removed\)' -Quiet)) { throw "M3-29: the server log has no 'world rolled back to net ids below 1 (3 entities removed)' line ($($srvC.Log))" }
+    $reprov = @(Select-String -Path $srvC.Log -Pattern 'lost its avatar to a world rollback').Count
+    if ($reprov -ne 2) { throw "M3-29: expected exactly 2 re-provision lines in the server log, found $reprov ($($srvC.Log))" }
+    Write-Host '  M3-29: both stranded bots got exactly one new avatar from the re-hosted authority (no bot restart)' -ForegroundColor Green
     $exit = 0
 }
 catch { Write-Host "AVATARS E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }

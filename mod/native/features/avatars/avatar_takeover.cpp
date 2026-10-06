@@ -132,6 +132,16 @@ void AvatarTakeover::on_spawn_avatars(const std::vector<AvatarInfo>& avatars) {
     if (a.net_id == 0) continue;
     seen_[a.net_id] = a;
     if (grant_ && a.net_id == grant_->net_id && a.idcode != grant_->idcode && !a.idcode.empty() && stage_ <= Stage::Locating) grant_ = a;  // the authority refreshed it
+    // M3-29: the player's avatar was REPLACED (the server rolled the world back for a re-hosted authority and the authority provisioned a new avatar
+    // for us): a new net id for the same player after the takeover is over. The own ship stays as it is (no re-takeover, no teleport, no removal);
+    // only the net id the PlayerState stream carries (and the persisted record) follows the new avatar.
+    if (stage_ == Stage::Done && grant_ && player_ != 0 && a.net_id != grant_->net_id && a.controller_player == player_) {
+      log(LogLevel::Warn, std::format("my avatar was replaced: net_id {} -> {} (the authority re-provisioned it after a world rollback); the own ship stays, no new takeover", grant_->net_id, a.net_id));
+      grant_->net_id = a.net_id;
+      env_.set_own_net_id(a.net_id);
+      persist(TakeoverRecord::Phase::Done);
+      ++stats_.replaced;
+    }
   }
 }
 
