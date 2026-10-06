@@ -3,6 +3,12 @@
 // Pure C++ over ITakeoverEnv (game, session, stash and HUD behind one interface), so Catch2 tests it with a fake game and the real adapter
 // (avatars_client.cpp) is only plumbing. The authority's half is AvatarDirector (avatar_director.h); the two never run on the same node.
 //
+// M3-30 (Finding 4): three modes. DEFAULT (create): Locating asks MD to CREATE the player's ship (create_ship, owner faction.player: the engine's own
+// path for a player ship) at the avatar's pose, never re-owning a team copy; a team-owned copy of the own avatar in the save only gives the pose and is
+// removed after the guard like the host copy. diag.takeover_keep_own_ship: no new ship, the player keeps the save's own ship and it is bound to the avatar
+// (engine test). diag.takeover_mode_reown: the old flow below (native spawn / native re-own of the save's copy). Teleporting / Confirming / Removing are
+// shared by create and reown; keep skips Teleporting.
+//
 // Everybody loads the same checkpoint, so a client wakes up STANDING in the host's ship (a local copy of it). The machine:
 //
 //   Idle        waits until the universe is ready, the node is in game (the client link is up), the own player id, the own ship and the
@@ -115,11 +121,23 @@ class ITakeoverEnv {
   virtual void log(LogLevel level, const std::string& text) = 0;
   // M3-23: asks for a knowledge probe line (features/diag/knowledge_feature.h) labelled `tag`; a diagnostic only, the default does nothing.
   virtual void probe(const std::string& tag) { (void)tag; }
+  // M3-30 default mode: MD create_ship owner=faction.player (md/x4mp_avatars.xml X4MP_Avatars_Create). The answer arrives a frame or more later through take_created().
+  struct Created {
+    std::uint32_t seq = 0;
+    bool ok = false;
+    std::uint64_t id = 0;
+  };
+  virtual bool request_create(std::uint32_t seq, const std::string& macro, std::uint64_t sector, const Pose& pose, const std::string& name, const StarterSpec& starter) {
+    (void)seq, (void)macro, (void)sector, (void)pose, (void)name, (void)starter;
+    return false;
+  }
+  virtual std::optional<Created> take_created() { return std::nullopt; }
+  virtual void place(std::uint64_t id, std::uint64_t sector, const Pose& pose) { (void)id, (void)sector, (void)pose; }  // SetObjectSectorPos
 };
 
 struct TakeoverStats {
   std::uint32_t requests = 0, grants = 0, bound = 0, spawned = 0, spawn_failed = 0, refusals = 0, teleports = 0, guard_resets = 0;
-  std::uint32_t removed = 0, remove_refused = 0, hints = 0, restarts = 0, replaced = 0;
+  std::uint32_t removed = 0, remove_refused = 0, hints = 0, restarts = 0, replaced = 0, kept = 0;
 };
 
 class AvatarTakeover {
@@ -132,6 +150,7 @@ class AvatarTakeover {
   static constexpr double kConfirmTimeoutS = 10.0;
   static constexpr double kHintRepeatS = 30.0;
   static constexpr double kRemoveWaitS = 30.0;
+  static constexpr double kCreateTimeoutS = 15.0;
   static constexpr int kHintAfterRefusals = 3;
   static constexpr int kMaxTeleportTries = 10;  // after these the retry cadence is the slow one (20 s); nothing is ever given up
   static constexpr int kGuardFrames = 10;
@@ -178,6 +197,8 @@ class AvatarTakeover {
   bool resume_from_record(double now_s, std::uint16_t player, std::uint64_t ship);
   void step_requesting(double now_s, std::uint16_t player);
   void step_locating(double now_s);
+  void locate_keep(double now_s);
+  bool locate_create(double now_s);  // true = avatar_id_ is the created ship, go on with the shared tail
   void step_teleporting(double now_s);
   void step_confirming(double now_s);
   void step_removing(double now_s);
@@ -188,6 +209,9 @@ class AvatarTakeover {
   void persist(TakeoverRecord::Phase phase);
   [[nodiscard]] std::string expected_owner() const;
   [[nodiscard]] bool known_other_idcode(const std::string& idcode) const;
+  // M3-30 modes: reown (the old flow) wins over keep; neither = create (default)
+  [[nodiscard]] bool keep_ship() const noexcept { return diag_.takeover_keep_own_ship && !diag_.takeover_mode_reown; }
+  [[nodiscard]] bool create_mode() const noexcept { return !diag_.takeover_keep_own_ship && !diag_.takeover_mode_reown; }
   void log(LogLevel level, const std::string& text) { env_.log(level, "takeover: " + text); }
 
   ITakeoverEnv& env_;
@@ -201,13 +225,19 @@ class AvatarTakeover {
   Stage stage_ = Stage::Idle;
   bool held_ = false;
   std::uint16_t player_ = 0;
-  std::uint64_t host_id_ = 0, avatar_id_ = 0;
-  std::string host_idcode_, avatar_idcode_;
+  std::uint64_t host_id_ = 0, avatar_id_ = 0, stale_id_ = 0;  // keep mode: avatar_id_ == host_id_ == the player's own ship; stale_id_ = the save's avatar copy to remove
+  std::string host_idcode_, avatar_idcode_, stale_idcode_;
   double next_action_ = 0, stage_since_ = 0, started_ = 0, next_hint_ = 0, next_log_ = 0;
   int tries_ = 0, frames_ok_ = 0;
   std::uint32_t last_sit_downs_ = 0;
   bool hint_shown_ = false;
   bool owner_set_ = false;
+  // create mode
+  bool stale_searched_ = false, creating_ = false;
+  std::uint32_t create_seq_ = 0;
+  double create_sent_ = 0;
+  std::uint64_t create_sector_ = 0;
+  Pose create_pose_{}, stale_pose_{};
   std::vector<Todo> todo_;
   TakeoverStats stats_;
 };

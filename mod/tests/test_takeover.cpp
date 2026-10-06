@@ -1,5 +1,6 @@
 // M3-12 client takeover: the AvatarTakeover state machine over a fake game (no game, no session).
 #include <algorithm>
+#include <deque>
 #include <map>
 #include <set>
 
@@ -51,8 +52,30 @@ struct FakeTake final : ITakeoverEnv {
   std::vector<std::string> logs;
   std::uint64_t pending_seat = 0;
   int pending_frames = 0;
+  // M3-30 create mode: MD create_ship answers
+  struct PendingCreate {
+    std::uint32_t seq;
+    bool ok;
+    std::uint64_t id;
+    int frames;
+  };
+  std::vector<PendingCreate> create_pending;
+  std::deque<Created> create_answers;
+  int create_delay = 1, create_fail = 0, create_silent = 0, create_requests = 0, places = 0;
+  bool create_refuse_send = false;
+  std::vector<std::string> create_names;
+  std::vector<std::uint32_t> create_seqs;
+  std::vector<Pose> create_poses, placed_poses;
 
   void tick() {
+    for (auto it = create_pending.begin(); it != create_pending.end();) {
+      if (it->frames-- <= 0) {
+        create_answers.push_back({it->seq, it->ok, it->id});
+        it = create_pending.erase(it);
+      } else {
+        ++it;
+      }
+    }
     if (pending_seat != 0 && pending_frames-- <= 0) {
       seat = pending_seat;
       pending_seat = 0;
@@ -154,16 +177,57 @@ struct FakeTake final : ITakeoverEnv {
   void log(LogLevel, const std::string& text) override { logs.push_back(text); }
   std::vector<std::string> probes;  // M3-23: the knowledge probes the machine asked for, in order
   void probe(const std::string& tag) override { probes.push_back(tag); }
+  bool request_create(std::uint32_t seq, const std::string& macro, std::uint64_t sector, const Pose& pose, const std::string& name, const StarterSpec&) override {
+    calls.push_back("create");
+    if (create_refuse_send) return false;
+    ++create_requests;
+    create_seqs.push_back(seq);
+    create_names.push_back(name);
+    create_poses.push_back(pose);
+    if (create_silent > 0) {
+      --create_silent;
+      return true;
+    }
+    if (create_fail > 0) {
+      --create_fail;
+      create_pending.push_back({seq, false, 0, create_delay});
+      return true;
+    }
+    const auto id = add(macro, "player", name, "CRE-" + std::to_string(next_id), sector, pose);  // MD creates it player-owned
+    create_pending.push_back({seq, true, id, create_delay});
+    return true;
+  }
+  std::optional<Created> take_created() override {
+    if (create_answers.empty()) return std::nullopt;
+    const auto c = create_answers.front();
+    create_answers.pop_front();
+    return c;
+  }
+  void place(std::uint64_t id, std::uint64_t, const Pose& pose) override {
+    calls.push_back("place");
+    ++places;
+    placed_poses.push_back(pose);
+    if (objs.count(id)) objs[id].pose = pose;
+  }
 };
 
 constexpr double kDt = 1.0 / 60.0;
 
+enum class Mode { Reown, Keep, Create };
+
 struct Rig {
   FakeTake env;
   AvatarTakeover m{env};
+  x4mp::config::DiagConfig diag;
   double now = 100.0;
   std::uint64_t host = 0;
-  Rig() { host = env.ship_standing = env.add("ship_arg_m_fighter_01_a_macro", "player", "Host ship", "HST-001"); }
+  // M3-30: three modes (create = default, keep = diag.takeover_keep_own_ship, reown = diag.takeover_mode_reown); most cases below test the old reown flow.
+  explicit Rig(Mode mode = Mode::Reown) {
+    host = env.ship_standing = env.add("ship_arg_m_fighter_01_a_macro", "player", "Host ship", "HST-001");
+    diag.takeover_mode_reown = mode == Mode::Reown;
+    diag.takeover_keep_own_ship = mode == Mode::Keep;
+    m.set_diag(diag);
+  }
   void frames(int n) {
     for (int i = 0; i < n; ++i) {
       now += kDt;
@@ -324,6 +388,7 @@ TEST_CASE("takeover diag (M3-23): takeover_keep_original runs the whole takeover
   r.env.seat_delay_frames = 1;
   x4mp::config::DiagConfig d;
   d.takeover_keep_original = true;
+  d.takeover_mode_reown = true;
   r.m.set_diag(d);
   const auto bob = r.other_avatar("[MP] Bob", "BOB-001", 2);
   r.frames(5);
@@ -343,6 +408,7 @@ TEST_CASE("takeover diag (M3-23): takeover_off does nothing to the game: no requ
   Rig r;
   x4mp::config::DiagConfig d;
   d.takeover_off = true;
+  d.takeover_mode_reown = true;
   r.m.set_diag(d);
   r.frames(5);
   r.m.on_spawn_avatars({r.grant()});
@@ -639,6 +705,7 @@ TEST_CASE("takeover reload: after /reloadui in the Done state the new instance i
   r.env.net_id_set = 0;
   r.env.requests = 0;
   AvatarTakeover again(r.env);
+  again.set_diag(r.diag);
   again.load_record(*takeover_record_from_text(text));
   r.env.ship_standing = r.host;  // (gone) the selfship status says the ship the player is in
   r.env.ship_standing = avatar;
@@ -660,6 +727,7 @@ TEST_CASE("takeover reload: a reload in the middle of the guard resumes at Confi
   REQUIRE(r.env.seat == avatar);
   REQUIRE(r.env.removed.empty());
   AvatarTakeover again(r.env);
+  again.set_diag(r.diag);
   again.load_record(*takeover_record_from_text(text));
   const int spawns = r.env.spawns;
   double now = r.now;
@@ -689,6 +757,7 @@ TEST_CASE("takeover reload: a reload after the teleport was started but before t
   const auto avatar = r.m.avatar_id();
   const auto text = r.env.record;  // phase Progress; the copy is already player-owned (no longer in the team list)
   AvatarTakeover again(r.env);
+  again.set_diag(r.diag);
   again.load_record(*takeover_record_from_text(text));
   r.env.deny_teleports = 0;
   AvatarInfo g = r.grant();
@@ -766,6 +835,281 @@ TEST_CASE("takeover: the session ending releases the state and a new session sta
   r.frames(3);
   CHECK(r.m.stage() == AvatarTakeover::Stage::Requesting);  // asks again; the avatar is unchanged (the authority answers with the same ship)
   CHECK(r.env.requests >= 1);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M3-30 (Finding 4): the DEFAULT takeover keeps the ship the player sits in (the save's own player ship, which the engine records explored space
+// for) and binds it to the avatar's net id; the avatar copy of the save goes. diag.takeover_mode_reown restores the old takeover (cases above).
+TEST_CASE("takeover M3-30 keep (diag.takeover_keep_own_ship): keeps the player's own ship: no spawn, no re-own, no teleport, the net id is bound after the guard", "[takeover][m330]") {
+  Rig r(Mode::Keep);
+  r.env.seat = r.host;  // the player is in the ship (standing counts: GetPlayerOccupiedShipID)
+  const auto bob = r.other_avatar("[MP] Bob", "BOB-001", 2);
+  r.frames(5);
+  CHECK(r.env.held);
+  r.m.on_spawn_avatars({r.grant()});
+  r.frames(3);
+  CHECK(r.m.stage() == AvatarTakeover::Stage::Confirming);
+  CHECK(r.env.net_id_set == 0);  // nothing is sent before the guard
+  r.seconds(1);
+  REQUIRE(r.m.done());
+  CHECK(r.env.net_id_set == 41);
+  CHECK_FALSE(r.env.held);
+  CHECK_FALSE(r.env.ghosts_held);
+  CHECK(r.env.spawns == 0);
+  CHECK(r.env.teleports == 0);
+  CHECK(r.env.can_calls == 0);
+  CHECK(std::none_of(r.env.calls.begin(), r.env.calls.end(), [](const std::string& c) { return c.rfind("owner:", 0) == 0 || c == "teleport" || c == "spawn"; }));
+  CHECK_FALSE(r.gone(r.host));  // the player's ship stays
+  CHECK(r.env.objs[r.host].owner == "player");
+  CHECK(r.gone(bob));           // other avatars' copies still go
+  CHECK(r.m.avatar_id() == r.host);
+  CHECK(r.m.host_id() == r.host);
+  CHECK(r.m.stats().kept == 1);
+  const auto rec = takeover_record_from_text(r.env.record);
+  REQUIRE(rec);
+  CHECK(rec->phase == TakeoverRecord::Phase::Done);
+  CHECK(rec->avatar_id == r.host);
+  CHECK(rec->idcode == "HST-001");
+  const std::vector<std::string> want = {"takeover: own ship kept", "takeover: guard confirmed", "takeover: done, own ship kept"};
+  CHECK(r.env.probes == want);
+}
+
+TEST_CASE("takeover M3-30: the avatar copy of the save is removed after the guard, never before; the own ship is never touched", "[takeover][m330]") {
+  Rig r(Mode::Keep);
+  r.env.seat = r.host;
+  const auto copy = r.env.add("ship_arg_s_fighter_01_a_macro", "x4mp_team_1", "[MP] Me", "AVA-001", 900, {10, 20, 30, 0.5, 0, 0});
+  r.frames(2);
+  r.m.on_spawn_avatars({r.grant()});
+  r.frames(5);
+  REQUIRE(r.m.stage() == AvatarTakeover::Stage::Confirming);
+  CHECK_FALSE(r.gone(copy));  // the guard has not confirmed yet
+  r.seconds(1);
+  REQUIRE(r.m.done());
+  CHECK(r.gone(copy));
+  CHECK_FALSE(r.gone(r.host));
+  CHECK(r.env.spawns == 0);
+  CHECK(r.env.objs.count(r.host) == 1);
+  CHECK(std::none_of(r.env.removed.begin(), r.env.removed.end(), [&](std::uint64_t id) { return id == r.host; }));
+  CHECK(r.env.probes.front() == "takeover: own ship kept (save copy found)");
+}
+
+TEST_CASE("takeover M3-30: a flicker resets the guard; a ship change before the guard retargets; a refused copy removal is left in place", "[takeover][m330]") {
+  Rig r(Mode::Keep);
+  r.env.seat = r.host;
+  const auto copy = r.env.add("ship_arg_s_fighter_01_a_macro", "x4mp_team_1", "[MP] Me", "AVA-001");
+  r.env.remove_refuse_forever.insert(copy);
+  r.m.on_spawn_avatars({r.grant()});
+  r.frames(4);
+  REQUIRE(r.m.stage() == AvatarTakeover::Stage::Confirming);
+  r.env.seat = 0;  // flicker
+  r.frames(3);
+  r.env.seat = r.host;
+  r.frames(5);
+  CHECK(r.m.stage() == AvatarTakeover::Stage::Confirming);
+  CHECK(r.env.net_id_set == 0);
+  r.seconds(2);
+  REQUIRE(r.m.done());
+  CHECK_FALSE(r.gone(copy));  // SafeRemove refused it 30 times: left in place
+  CHECK(r.m.stats().remove_refused == 1);
+
+  Rig r2(Mode::Keep);
+  const auto other = r2.env.add("ship_arg_m_fighter_01_a_macro", "player", "Other", "OTH-001");
+  r2.env.seat = r2.host;
+  r2.m.on_spawn_avatars({r2.grant()});
+  r2.frames(3);
+  r2.env.seat = other;  // the player moved to another ship before the guard confirmed
+  r2.seconds(1);
+  REQUIRE(r2.m.done());
+  CHECK(r2.m.avatar_id() == other);
+  CHECK_FALSE(r2.gone(r2.host));
+  CHECK_FALSE(r2.gone(other));
+}
+
+TEST_CASE("takeover M3-30: no team ship list = the takeover goes on after a while (nothing is spawned either way)", "[takeover][m330]") {
+  Rig r(Mode::Keep);
+  r.env.seat = r.host;
+  r.env.enumeration = false;
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(5);
+  CHECK(r.m.stage() == AvatarTakeover::Stage::Locating);
+  r.seconds(8);
+  REQUIRE(r.m.done());
+  CHECK(r.env.spawns == 0);
+  CHECK(r.env.removed.empty());
+}
+
+TEST_CASE("takeover M3-30: reload resumes: Progress keeps the own ship and still removes the avatar copy, Done is Done at once", "[takeover][m330][reload]") {
+  Rig r(Mode::Keep);
+  r.env.seat = r.host;
+  const auto copy = r.env.add("ship_arg_s_fighter_01_a_macro", "x4mp_team_1", "[MP] Me", "AVA-001");
+  r.m.on_spawn_avatars({r.grant()});
+  r.frames(4);
+  REQUIRE(r.m.stage() == AvatarTakeover::Stage::Confirming);
+  const auto text = r.env.record;
+  REQUIRE(takeover_record_from_text(text)->phase == TakeoverRecord::Phase::Progress);
+  AvatarTakeover again(r.env);
+  again.set_diag(r.diag);
+  again.load_record(*takeover_record_from_text(text));
+  r.env.held = true;
+  double now = r.now;
+  for (int i = 0; i < 30 && !again.done(); ++i) {
+    now += kDt;
+    again.step(now);
+  }
+  REQUIRE(again.done());
+  CHECK(again.avatar_id() == r.host);
+  CHECK(r.gone(copy));
+  CHECK_FALSE(r.gone(r.host));
+  CHECK(r.env.requests == 0);
+  CHECK(r.env.net_id_set == 41);
+
+  const auto done_text = r.env.record;
+  REQUIRE(takeover_record_from_text(done_text)->phase == TakeoverRecord::Phase::Done);
+  AvatarTakeover third(r.env);
+  third.set_diag(r.diag);
+  third.load_record(*takeover_record_from_text(done_text));
+  r.env.held = true;
+  r.env.net_id_set = 0;
+  third.step(now + 1);
+  CHECK(third.done());
+  CHECK(r.env.net_id_set == 41);
+  CHECK_FALSE(r.env.held);
+}
+
+TEST_CASE("takeover M3-30: the reown switch keeps the old takeover (re-own + teleport + host copy removal)", "[takeover][m330]") {
+  Rig r(Mode::Reown);
+  const auto copy = r.env.add("ship_arg_s_fighter_01_a_macro", "x4mp_team_1", "[MP] Me", "AVA-001");
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(2);
+  REQUIRE(r.m.done());
+  CHECK(r.m.avatar_id() == copy);
+  CHECK(r.env.teleports == 1);
+  CHECK(r.gone(r.host));
+  CHECK(r.env.objs[copy].owner == "player");
+  CHECK(r.m.stats().kept == 0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M3-30 DEFAULT (create): the client's ship is created player-owned by MD (create_ship owner=faction.player), never re-owned, at the avatar's pose; the
+// teleport / guard / removal are the old ones.
+TEST_CASE("takeover M3-30 create: a new player gets an MD-created player-owned ship at the grant's pose; no native spawn, no re-own", "[takeover][m330][create]") {
+  Rig r(Mode::Create);
+  const auto bob = r.other_avatar("[MP] Bob", "BOB-001", 2);
+  r.frames(5);
+  CHECK(r.env.held);
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(2);
+  REQUIRE(r.m.done());
+  CHECK(r.env.create_requests == 1);
+  CHECK(r.env.create_names.front().empty());
+  CHECK(r.env.create_poses.front().x == 10);
+  CHECK(r.env.spawns == 0);  // the native SpawnObjectAtPos2 path is not used
+  CHECK(std::none_of(r.env.calls.begin(), r.env.calls.end(), [](const std::string& c) { return c.rfind("owner:", 0) == 0 || c == "spawn"; }));
+  const auto ship = r.m.avatar_id();
+  CHECK(ship != r.host);
+  CHECK(r.env.objs.at(ship).owner == "player");
+  CHECK(r.env.seat == ship);
+  CHECK(r.env.places == 1);
+  CHECK(r.env.placed_poses.front().z == 30);
+  CHECK(r.gone(r.host));  // the host copy goes after the guard, as before
+  CHECK(r.gone(bob));
+  CHECK(r.env.net_id_set == 41);
+  CHECK_FALSE(r.env.held);
+  const std::vector<std::string> want = {"takeover: avatar spawned", "takeover: teleported", "takeover: guard confirmed", "takeover: original removed"};
+  CHECK(r.env.probes == want);
+  // order: create, place, activate, teleport, ... removals only after the guard
+  const auto at = [&](const std::string& c) { return std::find(r.env.calls.begin(), r.env.calls.end(), c) - r.env.calls.begin(); };
+  CHECK(at("create") < at("place"));
+  CHECK(at("place") < at("teleport"));
+  CHECK(at("teleport") < at("remove:" + std::to_string(r.host)));
+}
+
+TEST_CASE("takeover M3-30 create: a team copy of the own avatar in the save gives the pose and is removed after the guard, never re-owned", "[takeover][m330][create]") {
+  Rig r(Mode::Create);
+  const auto copy = r.env.add("ship_arg_s_fighter_01_a_macro", "x4mp_team_1", "[MP] Me", "AVA-001", 900, {111, 222, 333, 0, 0, 0});
+  r.m.on_spawn_avatars({r.grant()});
+  r.frames(8);
+  CHECK_FALSE(r.gone(copy));  // nothing is removed before the guard
+  CHECK(r.env.objs.at(copy).owner == "x4mp_team_1");
+  r.seconds(2);
+  REQUIRE(r.m.done());
+  CHECK(r.env.create_poses.front().x == 111);  // the copy's pose, not the grant's
+  CHECK(r.gone(copy));
+  CHECK(r.gone(r.host));
+  CHECK(r.m.avatar_id() != copy);
+  CHECK(r.env.objs.at(r.m.avatar_id()).owner == "player");
+  CHECK(std::none_of(r.env.calls.begin(), r.env.calls.end(), [](const std::string& c) { return c.rfind("owner:", 0) == 0; }));
+  CHECK(r.m.stats().bound == 1);
+}
+
+TEST_CASE("takeover M3-30 create: a failed or silent MD answer retries; a late answer's surplus ship is removed; no list or no sector waits", "[takeover][m330][create]") {
+  Rig r(Mode::Create);
+  r.env.create_fail = 1;
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(12);
+  REQUIRE(r.m.done());
+  CHECK(r.env.create_requests == 2);
+
+  Rig q(Mode::Create);
+  q.env.create_silent = 1;  // the first request is never answered
+  q.m.on_spawn_avatars({q.grant()});
+  q.seconds(40);
+  REQUIRE(q.m.done());
+  CHECK(q.env.create_requests == 2);
+  // a late answer of the first request (while the second is out): its ship is a surplus
+  Rig z(Mode::Create);
+  z.env.create_silent = 1;
+  z.m.on_spawn_avatars({z.grant()});
+  z.seconds(16);  // timeout -> the second request is out
+  const auto surplus = z.env.add("ship_arg_s_fighter_01_a_macro", "player", "[MP] Me", "LATE-2");
+  z.env.create_answers.push_back({z.env.create_seqs.front(), true, surplus});
+  z.seconds(10);
+  REQUIRE(z.m.done());
+  CHECK(z.gone(surplus));
+  CHECK_FALSE(z.gone(z.m.avatar_id()));
+
+  Rig n(Mode::Create);
+  n.env.enumeration = false;
+  n.m.on_spawn_avatars({n.grant()});
+  n.seconds(5);
+  CHECK(n.env.create_requests == 0);  // never create on an unknown team ship list
+  Rig u(Mode::Create);
+  u.env.sector_of_index.clear();
+  u.m.on_spawn_avatars({u.grant()});
+  u.seconds(5);
+  CHECK(u.env.create_requests == 0);
+  Rig w(Mode::Create);
+  w.env.create_refuse_send = true;
+  w.m.on_spawn_avatars({w.grant()});
+  w.seconds(5);
+  CHECK(w.m.stage() == AvatarTakeover::Stage::Locating);
+  CHECK(w.m.stats().spawn_failed >= 1);
+}
+
+TEST_CASE("takeover M3-30 create: a reload in the guard resumes without a second create and still removes the save's copy", "[takeover][m330][create][reload]") {
+  Rig r(Mode::Create);
+  r.env.seat_delay_frames = 1000;
+  const auto copy = r.env.add("ship_arg_s_fighter_01_a_macro", "x4mp_team_1", "[MP] Me", "AVA-001");
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(1);
+  REQUIRE(r.m.stage() == AvatarTakeover::Stage::Confirming);
+  const auto ship = r.m.avatar_id();
+  const auto text = r.env.record;
+  AvatarTakeover again(r.env);
+  again.set_diag(r.diag);
+  again.load_record(*takeover_record_from_text(text));
+  r.env.pending_seat = 0;
+  r.env.seat = ship;
+  double now = r.now;
+  for (int i = 0; i < 40 && !again.done(); ++i) {
+    now += kDt;
+    again.step(now);
+  }
+  REQUIRE(again.done());
+  CHECK(r.env.create_requests == 1);
+  CHECK(r.gone(copy));
+  CHECK(r.gone(r.host));
+  CHECK_FALSE(r.gone(ship));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------

@@ -16,6 +16,7 @@
                                                    info shows 0 m/s and the motion looks worse)
   MD -> Lua  raise_lua_event 'x4mp.md_avatars' <string>, forwarded unchanged to native (verb x4mp.avatars_md):
     P;<seq>;<ok>;<x>;<y>;<z>      the safe position (ok = 0: none found, native uses the wanted spot)
+    C;<seq>;<ok>;<id>             (M3-30, client) the player-owned ship MD created: see X4MP_Avatars_Create (id = decimal UniverseID, ok = 0: failed)
     D;<seq>;<ok>;<detail>         dressed; detail = loadout:<id> | loadout:basic | loadout:none | refused_player_ship | not_found
 
   Safety: the player's ship, its container and its occupied ship are never named, hull-limited, re-equipped or moved here.
@@ -110,6 +111,76 @@
           <debug_text text="'[X4MP] avatars: dressed ' + $Obj.name + ' macro=' + $Obj.macro.id + ' owner=' + @$Obj.owner.id + ' loadout=' + $Applied + ' minhull=' + $MinHull + ' hull=' + $Obj.hullpercentage" filter="general" context="false"/>
           <raise_lua_event name="'x4mp.md_avatars'" param="'D;' + $Seq + ';1;loadout:' + $Applied"/>
         </do_else>
+      </actions>
+    </cue>
+
+    <!-- M3-30 (Finding 4): the CLIENT's own ship is created by the engine's own path for a player ship (create_ship, owner faction.player; the vanilla
+         gamestart ships do the same: md/setup_gamestarts.xml:1620-1621, md/diplomacy.xml:265), not spawned natively and re-owned later.
+         Lua -> MD  create { seq, sector, x, y, z, macro, name, loadout, basic }  at (x, y, z) of `sector`; native places the exact pose afterwards
+         MD -> Lua  'x4mp.md_avatars_created' param [seq, ship] (Lua converts the ship to a decimal id and forwards "C;seq;1;id"), or 'x4mp.md_avatars' "C;seq;0" -->
+    <cue name="X4MP_Avatars_Create" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Avatars'" control="'create'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Seq" exact="@event.param3.{1}"/>
+        <set_value name="$Sector" exact="@event.param3.{2}"/>
+        <set_value name="$X" exact="@event.param3.{3}"/>
+        <set_value name="$Y" exact="@event.param3.{4}"/>
+        <set_value name="$Z" exact="@event.param3.{5}"/>
+        <set_value name="$MacroId" exact="@event.param3.{6}"/>
+        <set_value name="$Name" exact="@event.param3.{7}"/>
+        <set_value name="$LoadoutId" exact="@event.param3.{8}"/>
+        <set_value name="$Basic" exact="@event.param3.{9} == 1"/>
+        <do_if value="$Seq and @$Sector.exists and typeof $MacroId == datatype.string and $MacroId != ''">
+          <create_ship name="$Ship" macro="macro.{$MacroId}" sector="$Sector">
+            <owner exact="faction.player" overridenpc="true"/>
+            <position x="$X" y="$Y" z="$Z"/>
+          </create_ship>
+          <do_if value="@$Ship.exists">
+            <do_if value="typeof $Name == datatype.string and $Name != ''">
+              <set_object_name object="$Ship" name="$Name"/>
+            </do_if>
+            <set_value name="$Applied" exact="'none'"/>
+            <do_if value="$LoadoutId != ''">
+              <get_loadout loadout="$LoadoutId" macro="$Ship.macro" result="$Loadout"/>
+              <do_if value="$Loadout?">
+                <apply_loadout object="$Ship" loadout="$Loadout"/>
+                <set_value name="$Applied" exact="'id:' + $LoadoutId"/>
+              </do_if>
+            </do_if>
+            <do_if value="$Applied == 'none' and $Basic and $Ship.macro.id == 'ship_arg_s_fighter_01_a_macro'">
+              <create_loadout result="$Loadout">
+                <macros>
+                  <engine macro="engine_arg_s_allround_01_mk1_macro" path="../con_engine_01"/>
+                  <engine macro="engine_arg_s_allround_01_mk1_macro" path="../con_engine_02"/>
+                  <weapon macro="weapon_gen_s_laser_01_mk1_macro" path="../con_primaryweapon_01"/>
+                  <weapon macro="weapon_gen_s_laser_01_mk1_macro" path="../con_primaryweapon_02"/>
+                  <shield macro="shield_arg_s_standard_01_mk1_macro" path="../con_shield_01"/>
+                </macros>
+                <software>
+                  <software ware="software_flightassistmk1"/>
+                  <software ware="software_scannerlongrangemk1"/>
+                  <software ware="software_scannerobjectmk1"/>
+                  <software ware="software_targetmk1"/>
+                </software>
+                <virtualmacros>
+                  <thruster macro="thruster_gen_s_allround_01_mk1_macro"/>
+                </virtualmacros>
+              </create_loadout>
+              <apply_loadout object="$Ship" loadout="$Loadout"/>
+              <set_value name="$Applied" exact="'basic'"/>
+            </do_if>
+            <debug_text text="'[X4MP] avatars: created the player ship ' + $Ship.name + ' macro=' + $Ship.macro.id + ' owner=' + @$Ship.owner.id + ' isplayerowned=' + $Ship.isplayerowned + ' loadout=' + $Applied" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp.md_avatars_created'" param="[$Seq, $Ship]"/>
+          </do_if>
+          <do_else>
+            <raise_lua_event name="'x4mp.md_avatars'" param="'C;' + $Seq + ';0'"/>
+          </do_else>
+        </do_if>
+        <do_elseif value="$Seq">
+          <raise_lua_event name="'x4mp.md_avatars'" param="'C;' + $Seq + ';0'"/>
+        </do_elseif>
       </actions>
     </cue>
 

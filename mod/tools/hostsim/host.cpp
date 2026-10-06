@@ -559,6 +559,22 @@ void Host::emulate_md(const std::string& topic, const std::string& param) {
       o->radar = true;
     }
     md_answers_.emplace_back("x4mp.avatars_md", nlohmann::json{{"v", 1}, {"data", "D;" + std::to_string(j["seq"].get<unsigned>()) + ";1;loadout:basic"}}.dump());
+  } else if (topic == "x4mp.avatars_create") {  // M3-30: the client's MD create_ship (owner faction.player): a player-owned ship at the wanted spot
+    const auto j = nlohmann::json::parse(param, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("seq")) return;
+    const auto seq = j["seq"].get<unsigned>();
+    const auto sector = static_cast<std::uint64_t>(std::strtoull(j.value("sector", std::string("0")).c_str(), nullptr, 10));
+    UIPosRot pos{};
+    pos.x = static_cast<float>(j.value("x", 0.0));
+    pos.y = static_cast<float>(j.value("y", 0.0));
+    pos.z = static_cast<float>(j.value("z", 0.0));
+    const auto id = world.has_sector(sector) ? world.spawn(j.value("macro", std::string()), sector, pos, "player") : 0;
+    if (id == 0) {
+      md_answers_.emplace_back("x4mp.avatars_md", nlohmann::json{{"v", 1}, {"data", "C;" + std::to_string(seq) + ";0"}}.dump());
+    } else {
+      if (Obj* o = world.find(id)) o->name = j.value("name", std::string());
+      md_answers_.emplace_back("x4mp.avatars_md", nlohmann::json{{"v", 1}, {"data", "C;" + std::to_string(seq) + ";1;" + std::to_string(id)}}.dump());
+    }
   } else if (topic == "x4mp.teams_apply") {  // M3-08: the MD team setup; answer with a report that matches the plan
     ++world.teams_applies;
     const auto j = nlohmann::json::parse(param, nullptr, false);

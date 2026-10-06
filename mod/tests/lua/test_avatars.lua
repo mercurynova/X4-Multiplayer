@@ -101,3 +101,24 @@ test("the MD answer is forwarded to native unchanged; empty ones are dropped", f
 	eq(#env.raisedNamed("x4mp.avatars_md"), n)
 	truthy(true)
 end)
+
+test("create (M3-30): the client's ship request reaches MD as one list; a bad one is answered C;seq;0", function()
+	local log = setup()
+	env.fire("x4mp.avatars_create", '{"v":1,"seq":3,"sector":"77","x":1,"y":2,"z":3,"macro":"ship_arg_s_fighter_01_a_macro","name":"[MP] Bob","loadout":"","basic":true}')
+	eq(#log.md, 1)
+	eq(log.md[1][2], "create")
+	local l = log.md[1][3]
+	eq(l[1], 3) eq(l[2], "ID:77") eq(l[3], 1) eq(l[4], 2) eq(l[5], 3) eq(l[6], "ship_arg_s_fighter_01_a_macro") eq(l[7], "[MP] Bob") eq(l[8], "") eq(l[9], 1)
+	env.fire("x4mp.avatars_create", '{"v":1,"seq":4,"sector":"","x":1,"y":2,"z":3,"macro":"m"}')
+	eq(#log.md, 1)
+	eq(lastRaised("x4mp.avatars_md").data, "C;4;0")
+end)
+
+test("create (M3-30): the ship MD created is forwarded as a decimal id; an unconvertible one as ok = 0", function()
+	setup()
+	_G.ConvertStringTo64Bit = function(s) return s == "SHIP" and 123456789012 or nil end
+	env.fire("x4mp.md_avatars_created", { 5, "SHIP" })
+	eq(lastRaised("x4mp.avatars_md").data, "C;5;1;123456789012")
+	env.fire("x4mp.md_avatars_created", { 6, "BAD" })
+	eq(lastRaised("x4mp.avatars_md").data, "C;6;0")
+end)

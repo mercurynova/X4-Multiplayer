@@ -3,6 +3,8 @@
 # Trivial on purpose (the DLL has no M3 features yet): join, resume after the reload, InGame, see each other online, sit in the
 # seat and fly a circle in the fake universe, then leave only after the other player also got this far. Wave-2 tasks (M3-09/10/11)
 # copy this file and add `expect-object` / `expect-ghost` lines.
+# M3-30: the takeover's ship is created by MD (create_ship, player-owned): the fake MD answers x4mp.avatars_create (the sector map is still played by hand below)
+world md-emulate on
 init
 frame 60Hz 10
 lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
@@ -58,7 +60,7 @@ frame 60Hz 240
 expect-file extension/logs/x4mp.log takeover: record found (phase 1
 expect-state removed == 0
 expect-state teleports == 0
-expect-object count == 1 macro=ship_arg_s_fighter_01_a_macro
+expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
 
 # second half: the game allows it. A sit-down (what the hint asks for) retries at once; the guard needs 10 frames; only then the host copy goes
 world teleport allow
@@ -73,7 +75,7 @@ expect-state removed == 1
 expect-object 200001 absent
 expect-object player owner == player
 expect-object player macro == ship_arg_s_fighter_01_a_macro
-expect-object count == 1 macro=ship_arg_s_fighter_01_a_macro
+expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
 expect-state seat == 1
 # no second spawn, the copy the reload found is the one the player flies; PlayerState flows now (the held stream was released)
 frame 60Hz 120
