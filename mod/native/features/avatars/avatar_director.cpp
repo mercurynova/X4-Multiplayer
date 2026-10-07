@@ -382,7 +382,12 @@ void AvatarDirector::on_player_state(const PlayerStateIn& s, std::int64_t arriva
   g.t_us = s.sample_time_us;
   // A sender whose sample time is not on the server clock (no clock sync yet, a bot that counts ticks) would put every sample seconds away from the
   // render time: the avatar would never move. Such samples are stamped with their arrival time less a typical 50 ms of transport instead.
-  if (arrival_server_us > 0 && std::llabs(g.t_us - arrival_server_us) > kMaxClockSkewUs) {
+  // M3-32 (Finding 21): a hitch of the authority's own game (a 3.2 s frame gap at a client's superhighway transit) delivers the states that queued up
+  // in the gap in one batch: their (correct) stamps are as old as the gap. The tolerance grows by the time since the previous frame, so a stall is not
+  // mistaken for a wrong clock (stamping the whole batch with one arrival time collapsed it into a single sample); a real clock error stays far
+  // outside it (it is constant, the gap is a one-off).
+  const std::int64_t stall_us = (last_frame_server_us_ > 0 && arrival_server_us > last_frame_server_us_) ? arrival_server_us - last_frame_server_us_ : 0;
+  if (arrival_server_us > 0 && std::llabs(g.t_us - arrival_server_us) > kMaxClockSkewUs + stall_us) {
     if (!av->clock_warned) {
       av->clock_warned = true;
       env_.log(LogLevel::Warn, std::format("avatars: PlayerState of player {} is not stamped with the server clock (off by {:.1f} s); using arrival times", av->rec.player_id,
@@ -758,6 +763,7 @@ void AvatarDirector::maintain(Avatar& av) {
 
 void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
   now_s_ = now_s;
+  if (server_now_us > 0) last_frame_server_us_ = server_now_us;
   if (!env_.game_ready()) return;
   if (rebind_pending_) do_rebind();
   if (rebind_pending_) return;

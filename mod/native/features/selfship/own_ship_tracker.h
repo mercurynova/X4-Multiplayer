@@ -69,6 +69,13 @@ struct TrackerConfig {
   double idle_turn_rps = 0.05;
   double jump_base_m = 2000.0;
   double jump_speed_mps = 15000.0;
+  // M3-32 (Finding 21): a superhighway carries the ship at 4.4-4.9 km/s (two-PC run) and the game reports the highway context / a sector the map
+  // knows only late (or never), so the state of a ship that fast is sent as Hidden + InHighway from the first fast frame on: the others hide the
+  // ghost / hold the avatar instead of following a 5 km/s flight that ends in a silent gap. Hysteresis; the flag survives a sector change until a
+  // measurable speed (same sector, no teleport) is below the exit value.
+  double highway_enter_mps = 3500.0;
+  double highway_exit_mps = 3000.0;
+  std::int64_t highway_max_dt_us = 500'000;     // speed is only measured across frames this close together (a gate jump / load gap is no speed)
   std::int64_t schedule_slack_us = 1'000;      // a frame up to 1 ms early still counts as due
 };
 
@@ -118,6 +125,7 @@ class OwnShipTracker {
   ghost::Vec3 anchor_pos_{};
   ghost::Euler anchor_rot_{};
   bool moving_ = true;
+  bool fast_ = false;  // M3-32: flying at superhighway speed (see TrackerConfig::highway_enter_mps)
   // what was last sent
   bool sent_any_ = false;
   std::uint16_t sent_sector_ = 0;

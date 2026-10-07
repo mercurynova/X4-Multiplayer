@@ -231,6 +231,19 @@ If one switch stops the flips, send which one (that is the cause; Claude then ma
 
 **Send:** the zips, and for every run the list of local flip times per phase (B, C-E) plus where the bubble was centred in the fog state (on you, on a bot, on nothing).
 
+## M3-32 check (Finding 21, markers around a superhighway; two PCs: Alice = authority, Bob = client)
+
+What changed: the sender flags a superhighway flight itself (speed >= 3500 m/s: one `Hidden + InHighway` state at once, back below 3000 m/s), so the other PC hides the ghost / holds the avatar when the ride starts instead of following a 5 km/s flight; the authority no longer mistakes a stall of its own frames for a wrong PlayerState clock.
+
+1. Both PCs: install the build, same setup as the M3-31 check. Bob opens the **map** on the sector Alice will leave.
+2. Alice rides the same superhighway as in the two-PC run, exits, flies 30 s. **Expected on Bob:** the `[MP] Alice` marker does not run along the highway line and does not flash on several spots; it stops/vanishes when she enters, and shows again once at the exit sector. Bob's log: no `err_p95` of hundreds of metres in the `[sync]` windows after the exit (was `868 m`, max `1221 m`, `extrap=101`).
+3. Swap: Bob rides it. **Expected on Alice:** Bob's avatar stays at the entry, then moves once to the exit sector; no marker flashing; Alice's log has **no** `PlayerState of player N is not stamped with the server clock` line (was `off by -3.2 s`); if her game hitches, no warning and no jump.
+4. Regression: a gate jump (the ghost shows ~3 s after the jump) and a local highway (hidden while in it, shown after) behave as before; flying with travel drive (up to ~3 km/s) does not hide the ghost.
+
+Send: both log zips, the time of each ride and whether the marker flashed (and where).
+
+---
+
 ## M3-31 check (Finding 18, superhighway exit; two PCs: Alice = authority, Bob = client)
 
 What changed (build with M3-31): the authority's avatar of a player in a superhighway no longer drifts or jumps back (no stale velocity hint, the pose is held, one move to the exit sector); the client says "hidden" once when its sector leaves the sector map; the player <-> own-team relation is **+0.99** (no longer the engine's `self` +1.0). Use the same setup as the two-PC run (Alice hosts, Bob joins over the VPN, Bob takes over his avatar).

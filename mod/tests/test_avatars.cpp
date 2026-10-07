@@ -1190,3 +1190,56 @@ TEST_CASE("avatars.director (M3-31): a hidden driven avatar that the game pushed
   CHECK(std::fabs(env.objs[id].pose.x - held.x) < 3.0);
   CHECK(d.stats().repairs >= 1);
 }
+
+// M3-32 (Finding 21): the authority's own game stalls for ~3 s (seen at a client's superhighway transit: fps 26 over a 5 s window) and the states that
+// queued up in the gap are processed in one batch. Their stamps are correct; the old rule (|stamp - arrival| > 2 s) took them for a wrong clock and
+// stamped the whole batch with one arrival time (equal times replace each other: one sample left, a jump instead of the flight).
+TEST_CASE("avatars.director (M3-32): a stall of the authority's frames is not mistaken for a wrong sender clock", "[avatars][m332]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  const auto push = [&](double x, double stamp_t, double arrival_t) {
+    PlayerStateIn s;
+    s.net_id = net;
+    s.sector = 1;
+    s.sample_time_us = static_cast<std::int64_t>(stamp_t * 1e6);
+    s.pose = {x, 0, 0, 0, 0, 0};
+    d.on_player_state(s, static_cast<std::int64_t>(arrival_t * 1e6));
+  };
+  for (int i = 0; i < 120; ++i) {
+    c.t += 1.0 / 60.0;
+    if (i % 3 == 0) push(2000 + 300.0 * c.t, c.t, c.t);
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  // the frame gap: 3.2 s without a step, 64 states (20 Hz) queued meanwhile, processed together at the first frame after it
+  const double gap_start = c.t;
+  c.t += 3.2;
+  for (int i = 0; i < 64; ++i) push(2000 + 300.0 * (gap_start + i * 0.05), gap_start + i * 0.05, c.t);
+  d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  CHECK_FALSE(std::any_of(env.logs.begin(), env.logs.end(), [](const std::string& l) { return l.find("not stamped with the server clock") != std::string::npos; }));
+  // the avatar shows where the newest of the batch is (the flight's end), not a collapsed sample
+  run(d, c, 1.0);
+  CHECK(std::fabs(env.objs[id].pose.x - (2000 + 300.0 * (gap_start + 63 * 0.05))) < 400.0);
+
+  // a sender whose clock really is off (constant 30 s) is still caught and stamped with arrival times
+  FakeEnv env2;
+  AvatarDirector d2(env2);
+  Clock c2;
+  d2.on_roster(roster_with({{2, {"Bob", 1}}}));
+  provision(d2, env2, c2, 2, 1, "Bob");
+  const auto net2 = env2.spawns_sent.at(0).at(0).net_id;
+  for (int i = 0; i < 30; ++i) {
+    c2.t += 1.0 / 60.0;
+    PlayerStateIn s;
+    s.net_id = net2;
+    s.sector = 1;
+    s.sample_time_us = static_cast<std::int64_t>((c2.t + 30.0) * 1e6);
+    s.pose = {2000, 0, 0, 0, 0, 0};
+    d2.on_player_state(s, static_cast<std::int64_t>(c2.t * 1e6));
+    d2.step(c2.t, static_cast<std::int64_t>(c2.t * 1e6));
+  }
+  CHECK(std::any_of(env2.logs.begin(), env2.logs.end(), [](const std::string& l) { return l.find("not stamped with the server clock") != std::string::npos; }));
+}
