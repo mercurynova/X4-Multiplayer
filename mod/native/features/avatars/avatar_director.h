@@ -215,6 +215,7 @@ class AvatarDirector {
   bool announce_pending_ = false;
   Lineage lineage_;
   bool dirty_ = false;
+  std::int64_t last_frame_server_us_ = 0;  // M3-32: server time of the previous step() (the stall guard of on_player_state)
   double now_s_ = 0;
   double next_vel_s_ = 0;
   double next_persist_s_ = 0;

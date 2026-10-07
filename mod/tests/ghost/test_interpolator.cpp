@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -214,4 +216,60 @@ TEST_CASE("a long gap before a sector change stays hidden until the new sample, 
   }
   CHECK(snaps == 1);
   CHECK(sector_changes == 1);
+}
+
+// M3-32 (Finding 21), the client's view of Alice's superhighway transit: samples at 20 Hz up to 4.8 km/s, then the Hidden state, then (3.9 s of silence
+// later) the exit in another sector at 2 Hz (a player ship outside the followed sectors). The Hidden state hides the ghost one display delay after its
+// own time (not seconds later), and the reappearance snaps to the first new sample and follows the slow 2 Hz stream without the old motion.
+TEST_CASE("a Hidden sample hides the ghost at once; the exit snaps to the new sector and does not extrapolate stale speed (M3-32)", "[ghost][interp][m332]") {
+  Interpolator in;
+  double x = 0;
+  std::int64_t t = 1000;
+  for (int i = 0; i < 100; ++i) {  // 5 s: 3 -> 4.8 km/s
+    const double v = 3000 + 360 * (i / 20.0);
+    in.push(mk(t, x, v), t * kMs + 40 * kMs);
+    x += v * 0.05;
+    t += 50;
+  }
+  RenderPose p;
+  std::int64_t now_ms = 1000 + 300;
+  for (; now_ms < t + 300; now_ms += 16) p = in.render(now_ms * kMs);
+  CHECK(!p.hidden);
+  // the Hidden state (sample time t), at the last pose
+  const std::int64_t hidden_t = t;
+  in.push(mk(hidden_t, x, 4800, 1, kHidden | kInHighway), hidden_t * kMs + 40 * kMs);
+  std::int64_t hidden_seen = 0;
+  for (; now_ms < hidden_t + 1500; now_ms += 16) {
+    p = in.render(now_ms * kMs);
+    if (p.hidden && hidden_seen == 0) hidden_seen = now_ms;
+  }
+  REQUIRE(hidden_seen != 0);
+  CHECK(hidden_seen - hidden_t <= 350);  // the display delay, not seconds
+  CHECK(p.hidden);
+  // 3.9 s later: the teleport state in sector 2, then 2 Hz samples at a slowing speed
+  const std::int64_t exit_t = hidden_t + 3900;
+  double ex = 500;
+  in.push(mk(exit_t, ex, 0, 2, kTeleport), exit_t * kMs + 250 * kMs);
+  double v = 1500;
+  std::int64_t st = exit_t;
+  int shown_frames = 0;
+  int snaps = 0;
+  double worst = 0;
+  for (; now_ms < exit_t + 6000; now_ms += 16) {
+    while (st + 500 <= now_ms - 250) {  // a sample is "received" 250 ms after its time
+      st += 500;
+      ex += v * 0.5;
+      v = std::max(200.0, v - 500);
+      in.push(mk(st, ex, v, 2, 0), (st + 250) * kMs);
+    }
+    p = in.render(now_ms * kMs);
+    if (p.hidden) continue;
+    ++shown_frames;
+    CHECK(p.sector == 2);
+    if (p.snapped) ++snaps;
+    worst = std::max(worst, std::fabs(p.pos.x - ex));
+  }
+  CHECK(shown_frames > 100);
+  CHECK(snaps <= 2);  // the reappearance, plus at most one correction of the decelerating 2 Hz stream (no flashing)
+  CHECK(worst < 1000.0);
 }

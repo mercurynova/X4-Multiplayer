@@ -77,6 +77,7 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
     have_prev_ = false;
     anchor_valid_ = false;
     moving_ = true;
+    fast_ = false;
     sent_any_ = false;
   }
   seated_ = true;
@@ -126,7 +127,13 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
     } else {
       const double dt_s = static_cast<double>(obs.now_us - prev_t_us_) / 1e6;
       const double jump = ghost::distance(obs.pos, prev_pos_);
-      if (jump > cfg_.jump_base_m + cfg_.jump_speed_mps * (dt_s > 0 ? dt_s : 0)) pending_teleport_ = true;
+      if (jump > cfg_.jump_base_m + cfg_.jump_speed_mps * (dt_s > 0 ? dt_s : 0)) {
+        pending_teleport_ = true;
+      } else if (dt_s > 0 && obs.now_us - prev_t_us_ <= cfg_.highway_max_dt_us) {
+        const double speed = jump / dt_s;
+        if (speed >= cfg_.highway_enter_mps) fast_ = true;
+        else if (speed < cfg_.highway_exit_mps) fast_ = false;
+      }
     }
   }
   const bool sector_changed = sent_any_ && sector_idx != sent_sector_;
@@ -160,7 +167,8 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
   std::uint16_t flags = ghost::kPlayerControlled;
   if (obs.docked) flags |= ghost::kDocked;
   if (obs.in_highway) flags |= ghost::kInHighway;
-  if (obs.docked || obs.in_highway) flags |= ghost::kHidden;
+  if (fast_) flags |= ghost::kInHighway;
+  if (obs.docked || obs.in_highway || fast_) flags |= ghost::kHidden;
 
   // ---- decide ----
   const bool flags_changed = sent_any_ && ((flags ^ sent_flags_) & kFlagMask) != 0;

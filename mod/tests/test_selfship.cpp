@@ -375,6 +375,80 @@ TEST_CASE("tracker: an unknown sector after a state sends one Hidden state, then
   CHECK((t.out.flags & gh::kTeleport) != 0);
 }
 
+// M3-32 (Finding 21): the sender flags a superhighway flight itself. Two-PC log: the ghost followed 4.4-4.9 km/s for seconds before the game said
+// "sector not in the map". At the first fast frame ONE Hidden + InHighway state goes out (the others hide the ghost / hold the avatar at once);
+// boost / travel speeds below the threshold are never hidden; the flag survives the sector change of the exit and ends with a measured slow speed.
+TEST_CASE("tracker: superhighway speed sends Hidden + InHighway at once, ends when slow again (M3-32)", "[selfship][tracker][m332]") {
+  Sim s;
+  // ordinary fast flight (boost / travel drive 3000 m/s): never hidden
+  s.run(2.0, 60, [&](double ts) { s.o.pos = {100 + 3000 * ts, 0, 0}; });
+  for (const auto& [t, tick] : s.sends) CHECK((tick.out.flags & gh::kHidden) == 0);
+  // accelerating into the superhighway: 3000 -> 4860 m/s over 3 s
+  s.sends.clear();
+  double x = s.o.pos.x;
+  std::int64_t hidden_at = 0;
+  std::int64_t crossed_at = 0;
+  for (int i = 0; i < 180; ++i) {
+    const double ts = i / 60.0;
+    const double v = 3000 + 620 * ts;
+    if (crossed_at == 0 && v >= 3500) crossed_at = s.now;
+    x += v / 60.0;
+    s.o.pos = {x, 0, 0};
+    s.now += 16'667;
+    s.step();
+  }
+  for (const auto& [t, tick] : s.sends) {
+    if ((tick.out.flags & gh::kHidden) != 0) {
+      hidden_at = t;
+      CHECK((tick.out.flags & gh::kInHighway) != 0);
+      break;
+    }
+  }
+  REQUIRE(hidden_at != 0);
+  CHECK(hidden_at - crossed_at < 150'000);  // within ~100 ms of reaching the threshold, not 4 s after the sender went silent
+  std::size_t hidden_states = 0;
+  for (const auto& [t, tick] : s.sends) hidden_states += (tick.out.flags & gh::kHidden) != 0 ? 1 : 0;
+  CHECK(hidden_states <= 4);  // 1 Hz while hidden: the first one plus a periodic one, not a 20 Hz stream
+  // the game then says the sector is unknown: nothing more (the Hidden state is already out)
+  s.sends.clear();
+  s.o.sector = 424242;
+  s.now += 16 * kMs;
+  s.step();
+  CHECK(s.sends.empty());
+  // 4 s inside, then the exit in sector 2002 still flying fast: a teleport state that is still Hidden
+  s.run(4.0, 60, [&](double ts) { s.o.pos = {x + 5000 * ts, 0, 0}; });
+  CHECK(s.sends.empty());
+  s.o.sector = 2002;
+  s.o.pos = {-300, 0, 0};
+  s.now += 16 * kMs;
+  auto t = s.step();
+  REQUIRE(t.out.send);
+  CHECK((t.out.flags & gh::kTeleport) != 0);
+  CHECK((t.out.flags & gh::kHidden) != 0);
+  CHECK(t.out.sector == 2);
+  // decelerating in the new sector: Hidden until the measured speed is below the exit value, then one immediate visible state
+  s.sends.clear();
+  double px = -300;
+  for (int i = 0; i < 240; ++i) {
+    const double ts = i / 60.0;
+    const double v = std::max(200.0, 4500 - 1500 * ts);
+    px += v / 60.0;
+    s.o.pos = {px, 0, 0};
+    s.now += 16'667;
+    s.step();
+  }
+  bool shown = false;
+  for (const auto& [tm, tick] : s.sends) {
+    if ((tick.out.flags & gh::kHidden) == 0) {
+      shown = true;
+      CHECK((tick.out.flags & gh::kInHighway) == 0);
+      CHECK(tick.out.immediate);
+      break;
+    }
+  }
+  CHECK(shown);
+}
+
 TEST_CASE("tracker: force_resend (the link came up) sends a full state at once", "[selfship][tracker]") {
   Sim s;
   s.run(2.0, 60);

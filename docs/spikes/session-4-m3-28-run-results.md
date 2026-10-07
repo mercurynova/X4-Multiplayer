@@ -73,6 +73,8 @@ Main `bdb7d19` (M3-29/30/31), then hotfix `6aa8c23`. Logs: `out/session4/logs-s4
 | M3-29 Finding 20 | not done | session stopped |
 | 3.5 UDP fallback, re-checks 15-17 | not done | |
 
+**Finding 21 status (M3-32, 2026-10-07): fix in, in-game check pending.** See `docs/m3-plan.md` "M3-32", script `docs/in-game-session-4.md` "M3-32 check". (The "~4 s after" in the text below is the 3.9 s clock offset between the two PCs, not latency.)
+
 **Finding 21 (new): ship markers flash between spots around a superhighway transit**, both directions (Alice's ghost on Bob, Bob's avatar on Alice).
 Bob's log for Alice's transit: the ghost stayed visible while Alice accelerated into the superhighway (`speed_max=4860` m/s) and was only hidden at
 18:50:14.7, ~4 s after Alice's client stopped sending (18:50:10.8, sector not in the map); shown again at 18:50:18.3, then 101 frames of
