@@ -49,6 +49,7 @@ class SelfShipFeature final : public host::IFeature {
   void send_state(host::HostContext& ctx, const selfship::StateOut& out);
   void publish_status(host::HostContext& ctx, std::int64_t now_us, bool force);
   void notify_seta(host::HostContext& ctx);
+  void process_highway_signals(host::HostContext& ctx, std::int64_t now_us, selfship::Observation& obs, std::uint16_t sector_idx);
 
   std::shared_ptr<Inbox> inbox_;
   selfship::GalaxyMap map_;
@@ -61,6 +62,9 @@ class SelfShipFeature final : public host::IFeature {
   std::int64_t map_asked_us_ = 0;
   bool map_logged_ready_ = false;
   bool was_linked_ = false;
+  std::vector<std::string> sh_pending_;  // M3-33: superhighway signal sources received since the last frame ('zone', 'gate', 'sector', 'exit')
+  std::int64_t sh_first_us_ = 0;
+  bool was_in_highway_ = false;
   bool was_held_ = false;  // M3-12: the takeover held the PlayerState stream last frame
   bool block_sent_ = false;
   bool block_value_ = false;

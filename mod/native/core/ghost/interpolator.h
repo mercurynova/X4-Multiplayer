@@ -16,8 +16,10 @@
 //   * corrections: when the raw pose jumps relative to the previous frame's prediction by more than 0.5 m (a late sample after an
 //     extrapolation, a delay change), the displayed pose blends the difference away over blend_us (200 ms); above
 //     max(200 m, speed x 0.5 s) it snaps instead.
-//   * delay: starts at 100 ms, then follows 1.5 x sample interval + 2 x p95 arrival jitter, clamped to 80..250 ms, rising at most
-//     100 ms/s and falling at most 10 ms/s (render time never jumps).
+//   * delay: starts at 100 ms, then follows 1.5 x the MEDIAN sample interval (of the last 16) + 2 x p95 arrival jitter, clamped to 80..250 ms
+//     for a fast stream; a slow stream (M3-33: a 2 Hz stream must be interpolated, never extrapolated through the normal gap between its samples)
+//     may go up to 1.5 x interval + 100 ms, at most 1 s (gaps > 700 ms are not counted as a rate). Rising at most 100 ms/s (500 ms/s while more
+//     than 250 ms below the target), falling at most 10 ms/s (100 ms/s while more than 250 ms above) (render time never jumps).
 
 #include <array>
 #include <cstddef>
@@ -33,6 +35,8 @@ struct InterpolatorConfig {
   std::int64_t default_delay_us = 100'000;
   std::int64_t min_delay_us = 80'000;
   std::int64_t max_delay_us = 250'000;
+  std::int64_t max_interval_delay_us = 1'000'000;  // M3-33: upper bound of the delay for a slow stream (covers 1.5 x its median interval)
+  std::int64_t slow_interval_max_us = 700'000;     // M3-33: sample gaps longer than this (a stalled / resting / hidden stream) do not count as the stream's rate
   std::int64_t extrap_cap_us = 500'000;
   std::int64_t stale_us = 5'000'000;
   std::int64_t blend_us = 200'000;
@@ -52,12 +56,16 @@ class DelayController {
   [[nodiscard]] std::int64_t current_us() const noexcept { return current_us_; }
   [[nodiscard]] std::int64_t target_us() const noexcept { return target_us_; }
   [[nodiscard]] double jitter_p95_us() const noexcept { return jitter_p95_us_; }
+  [[nodiscard]] double interval_us() const noexcept { return interval_us_; }  // the median sample interval (50 ms until 3 intervals were seen)
 
  private:
   static constexpr std::size_t kWin = 64;
+  static constexpr std::size_t kIv = 16;  // intervals of the median
   InterpolatorConfig cfg_;
   std::array<std::int64_t, kWin> d_{};
   std::size_t head_ = 0, n_ = 0;
+  std::array<std::int64_t, kIv> iv_{};
+  std::size_t iv_head_ = 0, iv_n_ = 0;
   double interval_us_ = 50'000;
   double jitter_p95_us_ = 0;
   std::int64_t target_us_ = 100'000;

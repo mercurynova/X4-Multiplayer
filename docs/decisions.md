@@ -130,7 +130,7 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
 ### ADR-011 Interest management is server-owned (Lead + Consolidation)
 - **Decision:** per client, tiers **Near** (15 km, 20 Hz), **Sector** (5 Hz), **Adjacent**
   (1 hop, 1 Hz prefetch), **Linger** (previous sector, 20 s, 1 Hz). Player ships are
-  replicated galaxy-wide at ≥ 2 Hz. The only client input is `PlayerState` (position,
+  replicated galaxy-wide at the full 20 Hz (M3-33; was ≥ 2 Hz). The only client input is `PlayerState` (position,
   sector); `InterestHint` exists behind capability `InterestHint` and may be ignored. The
   server sends the authority one `CaptureSet` (union of client tiers + admin map views,
   ≤ 1 per 500 ms). A sector's local NPCs are suppressed on a client only after that

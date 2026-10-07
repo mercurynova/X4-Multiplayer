@@ -77,11 +77,20 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
     have_prev_ = false;
     anchor_valid_ = false;
     moving_ = true;
-    fast_ = false;
+    sh_signal_ = false;
     sent_any_ = false;
   }
   seated_ = true;
   ship_ = obs.occupied;
+
+  // ---- M3-33: the game's own superhighway signal (never a speed guess) ----
+  if (obs.sh_entered) {
+    sh_signal_ = true;
+    sh_saw_unknown_ = false;
+    sh_since_us_ = obs.now_us;
+    sh_sector_idx_ = last_sector_idx_;
+  }
+  if (obs.sh_exited) sh_signal_ = false;
 
   if (!obs.pose_valid) {
     tick.blocked = Blocked::NoPose;
@@ -97,12 +106,13 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
   if (sector_idx == 0) {
     tick.blocked = Blocked::UnknownSector;
     ++counters_.blocked_frames;
+    if (sh_signal_) sh_saw_unknown_ = true;
     // M3-31 (Finding 18): inside a superhighway the ship's sector is not in the sector map, so nothing is sent for a long time. Say it ONCE, at the
     // last known place: the others hide/freeze the ghost or avatar now (no extrapolation, no stale velocity, no hold that later jumps back) and the
     // first state after the gap is a teleport (the position is unknown for the whole gap).
     if (sent_any_ && last_sector_idx_ != 0 && (sent_flags_ & ghost::kHidden) == 0) {
       std::uint16_t flags = static_cast<std::uint16_t>(ghost::kPlayerControlled | ghost::kHidden | (sent_flags_ & ghost::kDocked));
-      if (obs.in_highway) flags |= ghost::kInHighway;
+      if (obs.in_highway || sh_signal_) flags |= ghost::kInHighway;
       tick.out.send = true;
       tick.out.immediate = true;
       tick.out.sector = last_sector_idx_;
@@ -120,6 +130,11 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
     return tick;
   }
 
+  if (sh_signal_) {
+    if (sh_sector_idx_ == 0) sh_sector_idx_ = sector_idx;  // the signal came before any sector was known: this one is the entry sector
+    if (sh_saw_unknown_ || sector_idx != sh_sector_idx_ || obs.now_us - sh_since_us_ > cfg_.sh_max_us) sh_signal_ = false;
+  }
+
   // ---- teleport detection (frame to frame) ----
   if (have_prev_) {
     if (sector_idx != last_sector_idx_ && prev_sector_ != obs.sector) {
@@ -129,10 +144,6 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
       const double jump = ghost::distance(obs.pos, prev_pos_);
       if (jump > cfg_.jump_base_m + cfg_.jump_speed_mps * (dt_s > 0 ? dt_s : 0)) {
         pending_teleport_ = true;
-      } else if (dt_s > 0 && obs.now_us - prev_t_us_ <= cfg_.highway_max_dt_us) {
-        const double speed = jump / dt_s;
-        if (speed >= cfg_.highway_enter_mps) fast_ = true;
-        else if (speed < cfg_.highway_exit_mps) fast_ = false;
       }
     }
   }
@@ -167,8 +178,8 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
   std::uint16_t flags = ghost::kPlayerControlled;
   if (obs.docked) flags |= ghost::kDocked;
   if (obs.in_highway) flags |= ghost::kInHighway;
-  if (fast_) flags |= ghost::kInHighway;
-  if (obs.docked || obs.in_highway || fast_) flags |= ghost::kHidden;
+  if (sh_signal_) flags |= ghost::kInHighway;
+  if (obs.docked || obs.in_highway || sh_signal_) flags |= ghost::kHidden;
 
   // ---- decide ----
   const bool flags_changed = sent_any_ && ((flags ^ sent_flags_) & kFlagMask) != 0;

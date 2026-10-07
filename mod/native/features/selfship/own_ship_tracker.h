@@ -32,6 +32,10 @@ struct Observation {
   std::uint64_t sector = 0;          // UniverseID of the sector of the ship (0 = unknown)
   bool in_highway = false;
   bool docked = false;
+  // M3-33: the game SAID the ship enters / leaves a superhighway (MD events, md/x4mp_galaxy.xml; edge flags, true for the frame the signal arrived).
+  // Speed is never used for this: many ships exceed 3.5 km/s in normal travel.
+  bool sh_entered = false;
+  bool sh_exited = false;
   bool pose_valid = false;           // pos / rot are readable this frame
   ghost::Vec3 pos{};                 // metres, sector-local
   ghost::Euler rot{};                // radians as the game gives them
@@ -69,13 +73,9 @@ struct TrackerConfig {
   double idle_turn_rps = 0.05;
   double jump_base_m = 2000.0;
   double jump_speed_mps = 15000.0;
-  // M3-32 (Finding 21): a superhighway carries the ship at 4.4-4.9 km/s (two-PC run) and the game reports the highway context / a sector the map
-  // knows only late (or never), so the state of a ship that fast is sent as Hidden + InHighway from the first fast frame on: the others hide the
-  // ghost / hold the avatar instead of following a 5 km/s flight that ends in a silent gap. Hysteresis; the flag survives a sector change until a
-  // measurable speed (same sector, no teleport) is below the exit value.
-  double highway_enter_mps = 3500.0;
-  double highway_exit_mps = 3000.0;
-  std::int64_t highway_max_dt_us = 500'000;     // speed is only measured across frames this close together (a gate jump / load gap is no speed)
+  // M3-33: a superhighway entry signal (Observation::sh_entered) latches Hidden + InHighway until the exit signal, a later known sector other than
+  // the entry sector, a sector that was unknown in between, or this timeout (a signal that never gets an exit must not hide the ship forever).
+  std::int64_t sh_max_us = 90'000'000;
   std::int64_t schedule_slack_us = 1'000;      // a frame up to 1 ms early still counts as due
 };
 
@@ -103,6 +103,7 @@ class OwnShipTracker {
   [[nodiscard]] bool seated() const noexcept { return seated_; }
   [[nodiscard]] std::uint64_t ship() const noexcept { return ship_; }
   [[nodiscard]] bool moving() const noexcept { return moving_; }
+  [[nodiscard]] bool superhighway_signalled() const noexcept { return sh_signal_; }
   [[nodiscard]] std::uint16_t last_flags() const noexcept { return sent_flags_; }  // the flags of the last state sent (without Teleport)
   [[nodiscard]] const TrackerCounters& counters() const noexcept { return counters_; }
   [[nodiscard]] const TrackerConfig& config() const noexcept { return cfg_; }
@@ -125,7 +126,11 @@ class OwnShipTracker {
   ghost::Vec3 anchor_pos_{};
   ghost::Euler anchor_rot_{};
   bool moving_ = true;
-  bool fast_ = false;  // M3-32: flying at superhighway speed (see TrackerConfig::highway_enter_mps)
+  // M3-33: the game signalled a superhighway entry (latched, see TrackerConfig::sh_max_us)
+  bool sh_signal_ = false;
+  bool sh_saw_unknown_ = false;
+  std::uint16_t sh_sector_idx_ = 0;  // the sector index the ship was in at the signal (0 = take the next known one)
+  std::int64_t sh_since_us_ = 0;
   // what was last sent
   bool sent_any_ = false;
   std::uint16_t sent_sector_ = 0;

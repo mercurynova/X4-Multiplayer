@@ -716,7 +716,7 @@ infinity in any float field (server-design.md §7.3).
 | **Adjacent** | Sectors one gate, highway or accelerator hop away (`PrefetchDepth` = 1) | 1 Hz | **Prefetch.** Ghosts exist and have converged before entry. |
 | **Linger** | The previous sector for `LingerSeconds` (20 s) after leaving | 1 Hz | Hysteresis against gate ping-pong |
 
-- Player ships are always replicated galaxy-wide at no less than 2 Hz, for the player
+- Player ships are always replicated galaxy-wide at the full rate (20 Hz, M3-33; was a 2 Hz floor in far sectors), for the player
   list and map markers.
 - The **only client inputs** are `PlayerState` (position and sector). `InterestHint`
   exists only behind a capability and may be ignored (ADR-011).

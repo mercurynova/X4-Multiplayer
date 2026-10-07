@@ -95,9 +95,6 @@ public static class ReplicationMath
     /// <summary>An entity is due once this fraction of its tier's send interval has passed (a replication tick is rarely exactly the interval).</summary>
     public const double DueFraction = 0.9;
 
-    /// <summary>Player ships are always replicated galaxy-wide at no less than this rate (protocol.md 12.1).</summary>
-    public const int PlayerShipMinRateHz = 2;
-
     /// <summary>Size of the frame around the entries: 8 byte header plus the 60 byte Replication table.</summary>
     public const int FrameOverheadBytes = FrameCodec.HeaderSize + ReplicationFrame.HeaderBytes;
 
@@ -196,8 +193,9 @@ public static class ReplicationMath
 
     /// <summary>
     /// The send rate of a tier in Hz (the capture rates of <see cref="InterestOptions"/>). Player ships are what other players look at and shoot
-    /// at: inside the sectors a client follows (Near or Sector tier) they go out at the Near rate, elsewhere they never drop below 2 Hz
-    /// (protocol.md 12.1: galaxy-wide, for the player list and the map).
+    /// at: M3-33 (Finding 21): at the full rate (the Near rate) EVERYWHERE, whatever the tier or the sector. With at most 8 players the
+    /// worst case is 8 x 20 Hz of one small PlayerShip entry per client; a slow far-tier stream made the client extrapolate a 5 km/s
+    /// superhighway flight (path error up to 1.2 km). Everything that is not a player ship keeps its tier rate.
     /// </summary>
     public static int RateHz(InterestOptions options, InterestTier tier, bool playerShip)
     {
@@ -206,9 +204,7 @@ public static class ReplicationMath
             return options.RateHz(tier);
         }
 
-        return tier is InterestTier.Near or InterestTier.Sector
-            ? Math.Max(options.NearRateHz, options.SectorRateHz)
-            : Math.Max(options.RateHz(tier), PlayerShipMinRateHz);
+        return Math.Max(options.NearRateHz, options.SectorRateHz);
     }
 
     /// <summary>True once <paramref name="ageSeconds"/> since the last send reaches <see cref="DueFraction"/> of the tier interval.</summary>

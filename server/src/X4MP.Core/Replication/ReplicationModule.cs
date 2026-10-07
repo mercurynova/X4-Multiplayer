@@ -63,7 +63,7 @@ public sealed class ReplicationStats
 /// Realtime lane, so a state entry can never overtake its spawn; on top of that an entity gets no entry for
 /// <c>SpawnHoldTicks</c> ticks (spawn-before-state hold), and its first entry is a full keyframe (the spawn is not trusted as a baseline).</item>
 /// <item><b>Priority accumulator.</b> Each tick every changed ghost that is due for its tier rate (Near 20 Hz, Sector 5 Hz, Adjacent and Linger
-/// 1 Hz, player ships at least 2 Hz) gets priority = time since last send x rate x tier weight x a distance factor inside Near. The per-client
+/// 1 Hz, player ships 20 Hz everywhere since M3-33) gets priority = time since last send x rate x tier weight x a distance factor inside Near. The per-client
 /// byte budget (<c>BandwidthBudgetKBps</c>, a token bucket) goes to the highest priorities first; what does not fit keeps accumulating.</item>
 /// <item><b>Field-mask entries against a baseline.</b> An entry carries only the fields that differ from the client's acked baseline, as absolute
 /// values, and TIME (the sample time offset) with any moving field. A baseline moves forward only when the frame that carried the fields was

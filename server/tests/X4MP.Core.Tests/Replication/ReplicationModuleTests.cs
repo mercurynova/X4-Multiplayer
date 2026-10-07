@@ -593,7 +593,7 @@ public sealed class ReplicationModuleTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task APlayerShipInAFarSectorStillReachesEveryoneAtAtLeastTwoHertz()
+    public async Task APlayerShipInAFarSectorReachesEveryoneAtTheFullRate()
     {
         var (rig, alice) = await SetupAsync();
         await using var _ = rig;
@@ -609,7 +609,7 @@ public sealed class ReplicationModuleTests(ITestOutputHelper output)
 
         var entries = Entries(rig, Alice, mark).Where(e => e.NetId == 901).ToList();
         Assert.True(alice.Session.IsGhost(901));
-        Assert.InRange(entries.Count, 5, 8);                  // 2 Hz for 3 s
+        Assert.InRange(entries.Count, 55, 61);                // M3-33: the full 20 Hz for 3 s, not the old 2 Hz far-tier floor
         Assert.Equal(0, alice.Session.Errors);
     }
 

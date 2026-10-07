@@ -375,78 +375,129 @@ TEST_CASE("tracker: an unknown sector after a state sends one Hidden state, then
   CHECK((t.out.flags & gh::kTeleport) != 0);
 }
 
-// M3-32 (Finding 21): the sender flags a superhighway flight itself. Two-PC log: the ghost followed 4.4-4.9 km/s for seconds before the game said
-// "sector not in the map". At the first fast frame ONE Hidden + InHighway state goes out (the others hide the ghost / hold the avatar at once);
-// boost / travel speeds below the threshold are never hidden; the flag survives the sector change of the exit and ends with a measured slow speed.
-TEST_CASE("tracker: superhighway speed sends Hidden + InHighway at once, ends when slow again (M3-32)", "[selfship][tracker][m332]") {
+// M3-33 (Finding 21): the sender flags a superhighway when the GAME says so (MD signal), never from the speed. M3-32's 3500 m/s threshold was removed:
+// many ships (and modded ones) exceed it in normal travel.
+TEST_CASE("tracker: a 6 km/s flight without the superhighway signal is never hidden (M3-33)", "[selfship][tracker][m333]") {
   Sim s;
-  // ordinary fast flight (boost / travel drive 3000 m/s): never hidden
-  s.run(2.0, 60, [&](double ts) { s.o.pos = {100 + 3000 * ts, 0, 0}; });
-  for (const auto& [t, tick] : s.sends) CHECK((tick.out.flags & gh::kHidden) == 0);
-  // accelerating into the superhighway: 3000 -> 4860 m/s over 3 s
-  s.sends.clear();
   double x = s.o.pos.x;
-  std::int64_t hidden_at = 0;
-  std::int64_t crossed_at = 0;
-  for (int i = 0; i < 180; ++i) {
-    const double ts = i / 60.0;
-    const double v = 3000 + 620 * ts;
-    if (crossed_at == 0 && v >= 3500) crossed_at = s.now;
+  for (int i = 0; i < 360; ++i) {  // 6 s accelerating 1 -> 8 km/s: boost / travel drive / modded engines
+    const double v = 1000 + 1166 * (i / 60.0);
     x += v / 60.0;
     s.o.pos = {x, 0, 0};
     s.now += 16'667;
     s.step();
   }
+  REQUIRE_FALSE(s.sends.empty());
   for (const auto& [t, tick] : s.sends) {
-    if ((tick.out.flags & gh::kHidden) != 0) {
-      hidden_at = t;
-      CHECK((tick.out.flags & gh::kInHighway) != 0);
-      break;
-    }
+    CHECK((tick.out.flags & gh::kHidden) == 0);
+    CHECK((tick.out.flags & gh::kInHighway) == 0);
   }
-  REQUIRE(hidden_at != 0);
-  CHECK(hidden_at - crossed_at < 150'000);  // within ~100 ms of reaching the threshold, not 4 s after the sender went silent
-  std::size_t hidden_states = 0;
-  for (const auto& [t, tick] : s.sends) hidden_states += (tick.out.flags & gh::kHidden) != 0 ? 1 : 0;
-  CHECK(hidden_states <= 4);  // 1 Hz while hidden: the first one plus a periodic one, not a 20 Hz stream
-  // the game then says the sector is unknown: nothing more (the Hidden state is already out)
+  CHECK_FALSE(s.tracker.superhighway_signalled());
+}
+
+TEST_CASE("tracker: the superhighway signal sends Hidden + InHighway at once, the exit clears it (M3-33)", "[selfship][tracker][m333]") {
+  Sim s;
+  s.run(2.0, 60, [&](double ts) { s.o.pos = {100 + 3000 * ts, 0, 0}; });
   s.sends.clear();
-  s.o.sector = 424242;
-  s.now += 16 * kMs;
-  s.step();
-  CHECK(s.sends.empty());
-  // 4 s inside, then the exit in sector 2002 still flying fast: a teleport state that is still Hidden
-  s.run(4.0, 60, [&](double ts) { s.o.pos = {x + 5000 * ts, 0, 0}; });
-  CHECK(s.sends.empty());
-  s.o.sector = 2002;
-  s.o.pos = {-300, 0, 0};
+  // the signal arrives while the sector is still known (the entry phase)
+  s.o.pos = {s.o.pos.x + 50, 0, 0};
+  s.o.sh_entered = true;
   s.now += 16 * kMs;
   auto t = s.step();
+  s.o.sh_entered = false;
   REQUIRE(t.out.send);
-  CHECK((t.out.flags & gh::kTeleport) != 0);
+  CHECK(t.out.immediate);
   CHECK((t.out.flags & gh::kHidden) != 0);
-  CHECK(t.out.sector == 2);
-  // decelerating in the new sector: Hidden until the measured speed is below the exit value, then one immediate visible state
+  CHECK((t.out.flags & gh::kInHighway) != 0);
+  CHECK((t.out.flags & gh::kTeleport) == 0);
+  CHECK(t.out.sector == 1);
+  CHECK(s.tracker.superhighway_signalled());
+  // still in the entry sector at 4.8 km/s: hidden stream at 1 Hz, not 20 Hz
   s.sends.clear();
-  double px = -300;
-  for (int i = 0; i < 240; ++i) {
-    const double ts = i / 60.0;
-    const double v = std::max(200.0, 4500 - 1500 * ts);
-    px += v / 60.0;
-    s.o.pos = {px, 0, 0};
+  double x = s.o.pos.x;
+  for (int i = 0; i < 120; ++i) {
+    x += 4800.0 / 60.0;
+    s.o.pos = {x, 0, 0};
     s.now += 16'667;
     s.step();
   }
-  bool shown = false;
-  for (const auto& [tm, tick] : s.sends) {
-    if ((tick.out.flags & gh::kHidden) == 0) {
-      shown = true;
-      CHECK((tick.out.flags & gh::kInHighway) == 0);
-      CHECK(tick.out.immediate);
-      break;
-    }
+  CHECK(s.sends.size() <= 3);
+  for (const auto& [tm, tick] : s.sends) CHECK((tick.out.flags & gh::kHidden) != 0);
+  // the sector leaves the map (inside the highway): nothing more
+  s.sends.clear();
+  s.o.sector = 424242;
+  s.o.in_highway = true;
+  s.now += 16 * kMs;
+  s.step();
+  CHECK(s.sends.empty());
+  // exit in sector 2002: a teleport state, visible again (the unknown sector in between ended the latch)
+  s.o.sector = 2002;
+  s.o.in_highway = false;
+  s.o.pos = {-300, 0, 0};
+  s.now += 16 * kMs;
+  t = s.step();
+  REQUIRE(t.out.send);
+  CHECK((t.out.flags & gh::kTeleport) != 0);
+  CHECK((t.out.flags & gh::kHidden) == 0);
+  CHECK((t.out.flags & gh::kInHighway) == 0);
+  CHECK(t.out.sector == 2);
+  CHECK_FALSE(s.tracker.superhighway_signalled());
+}
+
+TEST_CASE("tracker: the superhighway latch ends on the exit signal, a new sector or the timeout (M3-33)", "[selfship][tracker][m333]") {
+  {  // exit signal
+    Sim s;
+    s.run(1.0, 60);
+    s.o.sh_entered = true;
+    s.now += 16 * kMs;
+    s.step();
+    s.o.sh_entered = false;
+    CHECK(s.tracker.superhighway_signalled());
+    s.o.sh_exited = true;
+    s.now += 16 * kMs;
+    const auto t = s.step();
+    s.o.sh_exited = false;
+    CHECK_FALSE(s.tracker.superhighway_signalled());
+    REQUIRE(t.out.send);
+    CHECK((t.out.flags & gh::kHidden) == 0);
   }
-  CHECK(shown);
+  {  // straight into a known sector, no unknown frame in between
+    Sim s;
+    s.run(1.0, 60);
+    s.o.sh_entered = true;
+    s.now += 16 * kMs;
+    s.step();
+    s.o.sh_entered = false;
+    s.o.sector = 2002;
+    s.o.pos = {0, 0, 0};
+    s.now += 16 * kMs;
+    const auto t = s.step();
+    CHECK_FALSE(s.tracker.superhighway_signalled());
+    REQUIRE(t.out.send);
+    CHECK((t.out.flags & gh::kHidden) == 0);
+  }
+  {  // timeout: a signal that never gets an exit does not hide the ship forever
+    Sim s;
+    s.run(1.0, 60);
+    s.o.sh_entered = true;
+    s.now += 16 * kMs;
+    s.step();
+    s.o.sh_entered = false;
+    s.now += 100'000 * kMs;
+    s.step();
+    CHECK_FALSE(s.tracker.superhighway_signalled());
+  }
+  {  // a signal on the very first frame (no sector known yet) takes the first known sector as the entry sector
+    Sim s;
+    s.o.sh_entered = true;
+    s.step();
+    s.o.sh_entered = false;
+    for (int i = 0; i < 30; ++i) {
+      s.now += 16'667;
+      s.step();
+    }
+    CHECK(s.tracker.superhighway_signalled());
+  }
 }
 
 TEST_CASE("tracker: force_resend (the link came up) sends a full state at once", "[selfship][tracker]") {
