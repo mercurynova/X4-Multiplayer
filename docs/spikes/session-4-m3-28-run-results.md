@@ -73,7 +73,7 @@ Main `bdb7d19` (M3-29/30/31), then hotfix `6aa8c23`. Logs: `out/session4/logs-s4
 | M3-29 Finding 20 | not done | session stopped |
 | 3.5 UDP fallback, re-checks 15-17 | not done | |
 
-**Finding 21 status (M3-32, 2026-10-07): fix in, in-game check pending.** See `docs/m3-plan.md` "M3-32", script `docs/in-game-session-4.md` "M3-32 check". (The "~4 s after" in the text below is the 3.9 s clock offset between the two PCs, not latency.)
+**Finding 21 status (M3-33, 2026-10-07): M3-32's speed threshold was rejected and removed; M3-33 fix in (full-rate player ships, interval-aware display delay, the game's own superhighway signal), in-game check pending.** See `docs/m3-plan.md` "M3-33", script `docs/in-game-session-4.md` "M3-33 check". (The "~4 s after" in the text below is the 3.9 s clock offset between the two PCs, not latency.)
 
 **Finding 21 (new): ship markers flash between spots around a superhighway transit**, both directions (Alice's ghost on Bob, Bob's avatar on Alice).
 Bob's log for Alice's transit: the ghost stayed visible while Alice accelerated into the superhighway (`speed_max=4860` m/s) and was only hidden at

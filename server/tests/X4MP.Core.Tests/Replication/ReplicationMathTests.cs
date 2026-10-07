@@ -139,15 +139,15 @@ public sealed class ReplicationMathTests
     }
 
     [Fact]
-    public void RatesFollowTheTiersAndPlayerShipsNeverDropBelowTwoHertz()
+    public void RatesFollowTheTiersAndPlayerShipsGoOutAtTheFullRateEverywhere()
     {
         var options = new InterestOptions();
         Assert.Equal(20, ReplicationMath.RateHz(options, InterestTier.Near, false));
         Assert.Equal(5, ReplicationMath.RateHz(options, InterestTier.Sector, false));
         Assert.Equal(1, ReplicationMath.RateHz(options, InterestTier.Adjacent, false));
         Assert.Equal(1, ReplicationMath.RateHz(options, InterestTier.Linger, false));
-        Assert.Equal(2, ReplicationMath.RateHz(options, InterestTier.Adjacent, playerShip: true));
-        Assert.Equal(2, ReplicationMath.RateHz(options, InterestTier.Linger, playerShip: true));
+        Assert.Equal(20, ReplicationMath.RateHz(options, InterestTier.Adjacent, playerShip: true));   // M3-33: no far-tier floor for player ships
+        Assert.Equal(20, ReplicationMath.RateHz(options, InterestTier.Linger, playerShip: true));
         Assert.Equal(20, ReplicationMath.RateHz(options, InterestTier.Sector, playerShip: true));   // other players' ships: Near rate in followed sectors
         Assert.Equal(20, ReplicationMath.RateHz(options, InterestTier.Near, playerShip: true));
     }

@@ -267,5 +267,54 @@
       </cues>
     </cue>
 
+    <!-- ===================================== M3-33: the game's superhighway signal (Finding 21) =====================================
+         Speed is NOT a signal (many ships exceed 3.5 km/s in normal travel); these are the game's own events for the PLAYER, raised as ONE string
+         each (raise_lua_event never carries a list):
+         MD -> Lua  'x4mp.md_highway' <source>   (Lua forwards it to native as x4mp.highway_signal {"source": <source>})
+           'gate'    event_player_entered_gate: the entry gate is a highway entry gate whose highway is a superhighway (fires when the ship
+                     flies into the entry ring; vanilla uses this event for jump gates, whether it fires for highway gates is UNVERIFIED)
+           'zone'    event_object_changed_zone (player.entity): the new zone is a superhighway (vanilla md/scenario_tutorials.xml Tutorial_SuperHighway_Done
+                     uses exactly this test; md/guidance.xml ChangedSpace logged "Player has entered: Superhighway" in the session-4 two-PC run)
+           'sector'  event_object_changed_sector (player.entity) with a null new sector (the common.xsd doc: "sector can be null in case of a superhighway")
+           'exit'    event_object_changed_zone: the previous zone was a superhighway and the new one is not
+         Native logs which one came first ("selfship: superhighway entry signalled by <source> at sector N") and how the others followed. -->
+    <cue name="X4MP_Highway_Gate" instantiate="true">
+      <conditions>
+        <event_player_entered_gate/>
+      </conditions>
+      <actions>
+        <do_if value="@event.param.isclass.highwayentrygate">
+          <do_if value="@event.param.highway.issuperhighway">
+            <raise_lua_event name="'x4mp.md_highway'" param="'gate'"/>
+          </do_if>
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Highway_Zone" instantiate="true">
+      <conditions>
+        <event_object_changed_zone object="player.entity"/>
+      </conditions>
+      <actions>
+        <do_if value="@event.param.issuperhighway">
+          <raise_lua_event name="'x4mp.md_highway'" param="'zone'"/>
+        </do_if>
+        <do_elseif value="@event.param2.issuperhighway">
+          <raise_lua_event name="'x4mp.md_highway'" param="'exit'"/>
+        </do_elseif>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Highway_Sector" instantiate="true">
+      <conditions>
+        <event_object_changed_sector object="player.entity"/>
+      </conditions>
+      <actions>
+        <do_if value="not event.param.exists">
+          <raise_lua_event name="'x4mp.md_highway'" param="'sector'"/>
+        </do_if>
+      </actions>
+    </cue>
+
   </cues>
 </mdscript>

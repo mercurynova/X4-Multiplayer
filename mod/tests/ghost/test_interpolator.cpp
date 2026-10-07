@@ -273,3 +273,67 @@ TEST_CASE("a Hidden sample hides the ghost at once; the exit snaps to the new se
   CHECK(snaps <= 2);  // the reappearance, plus at most one correction of the decelerating 2 Hz stream (no flashing)
   CHECK(worst < 1000.0);
 }
+
+// M3-33 (Finding 21): the display delay covers the observed sample interval, so a slow stream is INTERPOLATED, never extrapolated through the normal
+// gap between its samples. Before: the delay was capped at 250 ms, a 2 Hz stream of a 4.8 km/s ship extrapolated 101 of 165 frames (0.9-1.2 km error).
+namespace {
+struct StreamRun {
+  double worst_err_m = 0;
+  int frames = 0, extrapolating = 0, snaps = 0;
+  std::int64_t delay_end_us = 0;
+};
+
+// samples every `step_ms` of a ship flying at `v` m/s, received 30 ms after their time; rendered at 60 fps for `seconds`; only frames after
+// `measure_from_s` are scored against the true straight line
+StreamRun run_stream(int step_ms, double v, double seconds, double measure_from_s) {
+  Interpolator in;
+  StreamRun r;
+  std::int64_t st = 1000;  // next sample time (ms)
+  for (std::int64_t now_ms = 1000; now_ms < 1000 + static_cast<std::int64_t>(seconds * 1000); now_ms += 16) {
+    while (st + 30 <= now_ms) {
+      in.push(mk(st, v * (static_cast<double>(st) / 1000.0), v), (st + 30) * kMs);
+      st += step_ms;
+    }
+    const RenderPose p = in.render(now_ms * kMs);
+    if (p.state == PoseState::Empty || static_cast<double>(now_ms - 1000) / 1000.0 < measure_from_s) continue;
+    ++r.frames;
+    if (p.state == PoseState::Extrapolating || p.state == PoseState::Held) ++r.extrapolating;
+    if (p.snapped) ++r.snaps;
+    const double truth = v * (static_cast<double>(p.render_t_us) / 1e6);
+    r.worst_err_m = std::max(r.worst_err_m, std::fabs(p.pos.x - truth));
+  }
+  r.delay_end_us = in.delay_us();
+  return r;
+}
+}  // namespace
+
+TEST_CASE("a 2 Hz stream of a 4.8 km/s ship is interpolated: no extrapolation, no snaps, path error < 100 m (M3-33)", "[ghost][interp][delay][m333]") {
+  const StreamRun r = run_stream(500, 4800.0, 30.0, 8.0);  // 8 s for the delay to rise to 1.5 x 500 ms + the jitter margin
+  REQUIRE(r.frames > 1000);
+  CHECK(r.extrapolating == 0);
+  CHECK(r.snaps == 0);
+  CHECK(r.worst_err_m < 100.0);
+  CHECK(r.delay_end_us >= 750'000);
+  CHECK(r.delay_end_us <= 1'000'000);
+}
+
+TEST_CASE("a 20 Hz stream keeps its low delay (M3-33)", "[ghost][interp][delay][m333]") {
+  const StreamRun r = run_stream(50, 4800.0, 20.0, 3.0);
+  CHECK(r.extrapolating == 0);
+  CHECK(r.snaps == 0);
+  CHECK(r.worst_err_m < 1.0);
+  CHECK(r.delay_end_us <= 110'000);
+}
+
+TEST_CASE("the interval estimate is a median: a stall in a 20 Hz stream does not raise the delay target (M3-33)", "[ghost][delay][m333]") {
+  DelayController d;
+  std::int64_t t = 1'000'000;
+  for (int i = 0; i < 40; ++i) {
+    d.on_sample(t + 15'000, t, 50'000);
+    t += 50'000;
+  }
+  CHECK(d.interval_us() == 50'000.0);
+  d.on_sample(t + 3'000'000 + 15'000, t + 3'000'000, 3'000'000);  // one sample after a 3 s stall
+  CHECK(d.interval_us() == 50'000.0);
+  CHECK(d.target_us() <= 250'000);
+}

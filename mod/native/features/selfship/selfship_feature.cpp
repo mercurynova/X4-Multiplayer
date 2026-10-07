@@ -54,7 +54,7 @@ constexpr const char* kSetaNotice = R"({"v":1,"level":"warn","text":"SETA is dis
 
 struct SelfShipFeature::Inbox {
   std::mutex mutex;
-  std::vector<std::pair<int, std::string>> items;  // 0 = sector_map data, 1 = seta_blocked
+  std::vector<std::pair<int, std::string>> items;  // 0 = sector_map data, 1 = seta_blocked, 2 = highway_signal (source)
   void push(int kind, std::string text) {
     const std::lock_guard lock(mutex);
     if (items.size() >= kMaxInbox) items.erase(items.begin());
@@ -77,6 +77,7 @@ void SelfShipFeature::on_init(host::HostContext& ctx) {
     if (text.size() <= 64 * 1024) in->push(0, std::string(text));
   });
   (void)ctx.platform.subscribe_event("x4mp.seta_blocked", [in](std::string_view text) { in->push(1, std::string(text.substr(0, 256))); });
+  (void)ctx.platform.subscribe_event("x4mp.highway_signal", [in](std::string_view text) { in->push(2, json_string(std::string(text.substr(0, 256)), "source")); });
   X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: ready (20 Hz moving / 5 Hz idle / 1 Hz hidden, SETA blocked while connected)");
 }
 
@@ -90,6 +91,8 @@ void SelfShipFeature::on_game_loaded(host::HostContext&) {
   map_.reset();
   tracker_.reset();
   map_asked_ = false;
+  sh_pending_.clear();
+  was_in_highway_ = false;
   map_logged_ready_ = false;
   block_sent_ = false;
   status_dirty_ = true;
@@ -119,11 +122,34 @@ void SelfShipFeature::drain_inbox(host::HostContext& ctx, std::int64_t now_us) {
         status_dirty_ = true;
         X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: sector map ready: {} sectors ({} records dropped)", map_.size(), map_.dropped_records());
       }
+    } else if (kind == 2) {
+      // M3-33: the game's superhighway signal (md/x4mp_galaxy.xml); acted on in on_frame once the ship's sector is known
+      if (sh_pending_.size() < 8) sh_pending_.push_back(text);
     } else if (seta_.blocked_at_source(now_us)) {
       X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: SETA was stopped at the source (MD)");
       notify_seta(ctx);
     } else {
       X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: SETA was stopped at the source (MD), notification suppressed (rate limit)");
+    }
+  }
+}
+
+// M3-33: turns the MD superhighway signals of this frame into the Observation edges and says in the log which signal fired first, in which sector and
+// how the later ones followed (compare with the "sector is not in the sector map" line: that is the late signal the old behaviour waited for).
+void SelfShipFeature::process_highway_signals(host::HostContext& ctx, std::int64_t now_us, selfship::Observation& obs, std::uint16_t sector_idx) {
+  auto pending = std::move(sh_pending_);
+  sh_pending_.clear();
+  for (const auto& src : pending) {
+    if (src == "exit") {
+      obs.sh_exited = true;
+      X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: superhighway exit signalled by {} at sector {}", src, sector_idx);
+    } else if (!obs.sh_entered && !tracker_.superhighway_signalled()) {
+      sh_first_us_ = now_us;
+      obs.sh_entered = true;
+      X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: superhighway entry signalled by {} at sector {}", src, sector_idx);
+    } else {
+      X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: superhighway entry also signalled by {} at sector {} (+{} ms after the first)", src, sector_idx,
+                (now_us - sh_first_us_) / 1000);
     }
   }
 }
@@ -238,6 +264,13 @@ void SelfShipFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& in
   obs.pose_valid = read.pose_valid;
   obs.pos = {read.pose.x, read.pose.y, read.pose.z};
   obs.rot = {read.pose.yaw, read.pose.pitch, read.pose.roll};
+  const std::uint16_t cur_sector = map_.index_of(read.sector);
+  process_highway_signals(ctx, now_us, obs, cur_sector);
+  if (read.in_highway != was_in_highway_) {
+    was_in_highway_ = read.in_highway;
+    X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: highway context {} (sector {}, superhighway signalled: {})", read.in_highway ? "on" : "off", cur_sector,
+              tracker_.superhighway_signalled() || obs.sh_entered);
+  }
   const auto tick = tracker_.update(obs, map_);
 
   selfship::SelfShipStatus st;

@@ -191,4 +191,13 @@ RegisterEvent("x4mp.md_seta", function(_, param)
 	if not ok then log("could not report the SETA block: " .. tostring(err)) end
 end)
 
+-- M3-33: the game's own superhighway signal (md/x4mp_galaxy.xml X4MP_Highway_*), one string per event ('gate' / 'zone' / 'sector' = entry,
+-- 'exit'). Native decides what to do (features/selfship): the entry hides the ghost / holds the avatar at once.
+--   MD -> Lua      x4mp.md_highway <source>
+--   Lua -> native  x4mp.highway_signal {"v":1,"source":"<source>"}
+RegisterEvent("x4mp.md_highway", function(_, param)
+	local ok, err = send("highway_signal", { source = tostring(param or "") })
+	if not ok then log("could not report the superhighway signal: " .. tostring(err)) end
+end)
+
 log("loaded")

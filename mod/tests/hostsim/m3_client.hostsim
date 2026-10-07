@@ -94,6 +94,17 @@ until 1500 expect-object "name=[MP] ${host}" yaw > 0.25
 until 1500 expect-object "name=[MP] ${host}" yaw < 0.35
 write-file ${sync}/client.turn3 ok
 
+# ---- M3-33: the game's superhighway signal (MD -> Lua -> native): the entry is logged with its source, the exit clears it ----
+lua-raw x4mp.highway_signal {"v":1,"source":"zone"}
+frame 60Hz 30
+expect-file extension/logs/x4mp.log selfship: superhighway entry signalled by zone
+lua-raw x4mp.highway_signal {"v":1,"source":"gate"}
+frame 60Hz 30
+expect-file extension/logs/x4mp.log selfship: superhighway entry also signalled by gate
+lua-raw x4mp.highway_signal {"v":1,"source":"exit"}
+frame 60Hz 60
+expect-file extension/logs/x4mp.log selfship: superhighway exit signalled by exit
+
 # ---- chat ----
 write-file ${sync}/client.chat ready
 lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from ${name}"}

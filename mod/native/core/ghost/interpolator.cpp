@@ -12,12 +12,31 @@ void DelayController::on_sample(std::int64_t arrival_us, std::int64_t sample_t_u
   d_[head_] = arrival_us - sample_t_us;
   head_ = (head_ + 1) % kWin;
   if (n_ < kWin) ++n_;
-  if (sample_dt_us > 0) {
-    const double dt = static_cast<double>(std::clamp<std::int64_t>(sample_dt_us, 10'000, 1'000'000));
-    interval_us_ += (dt - interval_us_) * 0.1;
+  // M3-33: the MEDIAN of the last 16 intervals (a stall is one outlier, not a new rate). Gaps above slow_interval_max_us are not a stream rate at
+  // all: a stationary ghost only gets a keyframe every few seconds (extrapolating a ship at rest is exact), a hidden one 1 Hz.
+  if (sample_dt_us > 0 && sample_dt_us <= cfg_.slow_interval_max_us) {
+    iv_[iv_head_] = std::max<std::int64_t>(sample_dt_us, 10'000);
+    iv_head_ = (iv_head_ + 1) % kIv;
+    if (iv_n_ < kIv) ++iv_n_;
+    if (iv_n_ >= 3) {
+      std::array<std::int64_t, kIv> m;
+      std::copy_n(iv_.begin(), iv_n_, m.begin());
+      const auto mid = m.begin() + static_cast<std::ptrdiff_t>(iv_n_ / 2);
+      std::nth_element(m.begin(), mid, m.begin() + static_cast<std::ptrdiff_t>(iv_n_));
+      interval_us_ = static_cast<double>(*mid);
+    }
   }
-  if (!cfg_.adaptive_delay || n_ < 16) {
+  const double interval_part = 1.5 * interval_us_;
+  // a slow stream may use more than max_delay_us: its own interval (+ 100 ms), at most max_interval_delay_us; a fast one keeps 250 ms
+  const double hi_d = std::max(static_cast<double>(cfg_.max_delay_us), std::min(static_cast<double>(cfg_.max_interval_delay_us), interval_part + 100'000.0));
+  const std::int64_t hi = static_cast<std::int64_t>(hi_d);
+  if (!cfg_.adaptive_delay) {
     target_us_ = cfg_.default_delay_us;
+    return;
+  }
+  if (n_ < 16) {
+    // not enough samples for the jitter yet: the default, or the interval if that is longer
+    target_us_ = std::clamp<std::int64_t>(std::max(cfg_.default_delay_us, static_cast<std::int64_t>(iv_n_ >= 3 ? interval_part : 0.0)), cfg_.min_delay_us, hi);
     return;
   }
   std::array<std::int64_t, kWin> tmp;
@@ -27,18 +46,22 @@ void DelayController::on_sample(std::int64_t arrival_us, std::int64_t sample_t_u
   const std::size_t rank = static_cast<std::size_t>(0.95 * static_cast<double>(n_ - 1) + 0.5);
   std::nth_element(tmp.begin(), tmp.begin() + static_cast<std::ptrdiff_t>(rank), tmp.begin() + static_cast<std::ptrdiff_t>(n_));
   jitter_p95_us_ = static_cast<double>(tmp[rank]);
-  const double want = 1.5 * interval_us_ + 2.0 * jitter_p95_us_;
-  target_us_ = std::clamp<std::int64_t>(static_cast<std::int64_t>(want), cfg_.min_delay_us, cfg_.max_delay_us);
+  const double want = interval_part + 2.0 * jitter_p95_us_;
+  target_us_ = std::clamp<std::int64_t>(static_cast<std::int64_t>(want), cfg_.min_delay_us, hi);
 }
 
 void DelayController::step(std::int64_t dt_us) noexcept {
   if (dt_us <= 0) return;
   if (current_us_ < target_us_) {
-    current_us_ = std::min(target_us_, current_us_ + dt_us / 10);  // up to 100 ms per second
+    // up to 100 ms per second; 500 ms per second while far below the target (a slow stream: better a short slow-motion than extrapolation)
+    const std::int64_t rise = (target_us_ - current_us_ > 250'000) ? dt_us / 2 : dt_us / 10;
+    current_us_ = std::min(target_us_, current_us_ + rise);
   } else if (current_us_ > target_us_) {
-    current_us_ = std::max(target_us_, current_us_ - dt_us / 100);  // down to 10 ms per second
+    // down to 10 ms per second; 100 ms per second while more than 250 ms above the target (a slow stream that became fast again)
+    const std::int64_t fall = (current_us_ - target_us_ > 250'000) ? dt_us / 10 : dt_us / 100;
+    current_us_ = std::max(target_us_, current_us_ - fall);
   }
-  current_us_ = std::clamp(current_us_, cfg_.min_delay_us, cfg_.max_delay_us);
+  current_us_ = std::clamp(current_us_, cfg_.min_delay_us, std::max(cfg_.max_delay_us, cfg_.max_interval_delay_us));
 }
 
 // ---------------------------------------------------------------------------------------------

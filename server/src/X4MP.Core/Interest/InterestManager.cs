@@ -164,7 +164,7 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
 
     /// <summary>
     /// The tier of one entity for a client: Near inside <c>NearRadius</c> of the player ship in the current sector, else the tier
-    /// of its sector; player ships (galaxy-wide, at least 2 Hz) report Adjacent when their sector is not otherwise followed.
+    /// of its sector; player ships (galaxy-wide, at the full rate since M3-33) report Adjacent when their sector is not otherwise followed.
     /// </summary>
     public InterestTier TierOf(int playerId, MirrorEntity entity)
     {
