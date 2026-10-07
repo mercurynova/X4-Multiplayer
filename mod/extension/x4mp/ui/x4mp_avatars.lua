@@ -91,7 +91,7 @@ end)
 -- M3-30 (client): native asks MD to create the player's own ship (md/x4mp_avatars.xml X4MP_Avatars_Create)
 --   native -> Lua  x4mp.avatars_create {"v":1,"seq":N,"sector":"<id>","x","y","z","macro":S,"name":S,"loadout":S,"basic":bool}
 --                  -> AddUITriggeredEvent("X4MP_Avatars", "create", { seq, <sector lua id>, x, y, z, macro, name, loadout, basic(1|0) })
---   MD -> Lua      x4mp.md_avatars_created { seq, <ship component> }  -> x4mp.avatars_md "C;seq;1;<decimal id>" (ConvertStringTo64Bit)
+--   MD -> Lua      x4mp.md_avatars_created_seq <seq>, then x4mp.md_avatars_created <ship component>  ->x4mp.avatars_md "C;seq;1;<decimal id>" (ConvertStringTo64Bit)
 B.on("avatars_create", function(p)
 	local seq = type(p) == "table" and p.seq
 	if not num(seq) then return end
@@ -113,11 +113,19 @@ local function shipId(x)
 	return string.format("%.0f", n)
 end
 
+-- MD sends the seq and the ship as two single-value events (a list param never arrived in game, 2026-10-07)
+RegisterEvent("x4mp.md_avatars_created_seq", function(_, param)
+	A.createdSeq = tonumber(param)
+end)
+
 RegisterEvent("x4mp.md_avatars_created", function(_, param)
-	if type(param) ~= "table" then return end
-	local seq = tonumber(param[1])
-	if not seq then return end
-	local id = shipId(param[2])
+	local seq = A.createdSeq
+	A.createdSeq = nil
+	if not seq then
+		log("a created ship arrived without its request number")
+		return
+	end
+	local id = shipId(param)
 	local ok, err = send(id and ("C;" .. seq .. ";1;" .. id) or ("C;" .. seq .. ";0"))
 	if not ok then log("could not forward the created ship: " .. tostring(err)) end
 end)

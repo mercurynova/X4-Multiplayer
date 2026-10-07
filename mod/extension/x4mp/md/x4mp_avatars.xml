@@ -117,7 +117,7 @@
     <!-- M3-30 (Finding 4): the CLIENT's own ship is created by the engine's own path for a player ship (create_ship, owner faction.player; the vanilla
          gamestart ships do the same: md/setup_gamestarts.xml:1620-1621, md/diplomacy.xml:265), not spawned natively and re-owned later.
          Lua -> MD  create { seq, sector, x, y, z, macro, name, loadout, basic }  at (x, y, z) of `sector`; native places the exact pose afterwards
-         MD -> Lua  'x4mp.md_avatars_created' param [seq, ship] (Lua converts the ship to a decimal id and forwards "C;seq;1;id"), or 'x4mp.md_avatars' "C;seq;0" -->
+         MD -> Lua  'x4mp.md_avatars_created_seq' param seq, then 'x4mp.md_avatars_created' param ship (Lua converts the ship to a decimal id and forwards "C;seq;1;id"), or 'x4mp.md_avatars' "C;seq;0" -->
     <cue name="X4MP_Avatars_Create" instantiate="true">
       <conditions>
         <event_ui_triggered screen="'X4MP_Avatars'" control="'create'"/>
@@ -172,7 +172,10 @@
               <set_value name="$Applied" exact="'basic'"/>
             </do_if>
             <debug_text text="'[X4MP] avatars: created the player ship ' + $Ship.name + ' macro=' + $Ship.macro.id + ' owner=' + @$Ship.owner.id + ' isplayerowned=' + $Ship.isplayerowned + ' loadout=' + $Applied" filter="general" context="false"/>
-            <raise_lua_event name="'x4mp.md_avatars_created'" param="[$Seq, $Ship]"/>
+            <!-- two single-value events (vanilla only passes one string or component per raise_lua_event; a list never arrived in game, 2026-10-07):
+                 the seq first, then the ship -->
+            <raise_lua_event name="'x4mp.md_avatars_created_seq'" param="'' + $Seq"/>
+            <raise_lua_event name="'x4mp.md_avatars_created'" param="$Ship"/>
           </do_if>
           <do_else>
             <raise_lua_event name="'x4mp.md_avatars'" param="'C;' + $Seq + ';0'"/>
