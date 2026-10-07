@@ -60,4 +60,24 @@ player ship and make it the avatar copy); (18) the authority must move a player'
 ping-pong between the last known state and extrapolation / velocity hints), plus consider the +0.99 own-team relation so a team ship is
 never the engine's `self` range.
 
+## Two-PC check run (2026-10-07, 18:24-18:52 UTC; Alice = authority PC A, Bob = client PC B over Tailscale)
+
+Main `bdb7d19` (M3-29/30/31), then hotfix `6aa8c23`. Logs: `out/session4/logs-s4a-*` (PC A), `logs-s4b-*` (PC B).
+
+| Check | Verdict | Evidence |
+|---|---|---|
+| M3-30 takeover, first try | **FAIL -> hotfixed** | MD `create_ship` worked (X4 log: `created the player ship ... owner=player isplayerowned=1 loadout=basic`, 7 times) but the answer never reached the mod: MD sent it with a **list** `param="[$Seq, $Ship]"` on `raise_lua_event`, which vanilla never does and which did not arrive. The takeover retried every 17 s and made a new ship each time. Fix `6aa8c23`: two single-value events (`x4mp.md_avatars_created_seq`, then `x4mp.md_avatars_created` with the ship). Lesson: `raise_lua_event` carries one string or component, never a list |
+| M3-30 takeover after the fix | PASS | `done in 0.56 s`: created ship, teleport, guard, save copy removed; one `[MP] Bob` on Alice |
+| M3-30 Finding 4 | **PASS** | watch `pship=RYP-912/player/po1`; **Bob's map leaves a revealed trail**; `/reloadui`: one Bob; leave + rejoin: back in the ship, one Bob, the trail is still on Bob's map |
+| M3-31 Finding 18 | **PASS (map)** | Alice's map did not flip; Bob's avatar `EEP-141` changed sector **once** (`cluster_04_sector001` -> `002` at 18:50:41), `rel=0.99`, `repairs=0`. Alice logged `PlayerState of player 12 is not stamped with the server clock (off by -3.2 s); using arrival times` at 18:50:31 (Bob in the superhighway) |
+| M3-29 Finding 20 | not done | session stopped |
+| 3.5 UDP fallback, re-checks 15-17 | not done | |
+
+**Finding 21 (new): ship markers flash between spots around a superhighway transit**, both directions (Alice's ghost on Bob, Bob's avatar on Alice).
+Bob's log for Alice's transit: the ghost stayed visible while Alice accelerated into the superhighway (`speed_max=4860` m/s) and was only hidden at
+18:50:14.7, ~4 s after Alice's client stopped sending (18:50:10.8, sector not in the map); shown again at 18:50:18.3, then 101 frames of
+extrapolation with path error up to **1.2 km** (`err_p95=868 m`), back to 36 m in the next 5 s window. Fix ideas: hide a ghost / hold an avatar as
+soon as it reaches superhighway speed or the Hidden flag arrives; after a sector change snap to the first new sample instead of extrapolating;
+check the -3.2 s clock stamp of PlayerState around highways. Not the map bug.
+
 **Finding 18 status (M3-31, 2026-10-06): fix in, in-game check pending.** Authority avatar: no stale velocity hint during a silent gap, one move to the exit sector (no jump back to the old pose / sector), the client sends one Hidden state when its sector leaves the sector map; player <-> own team relation is now +0.99. Script: `docs/in-game-session-4.md` "M3-31 check"; summary: `docs/m3-plan.md` "M3-31".
