@@ -139,7 +139,7 @@ jobs:
           cache: true
           cache-dependency-path: "**/packages.lock.json"
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
@@ -193,12 +193,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-protocol-${{ runner.os }}-${{ hashFiles('protocol/cpp/vcpkg.json') }}
@@ -227,12 +227,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
@@ -317,7 +317,7 @@ jobs:
           cache: true
           cache-dependency-path: "**/packages.lock.json"
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
@@ -329,7 +329,7 @@ jobs:
           cache-dependency-path: server/web/package-lock.json
       - name: Cache Playwright browsers
         if: matrix.name == 'playwright'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('server/web/package-lock.json') }}
@@ -363,13 +363,13 @@ jobs:
           cache: true
           cache-dependency-path: "**/packages.lock.json"
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       # Same cache key as the `mod` job, so a warm cache makes the mod build here a few minutes.
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}

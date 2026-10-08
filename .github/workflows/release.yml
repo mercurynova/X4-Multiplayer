@@ -69,12 +69,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
