@@ -44,7 +44,7 @@ jobs:
             build-mode: none
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -59,6 +59,6 @@ jobs:
         run: |
           bash tools/flatc/fetch-flatc.sh
           dotnet build server/src/X4MP.Server -c Release -p:SkipWebBuild=true
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
