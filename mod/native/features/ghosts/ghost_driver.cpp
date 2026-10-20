@@ -278,6 +278,40 @@ bool GhostDriver::note_respawn(Ghost& g, std::int64_t now_us) {
   return true;
 }
 
+// M3-34 (Finding 23 and the 286 km repair): the engine moves our inert objects by itself (the velocity hint between two placements, a highway
+// capture). Read what the GAME says about the object and compare it with the pose we put there last. A difference is the evidence, and the repair is
+// the same frame's placement (forced) with the velocity zeroed; for the next guard_hot_us the check runs every frame.
+void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
+  if (g.local_id == 0 || !g.have_prev || !world_) return;
+  const auto st = world_->read_state(g.local_id);
+  if (!st) return;
+  ++counters_.guard_reads;
+  const bool other_sector = st->sector != 0 && g.sector_id != 0 && st->sector != g.sector_id;
+  const double d = other_sector ? 0.0 : ghost::distance(st->pose.pos, g.last_pose.pos);
+  const double tol = cfg_.guard_min_m + speed_mps * cfg_.guard_speed_s;
+  const bool far = !other_sector && d > tol;
+  const bool moved = other_sector || far;
+  if (!moved && !st->in_highway) return;
+  if (other_sector) ++counters_.engine_sector;
+  else if (far) ++counters_.engine_moved;
+  if (st->in_highway) ++counters_.engine_highway;
+  if (moved) {
+    g.guard_hot_until_us = now_us + cfg_.guard_hot_us;
+    g.force_place = true;
+    if (!cfg_.hints_off) {
+      hint_batch_.push_back({g.local_id, 0, 0, 0});
+      g.hint_was_zero = true;
+      g.last_hint_us = now_us;
+    }
+  }
+  if (g.last_guard_log_us == 0 || now_us - g.last_guard_log_us >= cfg_.guard_log_interval_us) {
+    g.last_guard_log_us = now_us;
+    log(kInfo, std::format("ghost engine guard: net={} label='{}' {}{:.1f} m from the placed pose (tolerance {:.0f} m, speed {:.0f} m/s), highway context {}{} (totals: moved {}, sector {}, highway {})",
+                           g.info.net_id, g.label, other_sector ? "the game moved our object into another sector, " : moved ? "the game moved our object: " : "not moved: ", d, tol, speed_mps,
+                           st->in_highway ? "YES" : "no", moved ? "; placed it back, velocity zeroed" : "", counters_.engine_moved, counters_.engine_sector, counters_.engine_highway));
+  }
+}
+
 bool GhostDriver::try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_id, const Pose& pose) {
   if (g.info.macro.empty() || g.info.owner.empty()) {
     g.spawn_not_before_us = now_us + cfg_.spawn_retry_us;
@@ -412,13 +446,20 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       }
     }
 
+    // M3-34 engine guard: before this frame's placement, is the object where the last placement left it?
+    if (cfg_.engine_guard && now_us - g.last_guard_us >= (now_us < g.guard_hot_until_us ? 0 : cfg_.guard_interval_us)) {
+      g.last_guard_us = now_us;
+      guard_check(g, now_us, rp.speed_mps);
+    }
+
     const bool sector_changed = sec != g.sector_id;
-    const bool moved = sector_changed || rp.snapped || pose_differs(pose, g.last_pose, cfg_.motion_epsilon_m, cfg_.motion_epsilon_rad);
+    const bool moved = sector_changed || rp.snapped || g.force_place || pose_differs(pose, g.last_pose, cfg_.motion_epsilon_m, cfg_.motion_epsilon_rad);
     if (moved || now_us - g.last_set_us >= cfg_.parked_set_interval_us) {
       world_->place(g.local_id, sec, pose);
       ++counters_.places;
       ++fs.places;
       g.last_set_us = now_us;
+      g.force_place = false;
       if (sector_changed && g.sector_id != 0) {
         ++counters_.sector_changes;
         log(kDebug, std::format("ghost sector change: net={} sector_id {} -> {} (index {})", g.info.net_id, g.sector_id, sec, rp.sector));
@@ -436,9 +477,11 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
         have_v = true;
       }
     }
-    if (now_us - g.last_hint_us >= cfg_.hint_interval_us && have_v) {
+    if (!cfg_.hints_off && now_us - g.last_hint_us >= cfg_.hint_interval_us && have_v) {
       const double sp = ghost::length(v);
-      if (sp > 0.05) {
+      // M3-34: at travel speed the engine would fly the inert ship by the hint between our placements (and may capture it into a highway): zero then.
+      const bool too_fast = !cfg_.hints_all_speeds && sp > cfg_.hint_max_mps;
+      if (sp > 0.05 && !too_fast) {
         hint_batch_.push_back({g.local_id, v.x, v.y, v.z});
         g.hint_was_zero = false;
         g.last_hint_us = now_us;

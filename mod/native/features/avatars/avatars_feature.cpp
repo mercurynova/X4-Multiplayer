@@ -146,6 +146,7 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
     sector = ctx->game.context_by_class(id, "sector", false);
     return sector != 0;
   }
+  bool in_highway(std::uint64_t id) override { return id != 0 && ctx->game.context_by_class(id, "highway", true) != 0; }
   bool set_pose(std::uint64_t id, std::uint64_t sector, const av::Pose& pose) override {
     return ctx->game.set_object_sector_pos(id, sector, to_pod(pose));
   }
@@ -313,7 +314,14 @@ void AvatarsFeature::on_init(host::HostContext& ctx) {
     av::DirectorDiag dd;
     dd.team_move_respawn = ctx.config.diag.team_move_respawn;
     dd.inert_once = ctx.config.diag.avatars_inert_once;
+    dd.hints_off = ctx.config.diag.hints_off;  // M3-34
+    dd.hints_all_speeds = ctx.config.diag.hints_all_speeds;
+    dd.engine_guard_off = ctx.config.diag.engine_guard_off;
     s.dir->set_diag(dd);
+    if (dd.hints_off || dd.hints_all_speeds || dd.engine_guard_off) {
+      ctx.log.raw(Cat::Ghost, Level::Warn, std::string("avatars: diag switches set (M3-34 experiment): hints_off=") + (dd.hints_off ? "true" : "false") + " hints_all_speeds=" +
+                                               (dd.hints_all_speeds ? "true" : "false") + " engine_guard_off=" + (dd.engine_guard_off ? "true" : "false"));
+    }
     if (dd.team_move_respawn) ctx.log.raw(Cat::Ghost, Level::Warn, "avatars: diag.team_move_respawn is set: a team move despawns and respawns the avatar instead of SetComponentOwner (M3-28 experiment)");
     if (dd.inert_once) ctx.log.raw(Cat::Ghost, Level::Warn, "avatars: diag.avatars_inert_once is set: ActivateObject(false) on avatars runs at spawn / re-own / rebind only (M3-28 experiment)");
     if (ctx.config.diag.dress_no_radar_no_known) ctx.log.raw(Cat::Ghost, Level::Warn, "avatars: diag.dress_no_radar_no_known is set: the avatar dress skips forced radar visibility and set_known (M3-28 experiment)");
@@ -426,7 +434,8 @@ void AvatarsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
       ctx.log.raw(Cat::Ghost, Level::Info,
                   "avatars: [drive] avatars=" + std::to_string(s.dir->size()) + " live=" + std::to_string(s.dir->live_count()) + " states_in=" + std::to_string(st.states_in) +
                       " unknown_net_id=" + std::to_string(st.states_unknown) + " set_pose=" + std::to_string(st.set_pose_calls) + " unmapped_sector=" +
-                      std::to_string(st.unmapped_sector) + " vel_hints=" + std::to_string(st.vel_hints) + " repairs=" + std::to_string(st.repairs));
+                      std::to_string(st.unmapped_sector) + " vel_hints=" + std::to_string(st.vel_hints) + " repairs=" + std::to_string(st.repairs) +
+                      " engine_moved=" + std::to_string(st.engine_moved) + " engine_highway=" + std::to_string(st.engine_highway));
     }
     s.last_stats = st;
   }

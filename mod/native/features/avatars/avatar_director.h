@@ -76,6 +76,11 @@ class IAvatarEnv {
   virtual bool valid(std::uint64_t id) = 0;
   virtual std::string idcode(std::uint64_t id) = 0;
   virtual bool read_pose(std::uint64_t id, std::uint64_t& sector, Pose& pose) = 0;
+  // M3-34: true while the ENGINE has the ship in a (local or super) highway context (GetContextByClass "highway"); the evidence of a highway capture.
+  virtual bool in_highway(std::uint64_t id) {
+    (void)id;
+    return false;
+  }
   virtual bool set_pose(std::uint64_t id, std::uint64_t sector, const Pose& pose) = 0;
   virtual bool remove(std::uint64_t id) = 0;  // through SafeRemove; false when refused (the player's own ship, wrong thread, ...)
   // Every ship owned by a team faction (x4mp_team_*). nullopt = the enumeration is not available (never respawn on that).
@@ -102,6 +107,11 @@ class IAvatarEnv {
 struct DirectorDiag {
   bool team_move_respawn = false;  // a team move despawns the avatar and spawns a fresh one (same net id, same pose) instead of SetComponentOwner
   bool inert_once = false;         // ActivateObject(false) only at spawn / re-own / rebind, then only after a read-back shows the ship active (max every 30 s)
+  // M3-34 (Finding 23): the defaults are the fix. hints_off = no MD velocity hint at all; hints_all_speeds = the old hint at any speed (default: zero above
+  // 1000 m/s, the engine flies the inert ship with it between two placements and can capture it into a highway); engine_guard_off = no read-back.
+  bool hints_off = false;
+  bool hints_all_speeds = false;
+  bool engine_guard_off = false;
   bool operator==(const DirectorDiag&) const = default;
 };
 
@@ -110,6 +120,7 @@ struct DirectorStats {
   std::uint32_t bound = 0, lost = 0, strays = 0, respawned = 0, parked = 0, removed = 0, remove_refused = 0;
   std::uint32_t states_in = 0, states_unknown = 0, set_pose_calls = 0, unmapped_sector = 0, repairs = 0, vel_hints = 0;
   std::uint32_t dress_ok = 0, dress_failed = 0, announced = 0, reowned = 0, team_respawned = 0;
+  std::uint32_t engine_moved = 0, engine_highway = 0;  // M3-34: the game moved a driven avatar by itself / has it in a highway context
 };
 
 class AvatarDirector {
@@ -122,6 +133,7 @@ class AvatarDirector {
     Stage stage = Stage::Unbound;
     bool suspended = false;
     std::size_t samples = 0;
+    bool holding = false;  // M3-34: driven but not moved (hidden / stale): the engine guard looks after it like after a parked ship
   };
 
   static constexpr double kSafePosTimeoutS = 5.0;
@@ -218,6 +230,7 @@ class AvatarDirector {
   std::int64_t last_frame_server_us_ = 0;  // M3-32: server time of the previous step() (the stall guard of on_player_state)
   double now_s_ = 0;
   double next_vel_s_ = 0;
+  void guard(Avatar& av, bool parked);  // M3-34 engine guard
   double next_persist_s_ = 0;
   std::uint32_t next_seq_ = 1;
   DirectorStats stats_;

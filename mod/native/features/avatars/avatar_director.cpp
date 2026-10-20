@@ -15,6 +15,14 @@ constexpr double kInertPeriodS = 5.0;
 constexpr double kIdleReassertS = 0.25;
 constexpr double kParkedSnapM = 2.0;  // a ship that merely settles (after its zero-velocity hint) is not a pushed ship (M3-20)
 constexpr double kPersistPeriodS = 2.0;
+// M3-34 (Finding 23 / the 286 km repair): the velocity hint is zero above this speed, and the engine guard reads the game's pose back this often (every
+// frame for kGuardHotS after a hit): 1 s was long enough for the engine to carry a held avatar a whole highway away.
+constexpr double kHintMaxMps = 1000.0;
+constexpr double kGuardPeriodS = 0.2;
+constexpr double kGuardHotS = 2.0;
+constexpr double kGuardLogS = 5.0;
+constexpr double kGuardMinM = 30.0;
+constexpr double kGuardSpeedS = 0.3;
 constexpr double kRecordMoveM = 5.0;
 constexpr std::int64_t kMaxClockSkewUs = 2'000'000;
 
@@ -49,6 +57,9 @@ struct AvatarDirector::Avatar {
   int tries = 0;
   double retry_at = 0;
   double next_validity = 0;
+  double next_guard = 0;              // M3-34 engine guard: next read-back of the game's pose
+  double guard_hot_until = 0;
+  double last_guard_log = -1e9;
   double next_inert = 0;
   double last_inert_s = -1e9;         // when ActivateObject(false) was last called (M3-28 inert throttle)
   double next_snap = 0;
@@ -108,7 +119,7 @@ std::uint32_t AvatarDirector::max_net_id() const noexcept {
 
 std::vector<AvatarDirector::View> AvatarDirector::views() const {
   std::vector<View> out;
-  for (const auto& a : avatars_) out.push_back({a->rec, a->local_id, a->stage, a->suspended, a->samples});
+  for (const auto& a : avatars_) out.push_back({a->rec, a->local_id, a->stage, a->suspended, a->samples, a->holding});
   return out;
 }
 
@@ -682,6 +693,14 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
   if (rp.state == ghost::PoseState::Empty) return;
   if (rp.hidden) {  // on foot / docked inside / superhighway transit / stale: the ship stays where it is
     av.vel.sample(now_s_, 0, 0, 0, true);
+    if (!av.holding) {
+      // M3-34: the hold starts NOW: the zero velocity goes out this frame (not at the next 5 Hz tick, up to 200 ms of flight at the speed the avatar
+      // had when the ship disappeared into a highway) and the guard looks at the ship at once.
+      av.zero_pending = true;
+      next_vel_s_ = 0;
+      av.next_guard = 0;
+      av.guard_hot_until = now_s_ + kGuardHotS;
+    }
     av.holding = true;  // M3-31: and stays there (zero velocity hint, put back if the game moves it across a sector edge)
     return;
   }
@@ -727,9 +746,64 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
   }
 }
 
+// M3-34 engine guard: read what the GAME says about the avatar and compare it with where we put it. Parked / holding avatars: snap back when something
+// pushed them (M3-20 / M3-31, now every kGuardPeriodS instead of every second: the engine carried a held avatar 286 km along a local highway within that
+// second in the two-PC run). Driven avatars: the next set_pose puts them back anyway; the read-back is the evidence (counters, one log line per 5 s) and
+// forces that set_pose even for a ship whose rendered pose did not change.
+void AvatarDirector::guard(Avatar& av, bool parked) {
+  std::uint64_t sec = 0;
+  Pose p;
+  if (av.sector_id == 0 || !env_.read_pose(av.local_id, sec, p)) return;
+  const bool hw = !diag_.engine_guard_off && env_.in_highway(av.local_id);
+  if (parked) {
+    const double d = distance_m(p, av.rec.pose);
+    if (sec != av.sector_id || d > kParkedSnapM) {
+      if (env_.set_pose(av.local_id, av.sector_id, av.rec.pose)) {
+        ++stats_.repairs;
+        env_.log(LogLevel::Info, std::format("avatars: repaired the parked avatar of player {} (net_id {}): it was {:.1f} m off its pose{}", av.rec.player_id, av.rec.net_id, d,
+                                             hw ? " (the game has it in a highway context)" : ""));
+        if (hw) ++stats_.engine_highway;
+        av.zero_pending = true;  // a pushed ship moves on with its velocity: stop it, or it is snapped back again and again
+        if (!diag_.engine_guard_off) {
+          next_vel_s_ = 0;
+          av.guard_hot_until = now_s_ + kGuardHotS;
+        }
+      }
+    }
+    return;
+  }
+  if (diag_.engine_guard_off || !av.have_last_set) return;
+  const bool other_sector = sec != av.sector_id;
+  const double d = distance_m(p, av.last_set);
+  double speed = 0;
+  if (av.vel.valid()) {
+    const auto v = av.vel.velocity();
+    speed = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  }
+  const double tol = kGuardMinM + speed * kGuardSpeedS;
+  const bool moved = other_sector || d > tol;
+  if (!moved && !hw) return;
+  if (moved) ++stats_.engine_moved;
+  if (hw) ++stats_.engine_highway;
+  if (moved) {
+    av.have_last_set = false;  // the next drive() writes the pose whatever it is
+    av.zero_pending = true;
+    next_vel_s_ = 0;
+    av.guard_hot_until = now_s_ + kGuardHotS;
+  }
+  if (now_s_ - av.last_guard_log >= kGuardLogS) {
+    av.last_guard_log = now_s_;
+    env_.log(LogLevel::Info, std::format("avatars: engine guard: avatar of player {} (net_id {}): {}{:.1f} m from where it was placed (tolerance {:.0f} m, speed {:.0f} m/s), highway context {}{} (totals: moved {}, highway {})",
+                                         av.rec.player_id, av.rec.net_id, other_sector ? "the game moved it into another sector, " : moved ? "the game moved it: " : "not moved: ", d, tol, speed,
+                                         hw ? "YES" : "no", moved ? "; placed it back, velocity zeroed" : "", stats_.engine_moved, stats_.engine_highway));
+  }
+}
+
 void AvatarDirector::maintain(Avatar& av) {
+  bool validity_fired = false;
   if (now_s_ >= av.next_validity) {
     av.next_validity = now_s_ + kValidityPeriodS;
+    validity_fired = true;
     if (!env_.valid(av.local_id)) {
       env_.log(LogLevel::Warn, std::format("avatars: the ship of player {} (id {}) is gone; respawning it at its last pose", av.rec.player_id, av.local_id));
       av.local_id = 0;
@@ -739,17 +813,11 @@ void AvatarDirector::maintain(Avatar& av) {
       ++stats_.respawned;
       return;
     }
-    if (!av.rec.online || av.suspended || av.holding) {  // parked (or driven but hidden, M3-31): snap back when something pushed it
-      std::uint64_t sec = 0;
-      Pose p;
-      if (env_.read_pose(av.local_id, sec, p) && av.sector_id != 0 && (sec != av.sector_id || distance_m(p, av.rec.pose) > kParkedSnapM)) {
-        if (env_.set_pose(av.local_id, av.sector_id, av.rec.pose)) {
-          ++stats_.repairs;
-          env_.log(LogLevel::Info, std::format("avatars: repaired the parked avatar of player {} (net_id {}): it was {:.1f} m off its pose", av.rec.player_id, av.rec.net_id, distance_m(p, av.rec.pose)));
-          av.zero_pending = true;  // a pushed ship moves on with its velocity: stop it, or it is snapped back again and again
-        }
-      }
-    }
+  }
+  const bool parked_like = !av.rec.online || av.suspended || av.holding;  // parked (or driven but hidden, M3-31)
+  if (diag_.engine_guard_off ? (validity_fired && parked_like) : now_s_ >= av.next_guard) {
+    av.next_guard = now_s_ + (now_s_ < av.guard_hot_until ? 0.0 : kGuardPeriodS);
+    guard(av, parked_like);
   }
   if (now_s_ >= av.next_inert) {
     av.next_inert = now_s_ + kInertPeriodS;
@@ -786,8 +854,11 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
         }
         break;
       case Stage::Live:
-        drive(av, server_now_us);
+        // M3-34: maintain() (validity, the engine guard) runs BEFORE drive(): the guard must read what the engine did to the ship since our last write,
+        // and drive() overwrites it with this frame's placement.
         maintain(av);
+        if (av.local_id == 0) break;  // maintain found the ship gone: it respawns from the next steps
+        drive(av, server_now_us);
         if (av.want_team != 0) apply_team_move(av);
         break;
     }
@@ -803,7 +874,7 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
     }
   }
 
-  if (now_s_ >= next_vel_s_) {
+  if (!diag_.hints_off && now_s_ >= next_vel_s_) {
     next_vel_s_ = now_s_ + kVelHintPeriodS;
     std::vector<VelHint> hints;
     for (auto& up : avatars_) {
@@ -820,7 +891,11 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
       if (av.vel.valid()) {
         const auto v = av.vel.velocity();
         const double sp = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        if (zero_owed && sp <= 0.05) {
+        const bool too_fast = !diag_.hints_all_speeds && sp > kHintMaxMps;  // M3-34: at travel speed the engine would fly the inert ship by the hint
+        if (too_fast) {
+          if (av.hint_nonzero || zero_owed) hints.push_back({av.local_id, 0, 0, 0});
+          av.hint_nonzero = false;
+        } else if (zero_owed && sp <= 0.05) {
           hints.push_back({av.local_id, 0, 0, 0});
           av.hint_nonzero = false;
         } else if (sp > 0.05) {

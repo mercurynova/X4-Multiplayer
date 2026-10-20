@@ -337,3 +337,26 @@ TEST_CASE("the interval estimate is a median: a stall in a 20 Hz stream does not
   CHECK(d.interval_us() == 50'000.0);
   CHECK(d.target_us() <= 250'000);
 }
+
+TEST_CASE("a placeholder sample seconds before the real pose gives no velocity: the ghost holds the real pose, no alternation across keyframes (M3-34, Finding 22)", "[ghost][interp][m334]") {
+  // A re-hosted authority's ship: the self-spawn has no pose (the server first replicated (0,0,0)), 7.2 s later the real pose arrives with zero
+  // velocity (a resting ship). The finite difference over that gap was 28 km/s and the capped extrapolation parked the ghost 14 km beyond the real pose.
+  const double kQx = 201'290.0;
+  Interpolator in;
+  in.push(mk(1000, 0.0, 0.0), 0);  // the placeholder at the sector origin
+  in.push(mk(8200, kQx, 0.0), 0);  // the real pose, 7.2 s later, vel 0
+  auto held_x = [&](std::int64_t now_ms) { return in.render(now_ms * kMs).pos.x; };
+  CHECK(held_x(9000) == Approx(kQx).margin(1e-6));
+  CHECK(in.render(9100 * kMs).speed_mps == Approx(0.0).margin(1e-9));
+  // keyframes of the resting ship every 15 s with the same pose: the pose never moves
+  for (int k = 1; k <= 6; ++k) {
+    in.push(mk(8200 + k * 15'000, kQx, 0.0), 0);
+    CHECK(held_x(8200 + k * 15'000 + 4000) == Approx(kQx).margin(1e-6));
+  }
+  // a real stream without velocity (finite difference fallback inside one interval) still extrapolates
+  Interpolator slow;
+  slow.push(mk(1000, 0.0, 0.0), 0);
+  slow.push(mk(1100, 10.0, 0.0), 0);              // 100 m/s by difference over 100 ms
+  const RenderPose p = slow.render(1300 * kMs);  // t = 1200: 100 ms past the newest sample
+  CHECK(p.pos.x == Approx(20.0).margin(1e-6));
+}

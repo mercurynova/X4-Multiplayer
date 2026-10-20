@@ -133,9 +133,9 @@ public sealed partial class ReplicationModule
         for (int i = 0; i < entries.Length; i++)
         {
             ref var g = ref entries[i];
-            if (now < g.EligibleTs || !_mirror.TryGet(g.NetId, out var e) || ReplicationMath.IsOwnShip(e, pid))
+            if (now < g.EligibleTs || !_mirror.TryGet(g.NetId, out var e) || !e.PoseKnown || ReplicationMath.IsOwnShip(e, pid))
             {
-                continue; // spawn-before-state hold, not mirrored any more, or the client's own ship (piloted, or its avatar parked for a moment)
+                continue; // spawn-before-state hold, not mirrored any more, no pose yet (M3-34: a state-less self-spawn), or the client's own ship (piloted, or its avatar parked for a moment)
             }
 
             var tier = _interest.TierOf(pid, e);

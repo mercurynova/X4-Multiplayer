@@ -27,6 +27,17 @@ std::uint64_t GameGhostWorld::spawn(std::string_view macro, std::uint64_t sector
 
 void GameGhostWorld::place(std::uint64_t id, std::uint64_t sector, const Pose& pose) { api_.place(id, sector, to_game(pose)); }
 
+std::optional<IGhostWorld::ObjectState> GameGhostWorld::read_state(std::uint64_t id) {
+  const auto p = api_.pose(id);
+  if (!p) return std::nullopt;
+  ObjectState s;
+  s.sector = api_.sector_of(id);
+  s.pose.pos = {p->x, p->y, p->z};
+  s.pose.rot = {p->yaw, p->pitch, p->roll};
+  s.in_highway = api_.in_highway(id);
+  return s;
+}
+
 void GameGhostWorld::dress(std::uint64_t id, std::string_view label, int min_hull_percent) {
   nlohmann::json j = {{"v", 1}, {"id", std::to_string(id)}, {"name", std::string(label)}, {"minhull", min_hull_percent}};
   if (skip_radar_known_) j["skip_radar_known"] = true;

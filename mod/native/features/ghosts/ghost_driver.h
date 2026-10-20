@@ -70,6 +70,14 @@ class IGhostWorld {
   // Name, owner-independent attributes the game needs a script for: label, minimum hull percent, known + radar.
   virtual void dress(std::uint64_t id, std::string_view label, int min_hull_percent) = 0;
   virtual void hint_velocities(std::span<const VelocityHint> hints) = 0;
+  // M3-34: what the GAME says about the object right now (sector, sector-local pose, whether it is in a highway context). nullopt = the world cannot read
+  // it (the default: fakes, an old game). The engine guard compares it with the pose we placed: a difference means the engine moved our object.
+  struct ObjectState {
+    std::uint64_t sector = 0;
+    Pose pose;
+    bool in_highway = false;
+  };
+  virtual std::optional<ObjectState> read_state(std::uint64_t /*id*/) { return std::nullopt; }
   virtual void set_owner(std::uint64_t id, std::string_view owner) = 0;
   virtual bool valid(std::uint64_t id) = 0;
   virtual bool wrecked(std::uint64_t id) = 0;
@@ -131,12 +139,27 @@ struct GhostConfig {
   std::int64_t stale_us = 3'600'000'000;
   double motion_epsilon_m = 0.001;
   double motion_epsilon_rad = 0.0001;
+  // M3-34 (Finding 23): the velocity hint is for the target info's speed, but the ENGINE flies the inert ship with it between our per-frame placements and
+  // can capture it into a highway. Above this speed the hint is zero (the placements alone carry the ghost; the target info shows 0 m/s at travel speed).
+  double hint_max_mps = 1000.0;
+  bool hints_off = false;                            // diag.hints_off: no velocity hint at all (the ghost is only ever placed)
+  bool hints_all_speeds = false;                     // diag.hints_all_speeds: the old behaviour, a hint at any speed
+  // M3-34 engine guard: every guard_interval_us the game's own idea of the object is read; when it differs from what we placed by more than
+  // guard_min_m + speed x guard_speed_s (or the sector differs, or the engine says "highway") the object is put back at once, its velocity zeroed,
+  // and the fact is logged (rate limited). The evidence for "the engine moves our objects" and the repair in one.
+  bool engine_guard = true;                          // diag.engine_guard_off turns it off
+  std::int64_t guard_interval_us = 200'000;
+  std::int64_t guard_hot_us = 2'000'000;             // after a hit the check runs every frame for this long
+  std::int64_t guard_log_interval_us = 5'000'000;
+  double guard_min_m = 30.0;
+  double guard_speed_s = 0.3;
 };
 
 struct DriverCounters {
   std::uint64_t spawned = 0, respawned = 0, removed = 0, hidden = 0, shown = 0, adopted = 0, adopt_dropped = 0;
   std::uint64_t spawn_failed = 0, faction_missing = 0, invalid_dropped = 0, blocked_removals = 0, remove_failed = 0;
   std::uint64_t places = 0, sector_changes = 0, hints_sent = 0, redressed = 0, unmapped_frames = 0, deferred_clearance = 0;
+  std::uint64_t guard_reads = 0, engine_moved = 0, engine_sector = 0, engine_highway = 0;  // M3-34 engine guard
 };
 
 struct FrameStats {
@@ -233,6 +256,8 @@ class GhostDriver {
     int dress_retries = 0;
     bool dressed_ok = false;
     bool hint_was_zero = false;
+    std::int64_t last_guard_us = 0, guard_hot_until_us = 0, last_guard_log_us = 0;  // M3-34 engine guard
+    bool force_place = false;
     bool have_prev = false;
     Pose last_pose{}, prev_pose{};
     std::uint16_t last_sector_index = 0;
@@ -257,6 +282,7 @@ class GhostDriver {
   void drop_object(Ghost& g, const char* why);    // the object is gone (invalid): forget the id
   bool try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_id, const Pose& pose);
   bool note_respawn(Ghost& g, std::int64_t now_us);
+  void guard_check(Ghost& g, std::int64_t now_us, double speed_mps);  // M3-34 engine guard
   void process_removals();
   void erase_record(std::uint32_t net_id);
 

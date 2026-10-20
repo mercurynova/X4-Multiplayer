@@ -104,6 +104,27 @@ class FakeWorld final : public IGhostWorld {
       }
     }
   }
+  // ---- M3-34: the game's own idea of the objects (what the engine guard reads) and a crude engine that moves them by itself ----
+  std::set<std::uint64_t> highway_ids;        // objects the "engine" has in a highway context
+  int read_calls = 0;
+  std::optional<ObjectState> read_state(std::uint64_t id) override {
+    ++read_calls;
+    const auto it = objs.find(id);
+    if (it == objs.end()) return std::nullopt;
+    ObjectState s;
+    s.sector = it->second.sector;
+    s.pose = it->second.pose;
+    s.in_highway = highway_ids.count(id) != 0;
+    return s;
+  }
+  // One physics step of the "engine": every object flies on with the velocity hint it was given; an object in a highway is carried `carry_m` along x.
+  double carry_m = 0.0;
+  void engine_step(double dt_s) {
+    for (auto& [id, o] : objs) {
+      if (o.has_velocity) o.pose.pos = o.pose.pos + o.velocity * dt_s;
+      if (highway_ids.count(id) != 0) o.pose.pos.x += carry_m;
+    }
+  }
   void set_owner(std::uint64_t id, std::string_view owner) override {
     ++owner_calls;
     if (auto it = objs.find(id); it != objs.end()) it->second.owner = std::string(owner);

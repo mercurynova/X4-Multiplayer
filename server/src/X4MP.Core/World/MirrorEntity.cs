@@ -99,6 +99,12 @@ public sealed class MirrorEntity
     /// </summary>
     public double SampleGameTime { get; internal set; }
 
+    /// <summary>
+    /// False while the entity has no pose at all: a player ship the authority spawned WITHOUT a state (its self-spawn: the pose comes with the
+    /// first <c>PlayerState</c>). Such an entity is neither replicated nor announced with a state (M3-34: it showed up at the sector origin).
+    /// </summary>
+    public bool PoseKnown { get; internal set; } = true;
+
     /// <summary>Latest cargo snapshot (<c>EntityCargo</c>); null until one arrived.</summary>
     public WareAmount[]? Cargo { get; internal set; }
 
@@ -136,6 +142,7 @@ public sealed class MirrorEntity
         Version = 0;
         LastUpdateTick = 0;
         SampleGameTime = 0;
+        PoseKnown = true;
         Cargo = null;
         IsPersistent = false;
         SectorSlot = -1;
@@ -168,6 +175,9 @@ public sealed class PlayerShipState
     public uint NetId { get; internal set; }
 
     public uint Seq { get; internal set; }
+
+    /// <summary>The player's node attached again (resume): the next state is accepted whatever its sequence number (M3-34).</summary>
+    internal bool AcceptAnySeq { get; set; }
 
     public ulong SampleTimeUs { get; internal set; }
 

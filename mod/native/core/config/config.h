@@ -49,9 +49,13 @@ struct DiagConfig {
   // M3-30 (Finding 4): the DEFAULT takeover CREATES the client's ship player-owned through MD create_ship (owner faction.player) and teleports the player into it.
   bool takeover_mode_reown = false;     // the OLD takeover: the avatar copy of the save is re-owned natively (SetComponentOwner) / spawned natively as the player's
   bool takeover_keep_own_ship = false;  // engine test: no new ship, the player keeps the save's own player ship (the host's ship copy) and it is bound to the avatar's net id
+  // M3-34 (Finding 23): the velocity hint / the engine guard. The defaults are the fix; these switches go back or bisect.
+  bool hints_off = false;           // no MD velocity hint at all (ghosts and avatars are only ever placed; the target info shows 0 m/s)
+  bool hints_all_speeds = false;    // the OLD behaviour: a hint at any speed (default: above 1000 m/s the hint is zero)
+  bool engine_guard_off = false;    // no read-back of our ghosts / avatars (the check that puts an object back that the engine moved)
   [[nodiscard]] bool any() const {
     return takeover_keep_original || takeover_off || ghosts_off || janitor_off || team_self_relation_100 || team_move_respawn || avatars_inert_once ||
-           dress_no_radar_no_known || no_set_faction_known || takeover_mode_reown || takeover_keep_own_ship;
+           dress_no_radar_no_known || no_set_faction_known || takeover_mode_reown || takeover_keep_own_ship || hints_off || hints_all_speeds || engine_guard_off;
   }
   bool operator==(const DiagConfig&) const = default;
 };
