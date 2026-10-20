@@ -15,7 +15,7 @@ file at the end of every major step (docs/execution-plan.md §3.2) and walks it 
 |---|---|
 | Every major step / milestone planning | The **deferred majors** below (D1, D2): say whether their trigger has come |
 | Before the next two-PC session | Sync both PC clocks (Windows time sync or `w32tm /resync`, elevated); check OBS writes a file on both PCs |
-| Any other PC that builds the server | Needs .NET SDK **10.0.402** (`winget upgrade Microsoft.DotNet.SDK.10`) once the SDK move is merged |
+| Any other PC that builds the server | Needs .NET SDK **10.0.402** (`winget upgrade Microsoft.DotNet.SDK.10`): the SDK move is on main since 2026-10-20 (PR #17) |
 
 ## Deferred majors (dependency upgrades we chose to wait on)
 
@@ -67,11 +67,9 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 
 | ID | Item | Evidence | Target | Status |
 |---|---|---|---|---|
-| E1 | **CI on main red since M3-34** (HostSimM3 turn-in-place, HostSimPair online/removed) | CI run 39348939896 | now | fix in progress (Sonnet agent, on `chore/dotnet-10.0.13`) |
-| E2 | .NET 10.0.13 security update (CVE-2026-70159): PR #14 + SDK 10.0.402 move, combined on `chore/dotnet-10.0.13` | this file | now | waiting for E1 |
-| E3 | CI becomes the merge gate (PR flow, `ci-ok`, branch protection, full CI on PRs) | execution-plan §3.4 | after E1 | open |
+| E3 | CI becomes the merge gate (PR flow, `ci-ok`, branch protection, full CI on PRs) | execution-plan §3.4 | now (main green after PR #17) | open |
 | E4 | Dependabot PRs: #8, #9, #10 (Actions majors), #11 (npm group, red), #12 (NuGet group) | GitHub | after E3 | open (triage under the new flow) |
-| E5 | Side-session leftovers: worktrees `gracious-dubinsky…`, `charming-hodgkin…`, branches `deps/signalr-client-advisory`, `chore/sdk-10.0.402` | this file | after E2 | open |
+| E5 | Leftovers: worktrees `gracious-dubinsky…`, `charming-hodgkin…` + the PR #17 agent worktrees; branches `deps/signalr-client-advisory`, `chore/sdk-10.0.402`, `chore/dotnet-10.0.13`, `chore/pair-logs-in-ci`, `fix/pair-removed-race` | this file | now | open |
 
 ## Flaky tests
 
@@ -79,13 +77,14 @@ Rule (execution-plan §3.4): a fail-then-pass is logged here with its run id; a 
 
 | Test | Seen | Status |
 |---|---|---|
-| HostSimM3 turn-in-place yaw / HostSimPair online + removed count | M3-34 agent run (local), 2x on `chore/dotnet-10.0.13` (local), CI run 39348939896 | **not a flake**: regression from M3-34 (E1) |
+| HostSimM3 turn-in-place yaw / HostSimPair online + removed count | M3-34 agent run (local), 2x on `chore/dotnet-10.0.13` (local), CI runs 39348939896, 39462803847 | **not flakes**, fixed in PR #17: ghost heading overshoot (M3-35) and a cross-process race in the pair test's world removal count (`removed_player`) |
 | ReloadSurvival 401 when run right after HostSimM3 in one e2e call | 2026-10-04, 2026-10-06 (passes alone) | open, seen 2x: investigate when E1 is done |
 
 ## Done (log)
 
 | Date | Item |
 |---|---|
+| 2026-10-20 | E1 + E2 (PR #17, `1e11a85`): .NET 10.0.13 / SDK 10.0.402 (CVE-2026-70159), M3-35 ghost heading fix, HostSimPair race fix, pair mod logs kept in the CI artifact; PR #14 closed as superseded |
 | 2026-10-19 | Internet two-PC run: superhighway signal, re-host rebind, UDP fallback pass (RI) |
 | 2026-10-07 | F4 (client map records explored space, M3-30 + hotfix), F18 (authority map flips, M3-31) confirmed in game (R28) |
 | 2026-10-06 | F15, F16, F17, F20 fixed (M3-24/25/26/29); F16 confirmed in game 2026-10-19 |
