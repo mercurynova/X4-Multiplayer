@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$CLAUDE_PROJECT_DIR/tools/hooks/guard-commands.ps1\"",
+            "timeout": 15,
+            "statusMessage": "Checking the command against the X4MP rules"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -83,6 +83,23 @@ history rewrite. A quick look at `.claude/worktrees` size is part of the wave-en
 `-D` without the user's OK), then `git worktree prune`. The Claude desktop app's worktree clean-up tool may be used for the
 same set. Report the freed space in one line.
 
+### 3.2 After each major step: code review and a fresh session (user request, 2026-10-20)
+
+A **major step** is a merged wave of fixes, a milestone task group, a milestone exit, or a dependency/toolchain change.
+When one is merged, verified and its worktrees are cleaned up, the lead ends its report with these two reminders:
+
+1. **Code review.** Suggest `/code-review` on the merged range (the user may pick `/code-review ultra` for a deep
+   multi-agent cloud review, which the user starts and is billed for). Findings go to a Sonnet fix agent like any task.
+2. **Fresh session.** Suggest starting a new session for the next step. Before that the lead makes sure everything the
+   next session needs is in the repo (roadmap status note, handoff notes, findings docs, open decisions), so nothing
+   lives only in the chat. Name the doc the new session should read first.
+
+### 3.3 Command guard hook
+
+`.claude/settings.json` runs `tools/hooks/guard-commands.ps1` before every Bash / PowerShell call (lead, subagents, side
+sessions). It blocks `sleep` / `Start-Sleep` / `timeout /t`, killing processes by name, and git commits with attribution
+lines. The rules stay in the briefs too (a worktree made from an older commit has no hook file; the hook then does nothing).
+
 ## 4. Delegation waves
 
 Each box is one Sonnet agent. Agents in the same wave run in parallel. A wave starts when

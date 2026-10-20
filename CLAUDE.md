@@ -27,6 +27,8 @@ run `gh auth switch -u mercurynova`.
 - The user works from **multiple computers**. Claude's memory is per-machine, so record
   anything that must persist in this repo (this file, `docs/`), not only in memory.
 - **Clean up agent worktrees** once their wave is merged, verified and closed (rules in `docs/execution-plan.md` §3.1).
+- **After each major step** (merged wave, milestone exit, toolchain change): remind the user to run a code review and to start a fresh session, with the repo docs updated first (`docs/execution-plan.md` §3.2).
+- **Sonnet writes all code** (subagent, or a side session switched to Sonnet); nothing lands on main without the lead's review and full verification. A command guard hook blocks sleep, kill-by-name and attribution lines (§3.3).
 - **No attribution lines** in commit messages or PR descriptions (no `Co-Authored-By:` trailer, no "Generated with" line). History was rewritten on 2026-10-04 to remove the old ones.
 - The user is the in-game tester. Claude can't play X4. Give them step-by-step test
   scripts and ask for logs.
