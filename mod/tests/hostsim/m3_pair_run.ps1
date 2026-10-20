@@ -25,7 +25,8 @@ param(
     [string]$NodeAdminPasswordValue = 'x4mp-host-test',   # with -UseRunningServer: the in-game admin password the server was started with
     [double]$MaxModP95Ms = 0.5,     # CI runners are noisy: the product target is 0.2 ms (docs/m3-plan.md criterion 11), the CI guard catches regressions
     [double]$MaxLogRate = 12,
-    [int]$MaxSeconds = 420
+    [int]$MaxSeconds = 420,
+    [string]$LogCopyDir             # on failure the per-process logs are copied here (default out\e2e\logs, the folder CI uploads)
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
@@ -177,6 +178,29 @@ try {
 catch { Write-Host "M3 PAIR E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }
 finally {
     Stop-All
+    # a failed run: keep both mod logs and the server / bots output (the temp tree is lost on a CI runner). Never changes the exit code.
+    if ($exit -ne 0) {
+        try {
+            $dest = if ($LogCopyDir) { $LogCopyDir } else { Join-Path $repo 'out\e2e\logs' }
+            New-Item -ItemType Directory -Force $dest | Out-Null
+            foreach ($n in @('HostAlice', 'Pia')) {
+                $ml = Join-Path $tmp "work-$n\extension\logs\x4mp.log"
+                if (Test-Path $ml) { Copy-Item $ml (Join-Path $dest "hostsimm3-$n-x4mp.log") -Force }
+                $ho = Join-Path $tmp "hostsim-$n.out.txt"
+                if (Test-Path $ho) { Copy-Item $ho (Join-Path $dest "hostsimm3-$n-hostsim-out.txt") -Force }
+            }
+            foreach ($pair in @(@('server.out.txt', 'hostsimm3-server.log'), @('server.out.txt.err', 'hostsimm3-server.err.log'), @('fakenode-bots.out.txt', 'hostsimm3-bots.log'))) {
+                $src = Join-Path $tmp $pair[0]
+                if (Test-Path $src) { Copy-Item $src (Join-Path $dest $pair[1]) -Force }
+            }
+            Get-ChildItem $tmp -Filter 'sync-report-*.txt' -File -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName (Join-Path $dest ('hostsimm3-' + $_.Name)) -Force }
+            if ($data -and (Test-Path (Join-Path $data 'logs'))) {
+                Get-ChildItem (Join-Path $data 'logs') -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 5MB } |
+                    ForEach-Object { Copy-Item $_.FullName (Join-Path $dest ('hostsimm3-server-' + $_.Name)) -Force }
+            }
+            Write-Host "Failure logs copied to $dest"
+        } catch { Write-Host "Could not copy the failure logs: $($_.Exception.Message)" }
+    }
     Write-Host ("M3 pair e2e {0} in {1:N0} s. Temp tree: {2}" -f $(if ($exit -eq 0) { 'PASSED' } else { 'FAILED' }), $sw.Elapsed.TotalSeconds, $tmp)
 }
 exit $exit

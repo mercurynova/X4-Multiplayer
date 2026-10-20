@@ -88,7 +88,10 @@ std::size_t World::count() const { return objs_.size(); }
 
 bool World::remove(std::uint64_t id) {
   if (id == player_ship || id == kStation) return false;  // the player's own ship is never removed (project hard rule)
-  if (objs_.erase(id) == 0) return false;
+  const auto it = objs_.find(id);
+  if (it == objs_.end()) return false;
+  if (it->second.owner == "player") ++removed_player;
+  objs_.erase(it);
   ++removed;
   return true;
 }

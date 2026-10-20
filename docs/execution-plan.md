@@ -40,7 +40,7 @@ Checked on this PC on 2026-10-01:
 
 **Decided 2026-10-01: .NET 10** (`net10.0`, SDK 10.0.400 pinned, `latestFeature`), because
 .NET 8 support ends 10 Nov 2026. All prerequisites were installed on the dev machine on
-2026-10-01 (SDK 10.0.401, VS 2022 Build Tools + C++ workload with CMake and vcpkg).
+2026-10-01 (SDK 10.0.401, VS 2022 Build Tools + C++ workload with CMake and vcpkg). Raised to SDK 10.0.402 on 2026-10-20 (bundles ASP.NET Core runtime 10.0.13, which fixes CVE-2026-70159).
 
 Suggested install commands (run by the user, admin rights needed):
 ```
