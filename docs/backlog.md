@@ -68,7 +68,8 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | ID | Item | Evidence | Target | Status |
 |---|---|---|---|---|
 | E3 | CI becomes the merge gate (PR flow, `ci-ok`, branch protection, full CI on PRs) | execution-plan §3.4 | now (main green after PR #17) | open |
-| E4 | Dependabot PRs: #8, #9, #10 (Actions majors), #11 (npm group, red), #12 (NuGet group) | GitHub | after E3 | open (triage under the new flow) |
+| E4 | Dependabot PRs: #12, #18 (NuGet), #15 (npm group); Actions majors #8 (cache 6), #10 (codeql 4), #16 (download-artifact 8) | GitHub | after E3 | open (triage under the new flow) |
+| E6 | **Node 20 deprecation** warnings in CI: `actions/cache@v4`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, `github/codeql-action@v3` target Node 20 (our `setup-node` is already 24). One Sonnet PR bumps all four majors together (upload + download artifact must match), release notes checked, full CI incl. e2e-headless; supersedes #8, #10, #16 | CI annotations (2026-10-20) | after E3 | open |
 | E5 | Leftovers: worktrees `gracious-dubinsky…`, `charming-hodgkin…` + the PR #17 agent worktrees; branches `deps/signalr-client-advisory`, `chore/sdk-10.0.402`, `chore/dotnet-10.0.13`, `chore/pair-logs-in-ci`, `fix/pair-removed-race` | this file | now | open |
 
 ## Flaky tests
