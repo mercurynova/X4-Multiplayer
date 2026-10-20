@@ -181,10 +181,12 @@ verification loop the brief asked for); it is not fine if the agent is going in 
   run long commands with run_in_background and wait for the completion notification."**
 - **Never kill processes by name** (`Stop-Process -Name`, `taskkill /IM`): other agents and the lead run tests on the same machine
   (M3-31, 2026-10-06, killed the lead's running e2e). Stop only the process ids you started. Put this line in every brief.
-- **Coding always goes to a Sonnet subagent** (`model: "sonnet"`, worktree), also for small side tasks such as dependency
-  bumps. Do not offer "spawn task" chips or start separate sessions for code: they open new Opus sessions that code on
-  their own and can start further sessions (2026-10-20: the NU1903 chip opened PR 14 and started an SDK-move session; the
-  user wants code done by Sonnet, planning and review by the Opus lead).
+- **Code is always written by Sonnet**, either as a subagent (`model: "sonnet"`, worktree; the default for milestone work)
+  or in a side session the user drives, which must be switched to Sonnet before it codes (side sessions start on the
+  user's current model, usually Opus, and can start further sessions). **Nothing lands on main without the Opus lead's
+  review and the full verification** (Catch2, Lua, dotnet, e2e). When suggesting a side session ("spawn task" chip),
+  say it should run on Sonnet and come back for review. (2026-10-20: the NU1903 chip ran on Opus, opened PR 14 and
+  started an SDK-move session by itself.)
 - Record the reason for any run over ~1 hour in the wave status note in roadmap.md
   (what took the time, whether it was needed), so we can tune briefs.
 
