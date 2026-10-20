@@ -41,6 +41,7 @@ below. The repo is the only memory that follows you between computers.
 | Doc | Use it for |
 |---|---|
 | [roadmap.md](roadmap.md) | Milestones M0–M6, task ids + acceptance criteria, spikes S1–S9, backlog |
+| [backlog.md](backlog.md) | **Single index of open work**: findings, kit/engineering items, flaky tests, deferred dependency majors, reminders for the user |
 | [execution-plan.md](execution-plan.md) | Opus-plans/Sonnet-codes workflow, delegation waves, brief template, review checklist |
 | [m1-exit-report.md](m1-exit-report.md) | M1 exit evidence: each exit criterion with command, key numbers, verdict and issues found (2026-10-02) |
 | [m2-plan.md](m2-plan.md) | M2 plan (mod in real X4): scope and non-goals, 18 exit criteria (CI vs in game), session-2 dependencies with fallbacks, waves 0–3 with task table (M2-001..006, M2-01..14, M2-X1..X3), testing strategy, risks, open questions |

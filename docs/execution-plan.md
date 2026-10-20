@@ -93,6 +93,9 @@ When one is merged, verified and its worktrees are cleaned up, the lead ends its
 2. **Fresh session.** Suggest starting a new session for the next step. Before that the lead makes sure everything the
    next session needs is in the repo (roadmap status note, handoff notes, findings docs, open decisions), so nothing
    lives only in the chat. Name the doc the new session should read first.
+3. **Backlog.** Update [backlog.md](backlog.md) (new findings, statuses, done log), triage open PRs (Dependabot rules
+   in §3.4), and bring up the backlog's "Reminders for the user", including the **deferred majors** and whether their
+   trigger has come.
 
 ### 3.3 Command guard hook
 

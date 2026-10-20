@@ -12,6 +12,9 @@ updates:
       # Google.FlatBuffers must move in lockstep with the pinned flatc (tools/flatc/flatc.lock.json,
       # ADR-041): bump both together by hand, never via Dependabot.
       - dependency-name: "Google.FlatBuffers"
+      # Deferred major (docs/backlog.md D2): remove this entry when the xunit runner 4 upgrade is picked up.
+      - dependency-name: "xunit.runner.visualstudio"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/server/web"
@@ -21,6 +24,10 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Deferred major (docs/backlog.md D1): remove this entry when the TypeScript 7 upgrade is picked up.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
