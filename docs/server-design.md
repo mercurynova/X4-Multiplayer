@@ -37,7 +37,7 @@ answer each of these:
 
 ```
 X4MP/
-├─ global.json                      # pins .NET SDK 10.0.400, rollForward: latestFeature
+├─ global.json                      # pins .NET SDK 10.0.402, rollForward: latestFeature
 ├─ Directory.Build.props            # net10.0, Nullable, ImplicitUsings, LangVersion latest,
 │                                   # TreatWarningsAsErrors, InvariantGlobalization, Deterministic
 ├─ Directory.Packages.props         # Central Package Management (one version per package)
