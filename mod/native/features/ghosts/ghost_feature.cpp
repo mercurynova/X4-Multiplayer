@@ -66,6 +66,9 @@ void GhostFeature::on_init(host::HostContext& ctx) {
   host::HostLog* log = &ctx.log;
   ghosts::GhostConfig gcfg{};
   gcfg.inert_once = ctx.config.diag.avatars_inert_once;
+  gcfg.hints_off = ctx.config.diag.hints_off;                  // M3-34
+  gcfg.hints_all_speeds = ctx.config.diag.hints_all_speeds;
+  gcfg.engine_guard = !ctx.config.diag.engine_guard_off;
   core_ = std::make_unique<ghosts::GhostCore>(gcfg, [log](int level, const std::string& text) {
     log->raw(Cat::Ghost, to_level(level), text);
   });
@@ -75,6 +78,10 @@ void GhostFeature::on_init(host::HostContext& ctx) {
   world_->set_dress_skip_radar_known(ctx.config.diag.dress_no_radar_no_known);
   if (ctx.config.diag.avatars_inert_once) {
     X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag.avatars_inert_once is set: ActivateObject(false) runs once per ghost spawn, never re-asserted (M3-28 experiment)");
+  }
+  if (ctx.config.diag.hints_off || ctx.config.diag.hints_all_speeds || ctx.config.diag.engine_guard_off) {
+    X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag switches set (M3-34 experiment): hints_off={} hints_all_speeds={} engine_guard_off={}", ctx.config.diag.hints_off,
+              ctx.config.diag.hints_all_speeds, ctx.config.diag.engine_guard_off);
   }
   if (ctx.config.diag.dress_no_radar_no_known) {
     X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag.dress_no_radar_no_known is set: the ghost dress skips forced radar visibility and set_known (M3-28 experiment)");
@@ -188,6 +195,13 @@ void GhostFeature::report(host::HostContext& ctx, std::int64_t) {
                           c.counters.replication_bad, k.spawn_failed, k.unmapped_frames, c.counters.spawn_unresolved));
   frame_cost_us_.clear();
   frame_cost_max_us_ = 0;
+  // M3-34: the engine guard's totals, one line, only when the totals changed (the engine touched one of our objects)
+  if (k.engine_moved + k.engine_sector + k.engine_highway != last_guard_hits_) {
+    last_guard_hits_ = k.engine_moved + k.engine_sector + k.engine_highway;
+    ctx.log.raw(Cat::Ghost, Level::Info,
+                std::format("[sync] engine guard: ghosts moved by the game={} into another sector={} in a highway context={} (reads {})", k.engine_moved,
+                            k.engine_sector, k.engine_highway, k.guard_reads));
+  }
 }
 
 void GhostFeature::on_shutdown(host::HostContext& ctx) {

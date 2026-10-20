@@ -611,7 +611,7 @@ public sealed partial class InterestManager
         Idcode = e.IdCode,
         Hull = e.Hull,
         Shield = e.Shield,
-        State = new EntityStateT
+        State = !e.PoseKnown ? null : new EntityStateT
         {
             NetId = e.NetId, Sector = e.Sector, Flags = e.Flags, Px = e.Px, Py = e.Py, Pz = e.Pz,
             Yaw = e.Yaw, Pitch = e.Pitch, Roll = e.Roll, Vx = e.Vx, Vy = e.Vy, Vz = e.Vz,

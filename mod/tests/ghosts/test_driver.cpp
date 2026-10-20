@@ -545,3 +545,123 @@ TEST_CASE("sync lines carry the player name and the path error", "[ghosts][drive
   CHECK(lines[0].find("err_p50/p95/max=") != std::string::npos);
   CHECK(lines[0].find("lat_p95=") != std::string::npos);
 }
+
+namespace {
+// Runs the rig at 60 fps with the fake engine integrating the velocity hints between two frames; returns the worst distance between the object and
+// the pose the driver placed on the previous frame, measured right before each placement (what the engine did to it in between).
+double worst_engine_drift(Rig& r, double seconds) {
+  double worst = 0;
+  const std::int64_t end = r.now + static_cast<std::int64_t>(seconds * 1e6);
+  while (r.now < end) {
+    const FakeObj* before = r.world.only();
+    const Vec3 placed = before ? before->pose.pos : Vec3{};
+    r.world.engine_step(1.0 / 60.0);
+    if (r.world.only() != nullptr) worst = std::max(worst, dist(r.world.only()->pose.pos, placed));
+    (void)r.step();
+  }
+  return worst;
+}
+}  // namespace
+
+TEST_CASE("M3-34: at travel speed the velocity hint is zero, the engine cannot fly the object between two placements; below the cap the hint stays (Finding 23)", "[ghosts][driver][m334]") {
+  // 4.8 km/s: the engine would carry the ghost 80 m between two 60 fps placements and further between the 5 Hz hints
+  Rig fast;
+  fast.add(11, line_track(4800), Rig::info(11, 2, "Pax", 2));
+  fast.run(2.0);
+  const double drift = worst_engine_drift(fast, 3.0);
+  REQUIRE(fast.world.only() != nullptr);
+  CHECK(drift < 1.0);
+  CHECK(ghost::length(fast.world.only()->velocity) == 0.0);
+  CHECK(fast.driver->counters().engine_moved == 0);
+
+  // the old behaviour (diag.hints_all_speeds) really did hand the engine the speed
+  GhostConfig legacy;
+  legacy.hints_all_speeds = true;
+  Rig old(legacy);
+  old.add(11, line_track(4800), Rig::info(11, 2, "Pax", 2));
+  old.run(2.0);
+  const double old_drift = worst_engine_drift(old, 3.0);
+  CHECK(old_drift > 50.0);
+
+  // below the cap the hint still carries the speed (the target info)
+  Rig slow;
+  slow.add(11, line_track(300), Rig::info(11, 2, "Pax", 2));
+  slow.run(3.0);
+  REQUIRE(slow.world.only() != nullptr);
+  CHECK(std::abs(ghost::length(slow.world.only()->velocity) - 300.0) < 3.0);
+
+  // diag.hints_off: never a hint
+  GhostConfig off;
+  off.hints_off = true;
+  Rig none(off);
+  none.add(11, line_track(300), Rig::info(11, 2, "Pax", 2));
+  none.run(3.0);
+  CHECK(none.world.hints_total == 0);
+}
+
+TEST_CASE("M3-34: the engine guard puts back an object the engine moved (a highway capture), zeroes its velocity and says so", "[ghosts][driver][m334]") {
+  // a parked ghost that the "engine" carries 286 km away every step while it is in a highway context (the 286 km repair of the two-PC run)
+  Rig r;
+  r.add(11, line_track(0.0), Rig::info(11, 2, "Pax", 2));
+  r.run(2.0);
+  REQUIRE(r.world.only() != nullptr);
+  const std::uint64_t id = r.world.only()->id;
+  const Vec3 home = r.world.only()->pose.pos;
+  r.world.carry_m = 286'216.7;
+  r.world.highway_ids.insert(id);
+  r.world.objs[id].velocity = {500, 0, 0};  // it carries a stale velocity too
+  r.world.objs[id].has_velocity = true;
+  r.world.engine_step(1.0 / 60.0);
+  CHECK(dist(r.world.objs[id].pose.pos, home) > 286'000.0);
+  for (int i = 0; i < 20 && r.driver->counters().engine_moved == 0; ++i) {  // the guard reads every 200 ms (every frame once it hit)
+    (void)r.step();
+    if (r.driver->counters().engine_moved == 0) r.world.engine_step(1.0 / 60.0);
+  }
+  r.world.highway_ids.erase(id);  // the capture is over
+  CHECK(dist(r.world.objs[id].pose.pos, home) < 0.01);                   // back on the very frame the guard read it
+  CHECK(ghost::length(r.world.objs[id].velocity) == 0.0);                 // and stopped
+  CHECK(r.driver->counters().engine_moved == 1);
+  CHECK(r.driver->counters().engine_highway == 1);
+  bool logged = false;
+  for (const auto& l : r.all_logs) logged = logged || l.find("ghost engine guard: net=11") != std::string::npos;
+  CHECK(logged);
+
+  // with the guard off the object stays displaced until the parked re-assert (<= 250 ms), and nothing is counted
+  GhostConfig cfg;
+  cfg.engine_guard = false;
+  Rig off(cfg);
+  off.add(11, line_track(0.0), Rig::info(11, 2, "Pax", 2));
+  off.run(2.0);
+  const std::uint64_t oid = off.world.only()->id;
+  off.world.objs[oid].pose.pos = off.world.objs[oid].pose.pos + Vec3{286'000, 0, 0};
+  (void)off.step();
+  CHECK(dist(off.world.objs[oid].pose.pos, home) > 285'000.0);
+  CHECK(off.driver->counters().engine_moved == 0);
+  CHECK(off.world.read_calls == 0);
+}
+
+TEST_CASE("M3-34: a re-hosted authority's ghost spawns without any sample, shows nothing until the real pose, then holds exactly that pose (Finding 22)", "[ghosts][driver][m334]") {
+  // The spawn carries no state (the server withholds a pose-less self-spawn); the first Replication entry is the real pose; then only keyframes
+  // of the resting ship arrive, every 15 s, with ever-newer times and the SAME pose. The ghost must never be anywhere else.
+  Rig r;
+  const Vec3 real{201'290.0, 64.0, -640.0};
+  r.tracks.clear();
+  r.driver->on_spawn(Rig::info(15, 11, "[MP] Alice", 11), r.now, std::nullopt);
+  for (int i = 0; i < 90; ++i) (void)r.step();
+  CHECK(r.world.objs.empty());  // no pose, no object (not at the sector origin)
+  const std::int64_t t0 = r.now;
+  TrackPoint tp;
+  tp.pos = real;
+  tp.sector = 2;
+  double worst = 0;
+  for (int k = 0; k < 8; ++k) {  // 2 minutes
+    r.ingest(15, tp, t0 + k * 15'000'000, r.now);
+    for (int i = 0; i < 60 * 15; ++i) {
+      (void)r.step();
+      if (const FakeObj* o = r.world.only()) worst = std::max(worst, dist(o->pose.pos, real));
+    }
+  }
+  REQUIRE(r.world.only() != nullptr);
+  CHECK(worst < 0.05);
+  CHECK(r.world.only()->places <= 60 * 120 / 15 + 8);  // parked: re-asserted every 250 ms at most, never moved around
+}

@@ -4,6 +4,7 @@
 #include <map>
 #include <set>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "features/avatars/avatar_director.h"
@@ -112,6 +113,8 @@ struct FakeEnv final : IAvatarEnv {
     pose = it->second.pose;
     return true;
   }
+  std::set<std::uint64_t> highway;  // M3-34: ships the fake game has in a highway context
+  bool in_highway(std::uint64_t id) override { return highway.count(id) != 0; }
   bool set_pose(std::uint64_t id, std::uint64_t sector, const Pose& pose) override {
     const auto it = objs.find(id);
     if (it == objs.end()) return false;
@@ -1099,14 +1102,15 @@ TEST_CASE("avatars.director (M3-31): a superhighway gap then a teleport state mo
     s.pose = {x, 0, 0, 0, 0, 0};
     d.on_player_state(s, s.sample_time_us);
   };
-  // flying at 1500 m/s towards the highway ring (20 Hz states), in sector index 1
+  // flying at 900 m/s towards the highway ring (20 Hz states), in sector index 1
   for (int i = 0; i < 180; ++i) {
     c.t += 1.0 / 60.0;
-    if (i % 3 == 0) push(1, 0, 2000 + 1500.0 * c.t);
+    if (i % 3 == 0) push(1, 0, 2000 + 900.0 * c.t);
     d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
   }
   REQUIRE(env.objs[id].sector == 900);
-  REQUIRE(std::fabs(env.velocities.back().at(0).vx - 1500.0) < 200.0);
+  REQUIRE_FALSE(env.velocities.empty());
+  REQUIRE(std::fabs(env.velocities.back().at(0).vx - 900.0) < 200.0);  // M3-34: below the 1000 m/s hint cap (1500 here before)
   const Pose entry_pose = env.objs[id].pose;
 
   // inside the highway: no states at all (the ship's sector is not in the map)
@@ -1242,4 +1246,180 @@ TEST_CASE("avatars.director (M3-32): a stall of the authority's frames is not mi
     d2.step(c2.t, static_cast<std::int64_t>(c2.t * 1e6));
   }
   CHECK(std::any_of(env2.logs.begin(), env2.logs.end(), [](const std::string& l) { return l.find("not stamped with the server clock") != std::string::npos; }));
+}
+
+namespace {
+// Flies player 2's avatar at `speed` m/s along x for `seconds` (20 Hz states, 60 fps frames).
+void fly(AvatarDirector& d, FakeEnv& env, Clock& c, std::uint32_t net, double speed, double seconds, std::uint16_t flags = 0) {
+  (void)env;
+  const int frames = static_cast<int>(seconds * 60);
+  for (int i = 0; i < frames; ++i) {
+    c.t += 1.0 / 60.0;
+    if (i % 3 == 0) {
+      PlayerStateIn s;
+      s.net_id = net;
+      s.sector = 1;
+      s.flags = flags;
+      s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+      s.pose = {2000 + speed * c.t, 0, 0, 0, 0, 0};
+      d.on_player_state(s, s.sample_time_us);
+    }
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+}
+double max_hint_speed(const FakeEnv& env, std::size_t from = 0) {
+  double m = 0;
+  for (std::size_t i = from; i < env.velocities.size(); ++i) {
+    for (const auto& h : env.velocities[i]) m = std::max(m, std::sqrt(h.vx * h.vx + h.vy * h.vy + h.vz * h.vz));
+  }
+  return m;
+}
+}  // namespace
+
+TEST_CASE("avatars.director (M3-34): the velocity hint is zero above 1000 m/s (the engine flew the inert ship with it), diag switches go back or off", "[avatars][m334]") {
+  {  // below the cap: the hint carries the speed (the target info)
+    FakeEnv env;
+    AvatarDirector d(env);
+    Clock c;
+    d.on_roster(roster_with({{2, {"Bob", 1}}}));
+    provision(d, env, c, 2, 1, "Bob");
+    const auto net = env.spawns_sent.at(0).at(0).net_id;
+    fly(d, env, c, net, 400.0, 3.0);
+    REQUIRE_FALSE(env.velocities.empty());
+    CHECK(std::sqrt(env.velocities.back().at(0).vx * env.velocities.back().at(0).vx) == Catch::Approx(400.0).margin(8.0));
+  }
+  {  // travel speed: never a non-zero hint
+    FakeEnv env;
+    AvatarDirector d(env);
+    Clock c;
+    d.on_roster(roster_with({{2, {"Bob", 1}}}));
+    provision(d, env, c, 2, 1, "Bob");
+    const auto net = env.spawns_sent.at(0).at(0).net_id;
+    fly(d, env, c, net, 4800.0, 3.0);
+    CHECK(max_hint_speed(env) == 0.0);
+  }
+  {  // diag.hints_all_speeds: the old behaviour
+    FakeEnv env;
+    AvatarDirector d(env);
+    DirectorDiag dd;
+    dd.hints_all_speeds = true;
+    d.set_diag(dd);
+    Clock c;
+    d.on_roster(roster_with({{2, {"Bob", 1}}}));
+    provision(d, env, c, 2, 1, "Bob");
+    const auto net = env.spawns_sent.at(0).at(0).net_id;
+    fly(d, env, c, net, 4800.0, 3.0);
+    CHECK(max_hint_speed(env) > 4000.0);
+  }
+  {  // diag.hints_off: no hint at all
+    FakeEnv env;
+    AvatarDirector d(env);
+    DirectorDiag dd;
+    dd.hints_off = true;
+    d.set_diag(dd);
+    Clock c;
+    d.on_roster(roster_with({{2, {"Bob", 1}}}));
+    provision(d, env, c, 2, 1, "Bob");
+    const auto net = env.spawns_sent.at(0).at(0).net_id;
+    fly(d, env, c, net, 400.0, 3.0);
+    CHECK(env.velocities.empty());
+  }
+}
+
+TEST_CASE("avatars.director (M3-34): a hold (the player's ship went hidden) zeroes the velocity in the same frame, not at the next 5 Hz tick", "[avatars][m334]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  fly(d, env, c, net, 600.0, 3.0);
+  REQUIRE(max_hint_speed(env) > 500.0);
+  // the ship disappears into a highway: a Hidden sample at the flight's end; walk the frames and stop at the first one that holds the avatar
+  PlayerStateIn h;
+  h.net_id = net;
+  h.sector = 1;
+  h.flags = x4mp::ghost::kHidden;
+  h.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+  h.pose = {2000 + 600.0 * c.t, 0, 0, 0, 0, 0};
+  d.on_player_state(h, h.sample_time_us);
+  bool held = false;
+  for (int i = 0; i < 90 && !held; ++i) {
+    const std::size_t hints_before = env.velocities.size();
+    c.t += 1.0 / 60.0;
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+    held = d.views().at(0).holding;
+    if (held) {
+      // the very step that starts the hold sends the zero velocity (it used to wait for the next 5 Hz tick: up to 200 ms of flight at 600 m/s)
+      bool zero_out = false;
+      for (std::size_t k = hints_before; k < env.velocities.size(); ++k) {
+        for (const auto& hh : env.velocities[k]) zero_out = zero_out || (hh.id == id && hh.vx == 0 && hh.vy == 0 && hh.vz == 0);
+      }
+      CHECK(zero_out);
+    }
+  }
+  REQUIRE(held);
+}
+
+TEST_CASE("avatars.director (M3-34): the engine guard puts back a held avatar within 0.3 s and a driven one that the game moved, and says so", "[avatars][m334]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  fly(d, env, c, net, 600.0, 3.0);
+  // a hidden hold, then the engine carries the held ship 286 km away (a highway capture)
+  PlayerStateIn h;
+  h.net_id = net;
+  h.sector = 1;
+  h.flags = x4mp::ghost::kHidden;
+  h.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+  h.pose = {2000 + 600.0 * c.t, 0, 0, 0, 0, 0};
+  d.on_player_state(h, h.sample_time_us);
+  run(d, c, 0.6);
+  const Pose held = env.objs[id].pose;
+  env.objs[id].pose.x += 286'216.7;
+  env.highway.insert(id);
+  run(d, c, 0.3);
+  CHECK(std::fabs(env.objs[id].pose.x - held.x) < 3.0);  // the old guard looked once a second
+  CHECK(d.stats().repairs >= 1);
+  CHECK(d.stats().engine_highway >= 1);
+  env.highway.erase(id);
+
+  // a driven avatar: the game moves it 5 km sideways between two placements; the guard counts it, logs it and forces the next placement
+  FakeEnv env2;
+  AvatarDirector d2(env2);
+  Clock c2;
+  d2.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id2 = provision(d2, env2, c2, 2, 1, "Bob");
+  const auto net2 = env2.spawns_sent.at(0).at(0).net_id;
+  fly(d2, env2, c2, net2, 300.0, 3.0);
+  env2.highway.insert(id2);
+  for (int i = 0; i < 30; ++i) {  // the engine keeps carrying it away between frames; the guard samples every 200 ms and every frame once it hit
+    env2.objs[id2].pose.y += 5000.0;
+    fly(d2, env2, c2, net2, 300.0, 0.02);
+  }
+  CHECK(d2.stats().engine_moved >= 1);
+  CHECK(std::any_of(env2.logs.begin(), env2.logs.end(), [](const std::string& l) { return l.find("avatars: engine guard:") != std::string::npos && l.find("highway context YES") != std::string::npos; }));
+  env2.highway.erase(id2);
+  fly(d2, env2, c2, net2, 300.0, 0.5);
+  CHECK(std::fabs(env2.objs[id2].pose.y) < 50.0);  // back on the flight path
+
+  // diag.engine_guard_off: the old once-a-second check (a push is still repaired, later) and no evidence counters
+  FakeEnv env3;
+  AvatarDirector d3(env3);
+  DirectorDiag dd;
+  dd.engine_guard_off = true;
+  d3.set_diag(dd);
+  Clock c3;
+  d3.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id3 = provision(d3, env3, c3, 2, 1, "Bob");
+  const auto net3 = env3.spawns_sent.at(0).at(0).net_id;
+  fly(d3, env3, c3, net3, 300.0, 3.0);
+  for (int i = 0; i < 30; ++i) {
+    env3.objs[id3].pose.y += 5000.0;
+    fly(d3, env3, c3, net3, 300.0, 0.02);
+  }
+  CHECK(d3.stats().engine_moved == 0);
 }

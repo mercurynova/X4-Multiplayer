@@ -56,6 +56,8 @@ class GhostsApi {
   [[nodiscard]] std::string id_code(UniverseId id) const;
   [[nodiscard]] std::string name(UniverseId id) const;
   [[nodiscard]] UniverseId sector_of(UniverseId id) const;  // GetContextByClass(id, "sector"); 0 = unknown
+  // GetContextByClass(id, "highway", self): true while the engine has the object in a (local or super) highway (M3-34 engine guard).
+  [[nodiscard]] bool in_highway(UniverseId id) const;
 
   // The ship the local player flies / stands in (occupied, else controlled, else the player object); 0 = none.
   [[nodiscard]] UniverseId local_ship() const;

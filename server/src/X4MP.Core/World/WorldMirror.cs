@@ -307,6 +307,13 @@ public sealed partial class WorldMirror : ISessionModule
         {
             ResetClockGuard();
         }
+
+        // M3-34: a client whose extension was reloaded (resume) numbers its PlayerStates from 1 again; against the last number of the old run they
+        // all looked like reordered datagrams and were dropped until the new count caught up (hours at 5 Hz).
+        if (_players.TryGetValue(node.PlayerId, out var ship))
+        {
+            ship.AcceptAnySeq = true;
+        }
     }
 
     /// <summary>Lets the next <c>WorldUpdate</c> through whatever its tick and game time (the guard is re-armed by it).</summary>
@@ -403,6 +410,10 @@ public sealed partial class WorldMirror : ISessionModule
         entity.IsPersistent = EntityKinds.IsPersistent(record.Kind);
         if (record.State is { } s)
         {
+            // M3-34: the authority's self-spawn names the sector but carries no pose (all zero: the pose comes with the first PlayerState). An exact
+            // zero position and rotation is never a real ship pose (1/64 m steps), so a player ship like that has no pose yet: it is not announced
+            // with a state and not replicated (clients showed it at the sector origin, then hopped 200 km to the real spot).
+            entity.PoseKnown = !(entity.Origin == EntityOrigin.PlayerShip && s.Px == 0 && s.Py == 0 && s.Pz == 0 && s.Yaw == 0 && s.Pitch == 0 && s.Roll == 0);
             entity.Sector = s.Sector;
             entity.Flags = s.Flags;
             entity.Px = s.Px;
@@ -414,6 +425,10 @@ public sealed partial class WorldMirror : ISessionModule
             entity.Vx = s.Vx;
             entity.Vy = s.Vy;
             entity.Vz = s.Vz;
+        }
+        else if (isNew)
+        {
+            entity.PoseKnown = entity.Origin != EntityOrigin.PlayerShip;
         }
 
         entity.Version++;
@@ -800,6 +815,12 @@ public sealed partial class WorldMirror : ISessionModule
     {
         e.LastUpdateTick = now;
         var change = StateChange.None;
+        if (!e.PoseKnown)
+        {
+            e.PoseKnown = true;
+            change |= StateChange.Position; // the first pose of a state-less spawn is a change whatever it equals (it is announced and replicated now)
+        }
+
         if (sector != e.Sector)
         {
             change |= StateChange.Sector;
@@ -877,10 +898,12 @@ public sealed partial class WorldMirror : ISessionModule
             ship = new PlayerShipState(playerId);
             _players[playerId] = ship;
         }
-        else if (state.Seq != ship.Seq && !SeqNewer(state.Seq, ship.Seq))
+        else if (!ship.AcceptAnySeq && state.Seq != ship.Seq && !SeqNewer(state.Seq, ship.Seq))
         {
             return; // reordered or duplicate (UDP): keep the newer one
         }
+
+        ship.AcceptAnySeq = false;
 
         long now = _time.GetTimestamp();
         ship.Seq = state.Seq;
@@ -902,6 +925,14 @@ public sealed partial class WorldMirror : ISessionModule
         if (state.NetId != 0 && _entities.TryGetValue(state.NetId, out var entity) && entity.ControllerPlayer == playerId)
         {
             ApplyState(entity, state.Sector, state.Flags, state.Px, state.Py, state.Pz, state.Yaw, state.Pitch, state.Roll, 0, 0, 0, applyVelocity: false, now, AuthorityGameTime);
+            // M3-34 (Finding 22): a ship at rest changes nothing, so its sample time stayed at the moment it stopped. Every PlayerState is a fresh
+            // sample of that rest pose: keyframes (which carry the time as a 16-bit millisecond offset, +-32.7 s) must say "now", not "a minute ago"
+            // (they said "32.7 s ago" for ever, a bogus, ever-moving timestamp on an identical pose). No version bump: nothing on the wire changed.
+            if (AuthorityGameTime > entity.SampleGameTime)
+            {
+                entity.SampleGameTime = AuthorityGameTime;
+            }
+
             if (state.Hull != entity.Hull || state.Shield != entity.Shield)
             {
                 entity.Hull = state.Hull;

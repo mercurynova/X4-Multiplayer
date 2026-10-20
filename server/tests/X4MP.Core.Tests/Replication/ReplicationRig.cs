@@ -298,7 +298,12 @@ public sealed class RigClient(JoinedNode node, FakeClientSession session, bool v
                 continue;
             }
 
-            var st = r.State!.Value;
+            if (r.State is not { } st)
+            {
+                States[r.NetId] = new ClientGhostState { Hull = r.Hull, Shield = r.Shield }; // a state-less spawn (M3-34: a player ship with no pose yet)
+                continue;
+            }
+
             States[r.NetId] = new ClientGhostState
             {
                 Sector = st.Sector, Px = st.Px, Py = st.Py, Pz = st.Pz, Yaw = st.Yaw, Pitch = st.Pitch, Roll = st.Roll,
@@ -595,7 +600,7 @@ public sealed class ReplicationRig : IAsyncDisposable
                     {
                         if (TraceNetIds.Contains(spawn.Entities(i)!.Value.NetId))
                         {
-                            TraceLog.Add($"t{_tick} p{player} SPAWN {spawn.Entities(i)!.Value.NetId} sector {spawn.Entities(i)!.Value.State!.Value.Sector}");
+                            TraceLog.Add($"t{_tick} p{player} SPAWN {spawn.Entities(i)!.Value.NetId} sector {spawn.Entities(i)!.Value.State?.Sector}");
                         }
                     }
 

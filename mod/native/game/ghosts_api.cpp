@@ -71,6 +71,8 @@ std::string GhostsApi::name(UniverseId id) const { return api_.component_name(id
 
 UniverseId GhostsApi::sector_of(UniverseId id) const { return api_.context_by_class(id, "sector", false); }
 
+bool GhostsApi::in_highway(UniverseId id) const { return id != 0 && api_.context_by_class(id, "highway", true) != 0; }
+
 UniverseId GhostsApi::local_ship() const {
   if (const UniverseId s = api_.player_occupied_ship()) return s;
   if (const UniverseId s = api_.player_controlled_ship()) return s;

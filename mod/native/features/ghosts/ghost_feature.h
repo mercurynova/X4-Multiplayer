@@ -55,6 +55,7 @@ class GhostFeature final : public host::IFeature {
   bool warned_no_clock_ = false;
   ghost::PercentileWindow<512> frame_cost_us_;
   double frame_cost_max_us_ = 0;
+  std::uint64_t last_guard_hits_ = 0;  // M3-34: engine guard totals already reported
   int last_visible_ = 0;
 };
 

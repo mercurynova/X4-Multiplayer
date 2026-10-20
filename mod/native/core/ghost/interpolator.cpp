@@ -157,7 +157,12 @@ Interpolator::Raw Interpolator::evaluate(std::int64_t t) const noexcept {
     const double prev_dt_s = have_prev_seg ? static_cast<double>(n0.s.t_us - ring_[idx - 1].s.t_us) / 1e6 : 0.0;
     // Velocity unknown (the sender gave none on two samples in a row): fall back to the finite difference. A sender that reports
     // velocity and says it has stopped is believed.
-    if (length(vel) < 1e-9 && have_prev_seg && length(ring_[idx - 1].s.vel) < 1e-9) vel = (n0.s.pos - ring_[idx - 1].s.pos) * (1.0 / prev_dt_s);
+    // M3-34 (Finding 22): only over a gap that can be a stream's own interval (<= slow_interval_max_us). Over seconds (a resting ship's keyframes, a spawn
+    // placeholder followed by the real pose) the difference is not a velocity: the (0,0,0) placeholder of a re-hosted authority's ship and its real pose
+    // 7 s later gave 28 km/s, and the ghost was held 14 km beyond the real spot until a later keyframe replaced the pair.
+    if (length(vel) < 1e-9 && have_prev_seg && length(ring_[idx - 1].s.vel) < 1e-9 && prev_dt_s * 1e6 <= static_cast<double>(cfg_.slow_interval_max_us)) {
+      vel = (n0.s.pos - ring_[idx - 1].s.pos) * (1.0 / prev_dt_s);
+    }
     r.pos = n0.s.pos + vel * cap_s;
     r.speed = length(vel);
     if (have_prev_seg) r.rot = quat_to_euler(slerp(ring_[idx - 1].q, n0.q, 1.0 + cap_s / prev_dt_s));

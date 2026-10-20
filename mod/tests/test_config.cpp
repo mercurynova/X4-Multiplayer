@@ -365,6 +365,29 @@ TEST_CASE("diag switch (M3-30): takeover_mode_reown parses in both spellings, de
   CHECK(describe(*cfg).find("diag.takeover_keep_own_ship=true") != std::string::npos);
 }
 
+TEST_CASE("diag switches (M3-34): hints_off, hints_all_speeds and engine_guard_off, nested and flat; the defaults are the fix", "[config][diag][m334]") {
+  std::string errors;
+  auto cfg = parse_json(R"({})", &errors);
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.hints_off);
+  CHECK_FALSE(cfg->diag.hints_all_speeds);
+  CHECK_FALSE(cfg->diag.engine_guard_off);
+  CHECK_FALSE(cfg->diag.any());
+  cfg = parse_json(R"({"diag":{"hints_off":true,"engine_guard_off":true}})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.hints_off);
+  CHECK(cfg->diag.engine_guard_off);
+  CHECK_FALSE(cfg->diag.hints_all_speeds);
+  CHECK(cfg->diag.any());
+  cfg = parse_json(R"({"diag.hints_all_speeds":true})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.hints_all_speeds);
+  CHECK(describe(*cfg).find("diag.hints_all_speeds=true") != std::string::npos);
+  CHECK(describe(*cfg).find("diag.hints_off=false") != std::string::npos);
+}
+
 TEST_CASE("diag switches (M3-23): the user file layer reads them and an unknown inner key only warns", "[config][diag]") {
   TempDir dir;
   LoadOptions o;

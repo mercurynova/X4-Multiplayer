@@ -673,4 +673,102 @@ public sealed class ReplicationModuleTests(ITestOutputHelper output)
         Assert.True(farHz < nearHz);                         // the far tier pays for the budget, not the near one
         Assert.Equal(0, alice.Session.Errors);
     }
+
+    // ------------------------------------------------------------------ M3-34: a re-hosted authority's ship (Finding 22)
+
+    /// <summary>Entries of the frames to one player with the age of their sample at the frame's reference time (seconds; 0 when the entry has no TIME).</summary>
+    private static List<(ReplicationEntry Entry, double AgeSeconds)> AgedEntries(ReplicationRig rig, int player, int fromFrame)
+    {
+        List<(ReplicationEntry, double)> result = [];
+        foreach (var (p, payload) in rig.Net.RealtimeLog.Skip(fromFrame).Where(f => f.Player == player))
+        {
+            var m = ReplicationMsg.GetRootAsReplication(new Google.FlatBuffers.ByteBuffer(payload));
+            foreach (var e in ReplicationCodec.Decode(m.GetEntriesArray(), m.EntryCount))
+            {
+                result.Add((e, (e.Mask & ReplicationMask.Time) != 0 ? -e.TimeMs / 1000.0 : 0.0));
+            }
+        }
+
+        return result;
+    }
+
+    [Fact]
+    public async Task ARehostedAuthoritysSelfSpawnIsNotShownBeforeItsPoseAndTheKeyframesOfItsRestingShipStayCurrent()
+    {
+        // The authority quit and re-hosted: its self-spawn (net 900) names the sector but carries no pose (all zero), the pose comes with its first
+        // PlayerState a moment later, and then the pilot stands still for a minute. Session 4, Finding 22: Bob saw the ship at the sector origin,
+        // hopped 200 km to the real spot, and every 15 s keyframe of the resting ship carried a sample time that was "32.7 s old" (the 16-bit
+        // millisecond offset saturated), an ever-moving bogus time on an identical pose.
+        var (rig, alice) = await SetupAsync();
+        await using var _ = rig;
+        var bob = await rig.AddClientAsync("Bob", verify: false);
+        await rig.PlaceAsync(bob, 2);
+        await rig.RunAsync(4);
+        await rig.CompleteCapturedAsync();
+        await rig.PumpAsync();
+
+        const double Base = 1088.0;
+        var keepalive = () => rig.OnActorAsync(() => rig.Mirror.IngestWorldUpdate(UpdatePayload((uint)(1000 + rig.Tick), Base + rig.GameTime, [])));
+        await keepalive();
+        int mark = rig.Net.RealtimeLog.Count;
+        await rig.OnActorAsync(() => rig.Mirror.ApplySpawn(Decode<EntitySpawn>(MsgType.EntitySpawn, SpawnPayloadAt(1081.344,
+            Rec(900, EntityKind.ShipM, 2, controller: (ushort)alice.PlayerId, ownerPlayer: (ushort)alice.PlayerId, origin: EntityOrigin.PlayerShip)))));
+
+        // 2 s without a pose: nothing about ship 900 may be replicated, and the spawn Bob gets has no state to place a ghost with
+        for (int step = 0; step < 40; step++)
+        {
+            await keepalive();
+            await rig.StepAsync();
+        }
+
+        Assert.DoesNotContain(AgedEntries(rig, bob.PlayerId, mark), e => e.Entry.NetId == 900);
+        Assert.True(await rig.OnActorAsync(() => rig.Mirror.TryGet(900, out var held) && !held.PoseKnown));
+
+        // the first PlayerState, then a minute at rest (5 Hz idle states of the same pose)
+        mark = rig.Net.RealtimeLog.Count;
+        uint seq = 100;
+        for (int step = 0; step < 1200; step++)
+        {
+            await keepalive();
+            if (step % 4 == 0)
+            {
+                await rig.OnActorAsync(() => rig.Mirror.ApplyPlayerState(alice.PlayerId, Decode<PlayerState>(
+                    MsgType.PlayerState, PlayerStatePayload(++seq, 900, 2, 50_000, 64, -640))));
+            }
+
+            await rig.StepAsync();
+        }
+
+        var entries = AgedEntries(rig, bob.PlayerId, mark).Where(e => e.Entry.NetId == 900).ToList();
+        double worstAge = entries.Max(e => e.AgeSeconds);
+        output.WriteLine($"{entries.Count} entries of ship 900 in 60 s, the oldest sample was {worstAge:F2} s old at its frame");
+        Assert.NotEmpty(entries);
+        Assert.All(entries.Where(e => (e.Entry.Mask & ReplicationMask.Pos) != 0), e => Assert.Equal((50_000, 64, -640), (e.Entry.PosX, e.Entry.PosY, e.Entry.PosZ)));
+        Assert.True(worstAge < 1.0, $"a sample of the resting ship was {worstAge:F1} s old when it was sent (a keyframe with a saturated TIME offset)");
+        Assert.True(rig.Replication.Stats.KeyframesSent > 0, "the minute must contain keyframes of the resting ship");
+        Assert.Equal((50_000, 64, -640), (bob.States[900].Px, bob.States[900].Py, bob.States[900].Pz));
+        Assert.Equal(0, bob.Session.Errors);
+    }
+
+    [Fact]
+    public async Task APlayerStateAfterAResumeIsAcceptedEvenWhenItsSequenceStartedOverAgain()
+    {
+        // A reloaded extension numbers its PlayerStates from 1 again; against the last number of the old run they all looked like reordered
+        // datagrams and were dropped by the mirror (M3-34).
+        var (rig, alice) = await SetupAsync();
+        await using var _ = rig;
+        await rig.OnActorAsync(() => rig.Mirror.Spawn(Rec(900, EntityKind.ShipM, 2, px: 640, controller: (ushort)alice.PlayerId, origin: EntityOrigin.PlayerShip)));
+        await rig.OnActorAsync(() => rig.Mirror.ApplyPlayerState(alice.PlayerId, Decode<PlayerState>(MsgType.PlayerState, PlayerStatePayload(50_000, 900, 2, 1000))));
+        Assert.Equal(1000, await rig.OnActorAsync(() => rig.Mirror.TryGet(900, out var e) ? e.Px : -1));
+
+        // a state with an older number is a reordered datagram: ignored
+        await rig.OnActorAsync(() => rig.Mirror.ApplyPlayerState(alice.PlayerId, Decode<PlayerState>(MsgType.PlayerState, PlayerStatePayload(49_990, 900, 2, 7777))));
+        Assert.Equal(1000, await rig.OnActorAsync(() => rig.Mirror.TryGet(900, out var e) ? e.Px : -1));
+
+        var back = await rig.ResumeClientAsync(alice);
+        await rig.OnActorAsync(() => rig.Mirror.ApplyPlayerState(back.PlayerId, Decode<PlayerState>(MsgType.PlayerState, PlayerStatePayload(1, 900, 2, 2000))));
+        Assert.Equal(2000, await rig.OnActorAsync(() => rig.Mirror.TryGet(900, out var e) ? e.Px : -1));
+        await rig.OnActorAsync(() => rig.Mirror.ApplyPlayerState(back.PlayerId, Decode<PlayerState>(MsgType.PlayerState, PlayerStatePayload(2, 900, 2, 3000))));
+        Assert.Equal(3000, await rig.OnActorAsync(() => rig.Mirror.TryGet(900, out var e) ? e.Px : -1));
+    }
 }
