@@ -100,6 +100,23 @@ When one is merged, verified and its worktrees are cleaned up, the lead ends its
 sessions). It blocks `sleep` / `Start-Sleep` / `timeout /t`, killing processes by name, and git commits with attribution
 lines. The rules stay in the briefs too (a worktree made from an older commit has no hook file; the hook then does nothing).
 
+### 3.4 CI is the merge gate (user decision 2026-10-20; starts once main is green again)
+
+Found 2026-10-20: CI on main had been red since the M3-34 merge (HostSimM3, HostSimPair on windows-latest) while local
+verification called it a flake; nobody looked at CI after pushing. The repo is public, so GitHub-hosted runners
+(Windows included) cost nothing and the "lean" path gating in `ci.yml` (written for a private repo) is no longer needed.
+
+1. **PR flow for every change:** the Sonnet agent commits on its branch and does **not** push; the lead reviews the diff
+   (including the personal-data check: a pushed branch of a public repo is public at once), pushes the branch, opens a
+   PR, and merges only when CI is green. Local runs become targeted checks while debugging, not the gate.
+2. **One required check:** a final `ci-ok` job that passes only when every job that ran passed; branch protection on
+   `main` requires a PR and `ci-ok` (admin bypass kept for emergencies).
+3. **Run everything on every PR** (drop the path filters, except a docs-only change may skip the heavy jobs).
+4. **Main never stays red:** after every merge the lead checks the main run; a red main is fixed before new work.
+5. **Dependabot PRs** get the full CI and are triaged regularly (merge, close or hand to a Sonnet agent).
+
+The `ci.yml` changes are a Sonnet task; branch protection is a GitHub setting the lead applies with the user's OK.
+
 ## 4. Delegation waves
 
 Each box is one Sonnet agent. Agents in the same wave run in parallel. A wave starts when
