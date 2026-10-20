@@ -9,7 +9,7 @@
 // Rules (all server time, never game time):
 //   * position: cubic Hermite between neighbours with the sender's velocities (linear when both velocities are zero);
 //     rotation: slerp of the quaternions of the Euler angles (math.h).
-//   * past the newest sample: linear extrapolation (rotation: continued angular rate) for at most extrap_cap (500 ms), then HOLD at
+//   * past the newest sample: linear extrapolation (rotation: continued angular rate, only for a moving ship on a stream-rate segment) for at most extrap_cap (500 ms), then HOLD at
 //     that pose (state Held); stale after stale_us (5 s) without data -> hidden.
 //   * a sample with Teleport, another sector or a Hidden neighbour is a DISCONTINUITY: the pose holds the earlier sample until the
 //     render time reaches the new one, then SNAPS (RenderPose::snapped). No interpolation across it.

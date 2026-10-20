@@ -360,3 +360,20 @@ TEST_CASE("a placeholder sample seconds before the real pose gives no velocity: 
   const RenderPose p = slow.render(1300 * kMs);  // t = 1200: 100 ms past the newest sample
   CHECK(p.pos.x == Approx(20.0).margin(1e-6));
 }
+
+// A ship that turns in place (no velocity) sends rotation-only samples and then nothing until its next keyframe. The ghost must show the newest real
+// heading: continuing the last step's turn rate for the extrapolation cap and holding the overshoot read 0.3 rad as -1.2 rad (HostSimM3 flake, 2026-10-20).
+TEST_CASE("a ghost that turned in place holds the newest heading, no angular extrapolation overshoot", "[ghost][interp][m335]") {
+  Interpolator in;
+  auto turn = [](std::int64_t t_ms, double yaw) {
+    Sample s = mk(t_ms, 0, 0.0);
+    s.rot.yaw = yaw;
+    return s;
+  };
+  in.push(turn(1000, 2.0), 0);
+  in.push(turn(1600, 0.3), 0);  // a 1.7 rad step 600 ms after the previous sample, then silence
+  for (std::int64_t now : {1800, 2000, 2400, 4000}) {
+    const RenderPose p = in.render(now * kMs);
+    CHECK(p.rot.yaw == Approx(0.3).margin(1e-6));
+  }
+}

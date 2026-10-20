@@ -165,7 +165,12 @@ Interpolator::Raw Interpolator::evaluate(std::int64_t t) const noexcept {
     }
     r.pos = n0.s.pos + vel * cap_s;
     r.speed = length(vel);
-    if (have_prev_seg) r.rot = quat_to_euler(slerp(ring_[idx - 1].q, n0.q, 1.0 + cap_s / prev_dt_s));
+    // The heading is carried on at the previous segment's angular rate only for a MOVING ship on a stream-rate segment. A ship that reports no velocity
+    // (at rest, turning in place) sends rotation-only entries and then nothing until its next keyframe: continuing its last turn rate for the 500 ms
+    // cap and then holding the overshoot showed a heading up to ~1.5 rad past the real one for up to 5 s (HostSimM3 turn-in-place flake, 2026-10-20: a
+    // 0.3 rad turn after 2.0 rad read -1.23). Such a ghost holds the newest real heading.
+    if (have_prev_seg && length(vel) > 1e-6 && prev_dt_s * 1e6 <= static_cast<double>(cfg_.slow_interval_max_us))
+      r.rot = quat_to_euler(slerp(ring_[idx - 1].q, n0.q, 1.0 + cap_s / prev_dt_s));
     if (age > cfg_.stale_us) {
       r.state = PoseState::Stale;
       r.vel = {};
