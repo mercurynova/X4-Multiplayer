@@ -233,7 +233,7 @@ function Invoke-HostSimScript([string]$name, [string]$scriptFile, [int]$timeoutS
         $dest = Join-Path $logDir "$name-tree"
         New-Item -ItemType Directory -Force $dest | Out-Null
         Get-ChildItem $tree -Recurse -File -Include '*.txt', '*.log', '*.err', '*.json', '*.hostsim' -ErrorAction SilentlyContinue |
-          Where-Object { $_.Length -lt 5MB } | ForEach-Object { Copy-Item $_.FullName (Join-Path $dest ($_.FullName.Substring($tree.Length).TrimStart('\') -replace '[\/]', '__')) -Force }
+          Where-Object { $_.Length -lt 5MB } | ForEach-Object { Copy-Item $_.FullName (Join-Path $dest ($_.FullName.Substring($tree.Length).TrimStart('\') -replace '[\\/]', '__')) -Force }
       }
     }
     throw "$name failed (exit $($p.ExitCode); see $name.log)"
