@@ -37,7 +37,7 @@ A full workstation is all of the above.
 
 | Tool | Version | Why | Install |
 |---|---|---|---|
-| .NET SDK | **10.0.4xx** (pinned by `global.json` to 10.0.400 + `latestFeature`; dev machine has 10.0.401) | server, FakeNode, tests | `winget install Microsoft.DotNet.SDK.10` |
+| .NET SDK | **10.0.402 or newer 10.0.4xx** (pinned by `global.json` to 10.0.402 + `latestFeature`; 10.0.402 bundles the patched ASP.NET Core 10.0.13 runtime, CVE-2026-70159) | server, FakeNode, tests | `winget install Microsoft.DotNet.SDK.10` (or `winget upgrade` if an older 10.0.4xx is installed) |
 | Node.js | 24.x LTS (22.x also fine) | web GUI build (Vite/React) | `winget install OpenJS.NodeJS.LTS` |
 | npm | comes with Node | | |
 
