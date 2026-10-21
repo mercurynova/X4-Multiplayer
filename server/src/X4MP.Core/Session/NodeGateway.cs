@@ -435,6 +435,9 @@ public sealed partial class NodeGateway
 
         reader.Roles = granted;
         node.Phase = NodePhase.Admitted;
+        // Stored before the Welcome leaves: a node that sees the Welcome (and a test that disposes right after it) must find its report in the store.
+        RecordModReport(
+            bind.PlayerId, hello, modEvaluation, modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? ModReportOutcome.Warned : ModReportOutcome.Admitted, modPolicyVersion, keyHash);
         var frame = ControlFrames.Encode(MsgType.Welcome, fbb => X4MP.Proto.Welcome.Pack(fbb, node.Welcome).Value, 1024);
         if (_udp is not null && node.Welcome.UdpPort != 0)
         {
@@ -450,8 +453,6 @@ public sealed partial class NodeGateway
                 Unregister(node);
             },
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        RecordModReport(
-            bind.PlayerId, hello, modEvaluation, modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? ModReportOutcome.Warned : ModReportOutcome.Admitted, modPolicyVersion, keyHash);
         ServerMetrics.RecordHandshakeOk();
         LogAdmitted(connection.Id.Value, name, bind.PlayerId, granted);
         return new AdmitOutcome(node, null);
