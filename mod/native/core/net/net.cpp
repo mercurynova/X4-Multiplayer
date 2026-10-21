@@ -510,7 +510,11 @@ struct NetClient::Impl final : HookContext {
       if (::getsockopt(sock.get(), SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &len) != 0) {
         err = ::WSAGetLastError();
       }
-      if (err == 0 && (pfd.revents & POLLWRNORM) != 0 && (pfd.revents & (POLLERR | POLLHUP)) == 0) {
+      // Success is SO_ERROR == 0 and writable. POLLHUP alone does not mean failure: a server that accepts, sends a
+      // Disconnect and closes right away (reject on connect) can already have its FIN queued by the time we poll.
+      // Treating that as a refused connect closed the socket with unread data, which resets it and loses the frame.
+      // A genuinely failed connect reports its error through SO_ERROR (and is not writable).
+      if (err == 0 && (pfd.revents & POLLWRNORM) != 0 && (pfd.revents & POLLERR) == 0) {
         on_connected(now);
         return;
       }
