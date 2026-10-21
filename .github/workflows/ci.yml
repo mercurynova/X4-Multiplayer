@@ -1,6 +1,8 @@
-# CI for X4MP (M0-16). Kept LEAN on purpose: the repo is private, so Actions minutes are limited
-# (Windows minutes bill at 2x, macOS is never used). Every heavy job is gated on changed paths,
-# so a docs-only change runs only the tiny `changes` job.
+# CI for X4MP (M0-16). This workflow is the MERGE GATE (docs/execution-plan.md section 3.4): the repo is public (GPL-3.0),
+# GitHub-hosted runners (Windows included) are free, so every PR and every push to main runs every job. The single
+# required status check is `ci-ok` (the last job): it passes only when every job passed or was skipped, so branch
+# protection needs just that one name. Do not rename it.
+# The only shortcut: a docs-only change (see the `changes` job for the exact rule) skips the heavy jobs; `ci-ok` still passes.
 name: CI
 
 on:
@@ -10,13 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       everything:
-        description: "Run every job, ignoring the changed-path filter (a manual dispatch always does; kept as an explicit switch)"
+        description: "Run every job (a manual dispatch always does, there is no diff to inspect; kept as an explicit switch)"
         type: boolean
         default: true
-      windows_dotnet:
-        description: "Also run the .NET job on windows-latest (bills 2x; normally only on push to main)"
-        type: boolean
-        default: false
 
 # A newer push to the same PR/branch cancels the older run.
 concurrency:
@@ -34,8 +32,51 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------------------------
-  # Decide which heavy jobs are needed from the changed files. Plain git + grep (no third-party
-  # action). workflow_dispatch, a new branch push and a changed ci.yml run everything.
+  # Decide only one thing: is this a docs-only change (heavy jobs may be skipped)? Plain git + grep.
+  # DOCS-ONLY = the diff is non-empty and EVERY changed file matches  ^docs/ | ^\.claude/ | ^LICENSE$ | \.md$
+  # and none is under .github/. Anything else (code, scripts, protocol, tools, props, anything under .github/)
+  # is not docs-only. Unknown diff (new branch / force-push, git diff failure, empty list), workflow_dispatch
+  # and scheduled runs all run everything.
+  # ---------------------------------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      heavy: ${{ steps.f.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          heavy=true
+          files=""
+          known=false
+          if [ "$EVENT" = "pull_request" ]; then
+            if files="$(git diff --name-only "$PR_BASE...$PR_HEAD")"; then known=true; fi
+          elif [ "$EVENT" = "push" ]; then
+            # a new branch or force-push has an unknown before-sha: run everything
+            if git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+              if files="$(git diff --name-only "$PUSH_BEFORE" "$PUSH_AFTER")"; then known=true; fi
+            fi
+          fi
+          # workflow_dispatch / schedule: known stays false -> everything
+          echo "Changed files:"; echo "$files" | sed 's/^/  /'
+          if [ "$known" = true ] && [ -n "$files" ]; then
+            other="$(echo "$files" | grep -Ev '^(docs/|\.claude/|LICENSE$)|\.md$' || true)"
+            gh_files="$(echo "$files" | grep -E '^\.github/' || true)"
+            if [ -z "$other" ] && [ -z "$gh_files" ]; then heavy=false; fi
+          fi
+          echo "docs-only change: $([ "$heavy" = false ] && echo yes || echo no)"
+          echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------------------------------------
   changes:
     runs-on: ubuntu-latest
@@ -98,7 +139,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------
   web:
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -118,17 +159,17 @@ jobs:
       - run: npm run build
 
   # ---------------------------------------------------------------------------------------------
-  # .NET on ubuntu for every relevant change; windows only on push to main (2x billing).
+  # .NET on ubuntu and windows for every PR and push.
   # The web build is skipped (-p:SkipWebBuild=true): the server embeds a placeholder page, and the
   # real GUI is covered by the `web` job and the release build.
   # ---------------------------------------------------------------------------------------------
   dotnet:
     needs: changes
-    if: needs.changes.outputs.dotnet == 'true'
+    if: needs.changes.outputs.heavy == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' && inputs.windows_dotnet) && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest"]') }}
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -185,7 +226,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------
   protocol-cpp:
     needs: changes
-    if: needs.changes.outputs.protocol_cpp == 'true'
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -219,7 +260,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------
   mod:
     needs: changes
-    if: needs.changes.outputs.mod == 'true'
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -252,11 +293,11 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------------------------
-  # Cheap static checks on the extension files (ubuntu, seconds). Runs with the mod job's trigger.
+  # Cheap static checks on the extension files (ubuntu, seconds).
   # ---------------------------------------------------------------------------------------------
   mod-lint:
     needs: changes
-    if: needs.changes.outputs.mod == 'true'
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -297,7 +338,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------
   e2e:
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    if: needs.changes.outputs.heavy == 'true'
     name: e2e (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -350,7 +391,7 @@ jobs:
 
   e2e-headless:
     needs: changes
-    if: needs.changes.outputs.e2e_win == 'true'
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: windows-latest
     timeout-minutes: 50
     env:
@@ -392,3 +433,25 @@ jobs:
             out/e2e/logs
           if-no-files-found: ignore
           retention-days: 7
+
+  # ---------------------------------------------------------------------------------------------
+  # The single required check (branch protection requires `ci-ok`). Fails if any job failed or was
+  # cancelled; passes when every job succeeded or was skipped (a docs-only change skips the heavy jobs).
+  # `if: always()` so it still reports when a needed job fails.
+  # ---------------------------------------------------------------------------------------------
+  ci-ok:
+    name: ci-ok
+    needs: [changes, web, dotnet, protocol-cpp, mod, mod-lint, e2e, e2e-headless]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check needed job results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS" | jq -e '[.[].result] | any(. == "failure" or . == "cancelled")' >/dev/null; then
+            echo "A required job failed or was cancelled."; exit 1
+          fi
+          echo "All jobs succeeded or were skipped."
