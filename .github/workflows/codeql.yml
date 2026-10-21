@@ -1,12 +1,12 @@
-# CodeQL (M0-16). Weekly + on push to main only (never per PR) to save Actions minutes.
+# CodeQL (M0-16). Weekly + on push to main only (never per PR); it is slow and separate from the ci-ok merge gate.
 #
-# NOTE: CodeQL on a PRIVATE repo needs GitHub Advanced Security. If it is not enabled, the upload step
+# NOTE: on a PRIVATE repo CodeQL needs GitHub Advanced Security (free on this public repo). If it is not enabled, the upload step
 # fails; this job is `continue-on-error`, so the run does not turn red. To disable entirely, either set the
 # repository variable CODEQL_DISABLED=true (Settings > Secrets and variables > Actions > Variables) or
 # disable this workflow in the Actions tab.
 #
 # TODO(C++): add a `cpp` entry (build-mode manual, `powershell -NoProfile -File mod/build.ps1 -NoTest`)
-# on windows-latest once the minute budget allows; a cold vcpkg build makes it too costly for now.
+# on windows-latest once a cold vcpkg build is acceptable (it is slow).
 name: CodeQL
 
 on:
