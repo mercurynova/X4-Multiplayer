@@ -1628,7 +1628,7 @@ and `InterestUpdate`.
 | Group | Setting |
 |---|---|
 | Transport | `TcpPort` 47780, `UdpPort` 47781, `HttpPort` 47790, `MaxFrameBytes` 1 MiB, `TickRateHz` 20, `BandwidthBudgetKBps` 256, `SaveBandwidthCapMBps` 0 |
-| Session | `ResumeGraceSeconds` 60, `AuthorityGraceSeconds` 120, `AutosaveMinutes` 15, `join_checkpoint_policy`, `SupportedGameBuilds` ["900-611726"] |
+| Session | `ResumeGraceSeconds` 60, `AuthorityGraceSeconds` 600 (was 120 before ADR-052 F13), `AutosaveMinutes` 15, `join_checkpoint_policy`, `SupportedGameBuilds` ["900-611726"] |
 | Interest | `NearRadius` 15 km, `PrefetchDepth` 1, `LingerSeconds` 20, `CaptureEvictSeconds` 60, `MaxGhosts` 4000 |
 | Teams | TeamPolicy (§14) |
 | Economy | EconomySettings (§15) |

@@ -228,7 +228,32 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
             case SessionPhase.Idle:
                 ResetSession();
                 break;
+            case SessionPhase.WaitingForAuthority when previous == SessionPhase.Ended:
+                ResumeEndedSession();
+                break;
         }
+    }
+
+    /// <summary>
+    /// F13: an Ended session comes back from its last checkpoint. The checkpoint (<c>_current</c>) and the session id are kept; everything that
+    /// belonged to the old connections (the authority node, download and fresh-save waiters, the request that was in flight, the "start save already
+    /// announced" mark) is dropped, so the authority that returns is sent the checkpoint exactly as one that rejoined a lost session (AuthorityLoading,
+    /// <see cref="EffectiveStart"/>), and joiners wait for the fresh checkpoint it stores. <c>_seeded</c> stays true: the team seed hooks ran once for this session.
+    /// </summary>
+    private void ResumeEndedSession()
+    {
+        AbortTransfers();
+        _loaded.Clear();
+        _waitingForFresh.Clear();
+        _freshBypass.Clear();
+        _knownNodes.Clear();
+        _authority = null;
+        _inFlight = null;
+        _startInfoConnection = null;
+        _stopPending = false;
+        _lastRequestFailedAt = long.MinValue;
+        _nextAutosave = long.MaxValue;
+        PublishStatus();
     }
 
     public void OnNodeAttached(SessionNode node, bool resumed)

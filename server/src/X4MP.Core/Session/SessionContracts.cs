@@ -31,9 +31,13 @@ public sealed record SessionActorOptions
     [Setting("Heartbeat timeout: close a silent node after (ms)", Scope = SettingScope.Live, Min = 1000, Max = 600000)]
     public int HeartbeatTimeoutMs { get; set; } = 10_000;
 
-    /// <summary><c>AuthorityLost</c> to <c>Stopping</c> (ADR-026: 120 s). Also the authority's resume window.</summary>
+    /// <summary>
+    /// <c>AuthorityLost</c> to <c>Stopping</c> (ADR-026 had 120 s; ADR-052 F13 raised the default to 600 s because a real X4 restart often takes longer
+    /// than two minutes). Also the authority's resume window. Only a value an admin saved is stored (<c>config_overrides</c>), so an install that never
+    /// changed it follows this default; an admin who saved 120 keeps 120. An Ended session can still be resumed by an admin (<see cref="SessionTrigger.ResumeEnded"/>).
+    /// </summary>
     [Setting("Authority grace: time to get the authority back before the session stops (s)", Scope = SettingScope.Live, Min = 5, Max = 3600)]
-    public int AuthorityGraceSeconds { get; set; } = 120;
+    public int AuthorityGraceSeconds { get; set; } = 600;
 
     /// <summary>
     /// <c>Stopping</c> to <c>Ended</c> when nobody completes the stop (the save service does that in M1-12). A stop

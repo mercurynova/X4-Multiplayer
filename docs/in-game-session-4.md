@@ -374,6 +374,21 @@ Quit X4 on both, `collect-logs.ps1 -Label s3a` (PC A) / `-Label s3b` (PC B; send
 | 15 | No regressions | - | CI + `./tools/e2e.ps1` |
 | 16 | S13 verdicts | - | recorded by the lead |
 
+## F13 authority grace + resume check (the authority's X4 is restarted; two PCs or one PC + a FakeNode client)
+
+What it settles: the authority grace is now 600 s, and an Ended session can be resumed by the admin from its last checkpoint. Needs the build with ADR-052 F13.
+
+1. Server running, GUI open (Sessions & Saves, Settings). In Settings check `Session.AuthorityGraceSeconds` shows **600** (if it shows 120 someone saved it earlier: use the reset arrow). Note the value.
+2. Start the session as usual (authority = real X4, optionally a second player or a FakeNode client). Wait until the state is RUNNING, fly around, and make a checkpoint: Sessions & Saves > **Request save now** (note the clock time).
+3. **Long restart (grace test).** Close X4 on the authority PC (Alt+F4 or quit). The GUI state goes AUTHORITYLOST with a countdown from about 600. Wait at least **3 minutes** (longer than the old 120 s) and confirm the session is still AUTHORITYLOST, then start X4 again and join as the authority. Expect: the session returns to a running state and the Players list shows the authority again.
+4. **Ended session (resume test).** Close the authority's X4 again. Lower the grace to make this quick: Settings > `Session.AuthorityGraceSeconds` = 30, then wait 30 s plus the 30 s stop timeout until the state is ENDED (players are disconnected). Alternatively press **Stop session** (untick "Take a final save first" to test the autosave checkpoint).
+5. Sessions & Saves > **Resume session** > confirm. Expect: state WAITING FOR AUTHORITY, the same session name/id, the Players list keeps the teams, Economy wallets unchanged; the audit log (or the server log) has `session.resume`.
+6. Start X4 on the authority PC, join as the authority. Expect: it downloads/loads the last checkpoint (state AUTHORITYLOADING, then RUNNING after a fresh checkpoint, which can take a minute). What you did after the checkpoint of step 2 is gone; ships/stations from before it are there.
+7. Players join again (each one: Multiplayer > Join, nothing was kept). Expect normal join, ghosts of the other player(s), chat works, wallets as before the end.
+8. Clean up: set `Session.AuthorityGraceSeconds` back to 600 (reset arrow).
+
+Send back: the clock times of each step, whether the authority's X4 reconnected **by itself** when it was closed in step 3/4 or needed a manual join (and any message it showed after the end: ServerShutdown), the GUI state names you saw, whether the loaded checkpoint matched your expectation (what was missing), the server log and the mod log (`authority:` lines).
+
 ## In-game checks the code could not settle (collected from the M3 handoff notes)
 
 Look at these during the sittings; each is "does it behave like the code assumes?":

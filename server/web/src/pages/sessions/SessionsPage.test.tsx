@@ -138,6 +138,21 @@ describe('SessionsPage', () => {
     });
   });
 
+  it('resumes an ended session after a confirm, and only offers it when the session ended', async () => {
+    const { calls } = setup({ current: session('Ended', { endedAt: '2026-09-29T21:00:00Z' }), saves: [], history: [] });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Resume session' }));
+    expect(calls.some((c) => c.url.endsWith('/resume'))).toBe(false); // nothing before the confirm
+    const dialog = screen.getByRole('alertdialog', { name: /resume the ended session/i });
+    await user.click(within(dialog).getByRole('button', { name: 'Resume' }));
+    await waitFor(() => expect(calls.find((c) => c.url === '/api/v1/sessions/7/resume')?.method).toBe('POST'));
+  });
+
+  it('disables resume while the session is running', async () => {
+    setup({ current: session('Running'), saves: [], history: [] });
+    expect(await screen.findByRole('button', { name: 'Resume session' })).toBeDisabled();
+  });
+
   it('starts an idle session after a confirm and disables request-save/stop', async () => {
     const { calls } = setup({ current: session('Idle', { startedAt: null }), saves: [], history: [] });
     const user = userEvent.setup();
