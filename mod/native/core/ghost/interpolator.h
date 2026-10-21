@@ -9,8 +9,13 @@
 // Rules (all server time, never game time):
 //   * position: cubic Hermite between neighbours with the sender's velocities (linear when both velocities are zero);
 //     rotation: slerp of the quaternions of the Euler angles (math.h).
-//   * past the newest sample: linear extrapolation (rotation: continued angular rate, only for a moving ship on a stream-rate segment) for at most extrap_cap (500 ms), then HOLD at
-//     that pose (state Held); stale after stale_us (5 s) without data -> hidden.
+//   * past the newest sample: linear extrapolation of the position for at most extrap_cap (500 ms), then HOLD at that pose (state Held);
+//     stale after stale_us (5 s) without data -> hidden.
+//     Heading (M3-35/M3-36): continued at the previous segment's angular rate only for a ship that is MOVING (speed, reported or derived, above
+//     angular_extrap_min_speed_mps = 0.5 m/s, so mm position jitter of a ship turning in place does not count) on a stream-rate segment, and only
+//     for angular_extrap_cap (150 ms) and angular_extrap_max_rad (0.5 rad) past the newest real heading. When the position goes into Held the
+//     heading eases back to the newest real one over another angular_extrap_cap, so a moving ship that turned and then stalled (unfocused client,
+//     packet loss, highway) never holds a heading past the real one. The position hold is unchanged (it is bounded by speed x 500 ms).
 //   * a sample with Teleport, another sector or a Hidden neighbour is a DISCONTINUITY: the pose holds the earlier sample until the
 //     render time reaches the new one, then SNAPS (RenderPose::snapped). No interpolation across it.
 //   * corrections: when the raw pose jumps relative to the previous frame's prediction by more than 0.5 m (a late sample after an
@@ -39,6 +44,11 @@ struct InterpolatorConfig {
   std::int64_t slow_interval_max_us = 700'000;     // M3-33: sample gaps longer than this (a stalled / resting / hidden stream) do not count as the stream's rate
   std::int64_t extrap_cap_us = 500'000;
   std::int64_t stale_us = 5'000'000;
+  // M3-36: the heading is extrapolated only for a ship that really moves (reported or derived speed above this), for at most
+  // angular_extrap_cap_us (a few stream intervals) and at most angular_extrap_max_rad past the newest real heading; see the rules comment.
+  double angular_extrap_min_speed_mps = 0.5;
+  std::int64_t angular_extrap_cap_us = 150'000;
+  double angular_extrap_max_rad = 0.5;
   std::int64_t blend_us = 200'000;
   double snap_min_m = 200.0;
   double snap_speed_s = 0.5;     // snap distance = max(snap_min_m, speed * snap_speed_s)
