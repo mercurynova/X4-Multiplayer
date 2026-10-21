@@ -67,8 +67,8 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 
 | ID | Item | Evidence | Target | Status |
 |---|---|---|---|---|
-| E3 | CI becomes the merge gate (PR flow, `ci-ok`, branch protection, full CI on PRs) | execution-plan §3.4 | now (main green after PR #17) | open |
-| E4 | Dependabot PRs: #12, #18 (NuGet), #15 (npm group); Actions majors #8 (cache 6), #10 (codeql 4), #16 (download-artifact 8) | GitHub | after E3 | open (triage under the new flow) |
+| E3 | CI becomes the merge gate (PR flow, `ci-ok`, branch protection, full CI on PRs) | execution-plan §3.4 | now | ci.yml done (PR #19, 2026-10-21); branch protection waits for the user's OK |
+| E4 | Dependabot: #12, #15, #18 closed 2026-10-21 (superseded; replaced by PR #22 / #23, merged); the Actions majors #8, #10, #16 go to E6 | GitHub | done | done 2026-10-21 |
 | E6 | **Node 20 deprecation** warnings in CI: `actions/cache@v4`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, `github/codeql-action@v3` target Node 20 (our `setup-node` is already 24). One Sonnet PR bumps all four majors together (upload + download artifact must match), release notes checked, full CI incl. e2e-headless; supersedes #8, #10, #16 | CI annotations (2026-10-20) | after E3 | open |
 | E7 | **Faster e2e-headless** (~34 min serial on one runner): split into 3-4 parallel Windows jobs balanced by step time (Headless 7.8 min, Avatars 5.8, AuthorityFlow 2.7, the rest 0.2-2), each builds the mod itself; then look at why Headless / Avatars wait so long (test-only server timeouts, never looser checks). Target ~13-15 min wall. `ci-ok` keeps needing every job. Considered and not taken: e2e only in a merge queue (personal-account repos may not have merge queues, and PR e2e caught the 2026-10-21 bot-join regression before main), larger paid runners (the steps wait, they are not CPU-bound), path filters (just removed) | user 2026-10-21 | after E3 (#19) | open |
 | E8 | Keep the HostSimM3 sync-report numbers (path error, latency) from PASSING runs too (job summary or artifact), so a threshold miss can be told from noise | 2026-10-21 | M4 | open |
@@ -84,6 +84,7 @@ Rule (execution-plan §3.4): a fail-then-pass is logged here with its run id; a 
 | HostSimM3 turn-in-place yaw / HostSimPair online + removed count | M3-34 agent run (local), 2x on `chore/dotnet-10.0.13` (local), CI runs 39348939896, 39462803847 | **not flakes**, fixed in PR #17: ghost heading overshoot (M3-35) and a cross-process race in the pair test's world removal count (`removed_player`) |
 | HostSimM3 sync-report `path error p95, steady flight < 300 m/s` 11.94 m (limit 10, Bot04; others 6.6-8.5) on a busy runner (latency worst 2.6 s) | PR #21 CI run 39603793368 (2026-10-21) | seen 1x, re-run |
 | `EconomyBehaviourLiveTests.AHeavyEconomyUnderAttackLeavesCleanBooksAndMatchingModels` (dotnet windows): runner stall, pings up to 11 s, 3 bots dropped | PR #19 CI run 39528117963 (2026-10-21) | seen 1x |
+| Catch2 `core.net: a server Disconnect is delivered, and no-retry codes halt reconnecting` (`test_net_socket.cpp` 580-584, 5 s wait) on the windows `mod` job | PR #24 CI (2026-10-21) | seen 1x |
 | ReloadSurvival 401 when run right after HostSimM3 in one e2e call | 2026-10-04, 2026-10-06 (passes alone) | open, seen 2x: investigate when E1 is done |
 
 ## Done (log)
