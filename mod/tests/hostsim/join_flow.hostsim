@@ -1,5 +1,7 @@
 # M2-06 acceptance: join -> download -> loadSave -> (X4 reloads the DLL) -> resume -> universe ready -> NodeReady -> the server shows
 # the player InGame. Run by mod/tests/hostsim/join_flow_run.ps1 (needs the server + a FakeNode authority; vars: tcp, save_sha).
+# F1: the main-menu leave is confirmed after 2 s here (default 30 s)
+write-file extension/x4mp.json {"menu_leave_confirm_ms":2000}
 init
 frame 60Hz 10
 lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
@@ -60,6 +62,51 @@ lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
 frame 60Hz 60
 expect-lua x4mp.chat 3000 json $.replay == true
 expect-lua x4mp.players 3000 json $.players[name==Alice].online == true
+
+# F1 (ADR-052): exit to the main menu counts as leaving. X4 unloads the extension (the same shutdown as a /reloadui or a save load, stash kept);
+# the new incarnation resumes the session. What differs is the Lua state: the start menu (ui_ready startmenu=true) and no game ever loads.
+# (a) negative: a start-menu ui_ready that is followed by a game (here: startmenu=false, as after /reloadui) must NOT leave
+reload
+frame 60Hz 20
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+frame 60Hz 30
+lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
+frame 60Hz 240
+expect-file extension/logs/x4mp.log main menu: no longer the start menu
+expect-no-log leaving the session (F1)
+expect-admin /api/v1/players $[name==Alice].online == true
+# (a2) negative: the start menu is reported but the game then loads (a save load) inside the delay: on_game_loaded disarms the watch
+reload
+frame 60Hz 20
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+frame 60Hz 30
+set game_time 900000
+load_save x4mp_join_e2e
+frame 60Hz 300
+expect-no-log leaving the session (F1)
+expect-lua x4mp.status 3000 json $.state == ingame
+expect-admin /api/v1/players $[name==Alice].online == true
+# (b) positive: the start menu stays up with no game loading -> after the delay the mod leaves like the Disconnect button
+reload
+frame 60Hz 20
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+frame 60Hz 240
+expect-file extension/logs/x4mp.log main menu: the player exited to the main menu; leaving the session (F1)
+expect-file extension/logs/x4mp.log leaving the session (main menu)
+expect-lua x4mp.status 3000 json $.state == disconnected
+expect-admin /api/v1/players $[name==Alice].online == false
+expect-stash join.state absent
+# (c) loading back into the session is a normal rejoin
+drop-lua
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"Alice","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 3000 contains x4mp_
+reload
+frame 60Hz 240
+load_save x4mp_join_e2e
+frame 60Hz 180
+expect-lua x4mp.status 3000 json $.state == ingame
+expect-admin /api/v1/players $[name==Alice].online == true
 
 lua-raw x4mp.disconnect {"v":1}
 frame 60Hz 60

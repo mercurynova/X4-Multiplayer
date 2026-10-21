@@ -399,3 +399,17 @@ TEST_CASE("diag switches (M3-23): the user file layer reads them and an unknown 
   CHECK(has_diag(r, x4mp::log::Level::Warn, "diag.nonsense"));
   CHECK_FALSE(has_diag(r, x4mp::log::Level::Warn, "unknown key 'diag'"));
 }
+
+TEST_CASE("menu_leave_confirm_ms (F1)", "[config]") {
+  std::string errors;
+  CHECK(defaults().menu_leave_confirm_ms == 30000);
+  auto cfg = parse_json(R"({"menu_leave_confirm_ms":2000})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->menu_leave_confirm_ms == 2000);
+  CHECK(describe(*cfg).find("menu_leave_confirm_ms=2000") != std::string::npos);
+  cfg = parse_json(R"({"menu_leave_confirm_ms":5})", &errors);
+  REQUIRE(cfg);
+  CHECK(cfg->menu_leave_confirm_ms == 30000);  // out of range: default kept
+  CHECK(errors.find("menu_leave_confirm_ms") != std::string::npos);
+}
