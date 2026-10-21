@@ -293,6 +293,20 @@ Known limits: the created ship has the avatar's macro and the server's starter l
 
 ---
 
+## F1 main-menu leave check (ADR-052, Finding 1; one PC, sitting-1 setup or two PCs)
+
+What changed: exiting X4 to the **main menu** now counts as LEAVING the session. About 30 s after the start menu is up (and no game has loaded) the mod sends the normal leave (`Disconnect ClientQuit`, the same as the Multiplayer screen's **Disconnect**): the server parks your ship/avatar like any leave, the GUI **Players** list shows you as not in game, and loading back in is a normal rejoin. A `/reloadui` or a save LOAD inside the session must NOT leave. Build with F1 on every PC. The mod log is `%LocalAppData%\X4MP\logs\x4mp.log`.
+
+1. **Menu exit leaves (client, then authority).** Join as in 1.1 and stand in the game for a minute. Esc > **Exit to main menu** (not "quit game"). Write down the clock time. In the mod log look for, in this order: `extension shutdown: session unloaded for a resume`, then `resuming the session after an extension reload (stage ingame`, then `main menu: the start menu is up while the session is waiting for its universe (stage ...); leaving in 30000 ms unless a game loads`, then **30 s later** `main menu: the player exited to the main menu; leaving the session (F1)` and `leaving the session (main menu)`. **Expected:** the GUI **Players** row for you turns offline/not in game within a second of that line; on a second PC (or with the wingmen) `[MP] Tester` stays where you parked, no despawn and no flicker; the start-menu **Multiplayer** screen says disconnected afterwards (it may still say Connected for the first 30 s: that is the delay). Repeat once as the authority (sitting 2 / Alice): the session phase in the GUI goes to **AuthorityLost** with the grace countdown (NOT Stopping or Ended at once; the grace is the existing `AuthorityGraceSeconds`).
+2. **Rejoin is normal.** From the start menu **Multiplayer > Join a server** again (same name). **Expected:** a normal join (save check, load, takeover), your fighter is yours again, no second `[MP]` ship of you, the old parked avatar is reused (M3 rejoin behaviour). Log: a fresh `Welcome ... resumed=false`.
+3. **Fast return does not leave.** Esc > Exit to main menu, and within 10 s **Load** the same session save from the start menu (or any save). **Expected:** NO `leaving the session (F1)` line; `main menu: no longer the start menu` or the load takes over as a save load (`reload resume: new universe (save load` / `same universe`). If it DOES leave, that is a finding: send the log (it means the Lua state reports the start menu for the whole load, which the 30 s delay was meant to outlast; the delay is `menu_leave_confirm_ms` in `x4mp.json`, 1000..120000).
+4. **`/reloadui` and an in-session save load never leave.** `/reloadui` twice: no `main menu:` line at all. Esc > **Load Game** (a save from inside the running session, not via the main menu): the loading screen takes 20-60 s; **Expected:** no `leaving the session (F1)` line, the log shows `reload: game loaded after N frame(s), a load in progress` and the usual `reload resume: new universe (save load`.
+5. **What the game alone can confirm (please note):** whether `ui_ready` of the new Lua state really says `startmenu` true at the main menu (the line `main menu: the start menu is up ...` appears only then) and false during the in-session load of step 4. If step 1 shows no `main menu:` line at all, send the log: the detection did not fire.
+
+Send: the mod log of every step, the clock time of each action, the GUI Players screenshot after step 1, and whether the avatar stayed.
+
+---
+
 ## Sitting 2: real X4 = authority, FakeNode wingmen (one PC)
 
 **2.0 Start** (window 1): `powershell -ExecutionPolicy Bypass -File tools\session4\start-fake-clients.ps1 -SaveName save_004 -Wingmen 3` (`-Target` = the name you host with, default `Tester`). It starts the server, uploads the save, creates and starts the session, prints the in-game admin password (`x4mp-host-test`), then **waits until the session runs and your ship exists** before it starts the wingmen (the real authority can only place their avatars next to your ship).
@@ -373,6 +387,21 @@ Quit X4 on both, `collect-logs.ps1 -Label s3a` (PC A) / `-Label s3b` (PC B; send
 | 14 | Remembered fields | 1.1 | hostsim |
 | 15 | No regressions | - | CI + `./tools/e2e.ps1` |
 | 16 | S13 verdicts | - | recorded by the lead |
+
+## F13 authority grace + resume check (the authority's X4 is restarted; two PCs or one PC + a FakeNode client)
+
+What it settles: the authority grace is now 600 s, and an Ended session can be resumed by the admin from its last checkpoint. Needs the build with ADR-052 F13.
+
+1. Server running, GUI open (Sessions & Saves, Settings). In Settings check `Session.AuthorityGraceSeconds` shows **600** (if it shows 120 someone saved it earlier: use the reset arrow). Note the value.
+2. Start the session as usual (authority = real X4, optionally a second player or a FakeNode client). Wait until the state is RUNNING, fly around, and make a checkpoint: Sessions & Saves > **Request save now** (note the clock time).
+3. **Long restart (grace test).** Close X4 on the authority PC (Alt+F4 or quit). The GUI state goes AUTHORITYLOST with a countdown from about 600. Wait at least **3 minutes** (longer than the old 120 s) and confirm the session is still AUTHORITYLOST, then start X4 again and join as the authority. Expect: the session returns to a running state and the Players list shows the authority again.
+4. **Ended session (resume test).** Close the authority's X4 again. Lower the grace to make this quick: Settings > `Session.AuthorityGraceSeconds` = 30, then wait 30 s plus the 30 s stop timeout until the state is ENDED (players are disconnected). Alternatively press **Stop session** (untick "Take a final save first" to test the autosave checkpoint).
+5. Sessions & Saves > **Resume session** > confirm. Expect: state WAITING FOR AUTHORITY, the same session name/id, the Players list keeps the teams, Economy wallets unchanged; the audit log (or the server log) has `session.resume`.
+6. Start X4 on the authority PC, join as the authority. Expect: it downloads/loads the last checkpoint (state AUTHORITYLOADING, then RUNNING after a fresh checkpoint, which can take a minute). What you did after the checkpoint of step 2 is gone; ships/stations from before it are there.
+7. Players join again (each one: Multiplayer > Join, nothing was kept). Expect normal join, ghosts of the other player(s), chat works, wallets as before the end.
+8. Clean up: set `Session.AuthorityGraceSeconds` back to 600 (reset arrow).
+
+Send back: the clock times of each step, whether the authority's X4 reconnected **by itself** when it was closed in step 3/4 or needed a manual join (and any message it showed after the end: ServerShutdown), the GUI state names you saw, whether the loaded checkpoint matched your expectation (what was missing), the server log and the mod log (`authority:` lines).
 
 ## In-game checks the code could not settle (collected from the M3 handoff notes)
 

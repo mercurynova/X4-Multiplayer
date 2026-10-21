@@ -34,8 +34,8 @@ public sealed class SqliteSessionStore(SqliteConnectionFactory factory, Persiste
               state = @state,
               authority_player_id = CASE WHEN @authority > 0 THEN @authority ELSE authority_player_id END,
               started_at = CASE WHEN started_at IS NULL AND @state <> 'Idle' THEN @at ELSE started_at END,
-              ended_at = CASE WHEN @state = 'Ended' THEN @at ELSE ended_at END,
-              end_reason = CASE WHEN @state = 'Ended' THEN @reason ELSE end_reason END
+              ended_at = CASE WHEN @state = 'Ended' THEN @at WHEN @state = 'WaitingForAuthority' THEN NULL ELSE ended_at END,
+              end_reason = CASE WHEN @state = 'Ended' THEN @reason WHEN @state = 'WaitingForAuthority' THEN NULL ELSE end_reason END
             WHERE id = @id
             """,
             new { id = sessionId, state = phase.ToString(), authority = authorityPlayerId, at = Stamp(at), reason });

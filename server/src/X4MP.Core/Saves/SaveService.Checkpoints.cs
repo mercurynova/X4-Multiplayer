@@ -318,7 +318,8 @@ public sealed partial class SaveService
 
         // A new authority is loading (the old one left): the checkpoint we hold may be replaced by the one it is about to upload, so joiners
         // wait for that one instead of downloading a save that is thrown away (they would be kicked with "checkpoint replaced").
-        if (_phase == SessionPhase.AuthorityLoading && !_publishingCurrent)
+        // The same while an Ended session waits for its authority to come back (F13): the world mirror was cleared at the end, so the old checkpoint cannot serve a catch-up.
+        if (_phase is SessionPhase.AuthorityLoading or SessionPhase.WaitingForAuthority && !_publishingCurrent)
         {
             _knownNodes[node.PlayerId] = node;
             return;

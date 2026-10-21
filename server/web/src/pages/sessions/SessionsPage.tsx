@@ -22,7 +22,7 @@ const FINISHED_TRANSFER_LINGER_MS = 8_000;
 const STOPPABLE = ['WaitingForAuthority', 'AuthorityLoading', 'Running', 'Paused', 'AuthorityLost', 'Migrating'];
 const CREATABLE = ['Idle', 'Ended'];
 
-type Pending = 'start' | 'stop' | 'save' | null;
+type Pending = 'start' | 'stop' | 'save' | 'resume' | null;
 
 /** The current session: state, uptime, authority, players and the start/stop/request-save actions. */
 function CurrentSession({
@@ -79,6 +79,7 @@ function CurrentSession({
   const base = `/api/v1/sessions/${session.id}`;
   const canStart = session.state === 'Idle';
   const canStop = STOPPABLE.includes(session.state);
+  const canResume = session.state === 'Ended';
   const canSave = session.state === 'Running' || session.state === 'Paused';
   return (
     <section aria-labelledby="current-h">
@@ -104,6 +105,9 @@ function CurrentSession({
           <button type="button" disabled={!canStart || busy} onClick={() => setPending('start')}>
             Start session
           </button>
+          <button type="button" disabled={!canResume || busy} onClick={() => setPending('resume')}>
+            Resume session
+          </button>
           <button type="button" disabled={!canSave || busy} onClick={() => setPending('save')}>
             Request save now
           </button>
@@ -124,6 +128,20 @@ function CurrentSession({
           onConfirm={() => void act(`${base}/start`, {}, 'Session starting; waiting for the authority.')}
         >
           <p>The first node to connect as authority loads the selected save; other players are admitted after it.</p>
+        </ConfirmDialog>
+      )}
+      {pending === 'resume' && (
+        <ConfirmDialog
+          title="Resume the ended session?"
+          confirmLabel="Resume"
+          busy={busy}
+          onCancel={() => setPending(null)}
+          onConfirm={() => void act(`${base}/resume`, {}, 'Session resumed; waiting for the authority to load the last checkpoint.')}
+        >
+          <p>
+            The session goes back to waiting for its authority. Start X4 on the authority machine and join: it loads the last checkpoint (anything
+            played after that checkpoint is lost), then the other players rejoin. Teams and wallets are kept.
+          </p>
         </ConfirmDialog>
       )}
       {pending === 'save' && (

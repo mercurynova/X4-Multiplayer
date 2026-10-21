@@ -59,4 +59,40 @@ struct Decision {
 };
 [[nodiscard]] Decision decide_universe(const State& previous, const Fingerprint& now) noexcept;
 
+// F1 (ADR-052): exit to the main menu counts as LEAVING the session. The DLL cannot see the exit itself (X4Native has no "game unloaded"
+// event; every unload looks the same from inside: a shutdown with the stash kept). What tells the cases apart is what the NEW incarnation
+// sees while it is still waiting to decide "same universe or new one" (JoinFeature::undecided_):
+//   /reloadui      on_game_loaded is replayed at once (IsPlayerValid), the Lua state is NOT the start menu;
+//   save load      the Lua state is not the start menu while loading, on_game_loaded comes ~16 s in;
+//   exit to menu   the Lua state IS the start menu (x4mp.ui_ready startmenu=true, IsStartmenu()) and no game ever loads.
+// So: the watch arms on ui_ready{startmenu:true} while the decision is open, and fires once it has stayed armed for confirm_ms (default
+// 30 s, longer than the 16 s load gap, so a Lua state that reports the start menu during a load never causes a false leave).
+// on_game_loaded / on_universe_ready / ui_ready{startmenu:false} disarm it. Pure state, no clock of its own (tests pass the time).
+inline constexpr std::int64_t kMenuLeaveConfirmMs = 30000;
+
+class MenuExitWatch {
+ public:
+  explicit MenuExitWatch(std::int64_t confirm_ms = kMenuLeaveConfirmMs) noexcept : confirm_ms_(confirm_ms) {}
+  void set_confirm_ms(std::int64_t ms) noexcept { confirm_ms_ = ms; }
+  // x4mp.ui_ready: `awaiting_decision` = a resumed in-game incarnation that has not yet decided same-vs-new universe.
+  void note_ui_ready(bool startmenu, bool awaiting_decision, std::int64_t now_ms) noexcept {
+    if (startmenu && awaiting_decision) {
+      if (!armed_) {
+        armed_ = true;
+        since_ms_ = now_ms;
+      }
+    } else {
+      armed_ = false;
+    }
+  }
+  void note_game_loaded() noexcept { armed_ = false; }  // also on_universe_ready, a stage change, a leave
+  [[nodiscard]] bool armed() const noexcept { return armed_; }
+  [[nodiscard]] bool due(std::int64_t now_ms) const noexcept { return armed_ && now_ms - since_ms_ >= confirm_ms_; }
+
+ private:
+  std::int64_t confirm_ms_;
+  bool armed_ = false;
+  std::int64_t since_ms_ = 0;
+};
+
 }  // namespace x4mp::features::resume

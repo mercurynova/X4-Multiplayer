@@ -419,6 +419,58 @@ public class SessionActorTests
         Assert.Contains($"detached:{alice.PlayerId}:ClientReload", module.Log);
     }
 
+    // F1 (ADR-052): exiting X4 to the main menu. The DLL unloads (ClientReload, slot kept), the new incarnation resumes on the start menu, and
+    // after the confirm delay the mod sends the ordinary Disconnect(ClientQuit). The server sees nothing special: it is a leave.
+    [Fact]
+    public async Task AMainMenuExitIsAnOrdinaryLeaveAfterTheResumeAndTheRejoinIsAFreshJoin()
+    {
+        await using var rig = new ActorRig();
+        var alice = await rig.JoinAsync("Alice");
+        var bob = await rig.JoinAsync("Bob");
+        await rig.BringInGameAsync(alice);
+
+        await rig.DisconnectAsync(alice, DisconnectCode.ClientReload);          // the menu exit unloads the extension
+        var resumed = await rig.ResumeAsync("Alice", alice);                    // the new incarnation reconnects on the start menu
+        Assert.True(resumed.Welcome.Resumed);
+        Assert.Empty(rig.Events.OfType<PlayerLeft>());
+        await rig.DisconnectAsync(resumed, DisconnectCode.ClientQuit);          // 30 s later: the mod leaves
+
+        Assert.Single(rig.Events.OfType<PlayerLeft>(), e => e.PlayerId == alice.PlayerId);
+        Assert.Equal((1L, alice.PlayerId, "ClientQuit"), rig.Store.Leaves.Single());
+        Assert.DoesNotContain(alice.PlayerId, (await rig.SnapshotAsync()).Nodes.Select(n => n.PlayerId));
+        Assert.Equal(1, bob.Connection.SentOf(MsgType.RosterUpdate).Select(f => f.Decode<RosterUpdate>()).Last().RemovedLength);
+
+        // loading back into the session is a normal rejoin: a new join (not a resume), a new slot
+        var again = await rig.JoinAsync("Alice");
+        Assert.True(again.Accepted);
+        Assert.False(again.Welcome.Resumed);
+        Assert.Equal(2, rig.Events.OfType<PlayerJoined>().Count(e => e.Name == "Alice"));
+    }
+
+    [Fact]
+    public async Task TheAuthorityExitingToTheMainMenuPausesLikeAnyAuthorityLeaveAndCanComeBack()
+    {
+        await using var rig = new ActorRig();
+        var boss = await RunningSessionAsync(rig);
+        var bob = await rig.JoinAsync("Bob");
+
+        await rig.DisconnectAsync(boss, DisconnectCode.ClientReload);
+        var resumed = await rig.ResumeAsync("Boss", boss);
+        Assert.True(resumed.Welcome.Resumed);
+        Assert.Equal(SessionPhase.Running, await PhaseAsync(rig));
+        await rig.DisconnectAsync(resumed, DisconnectCode.ClientQuit);           // the mod's menu leave
+
+        var lost = await rig.SnapshotAsync();
+        Assert.Equal(SessionPhase.AuthorityLost, lost.Phase);                    // not Stopping/Ended: the existing AuthorityGraceSeconds applies
+        Assert.Equal(600.0, lost.Authority.GraceRemainingSeconds!.Value, 1);
+        Assert.Equal(SessionPhase.AuthorityLost, bob.Connection.SentOf(MsgType.SessionState).Last().Decode<SessionState>().Phase);
+
+        await rig.AdvanceSecondsAsync(100);
+        var again = await rig.JoinAuthorityAsync("Boss");                         // loading back in: a fresh authority join
+        Assert.True(again.Accepted);
+        Assert.Equal(SessionPhase.AuthorityLoading, await PhaseAsync(rig));
+    }
+
     // ------------------------------------------------------------------ resume
 
     [Fact]
@@ -576,17 +628,17 @@ public class SessionActorTests
         var lost = await rig.SnapshotAsync();
         Assert.Equal(SessionPhase.AuthorityLost, lost.Phase);
         Assert.Equal(AuthorityStatus.Lost, lost.Authority.Status);
-        Assert.Equal(120.0, lost.Authority.GraceRemainingSeconds!.Value, 1);
+        Assert.Equal(600.0, lost.Authority.GraceRemainingSeconds!.Value, 1);
         Assert.False(rig.Gateway.AuthorityLive);
         Assert.NotNull(rig.Gateway.Authority); // identity kept: the resumer must match it
         Assert.Equal(SessionPhase.AuthorityLost, bob.Connection.SentOf(MsgType.SessionState).Last().Decode<SessionState>().Phase);
 
-        await rig.AdvanceSecondsAsync(119);
+        await rig.AdvanceSecondsAsync(599);
         Assert.Equal(SessionPhase.AuthorityLost, await PhaseAsync(rig));
 
         var back = await rig.ResumeAsync("Boss", boss);
         Assert.True(back.Welcome.Resumed);
-        Assert.Equal(120, back.Welcome.ResumeGraceS);
+        Assert.Equal(600, back.Welcome.ResumeGraceS);
 
         var running = await rig.SnapshotAsync();
         Assert.Equal(SessionPhase.Running, running.Phase);
@@ -609,7 +661,7 @@ public class SessionActorTests
         var bob = await rig.JoinAsync("Bob");
         await DropAsync(rig, boss);
 
-        await rig.AdvanceSecondsAsync(119.9);
+        await rig.AdvanceSecondsAsync(599.9);
         Assert.Equal(SessionPhase.AuthorityLost, await PhaseAsync(rig));
         await rig.AdvanceSecondsAsync(0.2);
         Assert.Equal(SessionPhase.Stopping, await PhaseAsync(rig));
@@ -627,6 +679,84 @@ public class SessionActorTests
         Assert.Equal(DisconnectCode.ServerShutdown, bob.Connection.CloseCode);
         Assert.Equal(SessionPhase.Ended, rig.Store.Phases.Last().Phase);
         Assert.Equal(SessionPhase.Ended, rig.Gateway.Phase);
+    }
+
+    [Fact]
+    public void AuthorityGraceDefaultsToTenMinutes() =>
+        Assert.Equal(600, new SessionActorOptions().AuthorityGraceSeconds); // F13: a real X4 restart often takes longer than 120 s
+
+    private static async Task EndByGraceExpiryAsync(ActorRig rig, JoinedNode boss)
+    {
+        await DropAsync(rig, boss);
+        await rig.AdvanceSecondsAsync(601);
+        await rig.AdvanceSecondsAsync(31);
+        Assert.Equal(SessionPhase.Ended, await PhaseAsync(rig));
+    }
+
+    [Fact]
+    public async Task EndedSessionResumesWaitingForItsAuthorityAndRunsAgainOnItsCheckpoint()
+    {
+        await using var rig = new ActorRig();
+        var boss = await RunningSessionAsync(rig);
+        await rig.JoinAsync("Bob");
+        await EndByGraceExpiryAsync(rig, boss);
+        long dbId = await rig.Actor.GetStoreSessionIdAsync();
+        var guid = rig.Gateway.SessionId;
+
+        var resumed = await rig.Actor.ResumeEndedAsync();
+        Assert.True(resumed.Applied);
+        var waiting = await rig.SnapshotAsync();
+        Assert.Equal(SessionPhase.WaitingForAuthority, waiting.Phase);
+        Assert.Equal(SessionPhase.WaitingForAuthority, rig.Gateway.Phase);
+        Assert.Equal(AuthorityStatus.None, waiting.Authority.Status);
+        Assert.Empty(waiting.Nodes); // the old slots were dropped at the end: everybody joins again
+        Assert.Equal(dbId, await rig.Actor.GetStoreSessionIdAsync()); // the same sessions row, not a new session
+        Assert.Equal(guid, rig.Gateway.SessionId);
+        Assert.Equal(boss.PlayerId, rig.Gateway.DesignatedAuthorityPlayerId);
+        Assert.Equal(SessionPhase.WaitingForAuthority, rig.Store.Phases.Last().Phase);
+
+        // The authority comes back without a token (its game restarted) and loads; the session runs once the checkpoint is stored.
+        var again = await rig.JoinAuthorityAsync("Boss");
+        Assert.True(again.Accepted);
+        Assert.False(again.Welcome.Resumed);
+        Assert.Equal(SessionPhase.AuthorityLoading, await PhaseAsync(rig));
+        var bob = await rig.JoinAsync("Bob");
+        Assert.True(bob.Accepted);
+        Assert.True((await rig.Actor.ApplyAsync(SessionTrigger.CheckpointStored)).Applied);
+        Assert.Equal(SessionPhase.Running, await PhaseAsync(rig));
+        Assert.Equal(dbId, await rig.Actor.GetStoreSessionIdAsync());
+    }
+
+    [Fact]
+    public async Task OnlyAnEndedSessionCanBeResumedAndAnotherAuthorityMayBeNamed()
+    {
+        await using var rig = new ActorRig();
+        var boss = await RunningSessionAsync(rig);
+        var early = await rig.Actor.ResumeEndedAsync();
+        Assert.False(early.Applied);
+        Assert.Equal(SessionPhase.Running, await PhaseAsync(rig));
+
+        await EndByGraceExpiryAsync(rig, boss);
+        var other = await rig.JoinAsync("Other");
+        Assert.False(other.Accepted); // an ended session is not joinable until it is resumed
+        Assert.Equal(DisconnectCode.NotJoinable, other.Verdict.Code);
+
+        Assert.True((await rig.Actor.ResumeEndedAsync(designatedAuthorityPlayerId: 42)).Applied);
+        Assert.Equal(42, rig.Gateway.DesignatedAuthorityPlayerId);
+        var second = await rig.Actor.ResumeEndedAsync();
+        Assert.False(second.Applied); // already resumed
+    }
+
+    [Fact]
+    public async Task AnAdminStoppedSessionCanBeResumedToo()
+    {
+        await using var rig = new ActorRig();
+        await RunningSessionAsync(rig);
+        Assert.True((await rig.Actor.ApplyAsync(SessionTrigger.Stop)).Applied);
+        Assert.True((await rig.Actor.ApplyAsync(SessionTrigger.StopCompleted)).Applied);
+        Assert.Equal(SessionPhase.Ended, await PhaseAsync(rig));
+        Assert.True((await rig.Actor.ResumeEndedAsync()).Applied);
+        Assert.Equal(SessionPhase.WaitingForAuthority, await PhaseAsync(rig));
     }
 
     [Fact]
@@ -672,7 +802,7 @@ public class SessionActorTests
         Assert.Equal(SessionPhase.AuthorityLoading, await PhaseAsync(rig));
 
         await DropAsync(rig, (await rig.ResumeAsync("Boss", boss)) is { Accepted: true } r ? r : boss);
-        await rig.AdvanceSecondsAsync(120);
+        await rig.AdvanceSecondsAsync(600);
         var snap = await rig.SnapshotAsync();
         Assert.Equal(SessionPhase.WaitingForAuthority, snap.Phase);
         Assert.Null(rig.Gateway.Authority);

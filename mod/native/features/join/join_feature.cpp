@@ -250,13 +250,16 @@ void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) 
     wipe(payload);
   }
 
+  if (menu_watch_.due(Clock::now().time_since_epoch() / milliseconds(1)) && session_ && undecided_) leave_for_main_menu(ctx);
   if (game_loaded_flag_.exchange(false)) {
+    menu_watch_.note_game_loaded();
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "game loaded (stage {})", static_cast<int>(stage_));
     // M2-09: a game load we did not cause (the player loaded another save) means the remembered "this game runs save X" is stale.
     if (stage_ != Stage::Loading && stash_) auth::AuthorityFlow::forget_loaded_sha(*stash_);
   }
   sample_fingerprint(ctx, info);  // M2-07
   if (universe_ready_flag_.exchange(false)) {
+    menu_watch_.note_game_loaded();
     if (stage_ == Stage::Loading) {
       universe_pending_ = true;
     } else if ((stage_ == Stage::InGame || stage_ == Stage::Rejoining) && undecided_) {
@@ -285,6 +288,7 @@ void JoinFeature::drain_inbox(host::HostContext& ctx) {
       mod_refusal_json_.clear();
       mod_policy_json_.clear();
     } else if (verb == "ui_ready" || verb == "request_status") {
+      if (verb == "ui_ready") on_ui_ready(ctx, payload);
       force_status_ = true;
     } else if (verb == "extensions") {
       on_extensions(ctx, payload);
@@ -295,6 +299,39 @@ void JoinFeature::drain_inbox(host::HostContext& ctx) {
     }
     wipe(payload);
   }
+}
+
+// F1 (ADR-052): ui_ready carries startmenu. A resumed in-game incarnation that sits in the start menu with no game loading is a player who
+// exited to the main menu: after menu_leave_confirm_ms it leaves the session for real (see resume::MenuExitWatch for the reasoning).
+void JoinFeature::on_ui_ready(host::HostContext& ctx, const std::string& payload) {
+  bool startmenu = false;
+  const auto doc = nlohmann::json::parse(payload, nullptr, false);
+  if (doc.is_object()) {
+    if (const auto it = doc.find("startmenu"); it != doc.end() && it->is_boolean()) startmenu = it->get<bool>();
+  }
+  const bool awaiting = session_ && undecided_.has_value() && (stage_ == Stage::InGame || stage_ == Stage::Rejoining);
+  const bool was_armed = menu_watch_.armed();
+  menu_watch_.set_confirm_ms(ctx.config.menu_leave_confirm_ms);
+  menu_watch_.note_ui_ready(startmenu, awaiting, Clock::now().time_since_epoch() / milliseconds(1));
+  if (menu_watch_.armed() && !was_armed) {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "main menu: the start menu is up while the session is waiting for its universe (stage {}); leaving in {} ms unless a game loads",
+              static_cast<int>(stage_), ctx.config.menu_leave_confirm_ms);
+  } else if (was_armed && !menu_watch_.armed()) {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "main menu: no longer the start menu (reload or load in progress); staying in the session");
+  }
+}
+
+void JoinFeature::leave_for_main_menu(host::HostContext& ctx) {
+  menu_watch_.note_game_loaded();
+  undecided_.reset();
+  X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "main menu: the player exited to the main menu; leaving the session (F1)");
+  stop_session(ctx, "main menu");  // Disconnect(ClientQuit): the server parks the avatar and marks the player not in game (the authority: its grace applies)
+  stage_ = Stage::Idle;
+  reject_.clear();
+  detail_.clear();
+  mod_refusal_json_.clear();
+  mod_policy_json_.clear();
+  force_status_ = true;
 }
 
 void JoinFeature::on_extensions(host::HostContext& ctx, const std::string& payload) {

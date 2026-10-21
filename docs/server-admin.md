@@ -228,7 +228,7 @@ Keys in the API are `Section.Name`, for example `Net.MaxPlayers`, `Economy.Start
 | Section (`X4MP:...`) | What it holds | Notable keys |
 |---|---|---|
 | `Net` | Game listener, limits, identity. **All Boot.** | `ServerName`, `MaxPlayers` (8), `JoinPassword`, `AdminPassword` (in-game admin), `NodeTcpEndpoint`, `UdpPort`, `MaxConnectionsPerIp` (4), `ResumeGraceSeconds` (60), `SupportedGameBuilds` (`900-611726`), `RequiredModVersion`, `ModBuildStrict`, `ExtensionsMismatchIsWarning`, handshake/violation/ban limits |
-| `Session` | Session name, timers | `SessionName`, `AuthorityGraceSeconds` (120), `HeartbeatTimeoutMs` |
+| `Session` | Session name, timers | `SessionName`, `AuthorityGraceSeconds` (600, range 5-3600), `HeartbeatTimeoutMs` |
 | `Teams` | Team rules | `JoinMode` Auto/Lobby/AdminAssign, `AutoAssign`, `MaxTeams`, `DefaultRelation`, `AssetPolicy`, `AllowSelfTeamChange` |
 | `Economy` | Wallets, trades, loans | `CreditMode`, `StartingCredits`, `DonateScope`, `TradeScope`, `LoanScope`, `TeamPoolEnabled` |
 | `Saves` | Checkpoints and transfers | `AutosaveMinutes` (15), `JoinCheckpointPolicy`, `MaxSaveBytes` (1 GiB), `SaveBandwidthCapMBps`, `HttpFallback`, `SaveRetentionCount` (10) |
@@ -253,7 +253,7 @@ Nav order; every page is read-only for `Viewer`. Live data arrives over SignalR,
 - **Dashboard**: server health, session phase, authority FPS, players online, throughput sparklines, alerts.
 - **Players**: roster with team, ping and state; per-player detail; kick, ban (and unban), mute, note, change team.
 - **Map**: galaxy overview and per-sector view of what the authority streams (ships/stations, interest sets), for debugging.
-- **Sessions & Saves**: create/start/stop the session, request a checkpoint, the saves library (pin, delete, download, upload
+- **Sessions & Saves**: create/start/stop the session, **resume an ended session** (see below), request a checkpoint, the saves library (pin, delete, download, upload
   a save by chunked upload), and live transfers.
 - **Teams & Factions**: teams, members, the relation grid (allied/neutral/hostile), presets and team policy.
 - **Economy**: wallets, ledger transactions (reverse, adjust, freeze), loans, trades, economy policy, CSV export.
@@ -262,6 +262,26 @@ Nav order; every page is read-only for `Viewer`. Live data arrives over SignalR,
 - **Settings**: every setting from the schema grouped by section, Live ones editable, Boot ones read-only (secrets such as
   the join password are write-only). Your own password is changed on the change-password page the GUI sends you to.
 - **Diagnostics**: per-connection RTT, send queues, drops, message rates, packet trace toggle; use it to spot a slow client.
+
+### When the authority is gone for a long time, and resuming an ended session (F13)
+
+If the authority's X4 is gone for longer than `Session.AuthorityGraceSeconds` the session stops and ends. The default is **600 s**
+(range 5-3600; Live, takes effect at once; it also is the authority's reconnect window). Only a value an admin saved is stored
+(`config_overrides`), so an install that never touched the setting follows the new default after the update, while an admin who saved
+120 (or any other value) keeps it: reset the key in the Settings page to take the default.
+
+An **Ended** session can be brought back by an admin, for example after a long X4 restart or after an accidental Stop:
+
+1. Sessions & Saves > **Resume session** (or `POST /api/v1/sessions/{id}/resume`, optional `{authorityPlayerId}` to let another player host). The
+   session goes `Ended` to `WaitingForAuthority`, keeps its id, name, teams and wallets, and the audit log gets `session.resume`.
+2. The authority starts X4 and joins as usual. It is sent the **last checkpoint** (the final save of an admin stop, otherwise the last autosave or
+   admin save), loads it, stores a fresh checkpoint and the session is `Running` again.
+3. Players rejoin like on a normal start (the end closed their connections, so they have no resume token) and are served the fresh checkpoint.
+
+What comes back: players and teams (memberships are kept), wallets and the ledger (server-owned; they are **not** rewound to the checkpoint),
+the world mirror (rebuilt from the loaded checkpoint; entities created after it are gone, as is anything played after it). Refused with
+`409 SessionNotEnded` when the session is not Ended, `409 NoCheckpoint` when it ended before it ever stored a checkpoint. Only the live Ended
+session of this server run can be resumed; after a server restart create a new session from the last checkpoint in the saves library instead.
 
 ## 9. Backups
 

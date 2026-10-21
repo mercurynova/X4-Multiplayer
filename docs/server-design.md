@@ -388,6 +388,7 @@ AuthorityLoading ─(GalaxyMetadata + first checkpoint)─▶ Running ◀──�
 Running ─(authority detached)─▶ AuthorityLost ─(reconnect within grace)───────┘
 AuthorityLost ─(grace expired / admin stop)─▶ Stopping ─▶ Ended (history row written)
 Running ─(admin: Stop)─▶ Stopping (request final save from authority, notify clients) ─▶ Ended
+Ended ─(admin: Resume session, F13)─▶ WaitingForAuthority ─▶ AuthorityLoading (authority loads the last checkpoint) ─▶ Running
 ```
 
 - Canonical `SessionPhase` (incl. `Paused`, `Migrating`): protocol.md §6.1.
@@ -698,7 +699,7 @@ public sealed class SessionOptions
     [Setting("Join password", Hot = true, Secret = true)]     public string? JoinPassword { get; set; }
     [Setting("Max players", Hot = true), Range(1, 64)]        public int MaxPlayers { get; set; } = 8;
     [Setting("Reconnect grace (s)", Hot = true), Range(5, 600)] public int ReconnectGraceSeconds { get; set; } = 60;
-    [Setting("Authority-lost grace (s)", Hot = true), Range(10, 1800)] public int AuthorityGraceSeconds { get; set; } = 120;
+    [Setting("Authority-lost grace (s)", Hot = true), Range(5, 3600)] public int AuthorityGraceSeconds { get; set; } = 600; // F13: was 120
     [Setting("Autosave every (min, 0=off)", Hot = true), Range(0, 240)] public int AutosaveMinutes { get; set; } = 15;
     // Game build pinning is not a setting: SupportedGameBuilds (boot) + always-on equality (ADR-004)
 }
@@ -1367,6 +1368,7 @@ lets the browser resume after a refresh, since the upload id is kept in `localSt
 | `POST /sessions` | Admin | `CreateSessionRequest{name, saveId, settings?}` | `SessionDetailDto` |
 | `POST /sessions/{id}/start` | Admin | `{authorityPlayerId?}` | 202 |
 | `POST /sessions/{id}/stop` | Admin | `{requestFinalSave: bool, message?}` | 202 |
+| `POST /sessions/{id}/resume` | Admin | `{authorityPlayerId?}` | 202 (F13: Ended to WaitingForAuthority, last checkpoint; 409 `SessionNotEnded` / `NoCheckpoint`; audit `session.resume`) |
 | `POST /sessions/{id}/request-save` | Admin | | 202 (authority saves and uploads) |
 | `POST /sessions/{id}/promote` | Admin | `{playerId}` | 501 in M1 |
 | `GET /sessions/{id}/events` | Viewer | `?type=&since=&limit=` | `SessionEventDto[]` |

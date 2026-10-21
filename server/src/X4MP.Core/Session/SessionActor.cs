@@ -360,6 +360,26 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
     });
 
     /// <summary>
+    /// Admin resume of an Ended session (F13, ADR-052): Ended to WaitingForAuthority. <paramref name="designatedAuthorityPlayerId"/> (a persistent player id)
+    /// may name another authority than the one the session had. Only the live Ended session can be resumed (the checkpoint check is the caller's).
+    /// </summary>
+    public Task<TransitionResult> ResumeEndedAsync(int? designatedAuthorityPlayerId = null, string? reason = null) => CallAsync(() =>
+    {
+        if (_phase != SessionPhase.Ended)
+        {
+            return TransitionResult.Failed(_phase.ToString(), $"cannot resume from {_phase}: only an Ended session can be resumed");
+        }
+
+        var result = Transition(SessionTrigger.ResumeEnded, reason ?? "admin resume");
+        if (result.Applied && designatedAuthorityPlayerId is > 0)
+        {
+            _gateway.DesignatedAuthorityPlayerId = designatedAuthorityPlayerId.Value;
+        }
+
+        return result;
+    });
+
+    /// <summary>
     /// Admin create: gives the idle session its name and its <c>sessions</c> row now (the row is otherwise created by the first start or
     /// join) and returns the row id (the id the admin API shows; -1 when the server runs without persistence). Only an <see cref="SessionPhase.Idle"/> session
     /// can be created or renamed; the phase stays Idle.

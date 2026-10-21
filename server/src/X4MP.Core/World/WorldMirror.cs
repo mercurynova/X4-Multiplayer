@@ -338,6 +338,13 @@ public sealed partial class WorldMirror : ISessionModule
         {
             Clear();
         }
+        else if (previous == SessionPhase.Ended && current == SessionPhase.WaitingForAuthority)
+        {
+            // F13: the session was resumed. The entities come back from the authority that loads the checkpoint; the string table (net ids in the
+            // entity records index it) is restored from the store, the journal is not (what happened after the checkpoint is not in the loaded save).
+            Strings.Clear();
+            Strings.Load(_store.LoadStrings());
+        }
     }
 
     // ------------------------------------------------------------------ authority world messages

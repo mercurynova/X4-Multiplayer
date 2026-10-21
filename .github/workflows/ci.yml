@@ -135,7 +135,10 @@ jobs:
       - run: dotnet restore --locked-mode
       - run: dotnet build -c Release --no-restore -warnaserror -p:SkipWebBuild=true
       # Wall-clock / load-sensitive tests are [Trait("Category","Perf")]: excluded here, run by nightly.yml.
-      - run: dotnet test -c Release --no-build -p:SkipWebBuild=true --filter "Category!=Perf" --logger "trx;LogFileName=results.trx" --results-directory TestResults
+      # -m:1 runs the test PROJECTS one after the other. The Server.Tests "live" tests (real server + FakeNode clients, real ping/heartbeat
+      # timeouts, a synchronous PRAGMA synchronous=FULL ledger commit on the session actor thread) stalled for 3-11 s on the Windows runner whenever
+      # X4MP.Persistence.Tests (fsync-heavy, 5-6 min there vs 50 s on Linux) ran beside them. Do not remove it or raise the timeouts.
+      - run: dotnet test -c Release --no-build -m:1 -p:SkipWebBuild=true --filter "Category!=Perf" --logger "trx;LogFileName=results.trx" --results-directory TestResults
       # M3-13: the SaveScan CLI on the synthetic fixture saves (gzipped here like X4 writes them): clean = 0, an authority checkpoint with its
       # avatars = 0, a client quicksave full of ghosts = exactly 1 (leftovers found).
       - name: SaveScan on the synthetic fixtures

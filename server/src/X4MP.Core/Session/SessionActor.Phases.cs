@@ -133,6 +133,14 @@ public sealed partial class SessionActor
 
             _scratch.Clear();
         }
+        else if (to == SessionPhase.WaitingForAuthority && from == SessionPhase.Ended)
+        {
+            // F13: the ended session comes back. Its authority slot is free again; the player who was the authority may reclaim it
+            // (the admin can name another one in ResumeEndedAsync). Teams, wallets and the sessions row are kept: only the node slots were dropped at Ended.
+            int previous = _authorityPlayerId;
+            ResetAuthority();
+            _gateway.DesignatedAuthorityPlayerId = previous;
+        }
         else if (to == SessionPhase.WaitingForAuthority && from == SessionPhase.AuthorityLoading)
         {
             ResetAuthority(); // the authority never got the universe up; the next one may differ

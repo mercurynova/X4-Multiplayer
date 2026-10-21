@@ -76,6 +76,21 @@ public sealed class SqliteSessionStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task AResumedSessionLosesItsEndMarkAndKeepsItsStart()
+    {
+        long id = await _store.BeginSessionAsync("Friday", Guid.NewGuid(), T0, default);
+        _store.RecordPhase(id, SessionPhase.Running, _playerId, T0.AddSeconds(3), null);
+        _store.RecordPhase(id, SessionPhase.Ended, 0, T0.AddMinutes(5), "authority did not return");
+        _store.RecordPhase(id, SessionPhase.WaitingForAuthority, 0, T0.AddMinutes(9), "admin resume"); // F13
+        await _writer.FlushAsync();
+
+        Assert.Equal("WaitingForAuthority", Scalar<string>("SELECT state FROM sessions WHERE id = @id", new { id }));
+        Assert.Null(Scalar<string?>("SELECT ended_at FROM sessions WHERE id = @id", new { id }));
+        Assert.Null(Scalar<string?>("SELECT end_reason FROM sessions WHERE id = @id", new { id }));
+        Assert.StartsWith("2026-10-01T12:00:03", Scalar<string>("SELECT started_at FROM sessions WHERE id = @id", new { id }));
+    }
+
+    [Fact]
     public async Task PlayerRowsOpenOnJoinAndCloseOnLeaveInOrder()
     {
         long id = await _store.BeginSessionAsync("S", Guid.NewGuid(), T0, default);

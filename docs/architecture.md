@@ -101,12 +101,14 @@ stateDiagram-v2
   Running --> Paused: admin pause
   Paused --> Running: admin resume
   Running --> AuthorityLost: authority socket lost
-  AuthorityLost --> Running: resume within AuthorityGraceSeconds (120 s)
+  AuthorityLost --> Running: resume within AuthorityGraceSeconds (600 s)
   AuthorityLost --> Stopping: grace expired / admin
   AuthorityLost --> Migrating: admin migrate (later milestone)
   Migrating --> Running
   Running --> Stopping: admin Stop (RequestSave{Shutdown})
   Stopping --> Ended
+  Ended --> WaitingForAuthority: admin Resume session (F13, last checkpoint)
+  Ended --> Idle: admin create / reset
 ```
 
 In `AuthorityLost` replication stops; player-to-player position relay, chat and the
@@ -130,6 +132,10 @@ reachable from every connected state. On X4Native extension reload the mod sends
 `Disconnect{ClientReload}`, writes intent/resume token/ghost registry/universe epoch to the
 stash, and resumes after re-init (ADR-025). No world mutation before `on_universe_ready`
 (PIT-008); gates are cleared on `on_game_loaded` and set on `on_universe_ready`.
+Exiting X4 to the **main menu** is a leave (F1, ADR-052): the unloaded extension resumes on the start
+menu and, if the start menu stays up with no game loading for `menu_leave_confirm_ms` (30 s), sends the
+ordinary `Disconnect{ClientQuit}`. The server treats it as any leave (slot freed, avatar parked, GUI "not in
+game"); the authority follows the existing authority-leave path (`AuthorityLost`, grace). MOD 2.6.
 
 ### 4.5 Join sequence (summary; full diagram PROTO §21.1)
 
