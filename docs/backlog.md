@@ -45,6 +45,7 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | F6 | Mod main-thread p95 0.27 ms with 8 ghosts (target < 0.2 ms) | S1 | M4 | open (perf pass) |
 | F8 | FPS 100 -> 70 with 8 ghosts nearby | S1 | M4 | open |
 | F13 | `AuthorityGraceSeconds` default 120 s ends a session before a real X4 restart is back; an Ended session cannot be resumed | S2 | M3 exit | decided (ADR-052): default ~600 s (GUI setting) + admin resume of an Ended session from its last checkpoint; implemented on feat/f13-authority-grace-resume, in-game check open (in-game-session-4.md "F13 authority grace + resume") |
+| F13b | A rollback to a checkpoint (F13 resume, M3-21 authority reload) did not roll the server-owned ledger back: spend after the checkpoint lost ships and credits, income survived | user 2026-10-21 | M3 exit | decided + implemented (ADR-053, branch feat/f13b-ledger-rollback): ledger sequence mark per checkpoint, compensating entries, loans/trades/layout restored, admin actions kept, notice to players; in-game check open (in-game-session-4.md "F13 authority grace + resume" step 9) |
 | F14 | A GUI setting change did not survive a server restart (not reproduced in S3) | S2, S3 | later | open, watch |
 | F19 | Vanilla `md.PlayerReputation` errors / "Prized Investor" notification on team factions | S3 | M5 | open, minor |
 | A1 | Avatars report `active=1` although the mod writes `ActivateObject(false)` | R28 | M4 | open |

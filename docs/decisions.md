@@ -832,11 +832,31 @@ presence) and ADR-049 (team origins).
 - **F13, authority grace:** raise the `AuthorityGraceSeconds` default (about 600 s, still a GUI setting) AND let an
   admin resume an Ended session from its last checkpoint when the authority comes back.
   *Implemented (branch `feat/f13-authority-grace-resume`):* default 600 s (stored values are kept: settings persist as overrides only), admin
-  `POST /sessions/{id}/resume` + GUI button, Ended to WaitingForAuthority on the last checkpoint through the M3-21 authority-reload path; teams and
-  wallets kept, world rebuilt from the loaded checkpoint, resume after a server restart not supported (create from the checkpoint). See m3-plan section 8, "F13".
+  `POST /sessions/{id}/resume` + GUI button, Ended to WaitingForAuthority on the last checkpoint through the M3-21 authority-reload path; teams
+  kept, wallets rewound to the checkpoint by ADR-053 (F13b), world rebuilt from the loaded checkpoint, resume after a server restart not supported (create from the checkpoint). See m3-plan section 8, "F13".
 - **A4, `[MP]` objects in an exported save:** strip `[MP]` avatars and ghosts on the "export for single-player" path
   so the save loads clean in vanilla X4. Planned for M6 (packaging).
 - **F23b** (0 m/s target info above 1000 m/s) stays open until the in-game `diag.hints_off` result.
+
+### ADR-053 Ledger follows the checkpoint on a rollback (user decision 2026-10-21, task F13b)
+- **Problem:** wallets are a server-owned ledger, so loading an older checkpoint (F13 resume of an Ended session, the M3-21 authority reload,
+  any path that makes the authority load the current checkpoint) rolled the world back but not the credits: a player who spent 10M on ships after the
+  checkpoint lost the ships and the credits, income after it survived.
+- **Decision:** every checkpoint records the ledger's monotonic **sequence number** (never a wall clock: PC clocks differ and ties happen) plus a
+  snapshot of loans, trades and credit layout, taken when the authority begins it (`SaveStarted`, same instant as the journal marker; not at
+  acceptance, because the upload can take a minute and the save holds the money of the beginning). Stored in `checkpoints.ledger_seq` and
+  `ledger_snapshot` (migration 0009). When the authority loads that checkpoint the server appends compensating `Reversal` entries for every
+  game-tied entry after the mark (the ledger stays append-only, notes say `rollback to checkpoint <id>`), restores loans, trades and layout to the mark,
+  tells the players and the audit log.
+- **Roll back:** authority income and spend, purchases, teammate transfers, donations, pool deposits and withdrawals, loans (offers, acceptance,
+  repayment, auto-repay, forgiveness), escrowed trades, mode migrations and team moves. **Keep:** admin adjustments, admin reversals of transactions
+  from before the mark, the starting credits of a player who first joined after the mark (the player stays registered, so a rejoin is not credited
+  again) and the save-money seed. Kept means "excluded from the reversal", which gives the same balances as reverse-and-reapply without the noise.
+- **Unknown mark** (checkpoint from before this change): never guess. Nothing is reversed, a warning alert and log line say so.
+- **Not rolled back on purpose:** `CreditDelta` sequences (the node must not resend booked deltas) and request idempotency records (a replay
+  answers with its old result and moves no money). Ownership changes of traded ships come back with the loaded save.
+- **Not covered:** a session start from a start save that is not a checkpoint of ours (no mark; the first checkpoint is requested right after the
+  authority is in game) and an authority that restarts without reloading a save.
 
 
 ## Part 2. Open questions for the user

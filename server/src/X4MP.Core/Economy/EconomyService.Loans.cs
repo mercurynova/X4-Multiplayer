@@ -662,7 +662,7 @@ public sealed partial class EconomyService
                 loan.Principal, loan.Outstanding, loan.CloseReason));
         }
 
-        LoanChanged?.Invoke(new LoanChange(loan, previous, NoticesFor(loan, previous)));
+        LoanChanged?.Invoke(new LoanChange(loan, previous, _suppressLoanNotices ? [] : NoticesFor(loan, previous)));
     }
 
     private static IReadOnlyList<(int Player, string Text)> NoticesFor(LoanRecord loan, LoanRecord? previous)

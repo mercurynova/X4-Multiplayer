@@ -462,7 +462,7 @@ public class SessionActorTests
 
         var lost = await rig.SnapshotAsync();
         Assert.Equal(SessionPhase.AuthorityLost, lost.Phase);                    // not Stopping/Ended: the existing AuthorityGraceSeconds applies
-        Assert.Equal(120.0, lost.Authority.GraceRemainingSeconds!.Value, 1);
+        Assert.Equal(600.0, lost.Authority.GraceRemainingSeconds!.Value, 1);
         Assert.Equal(SessionPhase.AuthorityLost, bob.Connection.SentOf(MsgType.SessionState).Last().Decode<SessionState>().Phase);
 
         await rig.AdvanceSecondsAsync(100);

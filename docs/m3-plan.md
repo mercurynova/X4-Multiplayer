@@ -420,6 +420,15 @@ dock behaviour, colours, the chat window, true frame cost, two real players over
 - The `sessions` row keeps its id and start time; `ended_at`/`end_reason` are cleared on resume. An admin Stop is resumable too (its final save is the checkpoint).
 - Not covered: resuming after a server restart (use "create a session from the last checkpoint"). The mod needs no change if the authority just joins again; whether the authority's mod redials by itself after the `ServerShutdown` disconnect is an in-game check (see `in-game-session-4.md`, "F13 authority grace + resume").
 
+### F13b ledger follows the checkpoint on a rollback (ADR-053; branch feat/f13b-ledger-rollback)
+
+- **Mark:** `IEconomyStore.HighWaterSeq` (SQLite `ledger_tx.rowid`, `LedgerTransaction.Seq`), `TransactionsAfter`, `BalancesAt`. `SaveService.OnMarker` (SaveStarted) captures `ILedgerCheckpointHook.CaptureMark()` into `Checkpoint.Mark`; `MakeCurrent` persists it in `CheckpointRecord.Mark` (migration `0009_ledger_marks.sql`: `checkpoints.ledger_seq`, `ledger_snapshot` JSON of loans, trades and layout). `ISaveCatalog.UpdateLedgerMark/FindLedgerMark`.
+- **Rollback:** `RollbackWorldToSave` (the single place both the F13 resume and the M3-21 reload pass, once per authority connection) calls `RollBackLedger(start)` when the start save is the current checkpoint; `EconomyLedgerCheckpointHook` -> `EconomyModule.RollBackLedger` -> `EconomyService.RollBackToMark` (`EconomyService.Rollback.cs`). Algorithm and keep/undo split: server-design 2.14 point 9. The checkpoint's mark is moved to the restored state afterwards (a repeat is a no-op).
+- **Nodes:** `EconomyModule` pushes the restored balances to every node (the authority gets all wallets), sends a `ServerNotice` and pushes again on `NodePhase.InGame` (`_resendOnInGame`), because the game money converges to the last `WalletUpdate` (mod-design 12.2). No wire or mod change.
+- **Audit:** `AdminActionTaken economy.rollback` (+ alerts `economy_rollback_unknown_mark`, `economy_rollback_failed`, `economy_rollback_drift`).
+- **Tests:** `EconomyRollbackTests` (Core: 10M spend, income, transfer + loan repayment + pool, loan offered later, admin grant/reversal kept, late joiner not doubled, no mark, repeat, delta seq, mode switch re-applied, trades, frozen), `LedgerRollbackPersistenceTests` (sequence across restart, rollback after restart, mark in the checkpoint row, migration 8 to 9), `LedgerFollowsCheckpointTests` (both paths over sockets). FakeNode `--economy` reconciliation unchanged.
+- **Known gaps:** no mark for a session started from a start save that is not our checkpoint; the net-transaction fallback (only reachable when a kept admin action makes the step-by-step order invalid) has no dedicated test; request idempotency records of rolled-back requests stay (a replay moves no money); in-game check: `in-game-session-4.md` "F13 authority grace + resume", step 9.
+
 ### M3-02 `core/ghost` (pure C++, `mod/native/core/ghost/**`, tests `mod/tests/ghost/*`, exe `x4mp_ghost_tests`, ctest prefix `ghost.`)
 
 API (namespace `x4mp::ghost`; no game calls, no SDK):

@@ -229,6 +229,10 @@ Trade settlement: escrow ─▶ AssetTransferOrder{trade_id, lines[]} ─▶ Aut
 - `CreditMode` Auto | PerPlayer | Shared; Auto = Shared iff exactly one team. Wallets:
   Player, TeamShared, TeamPool, Escrow, internal World. Double-entry, append-only, Σ = 0
   audited every 60 s (breach ⇒ economy freeze). Whole credits on the wire (ADR-019).
+- The ledger follows the checkpoint (ADR-053): each checkpoint records the ledger's sequence number;
+  when the authority loads an older checkpoint (F13 resume, M3-21 reload) everything game-tied after it
+  is reversed by compensating entries (append-only), loans, trades and layout return to the mark,
+  admin adjustments and later joiners' starting credits are kept, players get a notice.
 - Scopes per action Off | Teammates | Allied | Anyone (defaults: donate Teammates, loan
   Teammates, trade Allied), checked at request and at execution (ADR-020).
 - Loans escrow principal at offer, `repay_total` explicit, optional auto-repay (ADR-021).

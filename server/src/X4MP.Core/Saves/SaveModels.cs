@@ -24,7 +24,13 @@ public sealed record SaveRecord(
     bool Pinned = false,
     string? OriginalFileName = null);
 
-/// <summary>A checkpoint that became the session's current save (the <c>checkpoints</c> table row).</summary>
+/// <summary>
+/// Where the economy ledger stood when a checkpoint began (ADR-053): <see cref="Seq"/> is the ledger's monotonic sequence number (never a clock),
+/// <see cref="Snapshot"/> the JSON of the loans, trades and credit layout at that point (what a rollback cannot derive from the ledger entries).
+/// </summary>
+public sealed record LedgerMark(long Seq, string Snapshot);
+
+/// <summary>A checkpoint that became the session's current save (the <c>checkpoints</c> table row). <see cref="Mark"/> is null when the ledger mark is unknown.</summary>
 public sealed record CheckpointRecord(
     CheckpointId Id,
     string SaveSha256,
@@ -34,7 +40,8 @@ public sealed record CheckpointRecord(
     double GameTime,
     uint NextNetId,
     bool GhostsCleaned,
-    DateTimeOffset At);
+    DateTimeOffset At,
+    LedgerMark? Mark = null);
 
 /// <summary>
 /// Persistence seam of the save service (<c>saves</c>, <c>checkpoints</c>, <c>sessions.save_id/current_save_id</c>). Writes must return
@@ -63,6 +70,12 @@ public interface ISaveCatalog
     IReadOnlyList<string> Delete(string sha256);
 
     void AddCheckpoint(long sessionId, CheckpointRecord checkpoint);
+
+    /// <summary>Replaces the ledger mark of a stored checkpoint (a rollback moves it to the state it restored). No-op for an unknown checkpoint.</summary>
+    void UpdateLedgerMark(CheckpointId checkpoint, LedgerMark mark);
+
+    /// <summary>The ledger mark stored with a checkpoint, or null when the checkpoint is unknown or has no mark (stored before ADR-053).</summary>
+    LedgerMark? FindLedgerMark(CheckpointId checkpoint);
 
     /// <summary>Sets <c>sessions.current_save_id</c> (and <c>save_id</c> too when <paramref name="initial"/>).</summary>
     void SetSessionSave(long sessionId, string sha256, bool initial);
@@ -159,6 +172,27 @@ public sealed class InMemorySaveCatalog : ISaveCatalog
         }
     }
 
+    public void UpdateLedgerMark(CheckpointId checkpoint, LedgerMark mark)
+    {
+        lock (_gate)
+        {
+            var index = _checkpoints.FindIndex(c => c.Checkpoint.Id == checkpoint);
+            if (index >= 0)
+            {
+                _checkpoints[index] = (_checkpoints[index].Session, _checkpoints[index].Checkpoint with { Mark = mark });
+            }
+        }
+    }
+
+    public LedgerMark? FindLedgerMark(CheckpointId checkpoint)
+    {
+        lock (_gate)
+        {
+            var index = _checkpoints.FindIndex(c => c.Checkpoint.Id == checkpoint);
+            return index >= 0 ? _checkpoints[index].Checkpoint.Mark : null;
+        }
+    }
+
     public void SetSessionSave(long sessionId, string sha256, bool initial)
     {
         lock (_gate)
@@ -236,3 +270,16 @@ public interface ISaveSeedHook
 /// <summary>The first current checkpoint of a session.</summary>
 /// <param name="PlayerMoney">The <c>money</c> attribute of the save's <c>&lt;player&gt;</c> element (whole credits, not cents), if present.</param>
 public sealed record InitialSaveInfo(long SessionId, int AuthorityPlayerId, CheckpointId Checkpoint, string SaveSha256, SaveMeta Meta, double GameTime, uint NextNetId);
+
+/// <summary>
+/// What the save service needs from the economy so that credits follow checkpoints (ADR-053): a mark when a checkpoint begins, and the
+/// rollback when the authority is about to load a checkpoint. Both run on the actor thread.
+/// </summary>
+public interface ILedgerCheckpointHook
+{
+    /// <summary>The ledger mark of a checkpoint that begins now; null when there is no economy.</summary>
+    LedgerMark? CaptureMark();
+
+    /// <summary>Rolls the ledger back to <paramref name="mark"/> (null = unknown: nothing is reversed and a warning is raised). Null result when there is no economy.</summary>
+    X4MP.Core.Economy.LedgerRollbackResult? RollBack(LedgerMark? mark, string checkpointLabel, DateTimeOffset checkpointAt, string reason);
+}
