@@ -419,6 +419,58 @@ public class SessionActorTests
         Assert.Contains($"detached:{alice.PlayerId}:ClientReload", module.Log);
     }
 
+    // F1 (ADR-052): exiting X4 to the main menu. The DLL unloads (ClientReload, slot kept), the new incarnation resumes on the start menu, and
+    // after the confirm delay the mod sends the ordinary Disconnect(ClientQuit). The server sees nothing special: it is a leave.
+    [Fact]
+    public async Task AMainMenuExitIsAnOrdinaryLeaveAfterTheResumeAndTheRejoinIsAFreshJoin()
+    {
+        await using var rig = new ActorRig();
+        var alice = await rig.JoinAsync("Alice");
+        var bob = await rig.JoinAsync("Bob");
+        await rig.BringInGameAsync(alice);
+
+        await rig.DisconnectAsync(alice, DisconnectCode.ClientReload);          // the menu exit unloads the extension
+        var resumed = await rig.ResumeAsync("Alice", alice);                    // the new incarnation reconnects on the start menu
+        Assert.True(resumed.Welcome.Resumed);
+        Assert.Empty(rig.Events.OfType<PlayerLeft>());
+        await rig.DisconnectAsync(resumed, DisconnectCode.ClientQuit);          // 30 s later: the mod leaves
+
+        Assert.Single(rig.Events.OfType<PlayerLeft>(), e => e.PlayerId == alice.PlayerId);
+        Assert.Equal((1L, alice.PlayerId, "ClientQuit"), rig.Store.Leaves.Single());
+        Assert.DoesNotContain(alice.PlayerId, (await rig.SnapshotAsync()).Nodes.Select(n => n.PlayerId));
+        Assert.Equal(1, bob.Connection.SentOf(MsgType.RosterUpdate).Select(f => f.Decode<RosterUpdate>()).Last().RemovedLength);
+
+        // loading back into the session is a normal rejoin: a new join (not a resume), a new slot
+        var again = await rig.JoinAsync("Alice");
+        Assert.True(again.Accepted);
+        Assert.False(again.Welcome.Resumed);
+        Assert.Equal(2, rig.Events.OfType<PlayerJoined>().Count(e => e.Name == "Alice"));
+    }
+
+    [Fact]
+    public async Task TheAuthorityExitingToTheMainMenuPausesLikeAnyAuthorityLeaveAndCanComeBack()
+    {
+        await using var rig = new ActorRig();
+        var boss = await RunningSessionAsync(rig);
+        var bob = await rig.JoinAsync("Bob");
+
+        await rig.DisconnectAsync(boss, DisconnectCode.ClientReload);
+        var resumed = await rig.ResumeAsync("Boss", boss);
+        Assert.True(resumed.Welcome.Resumed);
+        Assert.Equal(SessionPhase.Running, await PhaseAsync(rig));
+        await rig.DisconnectAsync(resumed, DisconnectCode.ClientQuit);           // the mod's menu leave
+
+        var lost = await rig.SnapshotAsync();
+        Assert.Equal(SessionPhase.AuthorityLost, lost.Phase);                    // not Stopping/Ended: the existing AuthorityGraceSeconds applies
+        Assert.Equal(120.0, lost.Authority.GraceRemainingSeconds!.Value, 1);
+        Assert.Equal(SessionPhase.AuthorityLost, bob.Connection.SentOf(MsgType.SessionState).Last().Decode<SessionState>().Phase);
+
+        await rig.AdvanceSecondsAsync(100);
+        var again = await rig.JoinAuthorityAsync("Boss");                         // loading back in: a fresh authority join
+        Assert.True(again.Accepted);
+        Assert.Equal(SessionPhase.AuthorityLoading, await PhaseAsync(rig));
+    }
+
     // ------------------------------------------------------------------ resume
 
     [Fact]

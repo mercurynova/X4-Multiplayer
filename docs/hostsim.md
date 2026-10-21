@@ -55,6 +55,8 @@ If no `init` line exists the DLL is initialised before the first command. `set` 
 | `print <text>`, `settle <ms>` | note / fixed pause (avoid; use expects) |
 | `exec <command line>` | runs the command through the shell and waits; a non-zero exit fails the script. For kit scripts that edit a config file while the DLL runs (the session-2 dry run). `${NAME}` is substituted like everywhere else |
 
+**Main-menu exit (F1).** There is no `main-menu` command: X4 treats an exit to the menu as an extension unload, and the only thing that differs from `/reloadui` is the Lua state. So the menu exit is `reload` (stash kept, no `on_game_loaded`), then `lua-raw x4mp.ui_ready {"v":1,"startmenu":true}`, then frames for longer than `menu_leave_confirm_ms` (set `write-file extension/x4mp.json {"menu_leave_confirm_ms":2000}` before `init`; default 30000). `join_flow.hostsim` plays the negative cases (start menu then `startmenu:false`; start menu then a game load) and the leave + rejoin.
+
 ### Fake universe commands (M3-04; `mod/tools/hostsim/world.*`)
 Behind the M3 game exports hostsim keeps a tiny universe: objects (macro, owner, sector, pose, active, forced radar, wrecked,
 name, id code), sectors (`100001`, `100002` exist), the dock station (300001), the player ship (200001) with seat / docked / SETA

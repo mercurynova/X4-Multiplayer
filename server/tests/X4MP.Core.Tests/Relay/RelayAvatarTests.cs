@@ -216,6 +216,27 @@ public class RelayAvatarTests
         Assert.Equal(0, rig.Mirror.PlayerShipCount); // the player's own state is gone with the node
     }
 
+    // F1 (ADR-052): a main-menu exit (reload + resume on the start menu, then Disconnect(ClientQuit)) parks the avatar exactly like a leave.
+    [Fact]
+    public async Task AMainMenuExitParksTheAvatarLikeALeave()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice");
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(alice));
+
+        await rig.Rig.DisconnectAsync(alice, DisconnectCode.ClientReload);
+        var back = await rig.Rig.ResumeAsync("Alice", alice);
+        await rig.Rig.DisconnectAsync(back, DisconnectCode.ClientQuit);
+        await rig.Actor.FlushAsync();
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, 0));
+
+        Assert.Equal(500u, Assert.Single(rig.Mirror.ParkedAvatars).NetId);
+        Assert.Empty(Despawns(bob));
+        Assert.Equal(0, rig.Mirror.PlayerShipCount);
+    }
+
     [Fact]
     public async Task ARejoiningPlayerGetsItsParkedAvatarBackThroughAControllerChange()
     {

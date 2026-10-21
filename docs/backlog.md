@@ -40,7 +40,7 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | F20b | Re-provision path (checkpoint predates the online player) never exercised in game | RI | M3 exit | open (hostsim covers it) |
 | X1 | 30-min flight over >= 5 sectors incl. a highway (M3 criterion; sittings reached ~25 min) | S3 | M3 exit | open |
 | X2 | M3 exit report | roadmap | M3 exit | open (after the checks above) |
-| F1 | Exit to the main menu keeps the session "in game" | S1 | M3 exit | decided (ADR-052): counts as leaving; task open |
+| F1 | Exit to the main menu keeps the session "in game" | S1 | M3 exit | decided (ADR-052): counts as leaving; **implemented (mod `MenuExitWatch`, 30 s confirm, server unchanged); in-game check "F1 main-menu leave" in in-game-session-4.md** |
 | F9 | Ghost display delay sits at the 250 ms cap (latency p95 > 200 ms target) | S1, S3 | M3 exit | decided (ADR-052): measure in the next session; at the cap -> accept for M3, < 200 ms becomes M4 |
 | F6 | Mod main-thread p95 0.27 ms with 8 ghosts (target < 0.2 ms) | S1 | M4 | open (perf pass) |
 | F8 | FPS 100 -> 70 with 8 ghosts nearby | S1 | M4 | open |

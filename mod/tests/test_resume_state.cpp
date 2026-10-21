@@ -85,3 +85,42 @@ TEST_CASE("is_resumable_stage knows exactly the continuable stages", "[resume]")
   for (const char* s : {"joining", "downloading", "preparing", "loading", "ingame", "rejoining"}) CHECK(is_resumable_stage(s));
   for (const char* s : {"", "other", "idle", "failed", "rejected"}) CHECK_FALSE(is_resumable_stage(s));
 }
+
+// ---- F1 (ADR-052): exit to the main menu = leave ----
+TEST_CASE("MenuExitWatch: the start menu seen while the universe decision is open fires after the confirm delay", "[resume][menu]") {
+  MenuExitWatch w(30000);
+  CHECK_FALSE(w.armed());
+  w.note_ui_ready(true, true, 1000);
+  CHECK(w.armed());
+  CHECK_FALSE(w.due(1000));
+  CHECK_FALSE(w.due(30999));
+  CHECK(w.due(31000));
+  CHECK(w.due(90000));
+}
+
+TEST_CASE("MenuExitWatch: /reloadui and save loads never fire it", "[resume][menu]") {
+  MenuExitWatch w(30000);
+  w.note_ui_ready(false, true, 0);  // /reloadui: the Lua state is not the start menu
+  CHECK_FALSE(w.armed());
+  w.note_ui_ready(true, false, 0);  // start menu but no resumed in-game session (a normal join from the menu)
+  CHECK_FALSE(w.armed());
+
+  w.note_ui_ready(true, true, 0);   // a Lua state that reports the start menu during a save load ...
+  CHECK(w.armed());
+  w.note_game_loaded();             // ... on_game_loaded (~16 s in) / on_universe_ready disarm it
+  CHECK_FALSE(w.armed());
+  CHECK_FALSE(w.due(60000));
+
+  w.note_ui_ready(true, true, 0);
+  w.note_ui_ready(false, true, 5000);  // a later ui_ready that is not the start menu disarms too
+  CHECK_FALSE(w.due(60000));
+}
+
+TEST_CASE("MenuExitWatch: re-arming keeps the first time; the delay is settable", "[resume][menu]") {
+  MenuExitWatch w;
+  w.set_confirm_ms(2000);
+  w.note_ui_ready(true, true, 100);
+  w.note_ui_ready(true, true, 1900);  // a second start-menu ui_ready does not postpone the leave
+  CHECK(w.due(2100));
+  CHECK(kMenuLeaveConfirmMs > 16000);  // longer than the observed save-load gap before on_game_loaded
+}
