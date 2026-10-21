@@ -377,3 +377,60 @@ TEST_CASE("a ghost that turned in place holds the newest heading, no angular ext
     CHECK(p.rot.yaw == Approx(0.3).margin(1e-6));
   }
 }
+
+// M3-36: the angular extrapolation of M3-35, hardened. Samples are 50 ms apart (stream rate), yaw advances 0.1 rad per sample = 2 rad/s.
+namespace {
+Sample turning(std::int64_t t_ms, double yaw, double x, double vx) {
+  Sample s = mk(t_ms, x, vx);
+  s.rot.yaw = yaw;
+  return s;
+}
+}  // namespace
+
+TEST_CASE("a moving ship on a stream-rate segment still extrapolates its heading within the cap", "[ghost][interp][m336]") {
+  Interpolator in;
+  in.push(turning(1000, 0.0, 0, 100), 0);
+  in.push(turning(1050, 0.1, 5, 100), 0);
+  const RenderPose p = in.render(1100 * kMs + in.delay_us());  // render time 1100: 50 ms past the newest sample
+  REQUIRE(p.state == PoseState::Extrapolating);
+  CHECK(p.rot.yaw == Approx(0.2).margin(1e-3));  // 0.1 + 2 rad/s x 50 ms
+  // far past the angular cap but inside the position cap: bounded by angular_extrap_cap (150 ms = +0.3 rad), not by the 500 ms cap
+  const RenderPose q = in.render(1350 * kMs + in.delay_us());  // render time 1350 (300 ms past)
+  REQUIRE(q.state == PoseState::Extrapolating);
+  CHECK(q.rot.yaw == Approx(0.4).margin(1e-3));
+}
+
+TEST_CASE("a moving ship on a slow segment does not extrapolate its heading", "[ghost][interp][m336]") {
+  Interpolator in;
+  in.push(turning(1000, 0.0, 0, 100), 0);
+  in.push(turning(2000, 1.0, 100, 100), 0);  // 1 s apart: above slow_interval_max_us
+  const RenderPose p = in.render(2100 * kMs + in.delay_us());
+  CHECK(p.rot.yaw == Approx(1.0).margin(1e-6));
+}
+
+TEST_CASE("mm position jitter of a ship turning in place does not bring the angular extrapolation back", "[ghost][interp][m336]") {
+  Interpolator in;
+  in.push(turning(1000, 0.0, 0.000, 0), 0);
+  in.push(turning(1100, 0.8, 0.001, 0), 0);  // reported velocity 0, 1 mm drift = 0.01 m/s derived
+  for (std::int64_t t_ms : {1200, 1400, 1800, 4000}) {
+    const RenderPose p = in.render(t_ms * kMs + in.delay_us());
+    CHECK(p.rot.yaw == Approx(0.8).margin(1e-6));
+  }
+}
+
+TEST_CASE("a moving ship that turns and then goes silent shows the newest real heading in Held", "[ghost][interp][m336]") {
+  Interpolator in;
+  in.push(turning(1000, 0.0, 0, 100), 0);
+  in.push(turning(1050, 0.5, 5, 100), 0);  // 10 rad/s: the old code overshot by 5 rad within the cap and held it
+  double max_over = 0;
+  for (std::int64_t t_ms = 1100; t_ms <= 5000; t_ms += 50) {
+    const RenderPose p = in.render(t_ms * kMs + in.delay_us());
+    if (p.state == PoseState::Stale) break;
+    max_over = std::max(max_over, p.rot.yaw - 0.5);
+    if (p.state == PoseState::Held && p.render_t_us - 1050 * kMs > 500 * kMs + 150 * kMs) CHECK(p.rot.yaw == Approx(0.5).margin(1e-6));
+  }
+  CHECK(max_over <= 0.5 + 1e-6);  // angular_extrap_max_rad
+  const RenderPose h = in.render(3000 * kMs + in.delay_us());
+  REQUIRE(h.state == PoseState::Held);
+  CHECK(h.rot.yaw == Approx(0.5).margin(1e-6));
+}

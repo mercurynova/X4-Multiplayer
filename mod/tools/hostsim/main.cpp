@@ -843,6 +843,7 @@ class Runner {
     else if (n == "activate_calls") got = static_cast<double>(host_.world.activate_calls);
     else if (n == "radar_calls") got = static_cast<double>(host_.world.radar_calls);
     else if (n == "removed") got = static_cast<double>(host_.world.removed);
+    else if (n == "removed_ghosts") got = static_cast<double>(host_.world.removed_ghosts);
     else if (n == "removed_player") got = static_cast<double>(host_.world.removed_player);
     else if (n == "dress_events") got = static_cast<double>(host_.world.dress_events);
     else if (n == "velocity_events") got = static_cast<double>(host_.world.velocity_events);

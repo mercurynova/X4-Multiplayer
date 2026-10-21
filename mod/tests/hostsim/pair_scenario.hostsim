@@ -42,6 +42,7 @@ expect-lua x4mp.hint 5000 contains pilot seat
 expect-lua x4mp.takeover 5000 json $.stage == teleporting
 expect-lua x4mp.takeover 5000 json $.refusals >= 3
 expect-state teleports == 0
+expect-state removed == 0
 expect-state removed_player == 0
 expect-object 200001 exists
 expect-object player id == 200001
@@ -58,6 +59,7 @@ lua-raw x4mp.sector_map {"v":1,"data":"S;cluster_02_sector001_macro|100002;clust
 lua-raw x4mp.sector_map {"v":1,"data":"E;2"}
 frame 60Hz 240
 expect-file extension/logs/x4mp.log takeover: record found (phase 1
+expect-state removed == 0
 expect-state removed_player == 0
 expect-state teleports == 0
 expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro

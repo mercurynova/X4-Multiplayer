@@ -96,7 +96,7 @@ Selectors: `<id>`, `last` (newest object, spawned by the mod or by `world object
 | `expect-ghost <player> err_p50\|err_p95\|err_max\|samples <op> <value> [timeout=<ms>]` | M3-10, **real**: reads the `[sync] player=<name> ...` lines the ghost feature logs every 5 s (path error = rendered position vs the sender's own samples at the same server time). `err_*` = the worst of the LAST THREE full windows (>= 60 rendered frames), `samples` = rendered frames summed over all windows. Retries until the timeout (default 5 s, scaled) but runs NO frames while waiting: wrap it as `until <ms> expect-ghost ... timeout=0`. No `[sync]` line yet fails an `err_*` check (no more stub). `ghost-sample` values take precedence when present |
 | `ghost-sample <player> <metres>` | add one ghost error sample (the ghost feature's test hook and the DLL-free smoke use it) |
 
-`expect-state` also reads `dress_events velocity_events teams_applies objects spawns set_pos_calls teleports owner_calls activate_calls radar_calls removed removed_player seat docked seta
+`expect-state` also reads `dress_events velocity_events teams_applies objects spawns set_pos_calls teleports owner_calls activate_calls radar_calls removed removed_player removed_ghosts seat docked seta
 path_active gate_jumps`. Checks run on the script thread right where they stand, so `frame` first (the mod acts on frames).
 The DLL-free smoke is ctest `hostsim.world_objects`, `hostsim.world_ship` (the stub extension drives the fake through the real
 SDK function table) and `hostsim.world_failure_exit_code`.
