@@ -118,7 +118,9 @@ verification called it a flake; nobody looked at CI after pushing. The repo is p
 4. **Main never stays red:** after every merge the lead checks the main run; a red main is fixed before new work.
 5. **Dependabot PRs** get the full CI and are triaged regularly (merge, close or hand to a Sonnet agent).
 
-The `ci.yml` changes are a Sonnet task; branch protection is a GitHub setting the lead applies with the user's OK.
+**Done in `ci.yml` (E3):** final job `ci-ok` (needs all jobs, `if: always()`, fails on failure/cancelled), no path filters; a docs-only change (every file matches `^docs/`, `^.claude/`, `^LICENSE$` or `.md`, none under `.github/`) skips the heavy jobs; dotnet runs on ubuntu and windows for every PR.
+
+The `ci.yml` changes were a Sonnet task; branch protection is a GitHub setting the lead applies with the user's OK.
 
 ## 4. Delegation waves
 

@@ -204,23 +204,25 @@ Then open the folder in Claude Code. It reads `CLAUDE.md` for project context.
 
 ## 10. CI (GitHub Actions)
 
-The repo is private with limited Actions minutes, so CI is path-gated and lean
-(`.github/workflows/ci.yml`; Windows minutes bill 2x). A docs-only change runs only the
-tiny `changes` job. Run the same commands locally before pushing.
+The repo is public, so GitHub-hosted runners (Windows included) are free and
+`.github/workflows/ci.yml` is the **merge gate** (docs/execution-plan.md section 3.4): every PR and every push to
+main runs every job, and the single required check is `ci-ok` (passes when all jobs passed or were skipped).
+The only shortcut is a docs-only change (every changed file is under `docs/` or `.claude/`, is `LICENSE` or
+`*.md`, and nothing is under `.github/`), which skips the heavy jobs. Run the same commands locally for targeted checks.
 
 | Job | Runs on | When | What |
 |---|---|---|---|
-| `web` | ubuntu | `server/web/**` changed | `npm ci`, lint, typecheck, test, build |
-| `dotnet` | ubuntu | `server/**`, `tools/X4MP.*/**`, `tools/flatc/**`, `protocol/**`, `Directory.*.props`, `global.json` | fetch flatc, `dotnet restore --locked-mode`, build `-warnaserror -p:SkipWebBuild=true`, test |
-| `dotnet` (windows) | windows | same paths, **push to main only** | same as above |
-| `protocol-cpp` | windows | `protocol/**`, `tools/flatc/**` | `protocol/cpp/build.ps1` (vcpkg, Catch2, golden vectors) |
-| `mod` | windows | `mod/**` (not `mod/spikes/**`), `protocol/**`, `tools/flatc/**` | `mod/build.ps1` (build, core tests, raw-remove guard, packaging check) |
-| `mod-lint` | ubuntu | same as `mod` | XML well-formedness of `mod/extension/**`; luacheck only if `.lua` files exist |
-| `e2e` (swarm) | ubuntu | `server/**`, `protocol/**`, `tools/X4MP.*`, `tools/flatc/**`, `tools/e2e.ps1`; always on push to main | `tools/e2e.ps1 -Steps Publish,Swarm`: publish linux-x64, bootstrap password change, `fakenode swarm --with-authority --teams 3 --relations ffa --economy casual --dupe-attack --verify --admin-url` |
-| `e2e` (playwright) | ubuntu | same | `tools/e2e.ps1 -Steps Publish,Playwright`: the Playwright suite (Chromium, browsers cached) against the published server exe |
-| `e2e-headless` | windows | `mod/**` (not spikes), `server/src/**`, `protocol/**`, `tools/X4MP.*`, `tools/flatc/**`; always on push to main | `tools/e2e.ps1 -Steps Publish,Headless,HostSim,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,LaunchStats,UploadKill` (about 6 minutes after the mod build): `x4mp-headless` (handshake, heartbeat, resume, save download), then the real `x4mp.dll` in hostsim (smoke, join flow, 20 reloads, authority flow, mod refusal, launch.json + NodeStats) and the live authority upload kill test (ports 47950-47958, 47968-47973, 47980-47983). A `publish` that changes any `packages.lock.json` fails the Publish step |
+| `web` | ubuntu | every PR / push | `npm ci`, lint, typecheck, test, build |
+| `dotnet` | ubuntu | every PR / push | fetch flatc, `dotnet restore --locked-mode`, build `-warnaserror -p:SkipWebBuild=true`, test |
+| `dotnet` (windows) | windows | every PR / push | same as above |
+| `protocol-cpp` | windows | every PR / push | `protocol/cpp/build.ps1` (vcpkg, Catch2, golden vectors) |
+| `mod` | windows | every PR / push | `mod/build.ps1` (build, core tests, raw-remove guard, packaging check) |
+| `mod-lint` | ubuntu | every PR / push | XML well-formedness of `mod/extension/**`; luacheck only if `.lua` files exist |
+| `e2e` (swarm) | ubuntu | every PR / push | `tools/e2e.ps1 -Steps Publish,Swarm`: publish linux-x64, bootstrap password change, `fakenode swarm --with-authority --teams 3 --relations ffa --economy casual --dupe-attack --verify --admin-url` |
+| `e2e` (playwright) | ubuntu | every PR / push | `tools/e2e.ps1 -Steps Publish,Playwright`: the Playwright suite (Chromium, browsers cached) against the published server exe |
+| `e2e-headless` | windows | every PR / push | `tools/e2e.ps1 -Steps Publish,Headless,HostSim,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,LaunchStats,UploadKill` (about 6 minutes after the mod build): `x4mp-headless` (handshake, heartbeat, resume, save download), then the real `x4mp.dll` in hostsim (smoke, join flow, 20 reloads, authority flow, mod refusal, launch.json + NodeStats) and the live authority upload kill test (ports 47950-47958, 47968-47973, 47980-47983). A `publish` that changes any `packages.lock.json` fails the Publish step |
 
-Everything runs when `ci.yml` itself changes or on manual dispatch. Newer pushes to the same
+Everything runs on manual dispatch too; the `ci-ok` job (needs every other job) is the required check. Newer pushes to the same
 ref cancel older runs. Test results and logs upload only on failure. Caches: NuGet, npm,
 `tools/flatc/bin` (keyed on `flatc.lock.json`) and the vcpkg binary cache.
 

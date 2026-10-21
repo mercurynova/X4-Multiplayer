@@ -14,7 +14,7 @@ on:
         description: "Swarm run time in seconds (20..600; the server keeps 600 samples)"
         default: "540"
       windows:
-        description: "Also run on windows-latest (bills 2x)"
+        description: "Also run on windows-latest (slower; the nightly normally runs ubuntu only)"
         type: boolean
         default: false
 
