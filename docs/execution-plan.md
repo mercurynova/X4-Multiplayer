@@ -116,6 +116,7 @@ verification called it a flake; nobody looked at CI after pushing. The repo is p
    `main` requires a PR and `ci-ok` (admin bypass kept for emergencies).
 3. **Run everything on every PR** (drop the path filters, except a docs-only change may skip the heavy jobs).
 4. **Main never stays red:** after every merge the lead checks the main run; a red main is fixed before new work.
+4a. **When main is red, every fix main needs goes into ONE PR.** Separate fix PRs each fail on the other breakages (2026-10-21: the grace assertion, the Windows live-test stall and the net flake blocked each other until folded into PR #30). Branches need not be up to date to merge, so two green PRs can still conflict semantically: the main run after a merge is the check.
 5. **Dependabot PRs** get the full CI and are triaged regularly (merge, close or hand to a Sonnet agent).
 
 **Done in `ci.yml` (E3):** final job `ci-ok` (needs all jobs, `if: always()`, fails on failure/cancelled), no path filters; a docs-only change (every file matches `^docs/`, `^.claude/`, `^LICENSE$` or `.md`, none under `.github/`) skips the heavy jobs; dotnet runs on ubuntu and windows for every PR.

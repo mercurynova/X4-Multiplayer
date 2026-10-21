@@ -116,6 +116,7 @@ class Conn {
     s_ = INVALID_SOCKET;
   }
   [[nodiscard]] bool valid() const { return s_ != INVALID_SOCKET; }
+  [[nodiscard]] SOCKET raw() const { return s_; }
   [[nodiscard]] bool readable(int ms) const {
     WSAPOLLFD p{};
     p.fd = s_;
@@ -590,6 +591,28 @@ TEST_CASE("net: a server Disconnect is delivered, and no-retry codes halt reconn
   Conn again = server.accept();
   REQUIRE(again.valid());
   client.stop();
+}
+
+// Regression: a server that accepts, sends Disconnect and shuts down at once (a reject-on-connect) can have its FIN
+// queued before the client's connect poll runs; WSAPoll then reports POLLHUP next to POLLWRNORM. That used to be
+// read as a refused connect, the socket was closed with unread data (RST) and the Disconnect was lost.
+TEST_CASE("net: a Disconnect sent and closed immediately after accept is still delivered", "[net][socket]") {
+  for (int i = 0; i < 100; ++i) {
+    LoopServer server;
+    NetClient client;
+    REQUIRE(client.start(server.endpoint()));
+    Conn conn = server.accept();
+    REQUIRE(conn.valid());
+    conn.send(disconnect_frame(3 /*Kicked*/));
+    ::shutdown(conn.raw(), SD_SEND);
+    Events ev;
+    REQUIRE(wait_events(client, ev, [&] { return ev.find(InboundEvent::Kind::Disconnected) != nullptr; }));
+    const auto* d = ev.find(InboundEvent::Kind::Disconnected);
+    CHECK(d->reason == DisconnectReason::ServerDisconnect);
+    CHECK(d->remote_code == 3);
+    CHECK(ev.find_frame(T(MsgType::Disconnect)) != nullptr);
+    client.stop();
+  }
 }
 
 TEST_CASE("net: send() reaches the peer as a framed message; the frame hook can answer on the net thread",
