@@ -425,6 +425,12 @@ public sealed partial class NodeGateway
 
         superseded?.Connection.Close(DisconnectCode.SupersededByNewConnection, "same player key connected again");
 
+        // The mod verdict is stored before the session sees the node (BeforeWelcomeAsync joins the slot) and before the Welcome leaves:
+        // a node that has its Welcome must find its report in the store, and the store I/O must not widen the window in which the
+        // session knows the node but the Welcome is not yet out. The report records the mod verdict only; a later session refusal does not undo it.
+        RecordModReport(
+            bind.PlayerId, hello, modEvaluation, modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? ModReportOutcome.Warned : ModReportOutcome.Admitted, modPolicyVersion, keyHash);
+
         // Hand over: the session layer may adjust the Welcome (resume, team) or refuse.
         var verdict = await _handler.BeforeWelcomeAsync(node, ct).ConfigureAwait(false);
         if (!verdict.Accepted)
@@ -450,8 +456,6 @@ public sealed partial class NodeGateway
                 Unregister(node);
             },
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        RecordModReport(
-            bind.PlayerId, hello, modEvaluation, modEvaluation.Verdict == ModVerdict.AdmitWithWarning ? ModReportOutcome.Warned : ModReportOutcome.Admitted, modPolicyVersion, keyHash);
         ServerMetrics.RecordHandshakeOk();
         LogAdmitted(connection.Id.Value, name, bind.PlayerId, granted);
         return new AdmitOutcome(node, null);

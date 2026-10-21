@@ -1,5 +1,6 @@
-using X4MP.Core.Mods;
+﻿using X4MP.Core.Mods;
 using X4MP.Core.Net;
+using X4MP.Core.Session;
 using X4MP.Core.Settings;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -176,5 +177,52 @@ public class ModReportStorageTests
         Assert.Equal([ModReportOutcome.Rejected, ModReportOutcome.Admitted, ModReportOutcome.Rejected], history.Select(r => r.Outcome));
         Assert.Equal(["ws_2"], history[0].Violation!.Install.Select(r => r.Id));
         Assert.Empty(store.UnboundReports());
+    }
+
+    private sealed class OrderRecordingHandler(List<string> events) : IAdmissionHandler
+    {
+        public ValueTask<AdmissionVerdict> BeforeWelcomeAsync(AdmittedNode node, CancellationToken ct)
+        {
+            lock (events)
+            {
+                events.Add("session-join");
+            }
+
+            return ValueTask.FromResult(AdmissionVerdict.Accept);
+        }
+
+        public Task OnAdmittedAsync(AdmittedNode node, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The store write (which may be slow I/O) happens before the session layer learns of the node, so it neither delays the first frame a
+    /// session-known node can be sent nor leaves the report missing once the node has its Welcome.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Kinds))]
+    public async Task TheReportIsStoredBeforeTheSessionJoinsTheNodeAndBeforeTheWelcome(string kind)
+    {
+        var events = new List<string>();
+        var store = new InMemoryModStore();
+        store.ReportRecorded += _ =>
+        {
+            lock (events)
+            {
+                events.Add("report");
+            }
+        };
+        var provider = new InMemoryModPolicyProvider(() => new ModManagementOptions { SourceMode = ModSourceMode.AdminList, Enforcement = ModEnforcement.Strict });
+        provider.SetEntries([Entry("ws_1")]);
+        await using var net = await NetHarness.CreateAsync(
+            kind, new NetOptions { AuthFailureDelayMs = 0, HandshakeTimeoutSeconds = 2, HandshakesPerSecond = 1000 }, withGateway: true,
+            handler: _ => new OrderRecordingHandler(events), modPolicy: provider, modStore: store);
+
+        await using var client = await JoinAsync(net, "Fay", Ext("ws_1"));
+
+        Assert.NotNull(store.LatestReport(client.Welcome.PlayerId)); // present the moment the client holds its Welcome
+        lock (events)
+        {
+            Assert.Equal(["report", "session-join"], events);
+        }
     }
 }
