@@ -52,6 +52,12 @@ public enum SessionTrigger
 
     /// <summary>Admin: start over after the session ended. Ended to Idle.</summary>
     Reset,
+
+    /// <summary>
+    /// Admin (F13, ADR-052): bring the Ended session back from its last checkpoint. Ended to WaitingForAuthority; the authority then loads the
+    /// checkpoint through the normal AuthorityLoading path and the session runs again once it has stored a fresh checkpoint.
+    /// </summary>
+    ResumeEnded,
 }
 
 /// <summary>The <see cref="SessionPhase"/> edge table (architecture 4.2, server-design 2.4).</summary>
@@ -81,6 +87,7 @@ public static class SessionTransitions
         (SessionPhase.Migrating, SessionTrigger.Stop, SessionPhase.Stopping),
         (SessionPhase.Stopping, SessionTrigger.StopCompleted, SessionPhase.Ended),
         (SessionPhase.Ended, SessionTrigger.Reset, SessionPhase.Idle),
+        (SessionPhase.Ended, SessionTrigger.ResumeEnded, SessionPhase.WaitingForAuthority),
     ];
 
     /// <summary>Every legal edge. Anything not listed is illegal.</summary>
@@ -90,7 +97,7 @@ public static class SessionTransitions
     public static bool IsExternal(SessionTrigger trigger) => trigger is
         SessionTrigger.Start or SessionTrigger.CheckpointStored or SessionTrigger.Pause or SessionTrigger.Resume
         or SessionTrigger.Stop or SessionTrigger.StopCompleted or SessionTrigger.Migrate
-        or SessionTrigger.MigrationCompleted or SessionTrigger.Reset;
+        or SessionTrigger.MigrationCompleted or SessionTrigger.Reset or SessionTrigger.ResumeEnded;
 
     public static bool TryNext(SessionPhase from, SessionTrigger trigger, out SessionPhase to)
     {

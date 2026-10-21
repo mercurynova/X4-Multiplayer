@@ -101,12 +101,14 @@ stateDiagram-v2
   Running --> Paused: admin pause
   Paused --> Running: admin resume
   Running --> AuthorityLost: authority socket lost
-  AuthorityLost --> Running: resume within AuthorityGraceSeconds (120 s)
+  AuthorityLost --> Running: resume within AuthorityGraceSeconds (600 s)
   AuthorityLost --> Stopping: grace expired / admin
   AuthorityLost --> Migrating: admin migrate (later milestone)
   Migrating --> Running
   Running --> Stopping: admin Stop (RequestSave{Shutdown})
   Stopping --> Ended
+  Ended --> WaitingForAuthority: admin Resume session (F13, last checkpoint)
+  Ended --> Idle: admin create / reset
 ```
 
 In `AuthorityLost` replication stops; player-to-player position relay, chat and the

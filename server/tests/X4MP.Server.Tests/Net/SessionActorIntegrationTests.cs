@@ -148,7 +148,7 @@ public class SessionActorIntegrationTests
         var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
 
         var boss = await JoinAsync(net, new NodeClientOptions { PlayerName = "Boss", PlayerKey = key, RequestedRoles = Role.Authority | Role.Client });
-        Assert.Equal(120, boss.Welcome.ResumeGraceS);
+        Assert.Equal(600, boss.Welcome.ResumeGraceS);
         var snap = await fixture.Actor.GetSnapshotAsync();
         Assert.Equal(SessionPhase.AuthorityLoading, snap.Phase);
         Assert.True((await fixture.Actor.ApplyAsync(SessionTrigger.CheckpointStored)).Applied);

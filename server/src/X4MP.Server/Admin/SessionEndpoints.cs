@@ -27,6 +27,7 @@ internal static class SessionEndpoints
         group.MapPost("", CreateAsync).RequireAuthorization(AdminPolicies.Admin);
         group.MapPost("/{id:long}/start", StartAsync).RequireAuthorization(AdminPolicies.Admin);
         group.MapPost("/{id:long}/stop", StopAsync).RequireAuthorization(AdminPolicies.Admin);
+        group.MapPost("/{id:long}/resume", ResumeAsync).RequireAuthorization(AdminPolicies.Admin);
         group.MapPost("/{id:long}/request-save", RequestSaveAsync).RequireAuthorization(AdminPolicies.Admin);
         group.MapPost("/{id:long}/promote", (long id) =>
             Problems.NotImplemented("Promoting another player to authority arrives with authority migration (a later milestone)."))
@@ -305,6 +306,50 @@ internal static class SessionEndpoints
         AdminApi.Audit(context, audit, "session.stop", id.ToString(System.Globalization.CultureInfo.InvariantCulture), message, new()
         {
             ["requestFinalSave"] = finalSave ? "true" : "false",
+        });
+        return Results.Json(sessions.Detail(await sessions.GetLiveAsync()), ApiJsonContext.Default.SessionDetailDto, statusCode: StatusCodes.Status202Accepted);
+    }
+
+    /// <summary>
+    /// F13 (ADR-052): brings the Ended live session back from its last checkpoint (Ended to WaitingForAuthority). The authority that connects loads the
+    /// checkpoint, stores a fresh one and the session runs; players rejoin as on a normal start. Only the live (in-memory) Ended session qualifies: after a
+    /// server restart the session is gone, create a session from the last checkpoint instead.
+    /// </summary>
+    private static async Task<IResult> ResumeAsync(
+        long id, StartSessionRequest? body, HttpContext context, AdminSessions sessions, SqliteAdminQueries queries, SaveService saves, AdminStore audit)
+    {
+        var (live, error) = await ResolveLiveAsync(id, sessions, queries);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        if (live!.Snapshot.Phase != SessionPhase.Ended)
+        {
+            return Problems.Conflict("SessionNotEnded", $"The session is {live.Phase}; only an ended session can be resumed.");
+        }
+
+        if (body?.AuthorityPlayerId is { } authorityId && queries.FindPlayer(authorityId, sessions.Time.GetUtcNow()) is null)
+        {
+            return Problems.NotFound("The player");
+        }
+
+        var checkpoint = saves.Status.CurrentSha256;
+        if (checkpoint is null)
+        {
+            return Problems.Conflict("NoCheckpoint", "The session ended before it stored a checkpoint; create a new session from a save instead.");
+        }
+
+        var result = await sessions.Actor.ResumeEndedAsync((int?)body?.AuthorityPlayerId, "admin resume");
+        if (!result.Applied)
+        {
+            return Problems.Conflict("SessionNotEnded", result.Error ?? $"The session is {live.Phase}.");
+        }
+
+        AdminApi.Audit(context, audit, "session.resume", id.ToString(System.Globalization.CultureInfo.InvariantCulture), null, new()
+        {
+            ["checkpointSha256"] = checkpoint,
+            ["authorityPlayerId"] = body?.AuthorityPlayerId?.ToString(System.Globalization.CultureInfo.InvariantCulture),
         });
         return Results.Json(sessions.Detail(await sessions.GetLiveAsync()), ApiJsonContext.Default.SessionDetailDto, statusCode: StatusCodes.Status202Accepted);
     }

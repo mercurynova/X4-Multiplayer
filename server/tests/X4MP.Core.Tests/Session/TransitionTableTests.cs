@@ -33,6 +33,7 @@ public class TransitionTableTests
         [(SessionPhase.Migrating, SessionTrigger.Stop)] = SessionPhase.Stopping,
         [(SessionPhase.Stopping, SessionTrigger.StopCompleted)] = SessionPhase.Ended,
         [(SessionPhase.Ended, SessionTrigger.Reset)] = SessionPhase.Idle,
+        [(SessionPhase.Ended, SessionTrigger.ResumeEnded)] = SessionPhase.WaitingForAuthority,
     };
 
     public static TheoryData<SessionPhase, SessionTrigger> SessionPairs()
@@ -71,11 +72,11 @@ public class TransitionTableTests
         Assert.Equal(ExpectedSession.Count, SessionTransitions.Edges.Count);
 
     [Fact]
-    public void EndedIsOnlyLeftByReset()
+    public void EndedIsOnlyLeftByResetOrResume()
     {
         foreach (var trigger in Enum.GetValues<SessionTrigger>())
         {
-            Assert.Equal(trigger == SessionTrigger.Reset, SessionTransitions.TryNext(SessionPhase.Ended, trigger, out _));
+            Assert.Equal(trigger is SessionTrigger.Reset or SessionTrigger.ResumeEnded, SessionTransitions.TryNext(SessionPhase.Ended, trigger, out _));
         }
     }
 

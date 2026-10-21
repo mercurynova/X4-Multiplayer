@@ -412,6 +412,14 @@ dock behaviour, colours, the chat window, true frame cost, two real players over
 
 (Filled in as tasks merge, as in m2-plan §8.)
 
+### F13 authority grace default 600 s and admin resume of an Ended session (ADR-052; branch feat/f13-authority-grace-resume)
+
+- `SessionActorOptions.AuthorityGraceSeconds` default 120 to 600 (range unchanged, 5-3600). Settings are stored as overrides only, so an install that never changed it gets 600; a saved value (even 120) is kept on purpose.
+- New `SessionTrigger.ResumeEnded` (edge `Ended` to `WaitingForAuthority`, external) and `SessionActor.ResumeEndedAsync(designatedAuthorityPlayerId?)`; admin API `POST /api/v1/sessions/{id}/resume` (audit `session.resume`) and a "Resume session" button in the Sessions page.
+- Reuses the M3-21 path: `SaveService` keeps `_current` through Ended, `ResumeEndedSession()` drops the old connection state, the returning authority is sent the checkpoint via `EffectiveStart()` (AuthorityLoading), `RollbackWorldToSave` + `AuthorityAssign` fix the net-id floor, and the fresh checkpoint it stores makes the session Running. Joiners are held back in `WaitingForAuthority`/`AuthorityLoading` (`SendSaveInfo` guard) until that checkpoint exists, because the world mirror was cleared at Ended (the string table is reloaded from the store on resume, the journal is not).
+- The `sessions` row keeps its id and start time; `ended_at`/`end_reason` are cleared on resume. An admin Stop is resumable too (its final save is the checkpoint).
+- Not covered: resuming after a server restart (use "create a session from the last checkpoint"). The mod needs no change if the authority just joins again; whether the authority's mod redials by itself after the `ServerShutdown` disconnect is an in-game check (see `in-game-session-4.md`, "F13 authority grace + resume").
+
 ### M3-02 `core/ghost` (pure C++, `mod/native/core/ghost/**`, tests `mod/tests/ghost/*`, exe `x4mp_ghost_tests`, ctest prefix `ghost.`)
 
 API (namespace `x4mp::ghost`; no game calls, no SDK):

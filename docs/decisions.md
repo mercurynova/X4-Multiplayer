@@ -324,7 +324,7 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
 | Heartbeat interval / timeout | 1 s / 10 s | PROTO §7 (network thread answers) |
 | Handshake timeout | 10 s | |
 | `ResumeGraceSeconds` | 60 | client and authority socket loss |
-| `AuthorityGraceSeconds` | 120 | `AuthorityLost` → `Stopping`/`Migrating` |
+| `AuthorityGraceSeconds` | 120 (default raised to 600 by ADR-052 F13) | `AuthorityLost` → `Stopping`/`Migrating` |
 | Control lane soft / hard cap | 8 MiB / 32 MiB | PROTO (SRV's 2/8 MiB superseded) |
 | `SlowConsumerTimeoutSeconds` | 15 | oldest Control item age |
 | Realtime low / high watermark | 64 KiB / 256 KiB | |
@@ -831,6 +831,9 @@ presence) and ADR-049 (team origins).
   target to an M4 perf item.
 - **F13, authority grace:** raise the `AuthorityGraceSeconds` default (about 600 s, still a GUI setting) AND let an
   admin resume an Ended session from its last checkpoint when the authority comes back.
+  *Implemented (branch `feat/f13-authority-grace-resume`):* default 600 s (stored values are kept: settings persist as overrides only), admin
+  `POST /sessions/{id}/resume` + GUI button, Ended to WaitingForAuthority on the last checkpoint through the M3-21 authority-reload path; teams and
+  wallets kept, world rebuilt from the loaded checkpoint, resume after a server restart not supported (create from the checkpoint). See m3-plan section 8, "F13".
 - **A4, `[MP]` objects in an exported save:** strip `[MP]` avatars and ghosts on the "export for single-player" path
   so the save loads clean in vanilla X4. Planned for M6 (packaging).
 - **F23b** (0 m/s target info above 1000 m/s) stays open until the in-game `diag.hints_off` result.
