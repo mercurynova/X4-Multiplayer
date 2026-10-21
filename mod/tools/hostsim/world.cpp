@@ -91,6 +91,7 @@ bool World::remove(std::uint64_t id) {
   const auto it = objs_.find(id);
   if (it == objs_.end()) return false;
   if (it->second.owner == "player") ++removed_player;
+  if (it->second.owner.rfind("x4mp_team_", 0) == 0) ++removed_ghosts;
   objs_.erase(it);
   ++removed;
   return true;

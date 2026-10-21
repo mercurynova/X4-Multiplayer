@@ -1,6 +1,7 @@
 #include "core/ghost/interpolator.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace x4mp::ghost {
 
@@ -169,8 +170,20 @@ Interpolator::Raw Interpolator::evaluate(std::int64_t t) const noexcept {
     // (at rest, turning in place) sends rotation-only entries and then nothing until its next keyframe: continuing its last turn rate for the 500 ms
     // cap and then holding the overshoot showed a heading up to ~1.5 rad past the real one for up to 5 s (HostSimM3 turn-in-place flake, 2026-10-20: a
     // 0.3 rad turn after 2.0 rad read -1.23). Such a ghost holds the newest real heading.
-    if (have_prev_seg && length(vel) > 1e-6 && prev_dt_s * 1e6 <= static_cast<double>(cfg_.slow_interval_max_us))
-      r.rot = quat_to_euler(slerp(ring_[idx - 1].q, n0.q, 1.0 + cap_s / prev_dt_s));
+    // M3-36: gated on a real speed (vel includes the finite-difference fallback, so mm jitter of a ship turning in place must not pass), the
+    // extrapolation time is limited to angular_extrap_cap and the angle to angular_extrap_max_rad, and once the position is Held the heading
+    // eases back to the newest real one (a moving ship that turns and then stalls used to hold the overshoot up to stale_us).
+    if (have_prev_seg && length(vel) > cfg_.angular_extrap_min_speed_mps && prev_dt_s * 1e6 <= static_cast<double>(cfg_.slow_interval_max_us)) {
+      double te_us = static_cast<double>(std::min(age, cfg_.angular_extrap_cap_us));
+      if (age > cfg_.extrap_cap_us) {
+        const double ease = 1.0 - static_cast<double>(age - cfg_.extrap_cap_us) / static_cast<double>(cfg_.angular_extrap_cap_us);
+        te_us *= ease > 0.0 ? ease : 0.0;
+      }
+      double f = te_us / 1e6 / prev_dt_s;
+      const double step_rad = 2.0 * std::acos(std::min(1.0, std::abs(dot(ring_[idx - 1].q, n0.q))));
+      if (step_rad * f > cfg_.angular_extrap_max_rad) f = cfg_.angular_extrap_max_rad / step_rad;
+      if (f > 0.0) r.rot = quat_to_euler(slerp(ring_[idx - 1].q, n0.q, 1.0 + f));
+    }
     if (age > cfg_.stale_us) {
       r.state = PoseState::Stale;
       r.vel = {};

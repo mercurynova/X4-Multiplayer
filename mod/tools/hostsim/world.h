@@ -80,6 +80,7 @@ class World {
 
   // counters (expect-state)
   long long spawns = 0, set_pos_calls = 0, teleports = 0, owner_calls = 0, activate_calls = 0, radar_calls = 0, removed = 0;
+  long long removed_ghosts = 0;  // M3-36: removals of ghost-owned objects (owner x4mp_team_*): adoption / janitor / hides. Single-process scripts assert it stays 0
   long long removed_player = 0;  // removals of player-owned objects only (the takeover's local copy); ghost hides of other players do not count, so pair scripts do not race their peers
 
   // ---- objects and sectors ----

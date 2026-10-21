@@ -40,6 +40,8 @@ expect-object 200001 absent
 expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
 expect-state teleports == 1
 expect-state removed_player == 1
+# M3-36: and no ghost was removed (removed_ghosts counts owner x4mp_team_* only, so nothing racy is in it)
+expect-state removed_ghosts == 0
 seat on
 # we sit in the avatar, next to the host ship in sector 1: fly a circle (20 Hz PlayerState, the authority drives our avatar from it)
 drop-lua x4mp.selfship
@@ -144,6 +146,8 @@ until 30000 expect-file extension/logs/x4mp.log ghost adoption: records=${ghosts
 expect-file extension/logs/x4mp.log lost=0 (registry
 expect-state spawns == ${spawns}
 expect-state removed_player == 1
+# adoption removes no ghost (M3-36: restored after M3-35 loosened removed -> removed_player)
+expect-state removed_ghosts == 0
 expect-object count == ${ghosts} owner=x4mp_team_1
 expect-object count == 1 "name=[MP] ${host}"
 expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
