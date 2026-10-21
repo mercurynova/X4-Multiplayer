@@ -822,6 +822,20 @@ presence) and ADR-049 (team origins).
   heads) for build 611726; confirm spawning a temporary actor with a chosen macro/variant in a room (S10); decide the
   fallback when a macro is missing on a client (e.g. DLC race not enabled → nearest race + log).
 
+### ADR-052 Session-4 findings decided for M3 exit (user decisions 2026-10-21)
+- **F1, exit to the main menu:** counts as LEAVING the session. The player's ship parks like a leave, the GUI shows
+  them as not in game, and loading back in is a normal rejoin. (Mod: detect the main-menu / game-unloaded state and
+  send a leave; server: treat it as a leave, not a dropped connection.)
+- **F9, ghost display delay at the 250 ms cap:** measure first. Read the latency numbers from the next in-game session
+  (after M3-33's median-interval delay controller); if still at the cap, accept 250 ms for M3 and move the < 200 ms
+  target to an M4 perf item.
+- **F13, authority grace:** raise the `AuthorityGraceSeconds` default (about 600 s, still a GUI setting) AND let an
+  admin resume an Ended session from its last checkpoint when the authority comes back.
+- **A4, `[MP]` objects in an exported save:** strip `[MP]` avatars and ghosts on the "export for single-player" path
+  so the save loads clean in vanilla X4. Planned for M6 (packaging).
+- **F23b** (0 m/s target info above 1000 m/s) stays open until the in-game `diag.hints_off` result.
+
+
 ## Part 2. Open questions for the user
 
 These are product decisions only. Each has a recommended default that the build will use

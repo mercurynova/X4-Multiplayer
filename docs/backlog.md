@@ -40,17 +40,17 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | F20b | Re-provision path (checkpoint predates the online player) never exercised in game | RI | M3 exit | open (hostsim covers it) |
 | X1 | 30-min flight over >= 5 sectors incl. a highway (M3 criterion; sittings reached ~25 min) | S3 | M3 exit | open |
 | X2 | M3 exit report | roadmap | M3 exit | open (after the checks above) |
-| F1 | Exit to the main menu keeps the session "in game" | S1 | M3 exit (decide) | open |
-| F9 | Ghost display delay sits at the 250 ms cap (latency p95 > 200 ms target) | S1, S3 | M3 exit (decide) | open; M3-33 median interval may have helped |
+| F1 | Exit to the main menu keeps the session "in game" | S1 | M3 exit | decided (ADR-052): counts as leaving; task open |
+| F9 | Ghost display delay sits at the 250 ms cap (latency p95 > 200 ms target) | S1, S3 | M3 exit | decided (ADR-052): measure in the next session; at the cap -> accept for M3, < 200 ms becomes M4 |
 | F6 | Mod main-thread p95 0.27 ms with 8 ghosts (target < 0.2 ms) | S1 | M4 | open (perf pass) |
 | F8 | FPS 100 -> 70 with 8 ghosts nearby | S1 | M4 | open |
-| F13 | `AuthorityGraceSeconds` default 120 s ends a session before a real X4 restart is back; an Ended session cannot be resumed | S2 | M3 exit (decide) | open |
+| F13 | `AuthorityGraceSeconds` default 120 s ends a session before a real X4 restart is back; an Ended session cannot be resumed | S2 | M3 exit | decided (ADR-052): default ~600 s (GUI setting) + admin resume of an Ended session from its last checkpoint; task open |
 | F14 | A GUI setting change did not survive a server restart (not reproduced in S3) | S2, S3 | later | open, watch |
 | F19 | Vanilla `md.PlayerReputation` errors / "Prized Investor" notification on team factions | S3 | M5 | open, minor |
 | A1 | Avatars report `active=1` although the mod writes `ActivateObject(false)` | R28 | M4 | open |
 | A2 | M3-30 created ship has the starter loadout, not the returning player's upgrades | plan M3-30 | M5 | open |
 | A3 | Wingman bots copy the leader's heading instead of facing their direction of travel | S2 | later | open (FakeWingman) |
-| A4 | `[MP]` avatars stay in an exported checkpoint with owner "???" when loaded without the mod (V21b) | S2 | M6 | decision needed (document or strip) |
+| A4 | `[MP]` avatars stay in an exported checkpoint with owner "???" when loaded without the mod (V21b) | S2 | M6 | decided (ADR-052): strip `[MP]` objects on single-player export |
 | L1 | `GetObjectPositionInSector(): Failed to retrieve sector` log noise during gate / highway transits | S3 | M4 | open, minor |
 | N1 | Starter macro `ship_arg_s_fighter_01_a_macro` shows as Nova Vanguard; docs call it the Argon Elite | S2 | later | open (doc check) |
 
