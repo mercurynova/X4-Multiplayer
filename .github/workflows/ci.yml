@@ -276,7 +276,7 @@ jobs:
   #               --teams 3 --relations ffa --economy casual --dupe-attack --verify --admin-url ...`, any non-zero
   #               exit (drift, duplicate effect, invariant failure) fails the job.
   #   playwright: the Playwright suite (Chromium) against the published server exe.
-  # plus a windows job (e2e-headless) with the C++ x4mp-headless client (handshake, heartbeat, resume, save download) and
+  # plus a windows job (e2e-headless, E7: a matrix of 4 shards in parallel, see below) with the C++ x4mp-headless client (handshake, heartbeat, resume, save download) and
   # x4mp-hostsim (M2-01: the real x4mp.dll in a fake X4Native host against the real server; scenarios in mod/tests/hostsim:
   # smoke, join flow, reload survival, authority flow, mod refusal) and the M2-08 live authority upload kill test (ports 47980-47983).
   # ---------------------------------------------------------------------------------------------
@@ -336,8 +336,33 @@ jobs:
   e2e-headless:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
+    name: e2e-headless (${{ matrix.name }})
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 30
+    # E7: the 15 steps (~34 min serial) are split into 4 shards that run in parallel, balanced by measured step time (CI run
+    # 39603793368). Step seconds below EXCLUDE the mod build: the old "Headless 468 s" was the ~7 min cold mod build (the client itself
+    # runs ~10 s), tools/e2e.ps1 attributes the build to the first mod step of a run. Every shard pays Publish (~100 s) plus its own mod
+    # build (warm vcpkg cache: ~1-2 min), then its steps, so a shard is about 8-13 min wall (the old job: 34 min).
+    # Each shard is self-sufficient: tools/e2e.ps1 runs Publish first and builds the mod itself (Ensure-ModBuild). The steps use their own
+    # port ranges and every shard is its own machine, so nothing is shared between shards. ReloadSurvival is deliberately NOT in the
+    # shard with HostSimM3 (known flaky interaction, docs/backlog.md Flaky tests).
+    # `ci-ok` needs `e2e-headless`: the result of a matrix job is the aggregate of its shards.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ~355 s: HostSimAvatars [345] + Headless [10]
+          - name: avatars
+            steps: Publish,Headless,HostSimAvatars
+          # ~295 s: AuthorityFlow [165] + HostSimGhosts [128]
+          - name: authority
+            steps: Publish,AuthorityFlow,HostSimGhosts
+          # ~315 s: UploadKill [116] + HostSimM3 [~110] + JoinFlow [88]
+          - name: m3
+            steps: Publish,HostSimM3,UploadKill,JoinFlow
+          # ~275 s: HostSimPair [86] + ReloadSurvival [47] + Session4Kit [46] + UdpLane [43] + LaunchStats [22] + ModRefusal [19] + HostSim [14]
+          - name: misc
+            steps: Publish,HostSimPair,ReloadSurvival,Session4Kit,UdpLane,LaunchStats,ModRefusal,HostSim
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
     steps:
@@ -362,16 +387,16 @@ jobs:
       - name: Create vcpkg cache dir
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
-      # M3-14: + HostSimAvatars (real authority + bots), HostSimM3 (two real DLLs: authority + client, 6 bots; perf / bandwidth / log rate through
+      # M3-14: HostSimAvatars (real authority + bots), HostSimM3 (two real DLLs: authority + client, 6 bots; perf / bandwidth / log rate through
       # tools/session4/sync-report.ps1), UdpLane (UDP lane forced / loss / blocked / fallback) and Session4Kit (every session-4 kit script).
-      - name: E2E (Publish, Headless, HostSim, HostSimPair, HostSimGhosts, HostSimAvatars, HostSimM3, UdpLane, JoinFlow, ReloadSurvival, AuthorityFlow, ModRefusal, LaunchStats, UploadKill, Session4Kit)
+      - name: E2E (${{ matrix.steps }})
         shell: pwsh
-        run: ./tools/e2e.ps1 -Steps Publish,Headless,HostSim,HostSimPair,HostSimGhosts,HostSimAvatars,HostSimM3,UdpLane,JoinFlow,ReloadSurvival,AuthorityFlow,ModRefusal,LaunchStats,UploadKill,Session4Kit
+        run: ./tools/e2e.ps1 -Steps ${{ matrix.steps }}
       - name: Upload E2E logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-headless-logs
+          name: e2e-headless-logs-${{ matrix.name }}
           path: |
             out/e2e/summary.md
             out/e2e/logs
