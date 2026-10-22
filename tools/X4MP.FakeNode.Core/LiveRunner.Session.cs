@@ -192,6 +192,9 @@ internal sealed class NodeLink(TcpNodeClient client, int playerId)
         }
     }
 
+    /// <summary>Completes true when the server's <c>SessionState</c> arrives (however late), false when the connection ended first. Never times out.</summary>
+    public Task<bool> SessionAnnouncedAsync(CancellationToken ct) => _session.Task.WaitAsync(ct);
+
     public async Task StopAsync()
     {
         try

@@ -91,6 +91,46 @@ public sealed class FakeNodeSaveFlowTests(ITestOutputHelper output)
         Assert.Contains("checkpoint stored", text);
     }
 
+    /// <summary>
+    /// Regression (HostSimM3 on the CI runner, 2026-10-21): the session actor can announce a node long after its Welcome (a busy actor serialises
+    /// the admissions). A bot that had given up waiting for <c>SessionState</c> played "bare gateway" for the rest of the run and never took the
+    /// save offer. A detect window that has always run out by the time the announcement arrives must still end with every node in game.
+    /// </summary>
+    [Fact]
+    public async Task NodesWhoseSessionAnnouncementComesAfterTheDetectWindowStillJoinWithTheSave()
+    {
+        await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0");
+        var options = CliParser.Parse(["swarm", "--clients", "3", "--with-authority", "--save-mb", "3", "--sectors", "20", "--ships", "200", "--duration", "60"]).Options!
+            with { Port = server.TcpPort };
+        var run = new LiveRunOptions
+        {
+            PingInterval = TimeSpan.FromMilliseconds(100),
+            ReportInterval = TimeSpan.FromMilliseconds(300),
+            ConnectStagger = TimeSpan.FromMilliseconds(10),
+            SessionDetect = TimeSpan.FromTicks(1), // over before any SessionState can arrive
+        };
+        var text = new LockedWriter();
+        using var cts = new CancellationTokenSource();
+        var runner = Task.Run(() => LiveRunner.RunAsync(options, text, run, cts.Token));
+        try
+        {
+            await SaveServer.WaitUntilAsync(() => text.Snapshot().Contains("ingame=4", StringComparison.Ordinal), 20_000, "all four nodes in game");
+        }
+        catch (Xunit.Sdk.XunitException)
+        {
+            output.WriteLine(text.Snapshot());
+            throw;
+        }
+
+        await cts.CancelAsync();
+        int exit = await runner;
+        string result = text.Snapshot();
+        output.WriteLine(result);
+        Assert.Equal(0, exit);
+        Assert.Contains("errors=0", result);
+        Assert.Equal(3, result.Split('\n').Count(l => l.Contains("joined with the save after", StringComparison.Ordinal)));
+    }
+
     [Fact]
     public async Task SwarmWithVerifyStillVerifiesReplicationAfterTheSaveJoin()
     {
