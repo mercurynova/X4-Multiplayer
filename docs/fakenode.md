@@ -46,7 +46,7 @@ name stays bound to the first key that used it, otherwise the server answers `Na
 | `help` | Usage. |
 
 Against a server with no session actor (a bare gateway, as in some tests) a node only keeps its connection alive with
-Ping/Pong. Options accept `--name value` and `--name=value`. `--verify` and the other boolean flags take no value.
+Ping/Pong. If the session's announcement arrives late (a busy actor on a loaded runner), the node switches to its session role then; it does not stay bare. Options accept `--name value` and `--name=value`. `--verify` and the other boolean flags take no value.
 
 ## 3. Options
 

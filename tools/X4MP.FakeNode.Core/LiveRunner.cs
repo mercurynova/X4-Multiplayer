@@ -759,7 +759,11 @@ public static partial class LiveRunner
                 }
                 else
                 {
-                    await PingLoopAsync(link, stats, run, lines, plan.Name, print, ct).ConfigureAwait(false);
+                    // No SessionState within SessionDetect: a bare gateway (it never comes) or a session actor that is busy (it comes late: on a
+                    // loaded CI runner the actor serialises the admissions and a node's announcement can trail its Welcome by seconds). Keep the
+                    // socket alive meanwhile, and when the announcement does arrive play the session role after all; the frames that came in
+                    // before (the save offer among them) are replayed to the role's handler. Giving up for good here left nodes out of the game.
+                    await RunBareThenSessionAsync(o, plan, index, link, stats, run, lines, galaxy.Value, Path.Combine(saveRoot, plan.Name), print, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -791,6 +795,34 @@ public static partial class LiveRunner
         }
 
         stats.MarkDisconnected();
+    }
+
+    private static async Task RunBareThenSessionAsync(
+        CliOptions o, NodePlan plan, int index, NodeLink link, LiveNodeStats stats, LiveRunOptions run, SynchronizedWriter lines,
+        FakeGalaxy galaxy, string saveDir, bool print, CancellationToken ct)
+    {
+        using var bareCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var bare = PingLoopAsync(link, stats, run, lines, plan.Name, print, bareCts.Token);
+        var announced = link.SessionAnnouncedAsync(ct);
+        var first = await Task.WhenAny(bare, announced).ConfigureAwait(false);
+        if (first == bare || !await announced.ConfigureAwait(false))
+        {
+            await bare.ConfigureAwait(false); // the heartbeat failed, or the connection ended (the ping loop reports it)
+            return;
+        }
+
+        await bareCts.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await bare.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // handed over to the session role below
+        }
+
+        await lines.WriteAsync($"[{plan.Name}] the session announced itself late: joining it now").ConfigureAwait(false);
+        await RunSessionNodeAsync(o, plan, index, link, stats, run, lines, galaxy, saveDir, print, ct).ConfigureAwait(false);
     }
 
     /// <summary>
