@@ -40,13 +40,13 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | F20b | Re-provision path (checkpoint predates the online player) never exercised in game | RI | M3 exit | open (hostsim covers it) |
 | X1 | 30-min flight over >= 5 sectors incl. a highway (M3 criterion; sittings reached ~25 min) | S3 | M3 exit | open |
 | X2 | M3 exit report | roadmap | M3 exit | open (after the checks above) |
-| F1 | Exit to the main menu keeps the session "in game" | S1 | M3 exit | decided (ADR-052): counts as leaving; **implemented (mod `MenuExitWatch`, 30 s confirm, server unchanged); in-game check "F1 main-menu leave" in in-game-session-4.md** |
+| F1 | Exit to the main menu keeps the session "in game" | S1 | M3 exit | decided (ADR-052): counts as leaving; **fix in (PR #24: mod `MenuExitWatch`, 30 s confirm, server unchanged), in-game check pending ("F1 main-menu leave" in in-game-session-4.md)** |
 | F9 | Ghost display delay sits at the 250 ms cap (latency p95 > 200 ms target) | S1, S3 | M3 exit | decided (ADR-052): measure in the next session; at the cap -> accept for M3, < 200 ms becomes M4 |
 | F9b | **Player-ship samples get the wrong time stamp:** `WorldMirror.ApplyPlayerState` stamps a player sample with the latest WorldUpdate's game time, not the sample's own time (20 Hz samples come out 4-400 ms apart, ~1.4% duplicates). The ghost gets the right speed on a jagged time axis: ~5-10 m path error, and the delay controller reads the noise as jitter (likely the cause of F9). Fix: map the sender's `SampleTimeUs` (server-clock estimate) into game time; FakeNode bots must send a server-clock estimate too; regression test for even, monotonic stamps. Experiment (arrival-time stamps) halved the error | HostSimM3 A/B 2026-10-21 (14 runs, not an M3-35/36 regression) | M3 exit | **queued: start after the next in-game session** (user 2026-10-21; that session is the baseline) |
 | F6 | Mod main-thread p95 0.27 ms with 8 ghosts (target < 0.2 ms) | S1 | M4 | open (perf pass) |
 | F8 | FPS 100 -> 70 with 8 ghosts nearby | S1 | M4 | open |
-| F13 | `AuthorityGraceSeconds` default 120 s ends a session before a real X4 restart is back; an Ended session cannot be resumed | S2 | M3 exit | decided (ADR-052): default ~600 s (GUI setting) + admin resume of an Ended session from its last checkpoint; implemented on feat/f13-authority-grace-resume, in-game check open (in-game-session-4.md "F13 authority grace + resume") |
-| F13b | A rollback to a checkpoint (F13 resume, M3-21 authority reload) did not roll the server-owned ledger back: spend after the checkpoint lost ships and credits, income survived | user 2026-10-21 | M3 exit | decided + implemented (ADR-053, branch feat/f13b-ledger-rollback): ledger sequence mark per checkpoint, compensating entries, loans/trades/layout restored, admin actions kept, notice to players; in-game check open (in-game-session-4.md "F13 authority grace + resume" step 9) |
+| F13 | `AuthorityGraceSeconds` default 120 s ends a session before a real X4 restart is back; an Ended session cannot be resumed | S2 | M3 exit | decided (ADR-052): default ~600 s (GUI setting) + admin resume of an Ended session from its last checkpoint; fix in (PR #25), in-game check pending (in-game-session-4.md "F13 authority grace + resume") |
+| F13b | A rollback to a checkpoint (F13 resume, M3-21 authority reload) did not roll the server-owned ledger back: spend after the checkpoint lost ships and credits, income survived | user 2026-10-21 | M3 exit | decided (ADR-053), fix in (PR #28): ledger sequence mark per checkpoint, compensating entries, loans/trades/layout restored, admin actions kept, notice to players; in-game check pending (in-game-session-4.md "F13 authority grace + resume" step 9) |
 | F14 | A GUI setting change did not survive a server restart (not reproduced in S3) | S2, S3 | later | open, watch |
 | F19 | Vanilla `md.PlayerReputation` errors / "Prized Investor" notification on team factions | S3 | M5 | open, minor |
 | A1 | Avatars report `active=1` although the mod writes `ActivateObject(false)` | R28 | M4 | open |
@@ -69,14 +69,13 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 
 | ID | Item | Evidence | Target | Status |
 |---|---|---|---|---|
-| E3 | CI becomes the merge gate (PR flow, `ci-ok`, branch protection, full CI on PRs) | execution-plan §3.4 | now | ci.yml done (PR #19, 2026-10-21); branch protection waits for the user's OK |
-| E4 | Dependabot: #12, #15, #18 closed 2026-10-21 (superseded; replaced by PR #22 / #23, merged); the Actions majors #8, #10, #16 go to E6 | GitHub | done | done 2026-10-21 |
 | E6 | **Node 20 deprecation** warnings in CI: `actions/cache@v4`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, `github/codeql-action@v3` target Node 20 (our `setup-node` is already 24). One Sonnet PR bumps all four majors together (upload + download artifact must match), release notes checked, full CI incl. e2e-headless; supersedes #8, #10, #16 | CI annotations (2026-10-20) | after E3 | open |
-| E7 | **Faster e2e-headless** (~34 min serial on one runner): split into 3-4 parallel Windows jobs balanced by step time (Headless 7.8 min, Avatars 5.8, AuthorityFlow 2.7, the rest 0.2-2), each builds the mod itself; then look at why Headless / Avatars wait so long (test-only server timeouts, never looser checks). Target ~13-15 min wall. `ci-ok` keeps needing every job. Considered and not taken: e2e only in a merge queue (personal-account repos may not have merge queues, and PR e2e caught the 2026-10-21 bot-join regression before main), larger paid runners (the steps wait, they are not CPU-bound), path filters (just removed) | user 2026-10-21 | after E3 (#19) | part 1 done (4-shard matrix `e2e-headless (<shard>)`, branch `ci/e2e-parallel`); part 2 findings: the 468 s "Headless" is the cold mod build, see PR |
+| E11 | e2e-headless follow-up to E7: each of the 4 shards builds the mod cold (~7 min of its ~14-19); build it once in a job of its own and hand the output to the shards as an artifact | PR #26 (E7) | later | open |
 | E8 | Keep the HostSimM3 sync-report numbers (path error, latency) from PASSING runs too (job summary or artifact), so a threshold miss can be told from noise | 2026-10-21 | M4 | open |
 | E10 | **A durable SQLite commit on the session actor can stall heartbeats** on a slow disk: the economy/ledger stores commit with `synchronous=FULL` from the actor thread; under disk contention on the windows runner the live tests saw 11 s rtt and ping timeouts (CI fixed with `dotnet test -m:1`, PR #30). On a host with an HDD / busy NAS / cheap VPS this could drop players. Move the commit off the actor (or batch it) without losing durability | PR #30 analysis | M4 | open |
 | E9 | `RelayModule.Chat` (line ~201) sends to nodes gated only on `IsAttached`, not `Announced`: a chat frame could reach a node before its Welcome | PR #21 review | M4 | open |
-| E5 | Leftovers: worktrees `gracious-dubinsky…`, `charming-hodgkin…` + the PR #17 agent worktrees; branches `deps/signalr-client-advisory`, `chore/sdk-10.0.402`, `chore/dotnet-10.0.13`, `chore/pair-logs-in-ci`, `fix/pair-removed-race` | this file | now | open |
+| E5 | Leftovers: worktrees `gracious-dubinsky…`, `charming-hodgkin…` (side sessions, need the user's OK); local branch `fix/net-disconnect-flake` (patch is in main via PR #30, needs `-D`); the merged remote branches on GitHub (deleting them needs the user's OK). All agent worktrees and merged local branches were removed 2026-10-22 | this file | now | open |
+| E12 | Pair runners copy the mod log twice on failure, and the sync-report copy line has no test (code review 2026-10-21, findings 6/7) | code review | later | open |
 
 ## Flaky tests
 
@@ -85,15 +84,20 @@ Rule (execution-plan §3.4): a fail-then-pass is logged here with its run id; a 
 | Test | Seen | Status |
 |---|---|---|
 | HostSimM3 turn-in-place yaw / HostSimPair online + removed count | M3-34 agent run (local), 2x on `chore/dotnet-10.0.13` (local), CI runs 39348939896, 39462803847 | **not flakes**, fixed in PR #17: ghost heading overshoot (M3-35) and a cross-process race in the pair test's world removal count (`removed_player`) |
-| HostSimM3 sync-report `path error p95, steady flight < 300 m/s` 11.94 m (limit 10, Bot04; others 6.6-8.5) on a busy runner (latency worst 2.6 s) | PR #21 CI run 39603793368 (2026-10-21) | seen 1x, re-run |
-| `EconomyBehaviourLiveTests.AHeavyEconomyUnderAttackLeavesCleanBooksAndMatchingModels` (dotnet windows): runner stall, pings up to 11 s, 3 bots dropped | PR #19 CI run 39528117963 (2026-10-21) | seen 1x |
-| Catch2 `core.net: a server Disconnect is delivered, and no-retry codes halt reconnecting` (`test_net_socket.cpp` 580-584, 5 s wait) on the windows `mod` job | PR #24 CI (2026-10-21) | seen 1x |
+| HostSimM3 sync-report `path error p95, steady flight < 300 m/s` 11.94 m (limit 10, Bot04; others 6.6-8.5) on a busy runner (latency worst 2.6 s) | PR #21 CI run 39603793368 (2026-10-21) | investigated: not a regression, the ~10 m comes from the player-sample time stamps (F9b) |
+| `EconomyBehaviourLiveTests.AHeavyEconomyUnderAttackLeavesCleanBooksAndMatchingModels` (dotnet windows): runner stall, pings up to 11 s, 3 bots dropped | PR #19 CI run 39528117963 (2026-10-21) | fixed in PR #30 (disk contention from parallel test projects: `dotnet test -m:1`; the product side is E10) |
+| Catch2 `core.net: a server Disconnect is delivered, and no-retry codes halt reconnecting` (`test_net_socket.cpp` 580-584, 5 s wait) on the windows `mod` job | PR #24 CI (2026-10-21) | **not a flake**, fixed in PR #30: a POLLHUP next to POLLWRNORM was read as a failed connect, so a Disconnect sent right after accept was lost |
+| HostSimM3 `object count: got 4.0, want 7`: 2-3 bots welcomed but never download the save | PR #21 CI, PR #28 CI run 39666365507 (2026-10-22) | **not a flake**, fixed in PR #32: a FakeNode bot whose `SessionState` came > 2 s after its Welcome (busy actor, E10) stayed in bare-gateway mode and ignored the save offer |
+| `EconomyHubTests.EconomyEventPushesAreRateLimited` | PR #26 CI (2026-10-22) | seen 1x, re-run passed |
+| `e2e (playwright)`: the Playwright runner died with `EPIPE` (write to a closed socket in the reporter) and the job was cancelled after 15 min | PR #32 CI run 39843874603 (2026-10-22) | seen 1x, re-run passed |
 | ReloadSurvival 401 when run right after HostSimM3 in one e2e call | 2026-10-04, 2026-10-06 (passes alone) | open, seen 2x: investigate when E1 is done |
 
 ## Done (log)
 
 | Date | Item |
 |---|---|
+| 2026-10-22 | E7 (PR #26): e2e-headless as 4 parallel shards, ~20 min wall instead of ~35. F13b (PR #28) merged. HostSimM3 stuck-bot join fixed in FakeNode (PR #32) |
+| 2026-10-21 | E3: CI is the merge gate (PR #19, `ci-ok`), branch protection on main (required `ci-ok`, no force push / deletion, user OK). E4: Dependabot #12, #15, #18 closed, replaced by PR #22 / #23. M3-36 (PR #20), mod-report order (PR #21), F1 (PR #24), F13 (PR #25), red main fixed (PR #30) |
 | 2026-10-20 | E1 + E2 (PR #17, `1e11a85`): .NET 10.0.13 / SDK 10.0.402 (CVE-2026-70159), M3-35 ghost heading fix, HostSimPair race fix, pair mod logs kept in the CI artifact; PR #14 closed as superseded |
 | 2026-10-19 | Internet two-PC run: superhighway signal, re-host rebind, UDP fallback pass (RI) |
 | 2026-10-07 | F4 (client map records explored space, M3-30 + hotfix), F18 (authority map flips, M3-31) confirmed in game (R28) |
