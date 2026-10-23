@@ -1175,6 +1175,44 @@ are blocked until the balance is ≥ 0.
    credits only. The admin may additionally send the authority `AssetReturn{tradeId}`
    (best effort, reported back). The trade's state stays `Completed`, with a
    `reversed` flag.
+9. **The ledger follows the checkpoint** (ADR-053, F13b). Every transaction has a monotonic
+   **sequence number** (`ledger_tx.rowid`, `LedgerTransaction.Seq`, `IEconomyStore.HighWaterSeq`;
+   never a clock). When the authority begins a checkpoint (`SaveStarted`, the same instant as the
+   journal marker) the save service records a **ledger mark** with it: the sequence number plus a JSON
+   snapshot of the loans, trades and credit layout (`checkpoints.ledger_seq`, `checkpoints.ledger_snapshot`,
+   migration 0009; an older checkpoint has none = unknown). When the authority is about to load that
+   checkpoint again (F13 resume of an Ended session, the M3-21 reload after an authority loss; both
+   enter through `SaveService.RollbackWorldToSave`) `EconomyService.RollBackToMark` runs:
+   - Transactions after the mark are classified. **Undone**: everything game-tied (game income and
+     spend, transfers, donations, pool deposits and withdrawals, loan escrow, disbursement, repayment,
+     auto-repay, forgiveness, trade escrow, settlement, refund, mode migrations and team moves). **Kept**:
+     admin adjustments, admin reversals of transactions from before the mark, the starting credits of a
+     player who first joined after the mark (so a rejoin never credits them twice: the player stays in the
+     layout) and the save-money seed. A transaction and the reversal that already undid it (both after
+     the mark) are left alone (they net to zero).
+   - Each undone transaction gets one compensating `Reversal` (newest first, `Reverses` set, `RefType`
+     `Rollback`, note `rollback to checkpoint <id>: <reason>; undoes <kind> <txid>`), so every wallet walks
+     back through balances it really had and the ledger stays append-only. If that order would take a team
+     pool or escrow wallet below zero (only possible when an admin action is kept), one net transaction is
+     posted instead. Afterwards the balances are compared with `BalancesAt(mark)` plus the kept
+     transactions; any difference raises a critical `economy_rollback_drift` alert.
+   - Loans return to their record at the mark (a loan created after it becomes `Cancelled`, close reason
+     `rolled back to checkpoint ...`); open trades return to their snapshot and a trade that held escrow
+     is refunded (`RolledBack`) because the reloading authority has lost its transfer order; trades
+     created after the mark become `RolledBack`; the credit layout returns to the mark, then `Reconcile`
+     applies a mode switch or team move an admin made since.
+   - `CreditDelta` sequences (`economy_delta_seq`) and idempotency records are **not** rolled back: the
+     node must not resend what is booked, and a replay of a request that was rolled back answers with its
+     old result without moving money (no duplicate effect).
+   - The checkpoint's mark then moves to the restored state, so a repeat run (a second authority
+     connection) finds nothing left to undo. Every node gets its restored balances and a `ServerNotice`
+     ("Session restored to the checkpoint of ...; your balance is now ... Cr"); a node still loading is sent
+     its balances again when it reaches `InGame`, because its game money converges to the last
+     `WalletUpdate` (mod-design.md §12.2). The audit log gets `economy.rollback` (reason, mark and ledger
+     sequence before and after, kept transaction ids).
+   - A checkpoint without a mark (stored before migration 0009, or without an economy) is never guessed
+     at: nothing is reversed, a warning alert `economy_rollback_unknown_mark` is raised and logged. The
+     same holds for the start save of a session that has no checkpoint yet.
 
 #### Protocol messages (canonical names, protocol.md §20 / ADR-027)
 

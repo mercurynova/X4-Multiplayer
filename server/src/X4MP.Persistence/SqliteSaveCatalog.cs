@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Dapper;
 using X4MP.Core.Saves;
+using X4MP.Core.World;
 
 namespace X4MP.Persistence;
 
@@ -179,8 +180,10 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
         writer.TryEnqueue(
             """
             INSERT INTO checkpoints
-              (session_id, save_id, save_sha256, journal_seq, game_time, next_net_id, ghosts_cleaned, created_at, checkpoint_id, manifest_sha256, manifest_size)
-            VALUES (@session, (SELECT id FROM saves WHERE sha256 = @sha), @sha, @seq, @time, @next, @cleaned, @at, @cp, @manifest, @manifestSize)
+              (session_id, save_id, save_sha256, journal_seq, game_time, next_net_id, ghosts_cleaned, created_at, checkpoint_id, manifest_sha256, manifest_size,
+               ledger_seq, ledger_snapshot)
+            VALUES (@session, (SELECT id FROM saves WHERE sha256 = @sha), @sha, @seq, @time, @next, @cleaned, @at, @cp, @manifest, @manifestSize,
+               @ledgerSeq, @ledgerSnapshot)
             """,
             new
             {
@@ -194,7 +197,30 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
                 cp = checkpoint.Id.ToString(),
                 manifest = checkpoint.ManifestSha256,
                 manifestSize = checkpoint.ManifestSize,
+                ledgerSeq = checkpoint.Mark?.Seq,
+                ledgerSnapshot = checkpoint.Mark?.Snapshot,
             });
+
+    public void UpdateLedgerMark(CheckpointId checkpoint, LedgerMark mark) =>
+        writer.TryEnqueue(
+            "UPDATE checkpoints SET ledger_seq = @seq, ledger_snapshot = @snapshot WHERE checkpoint_id = @cp",
+            new { cp = checkpoint.ToString(), seq = mark.Seq, snapshot = mark.Snapshot });
+
+    public LedgerMark? FindLedgerMark(CheckpointId checkpoint)
+    {
+        using var connection = factory.Open();
+        var row = connection.QueryFirstOrDefault<MarkRow>(
+            "SELECT ledger_seq AS Seq, ledger_snapshot AS Snapshot FROM checkpoints WHERE checkpoint_id = @cp ORDER BY id DESC LIMIT 1",
+            new { cp = checkpoint.ToString() });
+        return row is { Seq: { } seq, Snapshot: { } snapshot } ? new LedgerMark(seq, snapshot) : null;
+    }
+
+    private sealed class MarkRow
+    {
+        public long? Seq { get; set; }
+
+        public string? Snapshot { get; set; }
+    }
 
     public void SetSessionSave(long sessionId, string sha256, bool initial) =>
         writer.TryEnqueue(

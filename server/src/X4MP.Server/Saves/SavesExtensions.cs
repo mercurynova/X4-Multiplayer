@@ -39,6 +39,7 @@ public static class SavesExtensions
         services.TryAddSingleton(sp => new SaveFileStore(sp.GetRequiredService<DataDirInfo>().Path));
         services.AddSingleton<ISaveSeedHook>(sp => new EconomySaveSeeder(
             () => sp.GetService<EconomyModule>()?.Service, sp.GetService<ILogger<EconomySaveSeeder>>()));
+        services.AddSingleton<ILedgerCheckpointHook>(sp => new EconomyLedgerCheckpointHook(() => sp.GetService<EconomyModule>()));
         services.AddSingleton(sp =>
         {
             var monitor = sp.GetRequiredService<IOptionsMonitor<SaveOptions>>();
@@ -50,7 +51,8 @@ public static class SavesExtensions
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetService<IEventPublisher>(),
                 sp.GetServices<ISaveSeedHook>(),
-                sp.GetService<ILogger<SaveService>>());
+                sp.GetService<ILogger<SaveService>>(),
+                sp.GetService<ILedgerCheckpointHook>());
         });
         services.AddSingleton<ISessionModule>(sp => sp.GetRequiredService<SaveService>());
         services.AddSingleton(sp =>

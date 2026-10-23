@@ -421,12 +421,42 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
         return ReadTransactions(cmd);
     }
 
+    public long HighWaterSeq(long sessionId)
+    {
+        // rowid of ledger_tx: assigned in commit order, never reused (rows are never deleted: the append-only trigger), independent of any clock.
+        using var cmd = Command(Db, "SELECT COALESCE(MAX(rowid), 0) FROM ledger_tx WHERE session_id = $s", sessionId);
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public IReadOnlyList<LedgerTransaction> TransactionsAfter(long sessionId, long seq)
+    {
+        using var cmd = Command(Db, TxSelect + " WHERE t.session_id = $s AND t.rowid > $seq ORDER BY t.rowid ASC", sessionId);
+        cmd.Parameters.AddWithValue("$seq", seq);
+        return ReadTransactions(cmd);
+    }
+
+    public IReadOnlyDictionary<WalletId, long> BalancesAt(long sessionId, long seq)
+    {
+        var sums = new Dictionary<WalletId, long>();
+        using var cmd = Command(Db,
+            "SELECT e.wallet_kind, e.wallet_owner_id, SUM(e.amount) FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id " +
+            "WHERE t.session_id = $s AND t.rowid <= $seq GROUP BY e.wallet_kind, e.wallet_owner_id", sessionId);
+        cmd.Parameters.AddWithValue("$seq", seq);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            sums[new WalletId(ParseKind(reader.GetString(0)), reader.GetInt64(1))] = reader.GetInt64(2);
+        }
+
+        return sums;
+    }
+
     private const string TxSelect =
-        "SELECT t.id, t.ts, t.kind, t.actor, t.request_id, t.ref_type, t.ref_id, t.reverses_tx, t.reversed_by_tx, t.note FROM ledger_tx t";
+        "SELECT t.id, t.ts, t.kind, t.actor, t.request_id, t.ref_type, t.ref_id, t.reverses_tx, t.reversed_by_tx, t.note, t.rowid FROM ledger_tx t";
 
     private List<LedgerTransaction> ReadTransactions(SqliteCommand cmd)
     {
-        var heads = new List<(string Id, DateTimeOffset At, TxKind Kind, string Actor, string? Request, string? RefType, long? RefId, string? Reverses, string? ReversedBy, string? Note)>();
+        var heads = new List<(string Id, DateTimeOffset At, TxKind Kind, string Actor, string? Request, string? RefType, long? RefId, string? Reverses, string? ReversedBy, string? Note, long Seq)>();
         using (var reader = cmd.ExecuteReader())
         {
             while (reader.Read())
@@ -435,7 +465,7 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
                     reader.GetString(0), ParseTime(reader.GetString(1)), Enum.Parse<TxKind>(reader.GetString(2)), reader.GetString(3),
                     reader.IsDBNull(4) ? null : reader.GetString(4), reader.IsDBNull(5) ? null : reader.GetString(5),
                     reader.IsDBNull(6) ? null : reader.GetInt64(6), reader.IsDBNull(7) ? null : reader.GetString(7),
-                    reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9)));
+                    reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9), reader.GetInt64(10)));
             }
         }
 
@@ -456,7 +486,7 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
             }
 
             result.Add(new LedgerTransaction(
-                head.Id, session, head.At, head.Kind, head.Actor, head.Request, head.RefType, head.RefId, head.Reverses, head.Note, entries, head.ReversedBy));
+                head.Id, session, head.At, head.Kind, head.Actor, head.Request, head.RefType, head.RefId, head.Reverses, head.Note, entries, head.ReversedBy, head.Seq));
         }
 
         return result;

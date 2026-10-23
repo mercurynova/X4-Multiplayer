@@ -278,10 +278,32 @@ An **Ended** session can be brought back by an admin, for example after a long X
    admin save), loads it, stores a fresh checkpoint and the session is `Running` again.
 3. Players rejoin like on a normal start (the end closed their connections, so they have no resume token) and are served the fresh checkpoint.
 
-What comes back: players and teams (memberships are kept), wallets and the ledger (server-owned; they are **not** rewound to the checkpoint),
-the world mirror (rebuilt from the loaded checkpoint; entities created after it are gone, as is anything played after it). Refused with
+What comes back: players and teams (memberships are kept), wallets and the ledger (server-owned, but **rewound to the checkpoint** when the
+authority loads it: see below), the world mirror (rebuilt from the loaded checkpoint; entities created after it are gone, as is anything played after it). Refused with
 `409 SessionNotEnded` when the session is not Ended, `409 NoCheckpoint` when it ended before it ever stored a checkpoint. Only the live Ended
 session of this server run can be resumed; after a server restart create a new session from the last checkpoint in the saves library instead.
+
+#### What a resume or an authority reload does to the wallets (ADR-053)
+
+Whenever the authority loads the session's checkpoint again (the resume above, or the authority came back after a loss and is sent the last
+checkpoint) the credits go back with the world. Otherwise a player who bought ships after the checkpoint would lose the ships **and** the credits.
+
+- Everything game-tied after the checkpoint is **reversed**: game income and spend, transfers, donations, pool deposits and withdrawals, loan
+  offers, acceptances, repayments and forgiveness, escrowed trades, and a credit-mode switch or team move. Wallets, team pools, escrows and
+  loans end up as they were when the checkpoint began; a trade that was running is refunded and closed.
+- **Kept**: credits you granted or removed in the GUI after the checkpoint (Economy > Adjust), your reversals of older transactions, the
+  starting credits of a player who joined after the checkpoint (they keep exactly one set; a rejoin does not add another) and the credits seeded
+  from the save at the start.
+- Nothing is deleted. The Economy > Ledger page shows a **Reversal** per undone transaction (note: `rollback to checkpoint <id>: ...; undoes ...`,
+  type Rollback) and the audit log has an `economy.rollback` entry with the reason, the ledger positions before and after and the kept
+  transactions. If the books do not match afterwards a critical alert `economy_rollback_drift` is raised.
+- Every player gets a notice ("Session restored to the checkpoint of <time>; your balance is now <X> Cr"); the authority is sent the restored
+  balance and its game money follows it once the save is loaded.
+- A checkpoint made before this feature (or without an economy) has no ledger mark: nothing is reversed and a warning alert
+  `economy_rollback_unknown_mark` appears; adjust wallets by hand if needed. The same applies if the economy is frozen (alert
+  `economy_rollback_failed`): acknowledge the freeze, then use Economy adjustments.
+- Limits: a request key that was used after the checkpoint still answers with its old result if a node sends it again (no money moves a second
+  time). A ship that changed owner through a trade after the checkpoint goes back with the loaded save, not with this rollback.
 
 ## 9. Backups
 

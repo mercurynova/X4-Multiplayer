@@ -57,7 +57,7 @@ public enum TxKind : byte
 /// <summary>One signed line of a transaction; <see cref="BalanceAfter"/> is the wallet balance after this line.</summary>
 public sealed record LedgerEntry(WalletId Wallet, long Amount, long BalanceAfter);
 
-/// <summary>A committed transaction. Entries always sum to zero.</summary>
+/// <summary>A committed transaction. Entries always sum to zero. <see cref="Seq"/> is the ledger's monotonic sequence number (0 on a transaction that is not committed yet).</summary>
 public sealed record LedgerTransaction(
     string Id,
     long SessionId,
@@ -70,7 +70,8 @@ public sealed record LedgerTransaction(
     string? Reverses,
     string? Note,
     IReadOnlyList<LedgerEntry> Entries,
-    string? ReversedBy = null);
+    string? ReversedBy = null,
+    long Seq = 0);
 
 /// <summary>Filter of a ledger listing: newest first by default, oldest first with <see cref="Ascending"/>. <see cref="Before"/> and <see cref="After"/> are id cursors (smaller or greater ids only).</summary>
 public sealed record LedgerQuery(

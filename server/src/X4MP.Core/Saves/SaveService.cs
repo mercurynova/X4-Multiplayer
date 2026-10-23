@@ -41,6 +41,9 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
 
         public JournalMarker? Marker { get; set; }
 
+        /// <summary>Where the economy ledger stood when the authority began this checkpoint (ADR-053); null = unknown.</summary>
+        public LedgerMark? Mark { get; set; }
+
         public uint RequestId { get; set; }
 
         public SaveReason Reason { get; set; } = SaveReason.Admin;
@@ -81,6 +84,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
     private readonly TimeProvider _time;
     private readonly IEventPublisher? _events;
     private readonly ISaveSeedHook[] _seedHooks;
+    private readonly ILedgerCheckpointHook? _ledgerHook;
     private readonly ILogger _logger;
     private readonly Dictionary<CheckpointId, Checkpoint> _checkpoints = [];
     private readonly Dictionary<uint, UploadSession> _uploads = [];
@@ -122,8 +126,10 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         TimeProvider? time = null,
         IEventPublisher? events = null,
         IEnumerable<ISaveSeedHook>? seedHooks = null,
-        ILogger<SaveService>? logger = null)
+        ILogger<SaveService>? logger = null,
+        ILedgerCheckpointHook? ledgerHook = null)
     {
+        _ledgerHook = ledgerHook;
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(catalog);

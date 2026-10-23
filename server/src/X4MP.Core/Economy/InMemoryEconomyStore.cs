@@ -46,7 +46,7 @@ public sealed class InMemoryEconomyStore : IEconomyStore
                 _transactions[index] = _transactions[index] with { ReversedBy = tx.Id };
             }
 
-            _transactions.Add(tx);
+            _transactions.Add(tx with { Seq = _transactions.Count + 1 });
         }
 
         foreach (var wallet in commit.Wallets)
@@ -153,6 +153,22 @@ public sealed class InMemoryEconomyStore : IEconomyStore
 
         var ordered = query.Ascending ? rows.OrderBy(t => t.Id, StringComparer.Ordinal) : rows.OrderByDescending(t => t.Id, StringComparer.Ordinal);
         return [.. ordered.Take(Math.Max(1, query.Limit))];
+    }
+
+    public long HighWaterSeq(long sessionId) => _transactions.Where(t => t.SessionId == sessionId).Select(t => t.Seq).DefaultIfEmpty(0).Max();
+
+    public IReadOnlyList<LedgerTransaction> TransactionsAfter(long sessionId, long seq) =>
+        [.. _transactions.Where(t => t.SessionId == sessionId && t.Seq > seq).OrderBy(t => t.Seq)];
+
+    public IReadOnlyDictionary<WalletId, long> BalancesAt(long sessionId, long seq)
+    {
+        var sums = new Dictionary<WalletId, long>();
+        foreach (var entry in _transactions.Where(t => t.SessionId == sessionId && t.Seq <= seq).SelectMany(t => t.Entries))
+        {
+            sums[entry.Wallet] = sums.GetValueOrDefault(entry.Wallet) + entry.Amount;
+        }
+
+        return sums;
     }
 
     /// <summary>Test hook: overwrite a stored wallet balance without a ledger entry.</summary>

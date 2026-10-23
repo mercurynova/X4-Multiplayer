@@ -31,4 +31,17 @@ public interface IEconomyStore
 
     /// <summary>Committed transactions matching the filter, newest first (by id), at most <see cref="LedgerQuery.Limit"/>.</summary>
     IReadOnlyList<LedgerTransaction> QueryTransactions(long sessionId, LedgerQuery query);
+
+    /// <summary>
+    /// The ledger's monotonic sequence number after its newest committed transaction (0 = empty). Every transaction gets the next
+    /// number (<see cref="LedgerTransaction.Seq"/>) when it is committed; numbers are never reused and never depend on a clock.
+    /// A checkpoint records this value as its ledger mark (ADR-053).
+    /// </summary>
+    long HighWaterSeq(long sessionId);
+
+    /// <summary>Every committed transaction whose sequence is greater than <paramref name="seq"/>, oldest first, with <see cref="LedgerTransaction.Seq"/> set.</summary>
+    IReadOnlyList<LedgerTransaction> TransactionsAfter(long sessionId, long seq);
+
+    /// <summary>Every wallet balance as it was after the transaction with sequence <paramref name="seq"/> (the sum of all entries up to it; wallets that did not exist yet are absent).</summary>
+    IReadOnlyDictionary<WalletId, long> BalancesAt(long sessionId, long seq);
 }

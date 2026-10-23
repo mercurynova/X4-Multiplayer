@@ -69,6 +69,7 @@ public sealed partial class SaveService
     {
         var cp = GetCheckpoint(marker.Checkpoint);
         cp.Marker = marker;
+        cp.Mark = CaptureLedgerMark();
         cp.RequestId = marker.RequestId;
         cp.GameTime = marker.GameTime;
         cp.NextNetId = marker.NextNetId;
@@ -136,7 +137,7 @@ public sealed partial class SaveService
         if (_sessionId > 0)
         {
             Catalog.AddCheckpoint(_sessionId, new CheckpointRecord(
-                cp.Id, cp.SaveSha!, cp.ManifestSha!, cp.ManifestSize, cp.Marker?.Seq ?? 0, cp.GameTime, cp.NextNetId, true, cp.At));
+                cp.Id, cp.SaveSha!, cp.ManifestSha!, cp.ManifestSize, cp.Marker?.Seq ?? 0, cp.GameTime, cp.NextNetId, true, cp.At, cp.Mark));
             Catalog.SetSessionSave(_sessionId, cp.SaveSha!, initial: previous is null);
         }
 

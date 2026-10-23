@@ -145,6 +145,7 @@ public sealed partial class SaveService
         int removed = _world.RollbackToNetIdFloor(threshold, node.PlayerId);
         string shown = SaveFileStore.Abbrev(start.Sha);
         LogWorldRolledBack(node.PlayerId, shown, threshold, removed);
+        RollBackLedger(start);
         if (threshold <= 1)
         {
             return;
@@ -160,6 +161,74 @@ public sealed partial class SaveService
         };
         Send(node, ControlFrames.Encode(MsgType.AuthorityAssign, fbb => AuthorityAssign.Pack(fbb, assign).Value, 128));
     }
+
+    /// <summary>The ledger mark a checkpoint that begins now records (null without an economy).</summary>
+    private LedgerMark? CaptureLedgerMark()
+    {
+        try
+        {
+            return _ledgerHook?.CaptureMark();
+        }
+        catch (Exception ex)
+        {
+            LogLedgerHookFailed(ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// ADR-053 (F13b): the credits follow the world. When the authority is about to load the current checkpoint (F13 resume of an Ended session, the
+    /// M3-21 reload after an authority loss) the ledger goes back to the checkpoint's mark: everything game-tied after it is undone by compensating
+    /// transactions, admin actions stay, the nodes get their restored balances. A start save that is not a checkpoint of ours has no mark and changes nothing.
+    /// The mark then moves to the restored state, so a repeat (a second authority connection) finds nothing left to undo.
+    /// </summary>
+    private void RollBackLedger(StartSave start)
+    {
+        if (_ledgerHook is null || _current is not { } cp || !string.Equals(cp.SaveSha, start.Sha, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            var label = cp.Id.ToString();
+            var result = _ledgerHook.RollBack(cp.Mark, label, cp.At, "authority reloads the checkpoint");
+            if (result is null)
+            {
+                return;
+            }
+
+            if (!result.Performed)
+            {
+                LogLedgerNotRolledBack(label, result.Skipped ?? "unknown");
+                return;
+            }
+
+            if (result.NewMark is { } mark)
+            {
+                cp.Mark = mark;
+                if (_sessionId > 0)
+                {
+                    Catalog.UpdateLedgerMark(cp.Id, mark);
+                }
+            }
+
+            LogLedgerRolledBack(label, result.Reversed, result.Kept, result.FromSeq, result.ToSeq);
+        }
+        catch (Exception ex)
+        {
+            LogLedgerHookFailed(ex);
+        }
+    }
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "checkpoint {Checkpoint}: the ledger followed the rollback ({Reversed} transactions undone, {Kept} kept, sequence {From} to {To})")]
+    private partial void LogLedgerRolledBack(string checkpoint, int reversed, int kept, long from, long to);
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "checkpoint {Checkpoint}: the ledger was NOT rolled back: {Why}")]
+    private partial void LogLedgerNotRolledBack(string checkpoint, string why);
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "the ledger checkpoint hook failed")]
+    private partial void LogLedgerHookFailed(Exception ex);
 
     /// <summary>The authority loaded the start save (it reported <c>SaveReady</c> for it): move it to Loading. It makes no manifest report, nothing is replayed to it.</summary>
     private void OnStartSaveReady(SessionNode node)
