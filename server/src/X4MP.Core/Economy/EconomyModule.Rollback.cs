@@ -10,8 +10,9 @@ namespace X4MP.Core.Economy;
 /// <summary>The ledger follows the checkpoint (ADR-053, F13b): marks for new checkpoints, the rollback, and telling the nodes.</summary>
 public sealed partial class EconomyModule
 {
-    // Nodes that were told the restored balances while they were still loading: they are told again when they reach the game (a load drops what they were sent).
-    private readonly HashSet<int> _resendOnInGame = [];
+    // Nodes that were told the restored balances while they were still loading: they are told again (balances and notice) when they reach the game
+    // (a load drops what they were sent). The value is the checkpoint time the notice names; null = no notice (a partial rollback).
+    private readonly Dictionary<int, string?> _resendOnInGame = [];
 
     /// <summary>The ledger mark a checkpoint that begins now records. Null without a session row.</summary>
     public LedgerMark? CaptureMark() => Service?.CaptureMark();
@@ -33,32 +34,50 @@ public sealed partial class EconomyModule
             return result;
         }
 
-        var when = checkpointAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        var when = result.Skipped is null ? checkpointAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : null; // partial rollback: balances only
         foreach (var node in _nodes.Values.ToList())
         {
+            // AdminAdjust: the wire's LedgerReason has no value for a rollback (the schema is not changed for it); the receiver only applies the balances.
             PushBalances(node, LedgerReason.AdminAdjust);
-            _resendOnInGame.Add(node.PlayerId);
             if (node.Connection is null)
             {
                 continue;
             }
 
-            var balance = service.Ledger.BalanceOf(service.EffectiveWallet(node.PlayerId));
-            var text = $"Session restored to the checkpoint of {when} UTC; your balance is now {LoanText.Credits(balance)}.";
-            var notice = new ServerNoticeT { Severity = NoticeSeverity.Warning, Text = text, DisplayMs = 12000 };
-            node.Connection.TrySend(ControlFrames.Encode(MsgType.ServerNotice, fbb => ServerNotice.Pack(fbb, notice).Value, 128));
+            if (node.Phase != NodePhase.InGame)
+            {
+                _resendOnInGame[node.PlayerId] = when; // a load drops both the balances and the notice it was just sent
+            }
+
+            SendRollbackNotice(node, service, when);
         }
 
         return result;
     }
 
+    private static void SendRollbackNotice(SessionNode node, EconomyService service, string? when)
+    {
+        if (when is null || node.Connection is null)
+        {
+            return;
+        }
+
+        var balance = service.Ledger.BalanceOf(service.EffectiveWallet(node.PlayerId));
+        var text = $"Session restored to the checkpoint of {when} UTC; your balance is now {LoanText.Credits(balance)}.";
+        var notice = new ServerNoticeT { Severity = NoticeSeverity.Warning, Text = text, DisplayMs = 12000 };
+        node.Connection.TrySend(ControlFrames.Encode(MsgType.ServerNotice, fbb => ServerNotice.Pack(fbb, notice).Value, 128));
+    }
+
     public void OnNodePhaseChanged(SessionNode node, NodePhase previous, NodePhase current)
     {
-        if (current == NodePhase.InGame && _resendOnInGame.Remove(node.PlayerId) && Service is not null)
+        if (current == NodePhase.InGame && _resendOnInGame.Remove(node.PlayerId, out var when) && Service is { } service)
         {
             PushBalances(node, LedgerReason.AdminAdjust);
+            SendRollbackNotice(node, service, when);
         }
     }
+
+    public void OnNodeDetached(SessionNode node, DetachReason reason) => _resendOnInGame.Remove(node.PlayerId); // a resumed node is sent its balances on attach
 
     private void PushBalances(SessionNode node, LedgerReason reason)
     {

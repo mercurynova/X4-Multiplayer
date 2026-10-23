@@ -8,7 +8,7 @@ using X4MP.Proto;
 namespace X4MP.Core.Economy;
 
 /// <summary>What a rollback of the ledger to a checkpoint's mark did (ADR-053).</summary>
-/// <param name="Performed">False when nothing was done; <see cref="Skipped"/> says why.</param>
+/// <param name="Performed">False when the ledger was not touched; <see cref="Skipped"/> says why. True with <see cref="Skipped"/> set: a partial rollback (a compensation was refused midway; balances changed, the rest did not), the nodes must be told the balances.</param>
 /// <param name="Skipped">Unknown mark, frozen economy, unreadable snapshot...</param>
 /// <param name="Reversed">Transactions undone (one compensating transaction each, or 1 for the aggregate fallback).</param>
 /// <param name="Kept">Transactions after the mark that survive: admin adjustments, admin reversals of older transactions, starting credits of late joiners, the save-money seed.</param>
@@ -131,32 +131,44 @@ public sealed partial class EconomyService
         var reversed = 0;
         if (aggregate)
         {
-            var net = new SortedDictionary<WalletId, long>(Comparer<WalletId>.Create(CompareWallets));
-            foreach (var entry in ordered.SelectMany(t => t.Entries))
-            {
-                net[entry.Wallet] = net.GetValueOrDefault(entry.Wallet) - entry.Amount;
-            }
-
-            var entries = net.Where(kv => kv.Value != 0).Select(kv => new PostEntry(kv.Key, kv.Value)).ToList();
-            if (entries.Count >= 2 && !PostCompensation(entries, null, mark.Seq, $"{note} (net of {ordered.Count} transactions)", actor))
+            if (!PostNet(ordered, mark.Seq, $"{note} (net of {ordered.Count} transactions)", actor, out var posted))
             {
                 return Failed(now, session, label, "the net reversal was refused", high);
             }
 
-            reversed = entries.Count >= 2 ? 1 : 0;
+            reversed = posted ? 1 : 0;
         }
         else
         {
-            foreach (var tx in ordered)
+            for (var i = 0; i < ordered.Count; i++)
             {
+                var tx = ordered[i];
                 var entries = tx.Entries.Select(e => new PostEntry(e.Wallet, -e.Amount)).ToList();
                 var link = tx.ReversedBy is null ? tx.Id : null;
-                if (!PostCompensation(entries, link, mark.Seq, $"{note}; undoes {tx.Kind} {tx.Id}", actor))
+                if (PostCompensation(entries, link, mark.Seq, $"{note}; undoes {tx.Kind} {tx.Id}", actor))
                 {
-                    return Failed(now, session, label, $"reversing {tx.Id} was refused", high);
+                    reversed++;
+                    continue;
                 }
 
-                reversed++;
+                if (reversed == 0)
+                {
+                    return Failed(now, session, label, $"reversing {tx.Id} was refused", high); // nothing was posted yet: the ledger is untouched
+                }
+
+                // Earlier compensations are committed and cannot be taken back. Finish the rest as one net transaction (it needs no
+                // intermediate state); if that is refused too, report a partial rollback so the nodes still learn the balances that did change.
+                var rest = ordered.Skip(i).ToList();
+                if (!PostNet(rest, mark.Seq, $"{note} (net of the remaining {rest.Count} transactions)", actor, out var restPosted))
+                {
+                    var why = $"reversing {tx.Id} was refused after {reversed} transactions were already undone; the rest of the ledger was NOT rolled back";
+                    Fail(now, session, label, why);
+                    return new LedgerRollbackResult(true, why, reversed, kept.Count, cancelled, high, _store.HighWaterSeq(session), false, [], null);
+                }
+
+                aggregate = true;
+                reversed += restPosted ? 1 : 0;
+                break;
             }
         }
 
@@ -273,6 +285,20 @@ public sealed partial class EconomyService
         }
 
         return true;
+    }
+
+    /// <summary>Posts one transaction that undoes all of <paramref name="undo"/> at once (their summed entries, negated). <paramref name="posted"/> is false when they net to nothing.</summary>
+    private bool PostNet(List<LedgerTransaction> undo, long markSeq, string note, string actor, out bool posted)
+    {
+        var net = new SortedDictionary<WalletId, long>(Comparer<WalletId>.Create(CompareWallets));
+        foreach (var entry in undo.SelectMany(t => t.Entries))
+        {
+            net[entry.Wallet] = net.GetValueOrDefault(entry.Wallet) - entry.Amount;
+        }
+
+        var entries = net.Where(kv => kv.Value != 0).Select(kv => new PostEntry(kv.Key, kv.Value)).ToList();
+        posted = entries.Count >= 2;
+        return !posted || PostCompensation(entries, null, markSeq, note, actor);
     }
 
     private bool PostCompensation(IReadOnlyList<PostEntry> entries, string? reverses, long markSeq, string note, string actor)
@@ -403,7 +429,11 @@ public sealed partial class EconomyService
                 LockAll(old);
             }
 
-            _ = Persist(old); // a lock conflict cannot happen here: the locks follow the restored set
+            if (Persist(old) is { } failed) // a lock conflict cannot happen here (the locks follow the restored set), a store failure can
+            {
+                Fail(_time.GetUtcNow(), _ledger.SessionId, label, $"trade {old.Id.ToString(CultureInfo.InvariantCulture)} could not be saved in its restored state ({failed.Detail})");
+            }
+
             IndexRequests(old);
             PublishTrade(old, previous, old.State, EconomyReject.None, "system", detail);
             RaiseTradeChanged(old, previous);

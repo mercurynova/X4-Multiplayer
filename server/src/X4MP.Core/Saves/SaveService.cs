@@ -129,12 +129,12 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         ILogger<SaveService>? logger = null,
         ILedgerCheckpointHook? ledgerHook = null)
     {
-        _ledgerHook = ledgerHook;
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(world);
         _options = options;
+        _ledgerHook = ledgerHook;
         Files = files;
         Catalog = catalog;
         _world = world;

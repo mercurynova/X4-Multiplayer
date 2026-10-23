@@ -215,6 +215,34 @@ public sealed class SqliteSaveCatalog(SqliteConnectionFactory factory, Persisten
         return row is { Seq: { } seq, Snapshot: { } snapshot } ? new LedgerMark(seq, snapshot) : null;
     }
 
+    public StoredCheckpoint? FindCheckpointBySave(string saveSha256)
+    {
+        using var connection = factory.Open();
+        var row = connection.QueryFirstOrDefault<StoredRow>(
+            "SELECT checkpoint_id AS Id, session_id AS SessionId, created_at AS At, ledger_seq AS Seq, ledger_snapshot AS Snapshot FROM checkpoints WHERE save_sha256 = @sha ORDER BY id DESC LIMIT 1",
+            new { sha = saveSha256 });
+        if (row?.Id is null || !CheckpointId.TryParse(row.Id, out var id))
+        {
+            return null;
+        }
+
+        var at = DateTimeOffset.Parse(row.At, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        return new StoredCheckpoint(id, row.SessionId, at, row is { Seq: { } seq, Snapshot: { } snapshot } ? new LedgerMark(seq, snapshot) : null);
+    }
+
+    private sealed class StoredRow
+    {
+        public string? Id { get; set; }
+
+        public long SessionId { get; set; }
+
+        public string At { get; set; } = string.Empty;
+
+        public long? Seq { get; set; }
+
+        public string? Snapshot { get; set; }
+    }
+
     private sealed class MarkRow
     {
         public long? Seq { get; set; }

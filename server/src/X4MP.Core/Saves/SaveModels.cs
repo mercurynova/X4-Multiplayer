@@ -43,6 +43,9 @@ public sealed record CheckpointRecord(
     DateTimeOffset At,
     LedgerMark? Mark = null);
 
+/// <summary>A checkpoint row read back from the catalog: <see cref="Mark"/> is null when it was stored without a ledger mark.</summary>
+public sealed record StoredCheckpoint(CheckpointId Id, long SessionId, DateTimeOffset At, LedgerMark? Mark);
+
 /// <summary>
 /// Persistence seam of the save service (<c>saves</c>, <c>checkpoints</c>, <c>sessions.save_id/current_save_id</c>). Writes must return
 /// without waiting for the database; reads may touch it (the HTTP side calls them off the actor thread).
@@ -76,6 +79,9 @@ public interface ISaveCatalog
 
     /// <summary>The ledger mark stored with a checkpoint, or null when the checkpoint is unknown or has no mark (stored before ADR-053).</summary>
     LedgerMark? FindLedgerMark(CheckpointId checkpoint);
+
+    /// <summary>The newest checkpoint row that points at this save, with the session it belongs to, or null when the save is not a checkpoint of ours (an uploaded save).</summary>
+    StoredCheckpoint? FindCheckpointBySave(string saveSha256);
 
     /// <summary>Sets <c>sessions.current_save_id</c> (and <c>save_id</c> too when <paramref name="initial"/>).</summary>
     void SetSessionSave(long sessionId, string sha256, bool initial);
@@ -181,6 +187,23 @@ public sealed class InMemorySaveCatalog : ISaveCatalog
             {
                 _checkpoints[index] = (_checkpoints[index].Session, _checkpoints[index].Checkpoint with { Mark = mark });
             }
+        }
+    }
+
+    public StoredCheckpoint? FindCheckpointBySave(string saveSha256)
+    {
+        lock (_gate)
+        {
+            for (int i = _checkpoints.Count - 1; i >= 0; i--)
+            {
+                var (session, record) = _checkpoints[i];
+                if (record.SaveSha256 == saveSha256)
+                {
+                    return new StoredCheckpoint(record.Id, session, record.At, record.Mark);
+                }
+            }
+
+            return null;
         }
     }
 
