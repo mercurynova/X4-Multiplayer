@@ -9,6 +9,21 @@ public readonly record struct CheckpointId(ulong Lo, ulong Hi)
 {
     public override string ToString() => $"{Hi:x16}{Lo:x16}";
 
+    /// <summary>Reads the 32 hex digits <see cref="ToString"/> writes.</summary>
+    public static bool TryParse(string? text, out CheckpointId id)
+    {
+        id = default;
+        if (text is not { Length: 32 }
+            || !ulong.TryParse(text.AsSpan(0, 16), System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out var hi)
+            || !ulong.TryParse(text.AsSpan(16), System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out var lo))
+        {
+            return false;
+        }
+
+        id = new CheckpointId(lo, hi);
+        return true;
+    }
+
     public static CheckpointId From(Id128? id) => id is { } v ? new CheckpointId(v.Lo, v.Hi) : default;
 
     public Id128T ToWire() => new() { Lo = Lo, Hi = Hi };

@@ -17,6 +17,16 @@ public sealed class InMemoryEconomyStore : IEconomyStore
     /// <summary>When true, <see cref="Commit"/> throws (simulates a full or failing disk).</summary>
     public bool FailCommits { get; set; }
 
+    private int _commitsUntilFailure = -1;
+    private int _failuresLeft;
+
+    /// <summary>Lets <paramref name="successes"/> more commits through, then makes the next <paramref name="failures"/> throw (all later ones by default).</summary>
+    public void FailCommitsAfter(int successes, int failures = int.MaxValue)
+    {
+        _commitsUntilFailure = successes;
+        _failuresLeft = failures;
+    }
+
     public IReadOnlyList<LedgerTransaction> Transactions => _transactions;
 
     public EconomyLoad Load(long sessionId) => new(
@@ -28,6 +38,17 @@ public sealed class InMemoryEconomyStore : IEconomyStore
     public void Commit(EconomyCommit commit)
     {
         ArgumentNullException.ThrowIfNull(commit);
+        if (_commitsUntilFailure == 0 && _failuresLeft > 0)
+        {
+            _failuresLeft--;
+            throw new IOException("simulated commit failure");
+        }
+
+        if (_commitsUntilFailure > 0)
+        {
+            _commitsUntilFailure--;
+        }
+
         if (FailCommits)
         {
             throw new IOException("simulated commit failure");

@@ -129,6 +129,7 @@ public sealed partial class EconomyModule : ISessionModule
     {
         ArgumentNullException.ThrowIfNull(node);
         _nodes.Remove(node.PlayerId);
+        _resendOnInGame.Remove(node.PlayerId);
         Service?.ForgetRate(node.PlayerId);
         TradesNodeLeft(node);
     }

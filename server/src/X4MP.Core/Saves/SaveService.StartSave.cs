@@ -1,5 +1,6 @@
 using X4MP.Core.Net;
 using X4MP.Core.Session;
+using X4MP.Core.World;
 using X4MP.Proto;
 using X4MP.Protocol;
 
@@ -179,37 +180,71 @@ public sealed partial class SaveService
     /// <summary>
     /// ADR-053 (F13b): the credits follow the world. When the authority is about to load the current checkpoint (F13 resume of an Ended session, the
     /// M3-21 reload after an authority loss) the ledger goes back to the checkpoint's mark: everything game-tied after it is undone by compensating
-    /// transactions, admin actions stay, the nodes get their restored balances. A start save that is not a checkpoint of ours has no mark and changes nothing.
+    /// transactions, admin actions stay, the nodes get their restored balances. The mark is the in-memory checkpoint's, or (after a server restart, when nothing is in memory) the one stored in the catalog for the start save. A start save that is not a checkpoint of ours has no mark and changes nothing; a checkpoint whose mark is missing raises the unknown-mark alert.
     /// The mark then moves to the restored state, so a repeat (a second authority connection) finds nothing left to undo.
     /// </summary>
     private void RollBackLedger(StartSave start)
     {
-        if (_ledgerHook is null || _current is not { } cp || !string.Equals(cp.SaveSha, start.Sha, StringComparison.Ordinal))
+        if (_ledgerHook is null)
         {
             return;
         }
 
         try
         {
-            var label = cp.Id.ToString();
-            var result = _ledgerHook.RollBack(cp.Mark, label, cp.At, "authority reloads the checkpoint");
+            CheckpointId id;
+            LedgerMark? mark;
+            DateTimeOffset at;
+            Checkpoint? live = null;
+            if (_current is { } cp && string.Equals(cp.SaveSha, start.Sha, StringComparison.Ordinal))
+            {
+                live = cp;
+                id = cp.Id;
+                at = cp.At;
+                mark = cp.Mark ?? (_sessionId > 0 ? Catalog.FindLedgerMark(cp.Id) : null);
+            }
+            else if (Catalog.FindCheckpointBySave(start.Sha) is { } stored)
+            {
+                // After a server restart nothing is in memory (_current is null): the start save is a checkpoint of ours, its mark is in the catalog.
+                if (stored.SessionId != _sessionId)
+                {
+                    string other = stored.Id.ToString();
+                    LogLedgerOtherSession(other, stored.SessionId); // that checkpoint belongs to another session's ledger: nothing of this one to undo
+                    return;
+                }
+
+                id = stored.Id;
+                at = stored.At;
+                mark = stored.Mark;
+            }
+            else
+            {
+                return; // not a checkpoint of ours (an uploaded save): no mark, nothing to follow
+            }
+
+            var label = id.ToString();
+            var result = _ledgerHook.RollBack(mark, label, at, "authority reloads the checkpoint"); // a missing mark goes through the unknown-mark alert
             if (result is null)
             {
                 return;
             }
 
-            if (!result.Performed)
+            if (!result.Performed || result.Skipped is not null)
             {
                 LogLedgerNotRolledBack(label, result.Skipped ?? "unknown");
                 return;
             }
 
-            if (result.NewMark is { } mark)
+            if (result.NewMark is { } moved)
             {
-                cp.Mark = mark;
+                if (live is not null)
+                {
+                    live.Mark = moved;
+                }
+
                 if (_sessionId > 0)
                 {
-                    Catalog.UpdateLedgerMark(cp.Id, mark);
+                    Catalog.UpdateLedgerMark(id, moved);
                 }
             }
 
@@ -220,6 +255,9 @@ public sealed partial class SaveService
             LogLedgerHookFailed(ex);
         }
     }
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "checkpoint {Checkpoint} belongs to session {Session}, not the current one: its ledger mark does not apply")]
+    private partial void LogLedgerOtherSession(string checkpoint, long session);
 
     [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "checkpoint {Checkpoint}: the ledger followed the rollback ({Reversed} transactions undone, {Kept} kept, sequence {From} to {To})")]
     private partial void LogLedgerRolledBack(string checkpoint, int reversed, int kept, long from, long to);

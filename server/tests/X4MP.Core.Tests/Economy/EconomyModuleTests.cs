@@ -103,4 +103,50 @@ public sealed class EconomyModuleTests
             Assert.False(module.Auditor!.LastReport!.Ok);
         }
     }
+
+    private static List<string> Notices(JoinedNode node) =>
+        [.. node.Connection.SentOf(MsgType.ServerNotice).Select(f => f.Decode<ServerNotice>().Text!)];
+
+    [Fact]
+    public async Task ANodeThatIsStillLoadingWhenTheLedgerIsRolledBackIsToldTheBalancesAndTheNoticeAgainOnceItIsInGame()
+    {
+        var (module, _) = NewModule(1000);
+        var rig = new ActorRig(modules: module);
+        await using (rig)
+        {
+            var boss = await rig.JoinAuthorityAsync();
+            var pilot = await rig.JoinAsync("Pilot");
+            await rig.BringInGameAsync(boss);
+            foreach (var phase in new[] { NodePhase.SyncingSave, NodePhase.Verifying, NodePhase.Loading })
+            {
+                await rig.LoadStatusAsync(pilot, phase); // the pilot is still loading
+            }
+
+            var mark = module.CaptureMark();
+            Assert.NotNull(mark);
+            Assert.True(module.Service!.BookCreditDelta(pilot.PlayerId, false, new CreditDeltaT { Amount = -400 }).Booked);
+
+            var result = module.RollBackLedger(mark, "cp", new DateTimeOffset(2026, 10, 1, 11, 30, 0, TimeSpan.Zero), "test");
+
+            Assert.True(result!.Performed, result.Skipped);
+            Assert.Equal(2000, module.Service.Ledger.BalanceOf(module.Service.EffectiveWallet(pilot.PlayerId)));
+            Assert.Single(Notices(boss)); // an InGame node is told once
+            Assert.Single(Notices(pilot));
+            int updatesBefore = pilot.Connection.SentOf(MsgType.WalletUpdate).Count;
+
+            await rig.LoadStatusAsync(pilot, NodePhase.Matching);
+            await rig.LoadStatusAsync(pilot, NodePhase.CatchingUp);
+            await rig.ReadyAsync(pilot);
+
+            // The load dropped what the pilot was sent: the balances and the notice come again.
+            var notices = Notices(pilot);
+            Assert.Equal(2, notices.Count);
+            Assert.Contains("Session restored to the checkpoint of 2026-10-01 11:30 UTC", notices[1]);
+            Assert.True(pilot.Connection.SentOf(MsgType.WalletUpdate).Count > updatesBefore);
+            Assert.Equal(2000, Last(pilot).Balances(0)!.Value.Balance);
+
+            // Once is enough: a repeated phase change does not send it a third time.
+            Assert.Single(Notices(boss));
+        }
+    }
 }
