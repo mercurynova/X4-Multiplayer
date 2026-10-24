@@ -79,8 +79,42 @@ Write-Host "x4mp      : $destMp  (dll from $dll)"
 if (-not $SkipX4Native) { Write-Host "x4native  : $destNative  ($tag)" }
 
 function Install-Folder([string]$source, [string]$dest) {
-  if (Test-Path $dest) { Remove-Item -Path $dest -Recurse -Force }
-  Copy-Item -Path $source -Destination $dest -Recurse -Force
+  # A running X4 keeps native\*_live.dll mapped, so Remove-Item would delete half of the
+  # extension before failing on that single file and leave a broken installation. When a
+  # live copy is present, merge over it instead; only wipe a folder that nobody holds open.
+  if (Test-Path $dest) {
+    $live = @(Get-ChildItem -Path $dest -Recurse -File -Filter '*_live.dll' -ErrorAction SilentlyContinue)
+    if ($live.Count -gt 0) {
+      Write-Host "deploy: $(Split-Path -Leaf $dest) is in use ($($live[0].Name)); merging over the running installation"
+    } else {
+      try { Remove-Item -Path $dest -Recurse -Force -ErrorAction Stop }
+      catch { Write-Warning "deploy: could not remove $dest, merging instead ($($_.Exception.Message))" }
+    }
+  }
+
+  if (-not (Test-Path $dest)) {
+    Copy-Item -Path $source -Destination $dest -Recurse -Force
+    return
+  }
+
+  # Merge file by file: source folders are copied over the live installation, stale files are
+  # left alone, and a DLL the game holds open is never touched (it is not in the source tree).
+  $root = (Resolve-Path $source).Path.TrimEnd('\')
+  $skipped = 0
+  Get-ChildItem -Path $root -Recurse -File | ForEach-Object {
+    $relative = $_.FullName.Substring($root.Length + 1)
+    $target = Join-Path $dest $relative
+    $parent = Split-Path -Parent $target
+    if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    try { Copy-Item -Path $_.FullName -Destination $target -Force -ErrorAction Stop }
+    catch {
+      # The game maps some DLLs directly (x4native_64.dll, *_live.dll); an up-to-date copy is
+      # already loaded, so a skipped file is expected while the game runs, not a deploy failure.
+      $skipped++
+      Write-Host "deploy: skipped $relative (in use by the running game)"
+    }
+  }
+  if ($skipped -gt 0) { Write-Host "deploy: $skipped file(s) left as loaded; restart X4 to pick them up" }
 }
 
 if ($PSCmdlet.ShouldProcess($extRoot, 'Install x4mp (and X4Native)')) {
