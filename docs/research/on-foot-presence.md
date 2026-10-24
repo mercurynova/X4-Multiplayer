@@ -414,12 +414,33 @@ The mod's native side owns the state. MD does the actor work through one batched
    - Register it in an `ActorRegistry` (the ghost-registry pattern: registered before first use,
      mirrored to the stash).
 2. **Move.** Interpolate 150 ms behind, as for ghosts (§4.5 of mod-design).
-   - Error > 3 m, room change, or `Teleport` flag → re-place with `add_actor_to_room` (snap).
-   - Moving → `start_actor_walk target=$room speed=clamp(v)` with `<position space=$room>` at the
-     target point 300–500 ms ahead. Re-issue at ≤ 4 Hz, only when the target moved > 0.5 m.
-   - Stopped → `stop_actor_walk` and face the yaw via `<rotation>` (or `turnleft90`/`turnright90`
-     sequences).
-   - Mode B/C variants come from S10.4.
+   - **Decision from S10.4 (measured, 2026-10-24):** a remote avatar is driven by
+     **position + yaw from the network**, not by the game's NPC pathfinding. Per-frame
+     `SetPositionalOffset` (mode C) held **p95 = 0.16 m** (the single 6.1 m sample is the
+     first frame, before the first command) at ~32 commands/s with no measurable frame
+     cost; the 5 Hz `add_actor_to_room` variant (mode A) stepped visibly (max 3.46 m) and
+     stays only as a fallback. `start_actor_walk` to a slot (mode B) is unusable for this:
+     it needs a free room slot, follows a path the server does not know, and a corridor or
+     a staffed office has **zero** free slots (S10.3/S10.4 slot censuses). So no
+     pathfinding and no slot reservation for movement.
+   - **Height:** `player.entity.position` / `C.GetPositionalOffset` return **eye** height
+     (1.72 m above the floor), so the actor is placed at `y - EYE_TO_FOOT` (vanilla uses
+     `1.77 - race.height`, `md/showcases.xml:939`). Without this the avatar floats at eye
+     level, which is exactly what the S10.4 test showed.
+   - **Rotation:** the remote yaw comes from the network (`player.entity.rotation.yaw` is
+     readable, S10.1) and is applied together with the position, so the avatar faces where
+     the player looks without any turn sequence.
+   - **Animation (open):** X4 MD has no "play the walk animation" action. Locomotion
+     animation belongs to the NPC state machine and is entered only through
+     `start_actor_walk target=<slot>`; `start_actor_sequence` plays semantic sequences
+     (`'facepalm01'`, `'busy'`, `'idle'`, `'tool_pickup_ground'`), not locomotion. A
+     teleported actor therefore slides in the idle pose. Planned spike (S10.4 mode D):
+     start one walk to a far slot to enter the walking state, then override the position
+     every frame and see whether the walk animation survives. If it does not, the answer
+     is native animation control in the X4Native extension, and v1 ships with the idle
+     pose.
+   - Re-place with `add_actor_to_room` (snap) only on a room change, a container change or
+     a jump over 3 m.
 3. **Despawn** on any of:
    - P's container != local container, or `mode=None` / `Seated`.
    - P disconnected (frozen 5 s, then removed).
@@ -452,6 +473,13 @@ The MP lounge (§3.6) is the controlled alternative to F2/F3. When a room can't 
 the HUD can offer "Alice is in the bar. Meet in the MP lounge?"
 
 ### 3.6 Tier 1: the "MP lounge" (user idea, evaluated)
+
+> **DROPPED 2026-10-24 (user decision).** The MP lounge is not part of M3b. Players must see each other
+> **anywhere both are loaded, like NPCs**, so the client uses the fallback ladder F0-F4 in section 3.5 and
+> the room resolver (RoomKey, section 3.3) instead of a single known room. This section is kept as an
+> evaluated and rejected option: it would have removed the room resolver, but it also removes the feature
+> the players actually asked for.
+
 
 **Idea:** a dedicated room on stations, added by our extension. Other players are rendered only
 inside it.
@@ -622,6 +650,10 @@ format: `[X4MP-SPIKE] S10.n PASS|FAIL|INFO|MEASURE key=value…`. Expected time:
 ship (capital-ship tests are optional). Dock at a large NPC station that has a trader corner, and
 ideally a bar with the black marketeer unlocked.
 
+> **Status 2026-10-24:** the MP lounge was dropped by user decision (see 3.6). **S10.11-S10.15 are historical and
+> are not part of M3b.** The linchpin is now **S10.2 (room-key determinism)**, followed by S10.5, S10.6, S10.7 (the
+> Talk -> MP menu stays, its lounge buttons do not), S10.8, S10.9 and the optional S10.10.
+
 | Id | Experiment | Procedure (user steps) | Pass criterion | If it fails |
 |---|---|---|---|---|
 | **S10.1** | Read on-foot state | Spike logs at 2 Hz: container, `GetPlayerRoom()`, `GetEnvironmentObject()`, occupied ship, MD `player.room` (+`.type`, `.macro`, `.dynamicinterior`, `.walkablemodule`), `player.platform`, `GetPositionalOffset(GetPlayerID(),0)` and `(GetPlayerObjectID(),0)`, MD `player.entity.position/rotation`, `GetCameraRotation()`; events changed_room / transport_finished / started/stopped_control. **User:** dock; get up; walk the pad → elevator → corridor → trader corner → (bar) → transporter; sit back in the pilot seat. Note the times you entered each place. | Container and room identified everywhere. Room-local position moves at walking speed (1–6 m/s) and equals MD `position` within 1 cm. Yaw follows the body. Each room change logs `changed_room` within 1 frame. | If `GetPlayerRoom` fails, use MD `player.room` via the shim. If the native position is wrong, use MD `relativeposition` at 10 Hz |
@@ -634,11 +666,11 @@ ideally a bar with the black marketeer unlocked.
 | **S10.8** | Cost and save hygiene | Spike spawns 8 actors in the bar or trader corner walking to random targets every 3 s. Log frame-time delta (native QPC if the DLL is present, else Lua) against 0 actors. **User:** save (spike strips actors first in run 1, not in run 2), reload each save. Also test `set_entity_traits temporary=true`. | < 0.5 ms/frame for 8 walking actors. Run 1 reload: 0 MP actors. Run 2: actors found and removed by the janitor. Document whether `temporary` actors are saved | Reduce to F1 snap mode; rely on the janitor |
 | **S10.9** | Interior differences | On 5 stations, log the dynamic interiors present and their condition inputs (`shadyguy.tradesvisible`, `tradenpc`, owner, `canhavedynamicinterior`). | Catalogue of "progress-gated" rooms for the F3 list | (info only) |
 | **S10.10** (optional, needs M3 build and 2 PCs) | Two-player smoke test | Both players dock at the same station and walk together for 10 min. | Each sees the other's actor in the right room. Position error < 1 m. No leftovers after both leave | Pick fallbacks |
-| **S10.11** | Create the MP lounge | Spike (on a docked NPC station): `create_dynamic_interior object=player.station corridor=room_arg_corridor_04_macro room=room_gen_bar_01_macro door=<first corridor connection name> name='Multiplayer Lounge' roomtype=livingroom seed=4711 private=true persistent=false`. Repeat with `room_gen_playeroffice_01_macro` and `room_gen_venturerroom_01_macro`. Log interior, corridor and room ids, the room's container-space transform, the vanilla interiors present, and any errors. **User:** nothing yet, just stay docked. | Interior created for at least 1 macro on 2 different stations (incl. one with a vanilla bar present). No error lines. Vanilla interiors are unaffected | Try another window/module (`module=` attribute) or `private=false`. Else Tier 1 = a reused vanilla room (e.g. the bar) |
-| **S10.12** | Enter and leave the lounge | Spike menu "Go to lounge": `add_actor_to_room actor=player.entity object=$Lounge` at a fixed spawn point. "Leave": back to the dock area. **User:** use both; also open the station's transporter and note whether "Multiplayer Lounge" is listed; walk out through the lounge door and report where it leads. | Teleport in and out works with no stuck player or black screen. Transporter listing and door behaviour reported | MD teleport only; lock the door if it leads nowhere sensible |
-| **S10.13** | Lounge determinism | Log room-local positions of all lounge NPC slots and chairs (`find_npc_slot multiple`) and the room macro. Reload the save and recreate. Optional: second PC. | Room-local slot offsets identical across runs (expected by construction). Container-space anchor logged for information only | (should not fail; if it does, Tier 1 uses slot snapping) |
-| **S10.14** | Lounge save safety | Run 1: save with the lounge present and the player outside; run 2: with the player inside. **Disable the spike extension**, load both saves. Then re-enable, load, and confirm the janitor removes the orphan lounge. | Both saves load without the mod with no errors. The orphan room is harmless and the player is not stuck. The janitor cleans up with the mod | Always remove lounges before saves; move the authority player out first |
-| **S10.15** | Lounge with actors and talk | Put the S10.4 mirror actor and 3 more actors in the lounge (walking, seated at chair slots), plus the S10.7 conversation. **User:** walk around for 5 min and rate it. | Same pass criteria as S10.4/S10.7, inside the lounge. Seats work | F1 snap mode |
+| **S10.11** (DROPPED) | Create the MP lounge | Spike (on a docked NPC station): `create_dynamic_interior object=player.station corridor=room_arg_corridor_04_macro room=room_gen_bar_01_macro door=<first corridor connection name> name='Multiplayer Lounge' roomtype=livingroom seed=4711 private=true persistent=false`. Repeat with `room_gen_playeroffice_01_macro` and `room_gen_venturerroom_01_macro`. Log interior, corridor and room ids, the room's container-space transform, the vanilla interiors present, and any errors. **User:** nothing yet, just stay docked. | Interior created for at least 1 macro on 2 different stations (incl. one with a vanilla bar present). No error lines. Vanilla interiors are unaffected | Try another window/module (`module=` attribute) or `private=false`. Else Tier 1 = a reused vanilla room (e.g. the bar) |
+| **S10.12** (DROPPED) | Enter and leave the lounge | Spike menu "Go to lounge": `add_actor_to_room actor=player.entity object=$Lounge` at a fixed spawn point. "Leave": back to the dock area. **User:** use both; also open the station's transporter and note whether "Multiplayer Lounge" is listed; walk out through the lounge door and report where it leads. | Teleport in and out works with no stuck player or black screen. Transporter listing and door behaviour reported | MD teleport only; lock the door if it leads nowhere sensible |
+| **S10.13** (DROPPED) | Lounge determinism | Log room-local positions of all lounge NPC slots and chairs (`find_npc_slot multiple`) and the room macro. Reload the save and recreate. Optional: second PC. | Room-local slot offsets identical across runs (expected by construction). Container-space anchor logged for information only | (should not fail; if it does, Tier 1 uses slot snapping) |
+| **S10.14** (DROPPED) | Lounge save safety | Run 1: save with the lounge present and the player outside; run 2: with the player inside. **Disable the spike extension**, load both saves. Then re-enable, load, and confirm the janitor removes the orphan lounge. | Both saves load without the mod with no errors. The orphan room is harmless and the player is not stuck. The janitor cleans up with the mod | Always remove lounges before saves; move the authority player out first |
+| **S10.15** (DROPPED) | Lounge with actors and talk | Put the S10.4 mirror actor and 3 more actors in the lounge (walking, seated at chair slots), plus the S10.7 conversation. **User:** walk around for 5 min and rate it. | Same pass criteria as S10.4/S10.7, inside the lounge. Seats work | F1 snap mode |
 
 Pass of S10.1–S10.4 + S10.8 makes Tier 2 feasible as designed. S10.11–S10.15 + S10.3/4/8 make
 Tier 1 feasible, and they can run first because they don't depend on interior determinism.
