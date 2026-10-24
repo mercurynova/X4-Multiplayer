@@ -150,5 +150,6 @@ public sealed record NetOptions
             | X4MP.Proto.Capability.CaptureSync
             | X4MP.Proto.Capability.LogForward
             | X4MP.Proto.Capability.InterestHint
-            | X4MP.Proto.Capability.Economy);
+            | X4MP.Proto.Capability.Economy
+            | X4MP.Proto.Capability.OnFootPresence);
 }

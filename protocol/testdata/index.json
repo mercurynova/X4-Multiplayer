@@ -682,6 +682,45 @@
       "fields": {"Anim":1,"ContainerNetId":1500,"Cx":640,"Cy":0,"Cz":-320,"EmoteId":0,"Flags":1,"LookPitch":128,"Mode":1,"OuterContainerNetId":0,"PlayerId":3,"Px":2048,"Py":0,"Pz":-1024,"Room":{"AnchorX":-120,"AnchorY":0,"AnchorZ":340,"Kind":4,"MacroRef":9,"PathHash":48879,"Roomtype":4},"SampleTimeUs":5100000,"Seq":77,"Yaw":1200}
     },
     {
+      "file": "0x0303_PlayerAppearance.bin",
+      "kind": "frame",
+      "size": 156,
+      "sha256": "a610901dd33e39d8e6116527ca71ff1f5fdba46d06535c442c318e81899f4412",
+      "msgType": 771,
+      "msgName": "PlayerAppearance",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 148,
+      "fields": {"CharacterMacro":"character_argon_male_a_macro","Clothing":"clothing_arg_civilian_01_macro","IsFemale":false,"PlayerId":3,"Preset":"male_a","Race":"argon","Revision":2}
+    },
+    {
+      "file": "0x0304_PresenceRoster.bin",
+      "kind": "frame",
+      "size": 92,
+      "sha256": "76e67db62eb050cd9189cc429dfe293df3e7db092c50825c9a0b909922704f34",
+      "msgType": 772,
+      "msgName": "PresenceRoster",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 84,
+      "fields": {"Entries":[{"ContainerNetId":1500,"Mode":1,"OuterContainerNetId":0,"PlayerId":3,"RoomName":"Bar","Roomtype":4}],"Full":true,"Removed":[]}
+    },
+    {
+      "file": "0x0305_PlayerInteraction.bin",
+      "kind": "frame",
+      "size": 28,
+      "sha256": "14438c6763c7c3ccbef4b49376b29ac86c552ef1bd53945c7e26a4607ffebd40",
+      "msgType": 773,
+      "msgName": "PlayerInteraction",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 20,
+      "fields": {"Arg":0,"EmoteId":0,"FromPlayer":3,"Kind":0,"ToPlayer":4}
+    },
+    {
       "file": "0x0400_Intent_KillClaim.bin",
       "kind": "frame",
       "size": 104,

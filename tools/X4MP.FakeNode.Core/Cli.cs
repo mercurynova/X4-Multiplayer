@@ -238,6 +238,12 @@ public sealed record CliOptions
     /// <summary>client/swarm: every N seconds send <c>Disconnect(ClientReload)</c>, "reload", come back with the resume token and send <c>NodeReady</c> again (0 = never).</summary>
     public double ReloadEverySeconds { get; init; }
 
+    /// <summary>
+    /// client: act as a player on foot inside this container <c>net_id</c> (M3b): send <c>OnFootState</c> at 10 Hz instead of
+    /// <c>PlayerState</c> and walk a 5 m circle. 0 = fly normally.
+    /// </summary>
+    public uint OnFootContainer { get; init; }
+
     /// <summary>fuzz: what to throw at the server.</summary>
     public FuzzMode FuzzMode { get; init; } = FuzzMode.All;
 
@@ -497,6 +503,8 @@ public static class CliParser
             return Fail("--slow-reader is a client/swarm option");
         if ((o.DisconnectEverySeconds > 0 || o.ReloadEverySeconds > 0) && command is not (FakeNodeCommand.Client or FakeNodeCommand.Swarm))
             return Fail("--disconnect-every and --reload-every are client/swarm options");
+        if (o.OnFootContainer != 0 && command is not (FakeNodeCommand.Client or FakeNodeCommand.Swarm))
+            return Fail("--onfoot is a client/swarm option");
         bool economyCommand = command is FakeNodeCommand.Client or FakeNodeCommand.Swarm;
         if ((o.Economy != EconomyMode.Off || o.DupeAttack || o.LoanDefault) && !economyCommand)
             return Fail("--economy, --dupe-attack and --loan-default are client/swarm options");
@@ -625,6 +633,9 @@ public static class CliParser
                 return Seconds(o, key, value, v => o with { DisconnectEverySeconds = v });
             case "reload-every":
                 return Seconds(o, key, value, v => o with { ReloadEverySeconds = v });
+            case "onfoot":
+                return uint.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint container) && container != 0
+                    ? (o with { OnFootContainer = container }, null) : (o, $"--onfoot must be a container net_id (got '{value}')");
             case "fuzz-mode":
                 return Enum.TryParse<FuzzMode>(value, ignoreCase: true, out var fm) && Enum.IsDefined(fm)
                     ? (o with { FuzzMode = fm }, null) : (o, $"--fuzz-mode must be all|handshake|session|flood (got '{value}')");

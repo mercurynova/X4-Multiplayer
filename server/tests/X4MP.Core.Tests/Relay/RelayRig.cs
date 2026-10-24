@@ -102,9 +102,9 @@ public sealed class RelayRig : IAsyncDisposable
     public SessionActor Actor => Rig.Actor;
 
     /// <summary>Joins a node and walks it to in-game (the Teams module, when present, needs two flushes to place it first).</summary>
-    public async Task<JoinedNode> JoinInGameAsync(string name, Role roles = Role.Client)
+    public async Task<JoinedNode> JoinInGameAsync(string name, Role roles = Role.Client, ulong caps = 0)
     {
-        var node = await Rig.JoinAsync(name, roles);
+        var node = await Rig.JoinAsync(name, roles, caps: caps);
         await Rig.Actor.FlushAsync();
         await Rig.Actor.FlushAsync();
         await Rig.BringInGameAsync(node);
@@ -186,6 +186,34 @@ public static class RelayFrames
 
     public static FlatBufferBuilder GameEvent(ushort sector, GameEventBodyUnion body) =>
         Pack(fbb => X4MP.Proto.GameEvent.Pack(fbb, new GameEventT { Sector = sector, GameTime = 12.5, Body = body }).Value, 128);
+
+    /// <summary>An on-foot sample; <paramref name="claimedPlayerId"/> is what a lying client puts in the field.</summary>
+    public static FlatBufferBuilder OnFoot(
+        uint seq, uint container, OnFootMode mode = OnFootMode.Walking, int cx = 0, int cy = 0, int cz = 0,
+        uint outer = 0, ushort claimedPlayerId = 0, byte roomtype = 4, byte flags = 0, OnFootAnim anim = OnFootAnim.Idle) =>
+        Pack(
+            fbb => X4MP.Proto.OnFootState.Pack(fbb, new OnFootStateT
+            {
+                PlayerId = claimedPlayerId, Seq = seq, SampleTimeUs = 5_000_000, Mode = mode,
+                ContainerNetId = container, OuterContainerNetId = outer,
+                Room = new RoomKeyT { MacroRef = 9, Kind = RoomKind.Static, Roomtype = roomtype },
+                Cx = cx, Cy = cy, Cz = cz, Anim = anim, Flags = flags,
+            }).Value,
+            128);
+
+    public static FlatBufferBuilder Appearance(
+        string race = "argon", string preset = "male_a", ushort claimedPlayerId = 0, uint claimedRevision = 99,
+        string macro = "character_argon_male_a_macro") =>
+        Pack(
+            fbb => X4MP.Proto.PlayerAppearance.Pack(fbb, new PlayerAppearanceT
+            {
+                PlayerId = claimedPlayerId, Revision = claimedRevision, Race = race, Preset = preset,
+                CharacterMacro = macro, IsFemale = false, Clothing = "",
+            }).Value,
+            128);
+
+    public static FlatBufferBuilder Interaction(ushort to, InteractionKind kind = InteractionKind.Wave, ushort claimedFrom = 0) =>
+        Pack(fbb => X4MP.Proto.PlayerInteraction.Pack(fbb, new PlayerInteractionT { FromPlayer = claimedFrom, ToPlayer = to, Kind = kind }).Value, 64);
 
     public static GameEventBodyUnion Kill(ushort killerPlayer = 0) =>
         GameEventBodyUnion.FromKillEvent(new KillEventT { Victim = 4711, Killer = 9001, KillerPlayer = killerPlayer });

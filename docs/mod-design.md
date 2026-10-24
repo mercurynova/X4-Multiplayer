@@ -882,6 +882,25 @@ universe keeps running unsynced next to the shared player ships.
   about 0.12 ms on the authority (target < 0.2 ms), the ghost driver itself 0.03 ms p95, a client receives about 1 kB/s and sends about 2 kB/s (target < 20 kB/s), the authority receives
   about 10 kB/s (the relayed `PlayerState`s), the log stays under 10 lines/s, and a ghost of a ship at 270 m/s shows a path error of 4-6 m p95 against the sender's own samples.
 
+### 4.12 On-foot presence: the server side as built (M3b)
+
+The design is [research/on-foot-presence.md](research/on-foot-presence.md), the wire rules are protocol.md §13.2 and the decisions are ADR-046 / ADR-051.
+This section records what exists in code before the client capture lands; nothing here renders an actor yet.
+
+- **Schema** (`protocol/schema/world.fbs`): `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRoster` 0x0304, `PlayerInteraction` 0x0305 (Control), the `RoomKey` struct
+  and the `OnFootMode`/`OnFootAnim`/`RoomKind`/`InteractionKind` enums; capability `OnFootPresence` (1<<17, **not** bit 9 as the research note first proposed — bit 9 is `InGameAdmin`).
+  Golden vectors 0x0302..0x0305, C++ `message_table.inc`, the C# registry and the message policy carry all four.
+- **Relay** (`server/src/X4MP.Core/Relay/RelayModule.OnFoot.cs`): `player_id` stamped, validation (known container in the world mirror, container-local position within
+  `OnFootRangeMetres`, defined mode, stale `seq` ignored, token bucket `OnFootRelayHz`/`OnFootBurst`), fan-out to the capable nodes whose own last sample shares the innermost container —
+  and to the peers of the previous container, which is how they despawn the actor. A `mode=None` sample, a detach and a leave produce a leave state. The authority is not special.
+- **Roster** (`PresenceRoster`, full list, ≤ 1 Hz) and **appearance** (stored per player with a monotonic server `revision`, sent on attach and relayed on change) are in the same partial
+  class; **interactions** are forwarded to the target only with their own token bucket. Counters live in `RelayStats` (`OnFootStates*`, `PresenceRostersSent`, `AppearancesRelayed`,
+  `Interactions*`).
+- **FakeNode** (`--onfoot <container_net_id>`) stands a fake client in a station room at 10 Hz and walks it in a 5 m circle, so the relay can be verified on one PC before the mod
+  captures real state.
+- **Not built yet (client waves):** `OnFootCapture`, the room resolver, the MP lounge, the `ActorRegistry` and the actor spawn/move/despawn pipeline, the Talk menu, the appearance
+  picker and the server-side appearance catalogue. The mod's own-ship tracker already sends one `Hidden` `PlayerState` and then goes quiet while the player stands up.
+
 ---
 
 ## 5. Event pipelines

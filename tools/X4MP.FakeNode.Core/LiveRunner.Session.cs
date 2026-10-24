@@ -802,6 +802,7 @@ public static partial class LiveRunner
         PendingResume? pendingResume = null;
         var clock = Stopwatch.StartNew();
         long lastTick = -1;
+        long lastOnFootTick = -1;
         long nextStale = 0;
         long nextOrder = (long)FakePlayer.TickRateHz;
         ulong orderKey = 0;
@@ -855,7 +856,36 @@ public static partial class LiveRunner
                 lastTick = tick;
                 var state = motion.NextSample(tick);
                 session.SetOwnPose(motion.Sector, motion.Position);
-                await link.SendRealtimeAsync(MsgType.PlayerState, MessageEncoder.EncodePayload(b => PlayerState.Pack(b, state), 128), ct).ConfigureAwait(false);
+                if (o.OnFootContainer == 0)
+                {
+                    await link.SendRealtimeAsync(MsgType.PlayerState, MessageEncoder.EncodePayload(b => PlayerState.Pack(b, state), 128), ct).ConfigureAwait(false);
+                }
+            }
+
+            // --onfoot <container>: act as a player standing in a station room (M3b verification without a second PC). The client stops
+            // sending PlayerState while on foot (on-foot-presence.md 3.1); the sample walks a 5 m circle at 10 Hz.
+            if (o.OnFootContainer != 0)
+            {
+                long onFootTick = (long)(clock.Elapsed.TotalSeconds * 10);
+                if (onFootTick > lastOnFootTick)
+                {
+                    lastOnFootTick = onFootTick;
+                    double angle = clock.Elapsed.TotalSeconds * 0.4;
+                    var onFoot = new OnFootStateT
+                    {
+                        Seq = (uint)onFootTick,
+                        SampleTimeUs = (ulong)(clock.Elapsed.TotalSeconds * 1_000_000),
+                        Mode = OnFootMode.Walking,
+                        ContainerNetId = o.OnFootContainer,
+                        Room = new RoomKeyT { MacroRef = 9, Kind = RoomKind.Static, Roomtype = 4 },
+                        Px = (int)(Math.Sin(angle) * 1024 * 5),
+                        Pz = (int)(Math.Cos(angle) * 1024 * 5),
+                        Cx = (int)(Math.Sin(angle) * 64 * 5),
+                        Cz = (int)(Math.Cos(angle) * 64 * 5),
+                        Anim = OnFootAnim.Walk,
+                    };
+                    await link.SendRealtimeAsync(MsgType.OnFootState, MessageEncoder.EncodePayload(b => OnFootState.Pack(b, onFoot), 128), ct).ConfigureAwait(false);
+                }
             }
 
             if (o.Commander != CommanderMode.None && tick >= nextOrder)

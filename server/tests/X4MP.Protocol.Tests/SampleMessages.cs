@@ -321,6 +321,18 @@ public static class SampleMessages
             Room = new RoomKeyT { MacroRef = 9, AnchorX = -120, AnchorY = 0, AnchorZ = 340, PathHash = 0xBEEF, Kind = RoomKind.Lounge, Roomtype = 4 },
             Px = 2048, Py = 0, Pz = -1024, Cx = 640, Cy = 0, Cz = -320, Yaw = 1200, LookPitch = 128, Anim = OnFootAnim.Walk, EmoteId = 0, Flags = 1,
         }),
+        S(new PlayerAppearanceT
+        {
+            PlayerId = 3, Revision = 2, Race = "argon", Preset = "male_a", CharacterMacro = "character_argon_male_a_macro",
+            IsFemale = false, Clothing = "clothing_arg_civilian_01_macro",
+        }),
+        S(new PresenceRosterT
+        {
+            Full = true,
+            Entries = [new PresenceEntryT { PlayerId = 3, Mode = OnFootMode.Walking, ContainerNetId = 1500, OuterContainerNetId = 0, Roomtype = 4, RoomName = "Bar" }],
+            Removed = [],
+        }),
+        S(new PlayerInteractionT { FromPlayer = 3, ToPlayer = 4, Kind = InteractionKind.Wave, EmoteId = 0, Arg = 0 }),
 
         // ---- intents (one sample per union body) ----
         Intent(IntentBodyUnion.FromKillClaim(new KillClaimT { Target = 1002, Killer = 1001, WeaponMacroRef = 4 })),

@@ -64,6 +64,9 @@ public sealed partial class MessageRegistry
         Add<PlayerState>(MsgType.PlayerState, Lane.Realtime, PlayerState.GetRootAsPlayerState, PlayerStateVerify.Verify, t => t.UnPack());
         Add<PlayerShip>(MsgType.PlayerShip, Lane.Control, PlayerShip.GetRootAsPlayerShip, PlayerShipVerify.Verify, t => t.UnPack());
         Add<OnFootState>(MsgType.OnFootState, Lane.Realtime, OnFootState.GetRootAsOnFootState, OnFootStateVerify.Verify, t => t.UnPack());
+        Add<PlayerAppearance>(MsgType.PlayerAppearance, Lane.Control, PlayerAppearance.GetRootAsPlayerAppearance, PlayerAppearanceVerify.Verify, t => t.UnPack());
+        Add<PresenceRoster>(MsgType.PresenceRoster, Lane.Control, PresenceRoster.GetRootAsPresenceRoster, PresenceRosterVerify.Verify, t => t.UnPack());
+        Add<PlayerInteraction>(MsgType.PlayerInteraction, Lane.Control, PlayerInteraction.GetRootAsPlayerInteraction, PlayerInteractionVerify.Verify, t => t.UnPack());
         Add<Intent>(MsgType.Intent, Lane.Control, Intent.GetRootAsIntent, null, t => t.UnPack());
         Add<IntentResult>(MsgType.IntentResult, Lane.Control, IntentResult.GetRootAsIntentResult, IntentResultVerify.Verify, t => t.UnPack());
         Add<GameEvent>(MsgType.GameEvent, Lane.Control, GameEvent.GetRootAsGameEvent, null, t => t.UnPack());

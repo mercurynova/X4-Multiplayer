@@ -33,6 +33,14 @@ public sealed class FailureInjectionTests
     }
 
     [Fact]
+    public void ParsesTheOnFootContainer()
+    {
+        var o = Parse("client", "--onfoot", "1500");
+        Assert.Equal(1500u, o.OnFootContainer);
+        Assert.Equal(0u, Parse("client").OnFootContainer);
+    }
+
+    [Fact]
     public void TheSlowReaderTakesARateOrAPausePattern()
     {
         var pattern = Parse("client", "--slow-reader=pause=3/30").SlowReader!;
@@ -44,6 +52,9 @@ public sealed class FailureInjectionTests
     }
 
     [Theory]
+    [InlineData("client", "--onfoot", "0")]
+    [InlineData("client", "--onfoot", "station")]
+    [InlineData("authority", "--onfoot", "1500")]
     [InlineData("client", "--slow-reader", "0")]
     [InlineData("client", "--slow-reader", "fast")]
     [InlineData("client", "--slow-reader", "pause=3")]

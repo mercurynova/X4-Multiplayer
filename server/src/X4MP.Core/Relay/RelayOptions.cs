@@ -47,4 +47,28 @@ public sealed class RelayOptions
     /// <summary><c>PermissionDenied</c> events recorded per player per second (the rejections themselves are always answered).</summary>
     [Setting("PermissionDenied events recorded per player per second", Scope = SettingScope.Live, Min = 1, Max = 1000)]
     public int PermissionDeniedEventsPerSecond { get; set; } = 5;
+
+    /// <summary>Upper bound of the rate at which on-foot samples of one player are relayed (on-foot-presence.md 3.1: 10 Hz moving).</summary>
+    [Setting("On-foot state relay per player (Hz)", Scope = SettingScope.Live, Min = 1, Max = 60)]
+    public int OnFootRelayHz { get; set; } = 20;
+
+    /// <summary>Samples one player may send at once before the token bucket starts dropping them.</summary>
+    [Setting("On-foot burst: samples a player may send at once", Scope = SettingScope.Live, Min = 1, Max = 200)]
+    public int OnFootBurst { get; set; } = 40;
+
+    /// <summary>Largest container-local distance (m) a player may claim from the container centre (on-foot-presence.md 3.2: 2 km).</summary>
+    [Setting("On-foot validation: largest distance to the container (m)", Scope = SettingScope.Live, Min = 50, Max = 100000)]
+    public int OnFootRangeMetres { get; set; } = 2000;
+
+    /// <summary>Rate of the galaxy-wide presence roster (on-foot-presence.md 3.2: at most 1 Hz).</summary>
+    [Setting("Presence roster broadcast (Hz)", Scope = SettingScope.Live, Min = 1, Max = 10)]
+    public int PresenceRosterHz { get; set; } = 1;
+
+    /// <summary>Sustained social interactions (wave, emote, poke) per player per second.</summary>
+    [Setting("Player interactions per second a player may sustain", Scope = SettingScope.Live, Min = 1, Max = 100)]
+    public int InteractionPerSecond { get; set; } = 4;
+
+    /// <summary>Interactions one player may send at once (token bucket size).</summary>
+    [Setting("Player interactions a player may send at once", Scope = SettingScope.Live, Min = 1, Max = 100)]
+    public int InteractionBurst { get; set; } = 8;
 }

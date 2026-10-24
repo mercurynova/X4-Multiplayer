@@ -250,6 +250,18 @@ trade settings → M5; `WorldUpdate` > 20 Hz verify errors and sector owner/exte
 
 **Status 2026-10-07 (later): Finding 21 fix merged + verified (M3-33, `26d702b`).** M3-32's speed threshold (hide >= 3500 m/s) was rejected by the user (many ships, especially modded, travel faster) and removed. M3-33: player ships replicate at the full rate everywhere (8 players x 20 Hz worst case), the ghost delay covers the sample interval (slow streams interpolate instead of extrapolating), superhighway entry/exit from the game's own MD events (gate / zone / sector; which fires first is logged), M3-32's authority clock-stall tolerance kept. Verified: Catch2 510, Lua 248, dotnet all suites, e2e 9 steps. **Next session:** M3-33 check, M3-29 re-host check (Finding 20), 3.5 UDP fallback, re-check 15-17; then the M3 exit report.
 
+**Status 2026-10-24: M3b protocol and server half landed.** On-foot presence is now on the wire and in the relay, so the client waves
+have something to talk to. Schema: `PlayerAppearance` 0x0303, `PresenceRoster` 0x0304 and `PlayerInteraction` 0x0305 next to
+`OnFootState` 0x0302, plus the `OnFootPresence` capability bit (1<<17, not bit 9 — that one is `InGameAdmin`); golden vectors
+0x0302–0x0305, C++ `message_table.inc`, the C# registry and the message policy all carry them. Relay
+(`RelayModule.OnFoot.cs`): `player_id` stamped, validation (known container in the world mirror, container-local position within
+`OnFootRangeMetres`, defined mode, stale `seq` ignored, token bucket), fan-out to the capable nodes whose own last sample shares the
+innermost container and to the peers of the previous one (their leave/despawn signal); `PresenceRoster` full list at most 1 Hz;
+`PlayerAppearance` stored with a monotonic server revision and replayed to joining nodes; `PlayerInteraction` forwarded to the target
+only. FakeNode can stand in a station room (`--onfoot <container_net_id>`, 10 Hz), so the relay is verifiable on one PC. Verified:
+protocol 533, Core relay tests 16/16, FakeNode 29/29, MessagePolicy 17/17, C++ mod build clean. **Next:** the client waves (capture,
+room resolver, lounge, actors, appearance picker), which are gated on the S10 spikes — none of them have run yet.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of

@@ -11,11 +11,12 @@ using X4MP.Protocol;
 
 namespace X4MP.Core.Tests.Session;
 
-/// <summary>A frame the server queued for a node, decoded lazily.</summary>
-public sealed record SentFrame(MsgType Type, byte[] Payload)
+/// <summary>A frame the server queued for a node, decoded lazily. <paramref name="Lane"/> is the lane it was sent on (the catalog
+/// lane), so decoding a realtime frame does not have to guess.</summary>
+public sealed record SentFrame(MsgType Type, byte[] Payload, Lane Lane = Lane.Control)
 {
     public T Decode<T>() where T : struct, IFlatbufferObject =>
-        MessageRegistry.Default.Decode<T>(new Frame(Type, FrameOptions.None, Lane.Control, Payload));
+        MessageRegistry.Default.Decode<T>(new Frame(Type, FrameOptions.None, Lane, Payload));
 }
 
 /// <summary>An in-memory node connection the test drives by hand.</summary>
@@ -84,7 +85,7 @@ public sealed class FakeConnection(TimeProvider time) : INodeConnection
 
         lock (_gate)
         {
-            _sent.Add(new SentFrame(frame.MessageType, frame.Bytes[FrameCodec.HeaderSize..].ToArray()));
+            _sent.Add(new SentFrame(frame.MessageType, frame.Bytes[FrameCodec.HeaderSize..].ToArray(), frame.Lane));
         }
 
         return SendResult.Queued;
@@ -342,7 +343,7 @@ public sealed class ActorRig : IAsyncDisposable
     /// </summary>
     public async Task<JoinedNode> JoinAsync(
         string name, Role roles = Role.Client, Id128T? resumeToken = null, ulong lastJournalSeq = 0,
-        string? modBuild = null, ModPolicyViolationT? modWarning = null)
+        string? modBuild = null, ModPolicyViolationT? modWarning = null, ulong caps = 0)
     {
         if (!_identities.TryGetValue(name, out var identity))
         {
@@ -379,7 +380,7 @@ public sealed class ActorRig : IAsyncDisposable
             Roles = roles,
             Hello = hello,
             NegotiatedMinor = ProtocolConstants.ProtocolMinor,
-            NegotiatedCaps = 0,
+            NegotiatedCaps = caps,
             Nonce = RandomNumberGenerator.GetBytes(32),
             RemoteAddress = IPAddress.Parse("10.0.0.7"),
             ModWarning = modWarning,

@@ -139,6 +139,8 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
             flow.Estimator.Reset(); // the sample clock restarts with the new connection
         }
 
+        SendOnFootSnapshot(node);
+
         // A resumed authority is back in game without a phase change after its connection exists (the phase is restored before the node is
         // attached, when Authority still finds nobody): the avatar requests that waited for it, or were lost with the old socket, go out now.
         if (resumed && node.IsAuthority && node.Phase == NodePhase.InGame)
@@ -166,6 +168,7 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
 
     public void OnNodeDetached(SessionNode node, DetachReason reason)
     {
+        SendLeaveStates(node.PlayerId); // the peers in the container despawn the actor; a resume re-sends a fresh state
         DropPlayerWork(node.PlayerId);
         if (node.IsAuthority)
         {
@@ -184,6 +187,7 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
         _avatarRequests.Remove(node.PlayerId);
         _lastShips.Remove(node.PlayerId);
         _reprovision.Remove(node.PlayerId);
+        ForgetOnFoot(node.PlayerId);
         if (node.IsAuthority)
         {
             FailAllIntents(RejectReason.AuthorityUnavailable, "the authority left");
@@ -194,6 +198,7 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
     {
         ExpireIntents(timestamp);
         FlushDueStates(timestamp);
+        FlushPresenceRoster(timestamp);
     }
 
     public bool OnMessage(SessionNode node, InboundFrame frame)
@@ -207,6 +212,15 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
                     return true;
                 case MsgType.PlayerShip:
                     OnPlayerShip(node, frame);
+                    return true;
+                case MsgType.OnFootState:
+                    OnOnFootState(node, frame);
+                    return true;
+                case MsgType.PlayerAppearance:
+                    OnPlayerAppearance(node, frame);
+                    return true;
+                case MsgType.PlayerInteraction:
+                    OnPlayerInteraction(node, frame);
                     return true;
                 case MsgType.Intent:
                     OnIntent(node, frame);

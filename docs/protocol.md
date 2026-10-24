@@ -822,6 +822,35 @@ Wire behaviour that integration (M3-14) pinned down; the first three were bugs t
   same player with the same avatar (never a duplicate).
 - **Removal orders.** `EntityDespawn{Removed}` from the server to the authority removes an avatar (admin kick/ban with `removeAvatar`); the authority refuses the player's own ship.
 
+### 13.2 On-foot presence (ADR-046, M3b)
+
+Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRoster` 0x0304 and `PlayerInteraction` 0x0305 (Control), plus the
+`OnFootPresence` capability bit (1<<17). The design and the spike plan are in [research/on-foot-presence.md](research/on-foot-presence.md).
+
+- **Capture and rate (client, normative).** 10 Hz while moving (more than 0.05 m or 5° since the last sample), 1 Hz keepalive while idle, and an
+  immediate sample on a mode, container or room change. `PlayerState` is suspended while on foot; the last ship sample stands (its `Hidden` flag keeps
+  the docked ship invisible). Positions: room-local at 1/1024 m, container-local at 1/64 m.
+- **Relay (server).** The server stamps `player_id`, keeps `last_onfoot[player]` and forwards a sample to every node that
+  - negotiated `OnFootPresence`, and
+  - whose own last state is on foot (`mode != None`) in the **same innermost `container_net_id`**.
+
+  The peers of the *previous* container also get the sample, which is how they learn about the move and despawn the actor; a `mode=None` sample is
+  the explicit leave state, and a detach or leave produces one on the server's side. The authority is treated like any other node: it receives these
+  messages only when its own human shares the container. No world interest and no replication are involved.
+- **Validation.** A defined `mode`; `container_net_id != 0` unless `mode=None`; the container (and `outer_container_net_id` when set) must be a known
+  `net_id` of the world mirror; the container-local position within `OnFootRangeMetres` (2 km, 1/64 m) of the container centre. Then a token bucket
+  (`OnFootRelayHz` 20/s sustained, `OnFootBurst` 40) — dropped samples are not queued (the next one is 100 ms away). Stale `seq` values are ignored.
+  Drops are counted (`RelayStats.OnFootStatesDropped/RateLimited/Stale`), never a protocol violation.
+- **Presence roster (server).** `PresenceRoster{full=true, entries}` is rebuilt on any container/mode/roomtype change and sent galaxy-wide to the nodes
+  that negotiated the capability, at most `PresenceRosterHz` (1 Hz). It carries no positions, only where a player is, for the HUD and the player list.
+- **Appearance (ADR-051).** `PlayerAppearance` is sent at join and on change; the server stamps `player_id` and a monotonic `revision`, stores it for the
+  session and relays it to the other capable nodes. A joining node gets the stored appearance of everybody (and its own canonical revision). The
+  per-build catalogue check is the appearance task; the relay only trims and length-caps the strings (96 chars).
+- **Interactions.** `PlayerInteraction{to_player, kind, emote_id, arg}` is forwarded to the target only, with `from_player` stamped and a token bucket
+  (`InteractionPerSecond` 4/s, `InteractionBurst` 8). Credits and team invites stay on the economy and team messages.
+- **Cost.** About 40 B per sample: ≤ 0.4 kB/s per walking player to each peer in the container, plus a roster frame of a few hundred bytes per second per
+  node.
+
 ---
 
 ## 14. Teams and factions
@@ -1341,7 +1370,10 @@ carries `request_key` (idempotency), which is not repeated below.
 |---|---|---|---|---|
 | 0x0300 | PlayerState | C→S | RT | seq, sample_time_us, net_id, sector, flags, px/py/pz, yaw/pitch/roll, hull, shield, target_net_id (**no velocity**) |
 | 0x0301 | PlayerShip | C→S (→A) | Ctl | request_key (pure idempotency key), ship_macro, name, idcode, sector, pos, rot, hull, shield, local_component_id, **player_id** (server-stamped when forwarding to the authority; a client value is overwritten). Answered by EntitySpawn. |
-| 0x0302 | OnFootState | C→S | RT | player_id (server-stamped), seq, sample_time_us, mode (OnFootMode), container_net_id, outer_container_net_id, room (RoomKey struct, 16 B), px/py/pz (room-local, 1/1024 m), cx/cy/cz (container-local, 1/64 m), yaw, look_pitch, anim (OnFootAnim), emote_id, flags. ADR-046 / M3b: schema only for now, the server accepts and drops it (no relay yet). |
+| 0x0302 | OnFootState | C→S (→C) | RT | player_id (server-stamped), seq, sample_time_us, mode (OnFootMode), container_net_id, outer_container_net_id, room (RoomKey struct, 16 B), px/py/pz (room-local, 1/1024 m), cx/cy/cz (container-local, 1/64 m), yaw, look_pitch, anim (OnFootAnim), emote_id, flags. ADR-046: relayed to the nodes whose own last state shares the innermost container (and the previous one, as the leave state). |
+| 0x0303 | PlayerAppearance | C→S (→C) | Ctl | player_id and revision (both server-stamped), race, preset, character_macro, is_female, clothing. ADR-051: the chosen appearance others render; relayed on join and on change. |
+| 0x0304 | PresenceRoster | S→C | Ctl | full, entries[PresenceEntry{player_id, mode, container_net_id, outer_container_net_id, roomtype, room_name}], removed[]. Galaxy-wide, at most 1 Hz. |
+| 0x0305 | PlayerInteraction | C→S→C | Ctl | from_player (server-stamped), to_player, kind (InteractionKind: Wave/Emote/Poke/InviteTeam/OpenTrade), emote_id, arg. Forwarded to the target only, rate limited. |
 
 ### Intents and events (0x04xx)
 

@@ -203,7 +203,10 @@ public static class MessagePolicy
             // Player (0x03xx)
             (MsgType.PlayerState, C, Live),
             (MsgType.PlayerShip, C, Live),
-            (MsgType.OnFootState, C, Live), // M3b relays it; until then the relay accepts and drops it
+            (MsgType.OnFootState, C, Live), // relayed to the players that share the innermost container
+            (MsgType.PlayerAppearance, C, Live),
+            (MsgType.PresenceRoster, None, PolicyPhase.None),
+            (MsgType.PlayerInteraction, C, Live),
 
             // Intents and events (0x04xx)
             (MsgType.Intent, C, InGame),

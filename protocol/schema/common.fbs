@@ -44,7 +44,8 @@ enum Capability : ulong (bit_flags) {
   Economy,           // 1<<13 node implements wallets/transfers/loans/trades UI
   MdHooks,           // 1<<14 feature report: Mission Director hooks are active on this node
   NativeFrameTick,   // 1<<15 feature report: X4Native per-frame tick is available
-  TeamFactions       // 1<<16 feature report: x4mp_team_<slot> factions are set up on this node
+  TeamFactions,      // 1<<16 feature report: x4mp_team_<slot> factions are set up on this node
+  OnFootPresence     // 1<<17 node captures and renders on-foot presence (ADR-046); the server relays only to these
 }
 
 /// Session-wide phase (SessionState.phase). Mirrors server-design.md 2.4.

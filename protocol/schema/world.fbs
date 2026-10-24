@@ -251,3 +251,45 @@ table OnFootState {
   emote_id:ubyte;
   flags:ubyte;                   // bit0 Teleport (snap), bit1 Keyframe
 }
+
+/// How a player wants to be seen by the others (ADR-051, variant B: race + curated preset). Control lane, sent at join and on
+/// change; the server stamps `player_id` and `revision` and relays it to every node that negotiated OnFootPresence. Plain strings,
+/// not `_ref`: this is a rare message and the appearance catalogue is validated by the server, not published in the string table.
+table PlayerAppearance {
+  player_id:ushort;              // SERVER-STAMPED
+  revision:uint;                 // SERVER-STAMPED, monotonic per player; a client ignores an older revision
+  race:string;                   // "argon", "teladi", "paranid", "split", "boron", "terran", ...; empty = the server default (team origin)
+  preset:string;                 // curated preset id of the race ("male_a", "female_b", ...); empty = the race default
+  character_macro:string;        // resolved NPC character macro; empty = the receiver resolves race+preset from its own catalogue
+  is_female:bool;
+  clothing:string;               // optional clothing ware/macro; empty = the preset default
+}
+
+/// One row of the galaxy-wide presence list (Tier 0 HUD/list fallback, on-foot-presence.md 3.1).
+table PresenceEntry {
+  player_id:ushort;
+  mode:OnFootMode;               // never None in a roster entry
+  container_net_id:uint;
+  outer_container_net_id:uint;
+  roomtype:ubyte;                // X4RoomType, 21 = none
+  room_name:string;              // resolved name for the HUD; empty when the client resolves it from the container
+}
+
+/// S->N, Control lane, on any change, at most 1 Hz (on-foot-presence.md 3.2). Galaxy-wide (Q2: other players are always visible).
+table PresenceRoster {
+  full:bool;                     // true replaces the whole list
+  entries:[PresenceEntry];
+  removed:[ushort];              // players that are no longer on foot (only when full=false)
+}
+
+/// The in-world trigger of a social action (on-foot-presence.md 3.1). C->S->C; the server stamps `from_player`, checks the rate
+/// limit and forwards it to the target (and only to the target, unlike chat).
+enum InteractionKind : ubyte { Wave = 0, Emote, Poke, InviteTeam, OpenTrade }
+
+table PlayerInteraction {
+  from_player:ushort;            // SERVER-STAMPED
+  to_player:ushort;
+  kind:InteractionKind;
+  emote_id:ubyte;                // valid with kind=Emote
+  arg:uint;                      // kind-specific: team for InviteTeam, trade id for OpenTrade
+}

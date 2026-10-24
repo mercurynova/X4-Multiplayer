@@ -692,7 +692,7 @@ public static partial class LiveRunner
             Password = o.Password,
             ExtensionList = extensions,
             RequestedRoles = plan.Role,
-            ClientCaps = o.Udp ? (ulong)Capability.UdpRealtime : 0,
+            ClientCaps = (o.Udp ? (ulong)Capability.UdpRealtime : 0) | (ulong)Capability.OnFootPresence,
             StreamWrapper = impairment is null ? null : stream => new ImpairedStream(stream, impairment),
             ReceiveBufferBytes = slowSpec is null ? 0 : 4096, // a small window: flow control stops the server's sender soon after the node stops reading
         };

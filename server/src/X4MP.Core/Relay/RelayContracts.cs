@@ -113,6 +113,31 @@ public sealed class RelayStats
     /// <summary><c>PermissionDenied</c> events dropped by the per-player rate limit.</summary>
     public long PermissionDeniedEventsSuppressed { get; internal set; }
 
+    /// <summary><c>OnFootState</c> samples the relay received (M3b).</summary>
+    public long OnFootStatesReceived { get; internal set; }
+
+    /// <summary>Samples forwarded to the players that share the sender's innermost container (or its previous one).</summary>
+    public long OnFootStatesRelayed { get; internal set; }
+
+    /// <summary>Samples dropped by validation (unknown container, position out of range, undefined mode).</summary>
+    public long OnFootStatesDropped { get; internal set; }
+
+    public long OnFootStatesRateLimited { get; internal set; }
+
+    /// <summary>Samples older than the newest accepted one (reordered by the network).</summary>
+    public long OnFootStatesStale { get; internal set; }
+
+    /// <summary><c>PresenceRoster</c> frames queued (one per receiving node).</summary>
+    public long PresenceRostersSent { get; internal set; }
+
+    public long AppearancesRelayed { get; internal set; }
+
+    public long InteractionsRelayed { get; internal set; }
+
+    public long InteractionsRejected { get; internal set; }
+
+    public long InteractionsRateLimited { get; internal set; }
+
     public long IntentTimeouts { get; internal set; }
 
     public long IntentResultsRelayed { get; internal set; }
