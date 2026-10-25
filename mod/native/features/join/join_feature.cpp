@@ -19,6 +19,7 @@
 #include "features/avatars/avatar_hub.h"
 #include "features/diag/diag_hub.h"
 #include "features/ghosts/ghost_hub.h"
+#include "features/onfoot/onfoot_hub.h"
 #include "features/join/join_messages.h"
 #include "features/join/join_requests.h"
 #include "features/selfship/selfship_hub.h"
@@ -446,8 +447,10 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
   o.extensions = extensions_.get();
   o.stash = stash_.get();
   // Capability LogForward (1<<10): without it the server never grants the log sender (update_diag), so the self-test table and the
-  // quicksave warning would stay in the local log only (found by the session-3 kit dry run). Nothing else is advertised yet.
-  o.client_caps = std::uint64_t{1} << 10;
+  // quicksave warning would stay in the local log only (found by the session-3 kit dry run).
+  // Capability OnFootPresence (1<<17): the server only relays OnFootState/PresenceRoster to and from nodes that advertise it, so a
+  // node without this bit would see no on-foot players and its own samples would be dropped.
+  o.client_caps = (std::uint64_t{1} << 10) | (std::uint64_t{1} << 17);
   o.net.backoff_first_ms = 500;
 
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "joining {} (roles {}, {})", server_text_, static_cast<int>(o.requested_roles),
@@ -474,6 +477,7 @@ void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
   teams::team_hub().session_ended();  // M3-08: the team model belongs to the session
   avatars::avatar_hub().session_ended();  // M3-11: queued avatar inputs belong to the session
   ghosts::ghost_hub().session_ended();  // M3-10: the ghosts belong to the session too (removed on the next frame)
+  onfoot::onfoot_hub().session_ended();  // M3b: on-foot samples and the presence roster belong to the session
 }
 
 bool JoinFeature::welcomed() const {
@@ -531,6 +535,27 @@ void JoinFeature::update_diag(host::HostContext&) {
   } else if (!want_ship_link && diag_ship_link_) {
     diag_ship_link_ = false;
     selfship::selfship_hub().clear_link();
+  }
+  // M3b: the on-foot feature sends OnFootState on the Realtime lane while this node is InGame. It shares the own-ship condition:
+  // on foot is only meaningful once the world is there, and both streams are held back by the same takeover rule.
+  if (want_ship_link && !diag_onfoot_link_) {
+    diag_onfoot_link_ = true;
+    onfoot::OnFootLink link;
+    link.send_realtime = [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
+      return session_ && welcomed() && session_->send(wire::Lane::Realtime, type, payload) == net::SendResult::Ok;
+    };
+    link.server_now = [this](std::int64_t& out) {
+      if (!session_) return false;
+      const auto ns = session_->net_status();
+      if (!ns.clock_valid) return false;
+      out = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + ns.clock_offset_us;
+      return true;
+    };
+    onfoot::onfoot_hub().set_own_player_id(session_ && session_->has_welcome() ? session_->welcome().player_id : 0);
+    onfoot::onfoot_hub().set_link(std::move(link));
+  } else if (!want_ship_link && diag_onfoot_link_) {
+    diag_onfoot_link_ = false;
+    onfoot::onfoot_hub().clear_link();
   }
   // M3-12: a CLIENT's avatar takeover sends PlayerShip on the Control lane while the node is in game; the link also holds the PlayerState stream back
   // (selfship hub) until the takeover lifts it. The authority never takes over (its own ship is the host's).
@@ -763,6 +788,8 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       avatars::avatar_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);  // M3-11
       // M3-10: player-ship entity messages and Replication go to the ghost feature (features/ghosts); it ignores everything else.
       ghosts::ghost_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
+      // M3b: OnFootState / PresenceRoster / PlayerAppearance / PlayerInteraction go to the on-foot hub; it ignores everything else.
+      onfoot::onfoot_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);

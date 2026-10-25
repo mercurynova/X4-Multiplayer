@@ -629,3 +629,15 @@ if(X4MP_TESTS)
   cmake_language(DEFER CALL x4mp_assert_no_sdk x4mp_ghosts_tests)
 endif()
 # END M3-10 features/ghosts
+
+# =============================================================================================
+# BEGIN M3b on-foot presence (features/onfoot/*.cpp comes with the M2-04 features glob; no SDK adapter is needed - the feature reads
+# GameApi and gets the room key from MD over the Lua->native bridge).
+#   x4mp_host_tests += tests/test_onfoot.cpp (room-context parser, matched container id, send-rate tracker, relay frame decoding)
+#   The MD/Lua half is md/x4mp_onfoot.xml + ui/x4mp_onfoot.lua; the in-game behaviour was measured by the S10 spikes
+#   (docs/spikes/session-5-onfoot-results.md).
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_onfoot.cpp)
+endif()
+# END M3b on-foot presence

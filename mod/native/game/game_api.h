@@ -82,10 +82,12 @@ struct GameFns {
   const char* (*GetComponentName)(UniverseId componentid) = nullptr;
   bool (*IsComponentWrecked)(UniverseId componentid) = nullptr;
   bool (*IsPlayerOccupiedShipDocked)() = nullptr;
+  // M3b (on-foot): a position relative to a container (a station interior, a ship). Same units as GetObjectPositionInSector.
+  PosRotPod (*GetPositionalOffset)(UniverseId positionalid, UniverseId spaceid) = nullptr;
 };
 
 // Number of exports in GameFns (keep in step with resolve_game_fns / missing_exports; the self-test reports resolved/total).
-inline constexpr std::size_t kGameFnCount = 28;
+inline constexpr std::size_t kGameFnCount = 29;
 
 using GetFunctionFn =std::function<void*(const char* name)>;  // X4NativeAPI::get_game_function or a fake
 
@@ -151,6 +153,8 @@ class GameApi {
   [[nodiscard]] std::optional<std::string> component_name(UniverseId id) const;
   [[nodiscard]] bool component_wrecked(UniverseId id) const noexcept;                                   // false when missing
   [[nodiscard]] bool player_ship_docked() const noexcept;                                               // false when missing
+  // M3b: `id`'s position inside container `space` (station interior, ship). nullopt: export missing / id 0 / main thread.
+  [[nodiscard]] std::optional<PosRotPod> positional_offset(UniverseId id, UniverseId space) const noexcept;
 
  private:
   GameFns fns_{};

@@ -176,6 +176,7 @@ class JoinFeature final : public host::IFeature {
   bool diag_connected_ = false;
   bool diag_client_link_ = false;  // M3-12: the client takeover link is installed in the avatar hub
   bool diag_ship_link_ = false;   // M3-09: the own-ship link is installed in the selfship hub
+bool diag_onfoot_link_ = false; // M3b: the on-foot link is installed in the on-foot hub
   bool diag_stats_link_ = false;  // M2-12: the stats link is installed in the diag hub
   bool diag_sender_ = false;
   Clock::time_point log_window_{};

@@ -76,6 +76,11 @@ const char* fk_idcode(UniverseId) { return "ABC-123"; }
 const char* fk_cname(UniverseId) { return nullptr; }
 bool fk_wrecked(UniverseId id) { return id == 13; }
 bool fk_docked() { return g_docked; }
+PosRotPod fk_posoffset(UniverseId id, UniverseId space) {
+  // Mirrors the game: the offset of `id` inside `space`. The test only needs a distinguishable answer.
+  if (space != 5001) return PosRotPod{};
+  return PosRotPod{static_cast<float>(id), 2.0f, 3.0f, 1.5f, 0.0f, 0.0f};
+}
 
 void* lookup_all(const char* name) {
   const std::string n = name;
@@ -107,6 +112,7 @@ void* lookup_all(const char* name) {
   if (n == "GetComponentName") return reinterpret_cast<void*>(&fk_cname);
   if (n == "IsComponentWrecked") return reinterpret_cast<void*>(&fk_wrecked);
   if (n == "IsPlayerOccupiedShipDocked") return reinterpret_cast<void*>(&fk_docked);
+  if (n == "GetPositionalOffset") return reinterpret_cast<void*>(&fk_posoffset);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -149,7 +155,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 28);
+  CHECK(missing_exports(api.fns()).size() == 29);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -166,7 +172,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 28);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 29);
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -212,7 +218,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 27);
+  CHECK(missing_exports(api.fns()).size() == 28);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {

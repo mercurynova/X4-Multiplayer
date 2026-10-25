@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP on-foot presence, MD side (M3b). Lua side: ui/x4mp_onfoot.lua; native side: features/onfoot
+  (docs/research/on-foot-presence.md 3.1-3.3, ADR-046).
+
+  Why MD at all: native can read the player's container and the container-local position, but not which ROOM the player stands in -
+  the SDK has no room accessor (sdk/x4n_rooms.h is only an enum -> name mapper). So MD builds the room key and pushes it over the
+  bridge:
+
+    MD -> Lua  raise_lua_event "x4mp.onfoot_room" "<mode=..;sector=..;smacro=..;sx=..;sy=..;sz=..;rmacro=..;ax=..;ay=..;az=..;kind=..>"
+    Lua -> native x4mp.onfoot_room {"v":1,"data":"<the same string>"}   (ui/x4mp_onfoot.lua)
+
+  Field notes (the parser is features/onfoot/onfoot_types.cpp):
+    mode    0 = not on foot in a station interior, 1 = walking, 2 = seated in a cockpit (the ship is the container)
+    sector, smacro, sx/sy/sz   the station's sector macro, its macro and its sector-space position in metres. MD has no round(), so
+            the 50 m bucket (the cross-client match key of ADR-009) is computed natively from these numbers.
+    rmacro  the room's macro id;  ax/ay/az  the room origin in the container (relativeposition), metres with decimals - native
+            rounds to decimetres, which S10.2 showed to be stable across runs and reloads (raw anchors drift by <= 0.5 mm).
+    kind    1 = static room, 2 = dynamic interior.
+  roomtype is NOT sent: MD prints $R.type as a name, not as the X4RoomType ubyte, so the native default (21 = none) stands.
+
+  Triggers: every room change of the player entity (immediate, so the peers see the avatar appear in the new room without waiting for
+  the poll), plus a 1 Hz pull from ui/x4mp_onfoot.lua that produces the first report after a load and the leave state (mode=0) when
+  the player steps out. Both only signal one report cue, so the report is written once.
+
+  Safety: this file creates nothing, moves nothing and names no component except the player's own room/container for reading.
+-->
+<mdscript name="X4MP_OnFoot" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <!-- the 1 Hz pull from Lua -->
+    <cue name="X4MP_OnFoot_Tick" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_OnFoot'" control="'report'"/>
+      </conditions>
+      <actions>
+        <signal_cue_instantly cue="X4MP_OnFoot_Report"/>
+      </actions>
+    </cue>
+
+    <!-- the player changed room: event.param is the new room, event.param2 the previous one (S10.1) -->
+    <cue name="X4MP_OnFoot_RoomChanged" instantiate="true">
+      <conditions>
+        <event_object_changed_room object="player.entity"/>
+      </conditions>
+      <actions>
+        <signal_cue_instantly cue="X4MP_OnFoot_Report"/>
+      </actions>
+    </cue>
+
+    <!-- one report. Always raises the event, even when the answer is "not on foot", so the peers can drop the avatar. -->
+    <cue name="X4MP_OnFoot_Report" instantiate="true">
+      <conditions>
+        <event_cue_signalled/>
+      </conditions>
+      <actions>
+        <set_value name="$Report" exact="'mode=0'"/>
+        <set_value name="$Cont" exact="player.container"/>
+        <set_value name="$Room" exact="player.room"/>
+        <do_if value="player.occupiedship">
+          <!-- in a pilot seat: the ship is the container, there is no shared station interior to place an avatar in -->
+          <set_value name="$Report" exact="'mode=2'"/>
+        </do_if>
+        <do_elseif value="$Cont and $Room and $Cont.macro.id and $Cont.sector and $Room.macro.id">
+          <set_value name="$Pos" exact="$Cont.position"/>
+          <set_value name="$Anchor" exact="@$Room.relativeposition.{$Cont}"/>
+          <do_if value="$Pos and $Anchor">
+            <set_value name="$Report" exact="'mode=1;sector=' + $Cont.sector.macro.id + ';smacro=' + $Cont.macro.id + ';sx=' + ($Pos.x / 1m) + ';sy=' + ($Pos.y / 1m) + ';sz=' + ($Pos.z / 1m) + ';rmacro=' + $Room.macro.id + ';ax=' + ($Anchor.x / 1m) + ';ay=' + ($Anchor.y / 1m) + ';az=' + ($Anchor.z / 1m) + ';kind=' + (if $Room.dynamicinterior then 2 else 1)"/>
+          </do_if>
+        </do_elseif>
+        <raise_lua_event name="'x4mp.onfoot_room'" param="$Report"/>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>
