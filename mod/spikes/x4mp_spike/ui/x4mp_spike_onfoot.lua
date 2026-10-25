@@ -1,20 +1,19 @@
 -- x4mp_spike_onfoot.lua : spike v2 blocks onfoot1 and onfoot2 (S10, on-foot presence; task M2-003).
 --
---   onfoot1  = S10.1, S10.3, S10.4, S10.11, S10.12, S10.14, S10.7, S10.8   (the important ones, in this order)
---   onfoot2  = S10.2, S10.5, S10.6, S10.9, S10.13, S10.15
+--   onfoot1  = S10.1, S10.3, S10.4, S10.7, S10.8   (the important ones, in this order)
+--   onfoot2  = S10.2, S10.5, S10.6, S10.9
 --   Any single step: "/x4mpspike onfoot1 step=7" (the step number is the S10 number; either block accepts any step).
 --   Control of a running block: "next=1" ends the current wait early, "stop=1" aborts the run, "cleanup=1" removes every
---   test actor and lounge and switches all listeners off.
+--   test actor and switches all listeners off.
 --
--- Procedures: docs/research/on-foot-presence.md section 6. The MD side is md/x4mp_spike_onfoot.xml (actor and interior
+-- Procedures: docs/research/on-foot-presence.md section 6. The MD side is md/x4mp_spike_onfoot.xml (actor
 -- services; it owns the markers and the janitor). This file orchestrates, announces each step, samples the player state
 -- (2 Hz), reads native positions through the FFI, drives the "mirror actor" (replays the player's own recorded track 3 s
 -- late) and offers a small test menu. It logs observations only.
 --
 -- State-changing things this file causes (all marked, all removed again, all removed on load by the MD janitor):
 --   * test actors named "Spike ..." (cue actors of md.X4MP_SpikeOnFoot.Actors), at most 8 at a time;
---   * one private dynamic interior named "Multiplayer Lounge" per attempt, on the station the player is docked at;
---   * the player's own entity is moved into the lounge and back (s12, s14, s15). Never a ship. Never removed.
+--   * the player's own entity is never moved, removed or replaced (the MP lounge that did this is dropped).
 --
 -- Sources (x4-unpacked/): FFI signatures copied from vanilla cdefs: GetPlayerContainerID ui/addons/ego_detailmonitor/menu_map.lua:776,
 -- GetPlayerOccupiedShipID menu_crafting.lua:25, GetEnvironmentObject menu_docked.lua:85, GetPlayerID/GetPlayerObjectID menu_docked.lua:104-105,
@@ -66,6 +65,8 @@ O.replyHandlers = {}
 local STEP_PREFIX = "S10."
 local MENU_NAME = "X4MPSpikeOnFootMenu"
 local MIRROR_DELAY = 3.0 -- seconds the mirror lags behind the recorded track
+-- player.entity.position / C.GetPositionalOffset return the EYE position; an NPC stands 1.72 m below it.
+local EYE_TO_FOOT = 1.72
 
 ------------------------------------------------------------------------------
 -- small helpers
@@ -181,7 +182,10 @@ local function onFrame()
 		local p = id and readPos(id)
 		if p then
 			local list = O.rec.list
-			list[#list + 1] = { t = now, x = p.x, y = p.y, z = p.z, yaw = p.yaw }
+			-- The recorder stores the FOOT position, not the eye position. player.entity.position is eye height
+			-- (measured 1.72 m above the floor in the manager's office), and teleporting an actor to it left the avatar
+			-- hanging 1.7 m in the air in the S10.4 run of 2026-10-24. Vanilla places NPCs at y = 1.77 - race.height.
+			list[#list + 1] = { t = now, x = p.x, y = p.y - EYE_TO_FOOT, z = p.z, yaw = p.yaw }
 			if #list > 1500 then -- keep roughly the last 10 s
 				local keep, cut = {}, now - 10
 				for i = 1, #list do if list[i].t >= cut then keep[#keep + 1] = list[i] end end
@@ -199,7 +203,7 @@ if not O.hookInstalled then
 end
 
 ------------------------------------------------------------------------------
--- track recorder + mirror controller (S10.4, S10.15)
+-- track recorder + mirror controller (S10.4)
 ------------------------------------------------------------------------------
 function trackAt(t)
 	local list = O.rec.list
@@ -246,8 +250,19 @@ function mirrorFrame(now)
 			m.sent = m.sent + 1
 			md("of_walk", { m.step, m.tag or "mirror", tgt.x, tgt.y, tgt.z, tgt.yaw, speed, "player" })
 		end
-	elseif m.mode == "C" then
+	elseif m.mode == "C" or m.mode == "D" then
 		local id = O.actorIds[m.tag or "mirror"]
+		-- Mode D = mode C plus one attempt to put the actor into the walking state first. S10.4 verdict in game: a
+		-- teleported actor "slides through the air", i.e. it keeps the idle pose while its position changes, because MD
+		-- has no action that starts the walk animation (there is no set_actor_state, and start_actor_sequence only plays
+		-- semantic sequences). start_actor_walk is the only entry into locomotion, so D issues it once towards the
+		-- current target and then overrides the position every frame, exactly like C.
+		if m.mode == "D" and id and not m.walkIssued then
+			m.walkIssued = true
+			m.sent = m.sent + 1
+			md("of_walk", { m.step, m.tag or "mirror", tgt.x, tgt.y, tgt.z, tgt.yaw, 1.3, "player" })
+			log(m.step, "INFO", K("what", "mode_d_walk_issued", "tag", m.tag or "mirror"))
+		end
 		if id then
 			local ok, err = pcall(function()
 				local off = ffi.new("UIPosRot", { x = tgt.x, y = tgt.y, z = tgt.z, yaw = tgt.yaw, pitch = 0, roll = 0 })
@@ -319,20 +334,22 @@ O.replyHandlers.evt = function(kv)
 	if kv.kind == "interiors_despawning" then O.despawnSeen = true; O.despawnLeftover = tonumber(kv.leftover) end
 end
 
-O.replyHandlers.lounge = function(kv)
-	O.lounge = { ok = kv.ok == "1", variant = kv.variant, why = kv.why }
-	if kv.ok == "1" then
-		O.created = O.created or {}
-		O.created[#O.created + 1] = kv.variant
-	end
-	log("S10.11", "INFO", K("what", "lounge_reply", "ok", kv.ok, "variant", kv.variant, "why", kv.why, "keep", kv.keep))
-end
+-- defined after the menu table exists (forward declaration: the handler below is created before it)
+local openConvMenu
 
 O.replyHandlers.conv = function(kv)
 	log("S10.7", "INFO", K("what", "md_conv_event_in_lua", "event", kv.what, "section", kv.section, "outcome", kv.outcome, "frame", S.frame()))
 	O.conv = O.conv or {}
 	O.conv[kv.what] = (O.conv[kv.what] or 0) + 1
 	if kv.section then O.conv[kv.section] = (O.conv[kv.section] or 0) + 1 end
+	-- MD <open_conversation_menu menu="X4MPSpikeOnFootMenu"> resolves the name (Helper.getMenu returns our table) but
+	-- never calls menu.onShowMenu: nothing is drawn and the conversation just waits - the "frozen dialogue" of
+	-- 2026-10-24. Opening the same menu from Lua with OpenMenu() does display it, so we do it here, right after MD
+	-- raised this event. The MD action stays in place because it is what puts the conversation into the wait state
+	-- that Helper.closeMenuAndReturn() returns from.
+	if kv.what == "next_section" and kv.section == "x4mp_spike_menu" and openConvMenu then
+		openConvMenu()
+	end
 end
 
 local function onActorTag(_, param)
@@ -423,37 +440,19 @@ local function waitActorId(tag, run)
 	return waitUntil(function() return O.actorIds[tag] ~= nil end, 3, run)
 end
 
-local function ensureLounge(step, variant, run)
-	if O.loungeKept then return true end
-	O.lounge = nil
-	md("of_lounge_create", { step, variant or "bar", 4711, 1 })
-	waitUntil(function() return O.lounge ~= nil end, 8, run)
-	if O.lounge and O.lounge.ok then
-		O.loungeKept = true
-		return true
-	end
-	return false
-end
-
-local function goLounge(step, x, y, z)
-	md("of_lounge_go", { step, num(x, 0), num(y, 0), num(z, 0) })
-	O.inLounge = true
-end
-
-local function leaveLounge(step)
-	md("of_lounge_leave", { step })
-	O.inLounge = false
-end
-
 ------------------------------------------------------------------------------
--- test menu (S10.12 "Go to lounge" / "Leave", S10.7 "Open MP menu")
+-- test menu (S10.7 "Open MP menu")
 ------------------------------------------------------------------------------
-local menu = { name = MENU_NAME, mode = "lounge" }
+local menu = { name = MENU_NAME, mode = "conv", conversationMenu = true }
 O.menu = menu
 local WIN_LAYER = 4
 
 local function closeMenu(dueTo)
-	if menu.conversationMenu and dueTo == "back" then
+	-- A menu opened from a conversation has to be registered with conversationMenu = true and closed with
+	-- closeMenuAndReturn (ego_detailmonitorhelper/helper.lua:1402 flag, :1794 closeMenuAndReturn). Without that the
+	-- conversation stays open behind a closed menu and there is no way out - exactly what the S10.7 visible test of
+	-- 2026-10-24 saw: choosing "Open MP menu" hung the conversation.
+	if menu.mode == "conv" then
 		Helper.closeMenuAndReturn(menu, "x4mp_spike_back")
 	else
 		Helper.closeMenu(menu, dueTo or "close")
@@ -478,36 +477,14 @@ function menu.display()
 	menu.frame:setBackground("solid", { color = Color["frame_background_semitransparent"] })
 	local ftable = menu.frame:addTable(1, { tabOrder = 1, highlightMode = "off" })
 	local row = ftable:addRow(false, { fixed = true })
-	row[1]:createText(menu.mode == "conv" and "X4MP spike: MP menu (test)" or "X4MP spike: lounge test", Helper.headerRowCenteredProperties)
-	if menu.mode == "conv" then
-		local r = ftable:addRow(false, {})
-		r[1]:createText("S10.7: this menu was opened from the conversation with a test character.", { wordwrap = true })
-		local b = ftable:addRow(true, {})
-		b[1]:createButton({}):setText("Back to conversation", { halign = "center" })
-		b[1].handlers.onClick = function()
-			log("S10.7", "INFO", K("what", "conv_menu_back_clicked"))
-			closeMenu("back")
-		end
-	else
-		local r = ftable:addRow(false, {})
-		r[1]:createText("S10.12: Go to lounge teleports you into the test lounge (private dynamic interior). Leave brings you back to where you were.", { wordwrap = true })
-		local b1 = ftable:addRow(true, {})
-		b1[1]:createButton({}):setText("Go to lounge", { halign = "center" })
-		b1[1].handlers.onClick = function()
-			log("S10.12", "INFO", K("what", "menu_go_to_lounge_clicked"))
-			goLounge("S10.12", O.goX, O.goY, O.goZ)
-			closeMenu("close")
-		end
-		local b2 = ftable:addRow(true, {})
-		b2[1]:createButton({}):setText("Leave", { halign = "center" })
-		b2[1].handlers.onClick = function()
-			log("S10.12", "INFO", K("what", "menu_leave_clicked"))
-			leaveLounge("S10.12")
-			closeMenu("close")
-		end
-		local b3 = ftable:addRow(true, {})
-		b3[1]:createButton({}):setText("Close", { halign = "center" })
-		b3[1].handlers.onClick = function() closeMenu("close") end
+	row[1]:createText("X4MP spike: MP menu (test)", Helper.headerRowCenteredProperties)
+	local r = ftable:addRow(false, {})
+	r[1]:createText("S10.7: this menu was opened from the conversation with a test character.", { wordwrap = true })
+	local b = ftable:addRow(true, {})
+	b[1]:createButton({}):setText("Back to conversation", { halign = "center" })
+	b[1].handlers.onClick = function()
+		log("S10.7", "INFO", K("what", "conv_menu_back_clicked"))
+		closeMenu("back")
 	end
 	menu.frame:display()
 end
@@ -529,13 +506,14 @@ end
 function menu.cleanup()
 	menu.shown = nil
 	menu.frame = nil
-	menu.conversationMenu = nil
+	-- conversationMenu is a REGISTRATION flag (Helper.registerMenu reads it), so it stays true for the lifetime of the
+	-- menu; menu.mode decides whether a close returns to the conversation.
 end
 
 local function ensureMenuRegistered()
 	if O.menuRegistered then return true end
 	if type(Helper) ~= "table" or type(Helper.registerMenu) ~= "function" then
-		log("S10.12", "FAIL", K("what", "helper_missing", "helper", type(Helper)))
+		log("S10.MENU", "FAIL", K("what", "helper_missing", "helper", type(Helper)))
 		return false
 	end
 	Menus = Menus or {}
@@ -545,15 +523,17 @@ local function ensureMenuRegistered()
 	table.insert(Menus, menu)
 	local ok, err = pcall(Helper.registerMenu, menu)
 	O.menuRegistered = ok
-	log("S10.12", ok and "INFO" or "FAIL", K("what", "menu_registered", "name", MENU_NAME, "err", ok and "" or err))
+	log("S10.MENU", ok and "INFO" or "FAIL", K("what", "menu_registered", "name", MENU_NAME, "err", ok and "" or err))
 	return ok
 end
 
-local function openLoungeMenu()
+-- S10.7: the menu that the conversation shows. OpenMenu is the call that actually displays a Lua-registered
+-- menu; MD's open_conversation_menu does not (see the comment in O.replyHandlers.conv).
+openConvMenu = function()
 	if not ensureMenuRegistered() then return false end
-	menu.mode = "lounge"
+	menu.mode = "conv"
 	local ok, err = pcall(OpenMenu, MENU_NAME, { 0, 0 }, nil)
-	log("S10.12", ok and "INFO" or "FAIL", K("what", "OpenMenu_called", "err", ok and "" or err))
+	log("S10.7", ok and "INFO" or "FAIL", K("what", "OpenMenu_called", "mode", "conv", "err", ok and "" or err))
 	return ok
 end
 
@@ -671,8 +651,16 @@ end }
 -- S10.3 -------------------------------------------------------------------
 STEPS[3] = { title = "spawn an MP character", fn = function(a, run)
 	if not needWalking(3, run) then return end
-	spawn("S10.3", "alice", "player", "Spike Alice", false, false, 2.0, 0, "player")
+	spawn("S10.3", "alice", "player", "Spike Alice", true, false, 2.0, 0, "player")
 	spawn("S10.3", "bob", "crew", "Spike Bob", false, false, 3.0, 40, "player")
+	-- S10.3 also measures whether a created actor can walk at all: the visible test of 2026-10-24 reported
+	-- "both hang in the air and do not move". Bob is sent 4 m along +x, and the of_status lines below report
+	-- moved_from_spawn_m / iswalking for both actors.
+	local p0 = readPos(bodyId())
+	if p0 then
+		md("of_walk", { "S10.3", "bob", p0.x + 4.0, p0.y, p0.z, p0.yaw + 90, 1.3, "player" })
+		log("S10.3", "INFO", K("what", "walk_test_issued", "tag", "bob", "target_dx_m", 4.0, "speed", 1.3))
+	end
 	S.waitSeconds(2)
 	say(3, "look at the test character 'Spike Alice' in front of you (and 'Spike Bob' to the side): appearance (your own look or a crew look), name, title. " ..
 		"After 5 min you will be told to walk into another room and come back.")
@@ -736,10 +724,12 @@ STEPS[4] = { title = "movement modes", fn = function(a, run)
 	if wants("A") then rounds[#rounds + 1] = "A" end
 	if wants("B") then rounds[#rounds + 1] = "B" end
 	if wants("C") then rounds[#rounds + 1] = "C" end
+	if wants("D") then rounds[#rounds + 1] = "D" end
 	for _, m in ipairs(rounds) do
 		local text = { A = "mode A: the character is teleported 5 times per second",
 			B = "mode B: the character walks to your track (30 s at 2 Hz, then 30 s at 4 Hz)",
-			C = "mode C: the character is moved every frame through the native call" }
+			C = "mode C: the character is moved every frame through the native call",
+			D = "mode D: the character is put into the walking state once, then moved every frame" }
 		say(4, text[m] .. ". Now: walk an S-curve in the trader corner, then run, then stand still and turn. " .. dur .. " s. Rate 1-5 for smoothness, walk animation, foot sliding.")
 		S.waitSeconds(3.5) -- let the recorder fill the 3 s delay
 		if m == "A" then
@@ -747,6 +737,12 @@ STEPS[4] = { title = "movement modes", fn = function(a, run)
 		elseif m == "B" then
 			mirrorPhase(run, "S10.4", "B_walk_2Hz", "B", 2, dur / 2)
 			mirrorPhase(run, "S10.4", "B_walk_4Hz", "B", 4, dur / 2)
+		elseif m == "D" then
+			if not waitActorId("mirror", run) then
+				log("S10.4", "FAIL", K("what", "mode_D_no_actor_id", "note", "cannot_call_SetPositionalOffset_without_the_actor_id"))
+			else
+				mirrorPhase(run, "S10.4", "D_walkstate_plus_every_frame", "D", 60, dur)
+			end
 		else
 			if not waitActorId("mirror", run) then
 				log("S10.4", "FAIL", K("what", "mode_C_no_actor_id", "note", "cannot_call_SetPositionalOffset_without_the_actor_id"))
@@ -908,137 +904,11 @@ STEPS[9] = { title = "interior differences", fn = function(a, run)
 	waitFor(3, run)
 end }
 
--- S10.11 ------------------------------------------------------------------
-STEPS[11] = { title = "create the MP lounge", fn = function(a, run)
-	local _, _, cont = isWalking()
-	if not (cont and cont ~= 0) then
-		log("S10.11", "FAIL", K("what", "player_not_docked_or_inside_a_station", "container", cont))
-	end
-	say(11, "stay docked. Creating the test lounge three times (bar, player office, venturer room), one after the other; each is removed again, the bar variant is kept for the next steps.")
-	O.created = {}
-	for _, v in ipairs({ "bar", "office", "venturer" }) do
-		O.lounge = nil
-		md("of_lounge_create", { "S10.11", v, 4711, 0 })
-		waitUntil(function() return O.lounge ~= nil end, 8, run)
-		S.waitSeconds(1)
-		if run.stop then break end
-		md("of_lounge_remove", { "S10.11" })
-		S.waitSeconds(2)
-	end
-	local keepVariant = a.variant or "bar"
-	O.loungeKept = false
-	local kept = ensureLounge("S10.11", keepVariant, run)
-	local created = table.concat(O.created, ",")
-	log("S10.11", (#O.created >= 1) and "PASS" or "FAIL", K("what", "summary", "variants_created", created, "kept_for_next_steps", kept, "kept_variant", keepVariant,
-		"criterion", "interior_created_for_at_least_1_macro_on_2_stations_incl_one_with_a_vanilla_bar (repeat this step at a second station)"))
-end }
-
--- S10.12 ------------------------------------------------------------------
-STEPS[12] = { title = "enter and leave the lounge", fn = function(a, run)
-	O.goX, O.goY, O.goZ = num(a.x, 0), num(a.y, 0), num(a.z, 0)
-	if a.go == "1" then goLounge("S10.12", O.goX, O.goY, O.goZ); return end
-	if a.leave == "1" then leaveLounge("S10.12"); return end
-	if not ensureLounge("S10.12", a.variant or "bar", run) then
-		log("S10.12", "FAIL", K("what", "no_lounge_available"))
-		return
-	end
-	say(12, "use the test menu: 'Go to lounge', then 'Leave'. Open the station's transporter: is 'Multiplayer Lounge' listed? Walk out of the lounge door: where does it lead? " ..
-		"Black screen or stuck? (If the menu closed: '/x4mpspike onfoot1 step=12 go=1' / 'leave=1'.)")
-	openLoungeMenu()
-	waitFor(num(a.dur, 240), run)
-	log("S10.12", "INFO", K("what", "step_end", "player_in_lounge_flag", O.inLounge,
-		"criteria", "teleport_in_and_out_without_stuck_or_black_screen_transporter_listing_and_door_behaviour_are_tester_notes"))
-end }
-
--- S10.13 ------------------------------------------------------------------
-STEPS[13] = { title = "lounge determinism", fn = function(a, run)
-	if not ensureLounge("S10.13", a.variant or "bar", run) then
-		log("S10.13", "FAIL", K("what", "no_lounge_available"))
-		return
-	end
-	md("of_lounge_slots", { "S10.13" })
-	S.waitSeconds(1)
-	say(13, "slot offsets logged. To compare: save, load that save, then run '/x4mpspike onfoot2 step=13' again and compare slots= and checksum= of the two lines (S10.13 MEASURE).")
-	S.waitSeconds(15)
-end }
-
--- S10.14 ------------------------------------------------------------------
-STEPS[14] = { title = "lounge save safety", fn = function(a, run)
-	if not ensureLounge("S10.14", a.variant or "bar", run) then
-		log("S10.14", "FAIL", K("what", "no_lounge_available"))
-		return
-	end
-	local win = num(a.dur, 90)
-	say(14, "run 1: the lounge exists and you are OUTSIDE. Save now to a NEW slot (name it lounge-outside). You have " .. win .. " s ('next=1' to continue).")
-	waitFor(win, run)
-	if run.stop then return end
-	say(14, "moving you INTO the lounge in 5 s.")
-	S.waitSeconds(5)
-	goLounge("S10.14", num(a.x, 0), num(a.y, 0), num(a.z, 0))
-	S.waitSeconds(3)
-	say(14, "run 2: you are INSIDE the lounge. Save now to a NEW slot (name it lounge-inside). You have " .. win .. " s ('next=1' to continue).")
-	waitFor(win, run)
-	leaveLounge("S10.14")
-	S.waitSeconds(2)
-	say(14, "done. LATER, after the session: disable x4mp_spike in Settings > Extensions, load both saves (do they load, are you stuck?), then re-enable and load one: the janitor logs what it removed.")
-	log("S10.14", "INFO", K("what", "step_end", "saves_to_make", "lounge-outside,lounge-inside", "criteria",
-		"both_saves_load_without_the_mod_player_not_stuck_janitor_removes_the_orphan_with_the_mod (janitor lines: S10.JAN lounge_sweep)"))
-end }
-
--- S10.15 ------------------------------------------------------------------
-STEPS[15] = { title = "lounge with actors and talk", fn = function(a, run)
-	if not ensureLounge("S10.15", a.variant or "bar", run) then
-		log("S10.15", "FAIL", K("what", "no_lounge_available"))
-		return
-	end
-	local mode = a.mode or "A"
-	local dur = num(a.dur, 300)
-	if a.body == "object" then O.bodySource = "object" end
-	goLounge("S10.15", num(a.x, 0), num(a.y, 0), num(a.z, 0))
-	S.waitSeconds(3)
-	spawn("S10.15", "mirror", "player", "Spike Mirror", false, false, 3.0, 20, "player")
-	spawn("S10.15", "lg1", "crew", "Spike Seat 1", false, false, 2.0, 120, "lounge")
-	spawn("S10.15", "lg2", "crew", "Spike Seat 2", false, false, 2.0, 240, "lounge")
-	spawn("S10.15", "crowd1", "crew", "Spike Walker", false, false, 2.5, 180, "lounge")
-	spawn("S10.15", "carol", "crew", "Spike Carol", true, false, 2.0, 60, "lounge")
-	S.waitSeconds(2)
-	md("of_slot_seat", { "S10.15", "lg1", 1 })
-	md("of_slot_seat", { "S10.15", "lg2", 2 })
-	O.conv = {}
-	O.rec = { active = true, list = {} }
-	say(15, "you are in the lounge with 5 test characters: a mirror of you (mode " .. mode .. "), two seated, one walking, and 'Spike Carol' to talk to. Walk around and talk for " ..
-		math.floor(dur / 60) .. " min, then rate it 1-5.")
-	S.waitSeconds(3.5)
-	O.mirror = { active = true, mode = (mode == "C") and "C" or ((mode == "B") and "B" or "A"), hz = 4, errs = {}, sent = 0, step = "S10.15", tag = "mirror", nextErr = 0, nextSend = 0 }
-	O.ft = { active = true, list = {}, last = S.now() }
-	local t0 = S.now()
-	local nextWalk = 0
-	while S.now() - t0 < dur and not run.skip and not run.stop do
-		if S.now() - t0 >= nextWalk then
-			nextWalk = nextWalk + 3
-			md("of_crowd_walk", { "S10.15", 1, 3, 1.3 })
-		end
-		S.waitSeconds(0.5)
-	end
-	run.skip = false
-	O.mirror.active = false
-	O.ft.active = false
-	O.rec.active = false
-	local m = O.mirror
-	log("S10.15", "MEASURE", K("what", "lounge_summary", "mirror_mode", mode, "mirror_err_p95_m", percentile(m.errs, 0.95), "mirror_err_max_m", percentile(m.errs, 1.0),
-		"frame_ms_avg", avg(O.ft.list), "frame_ms_p95", percentile(O.ft.list, 0.95), "conversations_started", O.conv and O.conv.started or 0,
-		"criteria", "same_as_S10.4_and_S10.7_inside_the_lounge_seats_work (ratings are tester notes)"))
-	say(15, "time is up. Rate the lounge with characters 1-5. Leaving the lounge now.")
-	removeActors("S10.15", "all")
-	S.waitSeconds(1)
-	leaveLounge("S10.15")
-end }
-
 ------------------------------------------------------------------------------
 -- cleanup, run control, registration
 ------------------------------------------------------------------------------
 local function cleanupAll(reason)
-	log("S10.JAN", "INFO", K("what", "cleanup_requested", "reason", reason, "inLounge", O.inLounge, "loungeKept", O.loungeKept))
+	log("S10.JAN", "INFO", K("what", "cleanup_requested", "reason", reason))
 	O.s1.active = false
 	O.rec.active = false
 	O.mirror.active = false
@@ -1047,24 +917,18 @@ local function cleanupAll(reason)
 	md("of_s2", 0)
 	md("of_s6", { "S10.JAN", 0, "" })
 	md("of_remove", { "S10.JAN", "all" })
-	if O.inLounge then
-		md("of_lounge_leave", { "S10.JAN" })
-		O.inLounge = false
-	end
-	md("of_lounge_remove", { "S10.JAN" })
-	O.loungeKept = false
 end
 
 local ORDER = {
-	onfoot1 = { 1, 3, 4, 11, 12, 14, 7, 8 },
-	onfoot2 = { 2, 5, 6, 9, 13, 15 },
+	onfoot1 = { 1, 3, 4, 7, 8 },
+	onfoot2 = { 2, 5, 6, 9 },
 }
 
 local function runBlock(block, args)
 	if args.cleanup == "1" then
 		if O.run then O.run.stop = true end
 		cleanupAll("block_argument")
-		S.notify(block .. ": cleanup requested: test characters and lounges are being removed (see the log).")
+		S.notify(block .. ": cleanup requested: test characters are being removed (see the log).")
 		return
 	end
 	if args.stop == "1" then
@@ -1092,14 +956,14 @@ local function runBlock(block, args)
 			local id = tonumber(token)
 			if id and STEPS[id] then steps[#steps + 1] = id
 			else
-				log("S10.CTL", "FAIL", K("what", "unknown_step", "step", token, "known", "1,2,3,4,5,6,7,8,9,11,12,13,14,15"))
+				log("S10.CTL", "FAIL", K("what", "unknown_step", "step", token, "known", "1,2,3,4,5,6,7,8,9"))
 			end
 		end
 	else
 		steps = ORDER[block]
 	end
 	if #steps == 0 then
-		S.notify(block .. ": no valid step. Steps: 1,2,3,4,5,6,7,8,9,11,12,13,14,15")
+		S.notify(block .. ": no valid step. Steps: 1,2,3,4,5,6,7,8,9")
 		return
 	end
 	local run = { block = block, skip = false, stop = false, args = args }
@@ -1124,9 +988,22 @@ local function runBlock(block, args)
 end
 
 S.register("onfoot1", function(args) runBlock("onfoot1", args) end,
-	"S10 on foot, part 1: S10.1 state, .3 actor, .4 movement modes, .11 lounge, .12 enter/leave, .14 lounge saves, .7 conversation, .8 cost/saves (args: step=N, next=1, stop=1, cleanup=1, dur=, phase=)")
+	"S10 on foot, part 1: S10.1 state, .3 actor, .4 movement modes, .7 conversation, .8 cost/saves (args: step=N, next=1, stop=1, cleanup=1, dur=, phase=)")
 S.register("onfoot2", function(args) runBlock("onfoot2", args) end,
-	"S10 on foot, part 2: S10.2 room keys, .5 facing/emotes, .6 transitions, .9 interiors, .13 lounge slots, .15 lounge with actors (args as onfoot1)")
+	"S10 on foot, part 2: S10.2 room keys, .5 facing/emotes, .6 transitions, .9 interiors (args as onfoot1)")
 
-log("S10.JAN", "INFO", K("what", "lua_loaded", "file", "x4mp_spike_onfoot", "markers", "actor_name_prefix_Spike_title_X4MP_spike_entity_vars_x4mp_spike_and_x4mp_tag_md_lists_X4MP_OF_Actors_and_X4MP_OF_Lounges",
-	"janitor", "md_cues_OF_Janitor_and_OF_JanitorLounge_5s_and_6s_after_every_game_load_log_prefix_S10.JAN", "timer", S.timerKind))
+log("S10.JAN", "INFO", K("what", "lua_loaded", "file", "x4mp_spike_onfoot", "markers", "actor_name_prefix_Spike_title_X4MP_spike_entity_vars_x4mp_spike_and_x4mp_tag_md_lists_X4MP_OF_Actors",
+	"janitor", "md_cue_OF_Janitor_5s_after_every_game_load_log_prefix_S10.JAN", "timer", S.timerKind))
+
+-- Load sweep trigger. The MD side cannot schedule itself: a cue with only a <delay> never instantiates, and neither
+-- <event_game_loaded/> nor <check_interval> made OF_Janitor run in this extension mdscript (2026-10-25). The UI script
+-- is reloaded with every save load, so it asks MD for the sweep once, 5 s later - the same UI-triggered path every
+-- other step uses. MD logs "[X4MP-SPIKE] S10.JAN ... what=load_sweep_done".
+pcall(function()
+	S.startRoutine("of_janitor", function()
+		S.waitSeconds(5)
+		md("of_janitor", { "S10.JAN", 1 })
+		log("S10.JAN", "INFO", K("what", "janitor_trigger_sent", "after_s", 5))
+	end)
+end)
+

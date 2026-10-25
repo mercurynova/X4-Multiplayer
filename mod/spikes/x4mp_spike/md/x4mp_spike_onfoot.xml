@@ -12,13 +12,16 @@
 
   SAFETY / MARKERS
     * Every actor this file creates is a cue actor of cue md.X4MP_SpikeOnFoot.Actors, is named "Spike ...", gets the
-      title override "X4MP spike", entity variables $x4mp_spike / $x4mp_tag, and is listed in md.$X4MP_OF_Actors (a list
-      saved with the game) and md.$X4MP_OF_ByTag (table tag -> actor).
-    * Every dynamic interior ("Multiplayer Lounge") it creates is listed in md.$X4MP_OF_Lounges as [object, interior, room].
-    * The janitor (cues OF_Janitor and OF_JanitorLounge, 5 s and 6 s after every game load) removes ONLY what is in those two
-      lists and logs "S10.JAN ..." lines (this is the proof that it ran). A lounge the player is standing in is NOT removed;
-      it is deferred until the player has left it. Nothing else (no ship, no station, no vanilla interior, no NPC) is touched,
-      and the player's entity is never destroyed.
+      title override "X4MP spike", entity variables $x4mp_spike / $x4mp_tag / $x4mp_temp / $x4mp_spawn, and is listed in
+      md.$X4MP_OF_Actors (a list saved with the game). There is no tag -> actor table: MD tables are not usable in this
+      mdscript (see the note in OF_Janitor), so an actor is found by scanning the list and comparing $x4mp_tag.
+    * It creates NO dynamic interiors and never moves the player: the MP lounge was dropped (see the note below).
+    * The janitor (cue OF_Janitor, 5 s after every game load) removes ONLY the actors in md.$X4MP_OF_Actors and logs
+      "S10.JAN ..." lines (this is the proof that it ran). Nothing else (no ship, no station, no vanilla interior, no NPC)
+      is touched, and the player's entity is never destroyed or moved.
+
+  The MP lounge (dynamic interior + moving the player into it) was DROPPED by user decision on 2026-10-24: players must
+  see each other anywhere both are loaded, like NPCs, so the spike no longer creates interiors or teleports the player.
 
   Controls handled (value = list unless noted):
     of_s1 (1/0)                         S10.1 listeners on/off (changed_room, transport_finished, started/stopped control)
@@ -29,9 +32,7 @@
     of_place [step,tag,x,y,z,yawdeg,roomkey]    of_walk [step,tag,x,y,z,yawdeg,speed,roomkey]
     of_seq [step,tag,type,behavior]     of_emote [step,tag,emotion]     of_lookat [step,tag,on]
     of_status [step,tag]                of_remove [step,tag|'all']
-    of_crowd_walk [step,count,radius,speed]    of_slot_seat [step,tag,slotindex]
-    of_lounge_create [step,variant,seed,keep]  of_lounge_remove [step]  of_lounge_go [step,x,y,z]  of_lounge_leave [step]
-    of_lounge_slots [step]              of_s9 [step,count]
+    of_crowd_walk [step,count,radius,speed]    of_s9 [step,count]
 
   Syntax sources (x4-unpacked/): create_cue_actor libraries/md.xsd (createnpc group libraries/common.xsd; vanilla md/diplomacy.xml:747);
   set_entity_traits / set_entity_overrides common.xsd (md/diplomacy.xml:751-752); add_actor_to_room, start_actor_walk,
@@ -44,35 +45,33 @@
 <mdscript name="X4MP_SpikeOnFoot" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
 
-    <!-- Root cue: owner of every actor created here (create_cue_actor cue="md.X4MP_SpikeOnFoot.Actors"). It has no condition, so
-         it starts when the mod meets a save, creates the bookkeeping containers and then stays active because of the sub cues. -->
-    <cue name="Actors">
-      <actions>
-        <do_if value="not md.$X4MP_OF_Actors?">
-          <set_value name="md.$X4MP_OF_Actors" exact="[]"/>
-        </do_if>
-        <do_if value="not md.$X4MP_OF_ByTag?">
-          <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
-        </do_if>
-        <do_if value="not md.$X4MP_OF_Temp?">
-          <set_value name="md.$X4MP_OF_Temp" exact="table[]"/>
-        </do_if>
-        <do_if value="not md.$X4MP_OF_Spawn?">
-          <set_value name="md.$X4MP_OF_Spawn" exact="table[]"/>
-        </do_if>
-        <do_if value="not md.$X4MP_OF_Lounges?">
-          <set_value name="md.$X4MP_OF_Lounges" exact="[]"/>
-        </do_if>
-        <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=root_cue_started actors_listed=' + md.$X4MP_OF_Actors.count + ' lounges_listed=' + md.$X4MP_OF_Lounges.count + ' age=' + player.age" filter="general" context="false"/>
-      </actions>
+    <!-- Every actor here is owned by cue="namespace": the mdscript instance itself. A created actor lives only as long as the cue
+         INSTANCE it belongs to, so a named cue whose instance ends takes the actor with it. Vanilla does exactly this
+         (md/boarding.xml:1435, md/diplomacy.xml:1584 both use cue="namespace"); a holder cue with a long delay is not needed. -->
+
+    <!-- Bookkeeping cue: creates the library containers and stays active for its sub cues. It never owns an actor.
+         It has NO conditions on purpose: a condition on this cue (event_game_loaded, or event_cue_signalled md.Setup.Start
+         from md/setup.xml:1007-1012) makes the whole mdscript stop instantiating in the spike - no child cue fires at all -
+         while the same file without the condition runs its first actions. The containers are therefore set unconditionally,
+         once per load, which is what the janitor expects. -->
+    <cue name="Actors" instantiate="true">
+      <!-- The containers are initialised by OF_Janitor 5 s after the load: that cue provably runs and logs (see the probe
+           below), while this cue's own action list never executed, and giving it a condition made the whole mdscript stop
+           instantiating (no child cue fired at all). So it stays a pure container: no actions, no conditions. -->
       <cues>
 
         <!-- ===================================================== janitor (runs after every load) ===================================================== -->
         <cue name="OF_Janitor" instantiate="true">
           <conditions>
-            <event_game_loaded/>
+            <!-- A cue with only a <delay> and no condition NEVER instantiates: the engine logs "Cue 'OF_Janitor' would
+                 instantiate without either an event condition or a check interval" on every load, and the sweep never
+                 ran. Both alternatives were tried on 2026-10-25 and both were silent no-ops for this extension mdscript:
+                 <event_game_loaded/> (no line at all) and <check_interval min="5s" max="5s"/> (a tag that appears in
+                 none of the 221 vanilla MD files). The trigger that is proven throughout this spike is a UI-triggered
+                 event: ui/x4mp_spike_onfoot.lua starts a routine at load, waits 5 s and sends of_janitor. So the sweep
+                 still runs exactly once per load, 5 s after the save is loaded. -->
+            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_janitor'"/>
           </conditions>
-          <delay exact="5s"/>
           <actions>
             <set_value name="$Found" exact="0"/>
             <set_value name="$Removed" exact="0"/>
@@ -85,8 +84,8 @@
               <do_all exact="md.$X4MP_OF_Actors.count" counter="$i" reverse="true">
                 <set_value name="$A" exact="md.$X4MP_OF_Actors.{$i}"/>
                 <set_value name="$Tag" exact="@$A.$x4mp_tag"/>
-                <do_if value="@$A.exists">
-                  <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=load_sweep_found_actor tag=' + $Tag + ' name=' + $A.name + ' marker_var=' + (@$A.$x4mp_spike) + ' temporary_flag=' + (@md.$X4MP_OF_Temp.{$Tag}) + ' room=' + (@$A.room.type) + ' age=' + player.age" filter="general" context="false"/>
+                <do_if value="$A">
+                  <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=load_sweep_found_actor tag=' + $Tag + ' name=' + $A.name + ' marker_var=' + (@$A.$x4mp_spike) + ' temporary_flag=' + (@$A.$x4mp_temp) + ' room=' + (@$A.room.type) + ' age=' + player.age" filter="general" context="false"/>
                   <destroy_object object="$A"/>
                   <set_value name="$Removed" exact="$Removed + 1"/>
                 </do_if>
@@ -97,67 +96,12 @@
               </do_all>
             </do_if>
             <set_value name="md.$X4MP_OF_Actors" exact="[]"/>
-            <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
-            <set_value name="md.$X4MP_OF_Temp" exact="table[]"/>
-            <set_value name="md.$X4MP_OF_Spawn" exact="table[]"/>
+            <!-- No tables. Proven in this mdscript (probe steps 6-10, three runs): `set_value exact="table[]"` runs without an
+                 error but the result is not a usable table - every key write fails ("Failed to set table[].lit to value 7"),
+                 `.count` is a property lookup failure and reading the key back gives null, for a local table, md.$ and
+                 global.$ alike, with literal, variable and component keys. Lists and entity variables do work, so an actor is
+                 found by scanning md.$X4MP_OF_Actors and reading its $x4mp_tag (see OF_FindActor). -->
             <debug_text text="'[X4MP-SPIKE] S10.JAN ' + (if $Found == 0 then 'PASS' else 'INFO') + ' what=load_sweep_done listed_before=' + $Found + ' removed=' + $Removed + ' stale=' + $Stale + ' listed_now=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
-          </actions>
-        </cue>
-
-        <cue name="OF_JanitorLounge" instantiate="true">
-          <conditions>
-            <event_game_loaded/>
-          </conditions>
-          <delay exact="6s"/>
-          <actions>
-            <signal_cue_instantly cue="OF_LoungeSweep" param="'load'"/>
-          </actions>
-        </cue>
-
-        <cue name="OF_JanitorRecheck" instantiate="true">
-          <conditions>
-            <event_object_changed_room object="player.entity"/>
-            <check_value value="@global.$X4MP_OF_LoungePending"/>
-          </conditions>
-          <actions>
-            <signal_cue_instantly cue="OF_LoungeSweep" param="'player_changed_room'"/>
-          </actions>
-        </cue>
-
-        <!-- removes the listed lounges; defers a lounge the player stands in -->
-        <cue name="OF_LoungeSweep" instantiate="true">
-          <conditions>
-            <event_cue_signalled/>
-          </conditions>
-          <actions>
-            <set_value name="$Reason" exact="event.param"/>
-            <set_value name="$Listed" exact="md.$X4MP_OF_Lounges.count"/>
-            <set_value name="$Removed" exact="0"/>
-            <set_value name="$Deferred" exact="0"/>
-            <set_value name="$Stale" exact="0"/>
-            <do_all exact="md.$X4MP_OF_Lounges.count" counter="$i" reverse="true">
-              <set_value name="$Entry" exact="md.$X4MP_OF_Lounges.{$i}"/>
-              <set_value name="$Obj" exact="@$Entry.{1}"/>
-              <set_value name="$Int" exact="@$Entry.{2}"/>
-              <set_value name="$Rm" exact="@$Entry.{3}"/>
-              <do_if value="$Obj and @$Obj.exists and @$Int.exists">
-                <do_if value="@player.room and (player.room == $Rm or @player.room.dynamicinterior == $Int)">
-                  <set_value name="$Deferred" exact="$Deferred + 1"/>
-                  <debug_text text="'[X4MP-SPIKE] S10.JAN INFO what=lounge_player_inside_deferred reason=' + $Reason + ' use_the_Leave_button_or_onfoot1_step_12_leave_1 age=' + player.age" filter="general" context="false"/>
-                </do_if>
-                <do_else>
-                  <remove_dynamic_interior object="$Obj" interior="$Int"/>
-                  <remove_value name="md.$X4MP_OF_Lounges.{$i}"/>
-                  <set_value name="$Removed" exact="$Removed + 1"/>
-                </do_else>
-              </do_if>
-              <do_else>
-                <remove_value name="md.$X4MP_OF_Lounges.{$i}"/>
-                <set_value name="$Stale" exact="$Stale + 1"/>
-              </do_else>
-            </do_all>
-            <set_value name="global.$X4MP_OF_LoungePending" exact="$Deferred gt 0"/>
-            <debug_text text="'[X4MP-SPIKE] S10.JAN ' + (if $Listed == 0 then 'PASS' else 'INFO') + ' what=lounge_sweep reason=' + $Reason + ' listed=' + $Listed + ' removed=' + $Removed + ' deferred_player_inside=' + $Deferred + ' stale=' + $Stale + ' listed_now=' + md.$X4MP_OF_Lounges.count + ' age=' + player.age" filter="general" context="false"/>
           </actions>
         </cue>
 
@@ -205,12 +149,11 @@
                 <set_value name="$Before" exact="md.$X4MP_OF_Actors.count"/>
                 <do_all exact="md.$X4MP_OF_Actors.count" counter="$i" reverse="true">
                   <set_value name="$A" exact="md.$X4MP_OF_Actors.{$i}"/>
-                  <do_if value="@$A.exists">
+                  <do_if value="$A">
                     <destroy_object object="$A"/>
                   </do_if>
                   <remove_value name="md.$X4MP_OF_Actors.{$i}"/>
                 </do_all>
-                <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
                 <debug_text text="'[X4MP-SPIKE] S10.6 ' + (if md.$X4MP_OF_Actors.count == 0 then 'PASS' else 'FAIL') + ' what=interiors_despawning_cleanup actors_before=' + $Before + ' leftover=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
                 <raise_lua_event name="'x4mp_spike.of'" param="'evt;kind=interiors_despawning;leftover=' + md.$X4MP_OF_Actors.count"/>
               </actions>
@@ -248,11 +191,17 @@
               <signal_cue_instantly cue="OF_LogRoomKey" param="['room_change', event.param, player.container]"/>
             </do_if>
             <do_if value="@global.$X4MP_OF_S6 and event.param">
-              <set_value name="$F" exact="@md.$X4MP_OF_ByTag.{global.$X4MP_OF_S6Tag}"/>
+              <set_value name="$Wanted" exact="global.$X4MP_OF_S6Tag"/>
+              <set_value name="$F" exact="null"/>
+              <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+                <do_if value="not $F and @$C.$x4mp_tag == $Wanted">
+                  <set_value name="$F" exact="$C"/>
+                </do_if>
+              </do_for_each>
               <do_if value="@$F.exists">
                 <set_value name="$P" exact="player.entity.position"/>
                 <add_actor_to_room actor="$F" object="event.param" result="$Moved">
-                  <position x="$P.x + 1.5m" y="$P.y" z="$P.z"/>
+                  <position x="$P.x + 1.5m" y="$P.y - 1.72m" z="$P.z"/>
                 </add_actor_to_room>
                 <debug_text text="'[X4MP-SPIKE] S10.6 ' + (if $Moved then 'PASS' else 'FAIL') + ' what=follower_replaced_in_new_room moved=' + $Moved + ' new_room_type=' + (@event.param.type) + ' actor_room_now=' + (@$F.room.type) + ' same_room_as_player=' + (@$F.room == player.room) + ' age=' + player.age" filter="general" context="false"/>
               </do_if>
@@ -360,57 +309,135 @@
             <set_value name="$Dist" exact="event.param3.{7} * 1m"/>
             <set_value name="$AngOff" exact="event.param3.{8}"/>
             <set_value name="$RoomKey" exact="event.param3.{9}"/>
-            <set_value name="$Room" exact="if $RoomKey == 'lounge' then @md.$X4MP_OF_LoungeRoom else player.room"/>
+            <set_value name="$Room" exact="player.room"/>
             <do_if value="not $Room">
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=spawn_no_room tag=' + $Tag + ' roomkey=' + $RoomKey + ' (the player must be walking, or the lounge must exist)'" filter="general" context="false"/>
-            </do_if>
-            <do_else>
-              <do_if value="$RoomKey == 'lounge'">
-                <set_value name="$Base" exact="@md.$X4MP_OF_LoungeSpawn"/>
-                <do_if value="not $Base">
-                  <create_position name="$Base" x="0m" y="0m" z="0m"/>
-                </do_if>
-                <set_value name="$BaseYaw" exact="0deg"/>
-              </do_if>
-              <do_else>
-                <set_value name="$Base" exact="player.entity.position"/>
-                <set_value name="$BaseYaw" exact="player.entity.rotation.yaw"/>
-              </do_else>
-              <set_value name="$Ang" exact="$BaseYaw + $AngOff * 1deg"/>
-              <set_value name="$A" exact="null"/>
-              <set_value name="$Used" exact="$Variant"/>
-              <do_if value="$Variant == 'player'">
-                <!-- S10.3 first try: the local player's own character macro as an NPC -->
-                <create_cue_actor name="$A" cue="md.X4MP_SpikeOnFoot.Actors" macro="player.entity.macro">
-                  <name name="$Name"/>
-                  <owner exact="faction.x4mp_team_1"/>
-                </create_cue_actor>
-                <do_if value="not @$A.exists">
-                  <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=create_cue_actor_player_macro tag=' + $Tag + ' macro=' + player.entity.macro.id + ' falling_back_to_crew_select'" filter="general" context="false"/>
-                  <set_value name="$Used" exact="'crew'"/>
-                </do_if>
-              </do_if>
-              <do_if value="$Used == 'crew' or $Used == 'crewsame'">
-                <create_cue_actor name="$A" cue="md.X4MP_SpikeOnFoot.Actors">
-                  <select tags="tag.crew" race="player.entity.race"/>
-                  <name name="$Name"/>
-                  <owner exact="faction.x4mp_team_1"/>
-                </create_cue_actor>
-              </do_if>
-              <do_if value="@$A.exists">
+              <!-- S10.3 also measures the creation path itself: player.room is null in a docking bay, in a doorway and while the station
+                   interior is loading, so create the actor unplaced and log it separately from the placement result. -->
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=spawn_no_room tag=' + $Tag + ' roomkey=' + $RoomKey + ' room=' + (@player.room) + ' platform=' + (@player.platform) + ' ship=' + (@player.ship) + ' (creating the actor unplaced so the creation path is still measured)'" filter="general" context="false"/>
+              <set_faction_active faction="faction.x4mp_team_1" active="true"/>
+              <create_cue_actor name="$A" cue="namespace">
+                <select tags="tag.crew" race="player.entity.race"/>
+                <name name="$Name"/>
+                <owner exact="faction.x4mp_team_1"/>
+              </create_cue_actor>
+              <do_if value="$A">
                 <set_entity_traits entity="$A" customhandler="$Custom" temporary="$Temp"/>
                 <set_entity_overrides entity="$A" title="'X4MP spike'"/>
                 <set_value name="$A.$x4mp_spike" exact="1"/>
                 <set_value name="$A.$x4mp_tag" exact="$Tag"/>
+                <set_value name="$A.$x4mp_temp" exact="$Temp"/>
+                <set_value name="$A.$x4mp_spawn" exact="$A.position"/>
                 <append_to_list name="md.$X4MP_OF_Actors" exact="$A"/>
-                <set_value name="md.$X4MP_OF_ByTag.{$Tag}" exact="$A"/>
-                <set_value name="md.$X4MP_OF_Temp.{$Tag}" exact="$Temp"/>
-                <add_actor_to_room actor="$A" object="$Room" result="$Moved">
-                  <position x="$Base.x + sin($Ang) * $Dist" y="$Base.y" z="$Base.z + cos($Ang) * $Dist"/>
-                  <rotation yaw="$Ang + 180deg"/>
-                </add_actor_to_room>
-                <set_value name="md.$X4MP_OF_Spawn.{$Tag}" exact="$A.position"/>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved then 'PASS' else 'FAIL') + ' what=actor_spawned tag=' + $Tag + ' requested=' + $Variant + ' used=' + $Used + ' name=' + $A.name + ' macro=' + (@$A.macro.id) + ' female=' + (@$A.isfemale) + ' race=' + (@$A.race.id) + ' owner=' + (@$A.owner.id) + ' customhandler=' + $Custom + ' temporary=' + $Temp + ' marker_var_readback=' + (@$A.$x4mp_spike) + ' placed=' + $Moved + ' room_type=' + (@$A.room.type) + ' same_room_as_player=' + (@$A.room == player.room) + ' listed=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' PASS what=actor_created_unplaced tag=' + $Tag + ' macro=' + (@$A.macro.id) + ' owner=' + (@$A.owner.id) + ' race=' + (@$A.race.id) + ' listed=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=actor_not_created_unplaced tag=' + $Tag" filter="general" context="false"/>
+              </do_else>
+            </do_if>
+            <do_else>
+              <set_value name="$Base" exact="player.entity.position"/>
+              <set_value name="$BaseYaw" exact="player.entity.rotation.yaw"/>
+              <set_value name="$Ang" exact="$BaseYaw + $AngOff * 1deg"/>
+              <set_value name="$A" exact="null"/>
+              <set_value name="$Used" exact="$Variant"/>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=player_macro tag=' + $Tag + ' macro=' + player.entity.macro.id + ' race=' + (@player.entity.race.id) + ' female=' + (@player.entity.isfemale) + ' room=' + (@player.room) + ' platform=' + (@player.platform) + ' ship=' + (@player.ship)" filter="general" context="false"/>
+              <set_faction_active faction="faction.x4mp_team_1" active="true"/>
+              <!-- S10.3 finding from the visible test (2026-10-24): creating from a bare catalogue macro
+                   (character_argon_male_civilian_01_macro) produced an NPC whose limbs were deformed - the model is animated for
+                   another body type - while the <select> path produced a correct one. Vanilla spawns ordinary NPCs with <select>
+                   too (md/npc_instantiation.xml), so every variant except the explicit 'macro' experiment uses it. -->
+              <do_if value="$Variant == 'macro'">
+                <create_cue_actor name="$A" cue="namespace" macro="character_argon_male_civilian_01_macro">
+                  <name name="$Name"/>
+                  <owner exact="faction.x4mp_team_1"/>
+                </create_cue_actor>
+                <set_value name="$Used" exact="'catalogue'"/>
+              </do_if>
+              <do_else>
+                <create_cue_actor name="$A" cue="namespace">
+                  <select tags="tag.crew" race="player.entity.race"/>
+                  <name name="$Name"/>
+                  <owner exact="faction.x4mp_team_1"/>
+                </create_cue_actor>
+                <set_value name="$Used" exact="'crew'"/>
+              </do_else>
+              <!-- S10.3 measures whether create_cue_actor is asynchronous: the handle is kept and the +2 s of_status call
+                   re-reads the list, so "created later" can be told from "never created". -->
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=create_attempt tag=' + $Tag + ' used=' + $Used + ' exists_at_create=' + ($A)" filter="general" context="false"/>
+              <do_if value="$A">
+                <set_entity_traits entity="$A" customhandler="$Custom" temporary="$Temp"/>
+                <set_entity_overrides entity="$A" title="'X4MP spike'"/>
+                <set_value name="$A.$x4mp_spike" exact="1"/>
+                <set_value name="$A.$x4mp_tag" exact="$Tag"/>
+                <set_value name="$A.$x4mp_temp" exact="$Temp"/>
+                <append_to_list name="md.$X4MP_OF_Actors" exact="$A"/>
+                <!-- Placement by ROOM SLOT, never by an arbitrary point. S10.3 visible test: the actors hung in the air,
+                     because the <position> y was the player's EYE height (player.entity.position.y = 1.722), not the floor
+                     (vanilla puts an NPC at 1.77 - race.height, i.e. ~0, md/showcases.xml:939). A slot also gives the right
+                     facing and a real standing spot. The nearest free slot to the requested point is used. -->
+                <!-- An empty list is truthy in MD, so every stage is tested with @$Slots.count, never with "not $Slots":
+                     the first run placed both actors by position_fallback for exactly that reason. A manager's office has
+                     no tag.stand slots at all (vanilla uses tag.service there, md/diplomacy.xml:2275), so a room without a
+                     plain standing spot falls through to a floor position instead of a work slot.
+                     A slot has no .position and slot.distanceto.<position> fails ("Property lookup failed"), so distance is
+                     always measured FROM AN ENTITY to a slot - the vanilla form is `$NPC.distanceto.{$Slot}`
+                     (md/npc_management.xml:327, md/npc_state_machines.xml:2478, md/x4ep1_mentor_subscription.xml:4352).
+                     The nearest free slot to the player is used, and a slot already taken by one of our own actors (within
+                     1 m) is skipped, which is what stopped Alice and Bob from landing on top of each other. -->
+                <set_value name="$Slot" exact="null"/>
+                <set_value name="$SlotIdx" exact="0"/>
+                <!-- Which tags a room offers decides everything: tag.service / tag.control are WORK slots and an actor
+                     placed on one plays that work animation (the console interaction the tester saw on 2026-10-24),
+                     so they are never used for placement. tag.npc_generic is what vanilla uses for "just put the mission
+                     NPC here" (md/gm_transport_passengers.xml:2080, gmc_retrieve_dead_drop.xml:202 "alternatives:
+                     tag.sit, tag.stand"); tag.stand is the plain standing spot. -->
+                <find_npc_slot name="$Slots" object="$Room" tags="tag.stand" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <set_value name="$SlotsFrom" exact="'tag.stand'"/>
+                <do_if value="not @$Slots.count">
+                  <find_npc_slot name="$Slots" object="$Room" tags="tag.npc_generic" excludeblocked="true" excludefilled="true" multiple="true"/>
+                  <set_value name="$SlotsFrom" exact="'tag.npc_generic'"/>
+                </do_if>
+                <!-- Slot census of this room, one line per tag, so a single run says which placement the room allows. -->
+                <find_npc_slot name="$ProbeS" object="$Room" tags="tag.stand" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <find_npc_slot name="$ProbeG" object="$Room" tags="tag.npc_generic" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <find_npc_slot name="$ProbeV" object="$Room" tags="tag.service" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <find_npc_slot name="$ProbeW" object="$Room" tags="tag.wait" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <find_npc_slot name="$ProbeC" object="$Room" tags="tag.control" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <find_npc_slot name="$ProbeA" object="$Room" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=slot_census tag=' + $Tag + ' room_type=' + (@$Room.type) + ' stand=' + (@$ProbeS.count) + ' npc_generic=' + (@$ProbeG.count) + ' service=' + (@$ProbeV.count) + ' wait=' + (@$ProbeW.count) + ' control=' + (@$ProbeC.count) + ' free_total=' + (@$ProbeA.count)" filter="general" context="false"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=slot_search tag=' + $Tag + ' stage=' + $SlotsFrom + ' slots=' + (@$Slots.count) + ' room_type=' + (@$Room.type)" filter="general" context="false"/>
+                <do_if value="@$Slots.count">
+                  <set_value name="$BestD" exact="100000m"/>
+                  <do_all exact="$Slots.count" counter="$i">
+                    <set_value name="$Free" exact="true"/>
+                    <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+                      <do_if value="$Free and @$C != $A and (@$C.distanceto.{$Slots.{$i}}) lt 1m">
+                        <set_value name="$Free" exact="false"/>
+                      </do_if>
+                    </do_for_each>
+                    <do_if value="$Free">
+                      <set_value name="$D" exact="@player.entity.distanceto.{$Slots.{$i}}"/>
+                      <do_if value="$D lt $BestD">
+                        <set_value name="$BestD" exact="$D"/>
+                        <set_value name="$Slot" exact="$Slots.{$i}"/>
+                        <set_value name="$SlotIdx" exact="$i"/>
+                      </do_if>
+                    </do_if>
+                  </do_all>
+                </do_if>
+                <do_if value="$Slot">
+                  <add_actor_to_room actor="$A" slot="$Slot" result="$Moved"/>
+                  <set_value name="$PlacedBy" exact="'slot'"/>
+                </do_if>
+                <do_else>
+                  <add_actor_to_room actor="$A" object="$Room" result="$Moved">
+                    <position x="$Base.x + sin($Ang) * $Dist" y="$Base.y - 1.72m" z="$Base.z + cos($Ang) * $Dist"/>
+                    <rotation yaw="$Ang + 180deg"/>
+                  </add_actor_to_room>
+                  <set_value name="$PlacedBy" exact="'position_fallback'"/>
+                </do_else>
+                <set_value name="$A.$x4mp_spawn" exact="$A.position"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved then 'PASS' else 'FAIL') + ' what=actor_spawned tag=' + $Tag + ' requested=' + $Variant + ' used=' + $Used + ' name=' + $A.name + ' macro=' + (@$A.macro.id) + ' female=' + (@$A.isfemale) + ' race=' + (@$A.race.id) + ' owner=' + (@$A.owner.id) + ' customhandler=' + $Custom + ' temporary=' + $Temp + ' marker_var_readback=' + (@$A.$x4mp_spike) + ' placed=' + $Moved + ' placed_by=' + $PlacedBy + ' slot_index=' + $SlotIdx + ' room_type=' + (@$A.room.type) + ' same_room_as_player=' + (@$A.room == player.room) + ' foot_y=' + (@$A.position.y / 1m) + ' listed=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
                 <raise_lua_event name="'x4mp_spike.of_actor_tag'" param="$Tag"/>
                 <raise_lua_event name="'x4mp_spike.of_actor'" param="$A"/>
               </do_if>
@@ -427,8 +454,14 @@
           </conditions>
           <actions>
             <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
-            <set_value name="$Room" exact="if event.param3.{7} == 'lounge' then @md.$X4MP_OF_LoungeRoom else player.room"/>
+            <set_value name="$Wanted" exact="event.param3.{2}"/>
+            <set_value name="$A" exact="null"/>
+            <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+              <do_if value="not $A and @$C.$x4mp_tag == $Wanted">
+                <set_value name="$A" exact="$C"/>
+              </do_if>
+            </do_for_each>
+            <set_value name="$Room" exact="player.room"/>
             <do_if value="@$A.exists and $Room">
               <add_actor_to_room actor="$A" object="$Room" result="$Moved">
                 <position x="event.param3.{3} * 1m" y="event.param3.{4} * 1m" z="event.param3.{5} * 1m"/>
@@ -450,13 +483,73 @@
           </conditions>
           <actions>
             <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
-            <set_value name="$Room" exact="if event.param3.{8} == 'lounge' then @md.$X4MP_OF_LoungeRoom else player.room"/>
+            <set_value name="$Wanted" exact="event.param3.{2}"/>
+            <set_value name="$A" exact="null"/>
+            <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+              <do_if value="not $A and @$C.$x4mp_tag == $Wanted">
+                <set_value name="$A" exact="$C"/>
+              </do_if>
+            </do_for_each>
+            <set_value name="$Room" exact="player.room"/>
             <do_if value="@$A.exists and $Room">
-              <start_actor_walk actor="$A" target="$Room" speed="event.param3.{7}">
-                <position x="event.param3.{3} * 1m" y="event.param3.{4} * 1m" z="event.param3.{5} * 1m"/>
-                <rotation yaw="event.param3.{6} * 1deg"/>
-              </start_actor_walk>
+              <!-- S10.3 visible test: the actor never moved. start_actor_walk takes a SLOT (or a roomslot), not a position
+                   (md/npc_state_machines.xml:9923,10005: target="$slot" roomslot="@$pathtable.$roomslot"). The nearest
+                   free standing slot to the requested point is used, and the real distance is logged so the movement can
+                   be measured afterwards by of_status. -->
+              <set_value name="$Want" exact="position.[event.param3.{3} * 1m, event.param3.{4} * 1m, event.param3.{5} * 1m]"/>
+              <!-- Same stages as OF_Spawn: an empty list is truthy, so test @$Slots.count. tag.service is only a LAST resort
+                   for a walk test - an actor that ends up on a work slot plays the work animation there, which is exactly
+                   what looked wrong in the 2026-10-24 visible test. The stage is logged. -->
+              <find_npc_slot name="$Slots" object="$Room" tags="tag.stand" excludeblocked="true" excludefilled="true" multiple="true"/>
+              <set_value name="$SlotsFrom" exact="'tag.stand'"/>
+              <do_if value="not @$Slots.count">
+                <find_npc_slot name="$Slots" object="$Room" tags="tag.npc_generic" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <set_value name="$SlotsFrom" exact="'tag.npc_generic'"/>
+              </do_if>
+              <do_if value="not @$Slots.count">
+                <find_npc_slot name="$Slots" object="$Room" anytag="[tag.service, tag.wait]" excludeblocked="true" excludefilled="true" multiple="true"/>
+                <set_value name="$SlotsFrom" exact="'work_slot_fallback'"/>
+              </do_if>
+              <!-- Last resort, and the only way to start a walk in a room whose slots are all taken (a corridor or a staffed
+                   office reports zero free slots of every tag): accept a filled slot. This exists for the S10.4 mode D
+                   experiment, which only needs the NPC state machine to ENTER the walking state once before its position is
+                   overridden every frame - standing briefly on an occupied slot does not matter because it is moved away. -->
+              <do_if value="not @$Slots.count">
+                <find_npc_slot name="$Slots" object="$Room" excludeblocked="false" excludefilled="false" multiple="true"/>
+                <set_value name="$SlotsFrom" exact="'any_slot_including_filled'"/>
+              </do_if>
+              <set_value name="$Slot" exact="null"/>
+              <set_value name="$BestD" exact="-1m"/>
+              <do_if value="@$Slots.count">
+                <do_all exact="$Slots.count" counter="$i">
+                  <!-- Farthest slot from the actor: a slot has no .position and slot.distanceto.<position> fails, but
+                       entity.distanceto.<slot> is the vanilla form. The actor's own slot is included and therefore never
+                       wins, which guarantees that the walk really covers distance. A slot already taken by ANOTHER one of
+                       our actors (within 1.5 m) is skipped: Bob was sent to Alice's slot and the two ended up standing
+                       inside each other at the console. -->
+                  <set_value name="$Taken" exact="false"/>
+                  <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+                    <do_if value="not $Taken and @$C != $A and (@$C.distanceto.{$Slots.{$i}}) lt 1.5m">
+                      <set_value name="$Taken" exact="true"/>
+                    </do_if>
+                  </do_for_each>
+                  <do_if value="not $Taken">
+                    <set_value name="$D" exact="@$A.distanceto.{$Slots.{$i}}"/>
+                    <do_if value="$D gt $BestD">
+                      <set_value name="$BestD" exact="$D"/>
+                      <set_value name="$Slot" exact="$Slots.{$i}"/>
+                      <set_value name="$SlotIdx" exact="$i"/>
+                    </do_if>
+                  </do_if>
+                </do_all>
+              </do_if>
+              <do_if value="$Slot">
+                <start_actor_walk actor="$A" target="$Slot" speed="event.param3.{7}"/>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=walk_issued tag=' + $Wanted + ' target=slot stage=' + $SlotsFrom + ' slots=' + @$Slots.count + ' slot_index=' + $SlotIdx + ' slot_dist_m=' + ($BestD / 1m) + ' speed=' + event.param3.{7} + ' iswalking=' + (@$A.iswalking) + ' actor_y=' + (@$A.position.y / 1m)" filter="general" context="false"/>
+              </do_if>
+              <do_else>
+                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=walk_no_slot tag=' + $Wanted + ' stage=' + $SlotsFrom + ' slots=' + (@$Slots.count) + ' room_type=' + (@$Room.type)" filter="general" context="false"/>
+              </do_else>
             </do_if>
             <do_else>
               <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=walk_no_actor_or_room tag=' + event.param3.{2}" filter="general" context="false"/>
@@ -470,8 +563,14 @@
           </conditions>
           <actions>
             <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
-            <do_if value="@$A.exists">
+            <set_value name="$Wanted" exact="event.param3.{2}"/>
+            <set_value name="$A" exact="null"/>
+            <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+              <do_if value="not $A and @$C.$x4mp_tag == $Wanted">
+                <set_value name="$A" exact="$C"/>
+              </do_if>
+            </do_for_each>
+            <do_if value="$A">
               <do_if value="event.param3.{4} == ''">
                 <start_actor_sequence actor="$A" type="event.param3.{3}"/>
               </do_if>
@@ -492,8 +591,14 @@
           </conditions>
           <actions>
             <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
-            <do_if value="@$A.exists">
+            <set_value name="$Wanted" exact="event.param3.{2}"/>
+            <set_value name="$A" exact="null"/>
+            <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+              <do_if value="not $A and @$C.$x4mp_tag == $Wanted">
+                <set_value name="$A" exact="$C"/>
+              </do_if>
+            </do_for_each>
+            <do_if value="$A">
               <do_if value="event.param3.{3} == 'clear'">
                 <clear_actor_emotion actor="$A"/>
               </do_if>
@@ -514,8 +619,14 @@
           </conditions>
           <actions>
             <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
-            <do_if value="@$A.exists">
+            <set_value name="$Wanted" exact="event.param3.{2}"/>
+            <set_value name="$A" exact="null"/>
+            <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+              <do_if value="not $A and @$C.$x4mp_tag == $Wanted">
+                <set_value name="$A" exact="$C"/>
+              </do_if>
+            </do_for_each>
+            <do_if value="$A">
               <do_if value="event.param3.{3} == 1">
                 <set_actor_lookat actor="$A" component="player.entity"/>
               </do_if>
@@ -534,15 +645,21 @@
           <actions>
             <set_value name="$Step" exact="event.param3.{1}"/>
             <set_value name="$Tag" exact="event.param3.{2}"/>
-            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{$Tag}"/>
-            <do_if value="@$A.exists">
+            <set_value name="$Wanted" exact="$Tag"/>
+            <set_value name="$A" exact="null"/>
+            <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+              <do_if value="not $A and @$C.$x4mp_tag == $Wanted">
+                <set_value name="$A" exact="$C"/>
+              </do_if>
+            </do_for_each>
+            <do_if value="$A">
               <set_value name="$P" exact="$A.position"/>
-              <set_value name="$S0" exact="@md.$X4MP_OF_Spawn.{$Tag}"/>
+              <set_value name="$S0" exact="@$A.$x4mp_spawn"/>
               <set_value name="$Same" exact="$A.room == player.room"/>
               <debug_text text="'[X4MP-SPIKE] ' + $Step + ' MEASURE what=actor_status tag=' + $Tag + ' exists=true name=' + $A.name + ' room_type=' + (@$A.room.type) + ' room_macro=' + (@$A.room.macro.id) + ' same_room_as_player=' + $Same + ' x=' + ($P.x / 1m) + ' y=' + ($P.y / 1m) + ' z=' + ($P.z / 1m) + ' yaw_deg=' + ($A.rotation.yaw / 1deg) + ' moved_from_spawn_m=' + (if $Same and $S0 then ($P.distanceto.{$S0} / 1m) else -1) + ' walkspeed=' + (@$A.walkspeed) + ' runspeed=' + (@$A.runspeed) + ' iswalking=' + (@$A.iswalking) + ' dist_to_player_m=' + (if $Same then ($P.distanceto.{player.entity.position} / 1m) else -1) + ' age=' + player.age" filter="general" context="false"/>
             </do_if>
             <do_else>
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' MEASURE what=actor_status tag=' + $Tag + ' exists=false'" filter="general" context="false"/>
+              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' MEASURE what=actor_status tag=' + $Tag + ' exists=false listed=' + md.$X4MP_OF_Actors.count + ' (the tag is not in md.$X4MP_OF_Actors: the actor was never created or is gone)'" filter="general" context="false"/>
             </do_else>
           </actions>
         </cue>
@@ -560,19 +677,13 @@
                 <set_value name="$A" exact="md.$X4MP_OF_Actors.{$i}"/>
                 <set_value name="$T" exact="@$A.$x4mp_tag"/>
                 <do_if value="$Which == 'all' or $T == $Which">
-                  <do_if value="@$A.exists">
+                  <do_if value="$A">
                     <destroy_object object="$A"/>
                     <set_value name="$Removed" exact="$Removed + 1"/>
                   </do_if>
                   <remove_value name="md.$X4MP_OF_Actors.{$i}"/>
-                  <do_if value="$T">
-                    <remove_value name="md.$X4MP_OF_ByTag.{$T}"/>
-                  </do_if>
                 </do_if>
               </do_all>
-            </do_if>
-            <do_if value="$Which == 'all'">
-              <set_value name="md.$X4MP_OF_ByTag" exact="table[]"/>
             </do_if>
             <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=actors_removed which=' + $Which + ' removed=' + $Removed + ' listed_now=' + md.$X4MP_OF_Actors.count + ' age=' + player.age" filter="general" context="false"/>
           </actions>
@@ -592,41 +703,44 @@
             <set_value name="$Issued" exact="0"/>
             <do_if value="$Room">
               <do_all exact="$Count" counter="$k">
-                <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{'crowd' + $k}"/>
+                <set_value name="$Wanted" exact="'crowd' + $k"/>
+                <set_value name="$A" exact="null"/>
+                <do_for_each name="$C" in="md.$X4MP_OF_Actors">
+                  <do_if value="not $A and @$C.$x4mp_tag == $Wanted">
+                    <set_value name="$A" exact="$C"/>
+                  </do_if>
+                </do_for_each>
                 <do_if value="@$A.exists and @$A.room == $Room">
-                  <set_value name="$S0" exact="md.$X4MP_OF_Spawn.{'crowd' + $k}"/>
+                  <set_value name="$S0" exact="@$A.$x4mp_spawn"/>
                   <set_value name="$Dx" min="0 - $Radius" max="$Radius"/>
                   <set_value name="$Dz" min="0 - $Radius" max="$Radius"/>
-                  <start_actor_walk actor="$A" target="$Room" speed="$Speed">
-                    <position x="$S0.x + $Dx * 1m" y="$S0.y" z="$S0.z + $Dz * 1m"/>
-                  </start_actor_walk>
-                  <set_value name="$Issued" exact="$Issued + 1"/>
+                  <set_value name="$Want" exact="position.[$S0.x + $Dx * 1m, $S0.y, $S0.z + $Dz * 1m]"/>
+                  <find_npc_slot name="$Slots" object="$Room" tags="tag.stand" excludeblocked="true" excludefilled="true" multiple="true"/>
+                  <do_if value="not @$Slots.count">
+                    <find_npc_slot name="$Slots" object="$Room" tags="tag.npc_generic" excludeblocked="true" excludefilled="true" multiple="true"/>
+                  </do_if>
+                  <do_if value="not @$Slots.count">
+                    <find_npc_slot name="$Slots" object="$Room" anytag="[tag.service, tag.wait]" excludeblocked="true" excludefilled="false" multiple="true"/>
+                  </do_if>
+                  <set_value name="$Slot" exact="null"/>
+                  <set_value name="$BestD" exact="-1m"/>
+                  <do_if value="@$Slots.count">
+                    <do_all exact="$Slots.count" counter="$i">
+                      <set_value name="$D" exact="@$A.distanceto.{$Slots.{$i}}"/>
+                      <do_if value="$D gt $BestD">
+                        <set_value name="$BestD" exact="$D"/>
+                        <set_value name="$Slot" exact="$Slots.{$i}"/>
+                      </do_if>
+                    </do_all>
+                  </do_if>
+                  <do_if value="$Slot">
+                    <start_actor_walk actor="$A" target="$Slot" speed="$Speed"/>
+                    <set_value name="$Issued" exact="$Issued + 1"/>
+                  </do_if>
                 </do_if>
               </do_all>
             </do_if>
             <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=crowd_walk_issued count=' + $Issued + ' of=' + $Count + ' room_type=' + (@$Room.type) + ' age=' + player.age" filter="general" context="false"/>
-          </actions>
-        </cue>
-
-        <!-- S10.15: put a listed actor into an NPC slot of the lounge (sits down when the slot is a chair) -->
-        <cue name="OF_SlotSeat" instantiate="true">
-          <conditions>
-            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_slot_seat'"/>
-          </conditions>
-          <actions>
-            <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$A" exact="@md.$X4MP_OF_ByTag.{event.param3.{2}}"/>
-            <set_value name="$Room" exact="@md.$X4MP_OF_LoungeRoom"/>
-            <do_if value="@$A.exists and $Room">
-              <find_npc_slot name="$Slots" object="$Room" multiple="true"/>
-              <do_if value="$Slots.count ge event.param3.{3}">
-                <add_actor_to_room actor="$A" slot="$Slots.{event.param3.{3}}" result="$Moved"/>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved then 'PASS' else 'FAIL') + ' what=actor_in_slot tag=' + event.param3.{2} + ' slot_index=' + event.param3.{3} + ' of=' + $Slots.count + ' placed=' + $Moved + ' room_type=' + (@$A.room.type)" filter="general" context="false"/>
-              </do_if>
-              <do_else>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=actor_in_slot_not_enough_slots tag=' + event.param3.{2} + ' wanted=' + event.param3.{3} + ' have=' + $Slots.count" filter="general" context="false"/>
-              </do_else>
-            </do_if>
           </actions>
         </cue>
 
@@ -706,174 +820,6 @@
               </do_if>
             </do_for_each>
             <debug_text text="'[X4MP-SPIKE] S10.9 INFO what=catalogue_end logged=' + $Logged + ' (rooms of a station exist only while its interiors are spawned; far stations may show rooms=0)'" filter="general" context="false"/>
-          </actions>
-        </cue>
-
-        <!-- ===================================================== S10.11 .. S10.15 lounge ===================================================== -->
-        <cue name="OF_LoungeCreate" instantiate="true">
-          <conditions>
-            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_create'"/>
-          </conditions>
-          <actions>
-            <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$Variant" exact="event.param3.{2}"/>
-            <set_value name="$Seed" exact="event.param3.{3}"/>
-            <set_value name="$Keep" exact="event.param3.{4} == 1"/>
-            <set_value name="$Obj" exact="player.station"/>
-            <do_if value="not $Obj">
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_create_no_station variant=' + $Variant + ' (dock at a station first)'" filter="general" context="false"/>
-              <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=0;variant=' + $Variant + ';why=no_station'"/>
-            </do_if>
-            <do_else>
-              <find_room name="$Before" object="$Obj" multiple="true"/>
-              <set_value name="$DynBefore" exact="0"/>
-              <do_for_each name="$Rm" in="$Before">
-                <do_if value="@$Rm.dynamicinterior">
-                  <set_value name="$DynBefore" exact="$DynBefore + 1"/>
-                </do_if>
-              </do_for_each>
-              <!-- corridor: the entertainment corridor group (contains room_arg_corridor_04_macro) with a fixed seed; first door -->
-              <get_room_definition macro="$CorridorMacro" doors="$CorridorDoors" race="race.argon" tags="tag.entertainmentcorridor" seed="$Seed"/>
-              <set_value name="$Door" exact="if @$CorridorDoors.count then $CorridorDoors.{1} else null"/>
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_create_begin variant=' + $Variant + ' station=' + $Obj.knownname + ' owner=' + $Obj.owner.id + ' canhavedynamicinterior=' + $Obj.canhavedynamicinterior + ' corridor_macro=' + (@$CorridorMacro.id) + ' doors=' + (@$CorridorDoors.count) + ' first_door=' + (@$Door) + ' rooms_before=' + $Before.count + ' dynamic_rooms_before=' + $DynBefore + ' seed=' + $Seed + ' age=' + player.age" filter="general" context="false"/>
-              <set_value name="$Interior" exact="null"/>
-              <set_value name="$Corridor" exact="null"/>
-              <set_value name="$Room" exact="null"/>
-              <do_if value="$Variant == 'bar'">
-                <create_dynamic_interior object="$Obj" corridor="$CorridorMacro" door="$Door" room="macro.room_gen_bar_01_macro" name="'Multiplayer Lounge'" interiorname="$Interior" corridorname="$Corridor" roomname="$Room" roomtype="roomtype.livingroom" seed="$Seed" private="true" persistent="false"/>
-              </do_if>
-              <do_elseif value="$Variant == 'office'">
-                <create_dynamic_interior object="$Obj" corridor="$CorridorMacro" door="$Door" room="macro.room_gen_playeroffice_01_macro" name="'Multiplayer Lounge'" interiorname="$Interior" corridorname="$Corridor" roomname="$Room" roomtype="roomtype.livingroom" seed="$Seed" private="true" persistent="false"/>
-              </do_elseif>
-              <do_elseif value="$Variant == 'venturer'">
-                <create_dynamic_interior object="$Obj" corridor="$CorridorMacro" door="$Door" room="macro.room_gen_venturerroom_01_macro" name="'Multiplayer Lounge'" interiorname="$Interior" corridorname="$Corridor" roomname="$Room" roomtype="roomtype.livingroom" seed="$Seed" private="true" persistent="false"/>
-              </do_elseif>
-              <do_if value="@$Interior.exists and @$Corridor.exists and @$Room.exists">
-                <find_room name="$After" object="$Obj" multiple="true"/>
-                <set_value name="$RPos" exact="$Room.relativeposition.{$Obj}"/>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' PASS what=lounge_created variant=' + $Variant + ' interior=' + $Interior.knownname + ' interior_name=' + (@$Interior.name) + ' room_name=' + (@$Room.name) + ' room_macro=' + (@$Room.macro.id) + ' room_type=' + (@$Room.type) + ' room_private=' + (@$Room.isprivate) + ' room_walkable=' + (@$Room.iswalkable) + ' room_x_in_station=' + ($RPos.x / 1m) + ' room_y_in_station=' + ($RPos.y / 1m) + ' room_z_in_station=' + ($RPos.z / 1m) + ' rooms_after=' + $After.count + ' (vanilla rooms before=' + $Before.count + ' so unaffected if after=before+2 or +1)' + ' age=' + player.age" filter="general" context="false"/>
-                <append_to_list name="md.$X4MP_OF_Lounges" exact="[$Obj, $Interior, $Room]"/>
-                <do_if value="$Keep">
-                  <set_value name="md.$X4MP_OF_LoungeRoom" exact="$Room"/>
-                  <set_value name="md.$X4MP_OF_LoungeObject" exact="$Obj"/>
-                  <set_value name="md.$X4MP_OF_LoungeInterior" exact="$Interior"/>
-                  <set_value name="md.$X4MP_OF_LoungeVariant" exact="$Variant"/>
-                  <set_value name="md.$X4MP_OF_LoungeSpawn" exact="null"/>
-                </do_if>
-                <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=1;variant=' + $Variant + ';keep=' + $Keep"/>
-              </do_if>
-              <do_else>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_create_failed variant=' + $Variant + ' interior=' + (@$Interior.exists) + ' corridor=' + (@$Corridor.exists) + ' room=' + (@$Room.exists) + ' (look for an engine error line just before this one; try another door, seed or private=false)'" filter="general" context="false"/>
-                <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=0;variant=' + $Variant + ';why=create_failed'"/>
-              </do_else>
-            </do_else>
-          </actions>
-        </cue>
-
-        <cue name="OF_LoungeRemove" instantiate="true">
-          <conditions>
-            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_remove'"/>
-          </conditions>
-          <actions>
-            <set_value name="$Step" exact="event.param3.{1}"/>
-            <!-- never while the player is inside: leave first -->
-            <do_if value="@md.$X4MP_OF_LoungeRoom and @player.room == md.$X4MP_OF_LoungeRoom">
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_remove_refused_player_inside (press Leave first)'" filter="general" context="false"/>
-            </do_if>
-            <do_else>
-              <signal_cue_instantly cue="OF_LoungeSweep" param="'block_request'"/>
-              <set_value name="md.$X4MP_OF_LoungeRoom" exact="null"/>
-              <set_value name="md.$X4MP_OF_LoungeObject" exact="null"/>
-              <set_value name="md.$X4MP_OF_LoungeInterior" exact="null"/>
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_remove_done listed_now=' + md.$X4MP_OF_Lounges.count" filter="general" context="false"/>
-              <raise_lua_event name="'x4mp_spike.of'" param="'lounge;ok=0;variant=none;why=removed'"/>
-            </do_else>
-          </actions>
-        </cue>
-
-        <cue name="OF_LoungeGo" instantiate="true">
-          <conditions>
-            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_go'"/>
-          </conditions>
-          <actions>
-            <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$Room" exact="@md.$X4MP_OF_LoungeRoom"/>
-            <do_if value="not (@$Room.exists)">
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_go_no_lounge'" filter="general" context="false"/>
-            </do_if>
-            <do_elseif value="not player.room">
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_go_player_not_walking (get up from the seat first)'" filter="general" context="false"/>
-            </do_elseif>
-            <do_else>
-              <do_if value="player.room != $Room">
-                <set_value name="md.$X4MP_OF_ReturnRoom" exact="player.room"/>
-                <set_value name="md.$X4MP_OF_ReturnPos" exact="player.entity.position"/>
-                <set_value name="md.$X4MP_OF_ReturnYaw" exact="player.entity.rotation.yaw"/>
-              </do_if>
-              <add_actor_to_room actor="player.entity" object="$Room" result="$Moved">
-                <position x="event.param3.{2} * 1m" y="event.param3.{3} * 1m" z="event.param3.{4} * 1m"/>
-              </add_actor_to_room>
-              <set_value name="$P" exact="player.entity.position"/>
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved and player.room == $Room then 'PASS' else 'FAIL') + ' what=lounge_go moved=' + $Moved + ' player_in_lounge=' + (player.room == $Room) + ' room_type=' + (@player.room.type) + ' x=' + (@$P.x / 1m) + ' y=' + (@$P.y / 1m) + ' z=' + (@$P.z / 1m) + ' return_room_type=' + (@md.$X4MP_OF_ReturnRoom.type) + ' age=' + player.age" filter="general" context="false"/>
-              <do_if value="$Moved">
-                <set_value name="md.$X4MP_OF_LoungeSpawn" exact="player.entity.position"/>
-              </do_if>
-            </do_else>
-          </actions>
-        </cue>
-
-        <cue name="OF_LoungeLeave" instantiate="true">
-          <conditions>
-            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_leave'"/>
-          </conditions>
-          <actions>
-            <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$Ret" exact="@md.$X4MP_OF_ReturnRoom"/>
-            <set_value name="$RP" exact="@md.$X4MP_OF_ReturnPos"/>
-            <do_if value="@$Ret.exists and $RP">
-              <add_actor_to_room actor="player.entity" object="$Ret" result="$Moved">
-                <position x="$RP.x" y="$RP.y" z="$RP.z"/>
-                <rotation yaw="md.$X4MP_OF_ReturnYaw"/>
-              </add_actor_to_room>
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' ' + (if $Moved and player.room == $Ret then 'PASS' else 'FAIL') + ' what=lounge_leave moved=' + $Moved + ' back_in_return_room=' + (player.room == $Ret) + ' room_type=' + (@player.room.type) + ' age=' + player.age" filter="general" context="false"/>
-            </do_if>
-            <do_else>
-              <!-- fallback: the control room of the station, as vanilla rescues its own NPCs (md/npc_instantiation.xml) -->
-              <set_value name="$St" exact="@md.$X4MP_OF_LoungeObject"/>
-              <do_if value="@$St.controlroom">
-                <add_actor_to_room actor="player.entity" object="$St.controlroom" result="$Moved"/>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_leave_fallback_control_room moved=' + $Moved" filter="general" context="false"/>
-              </do_if>
-              <do_else>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_leave_no_return_room'" filter="general" context="false"/>
-              </do_else>
-            </do_else>
-          </actions>
-        </cue>
-
-        <!-- S10.13: room-local NPC slot offsets of the lounge. checksum lets two runs be compared at a glance. -->
-        <cue name="OF_LoungeSlots" instantiate="true">
-          <conditions>
-            <event_ui_triggered screen="'X4MP_Spike2'" control="'of_lounge_slots'"/>
-          </conditions>
-          <actions>
-            <set_value name="$Step" exact="event.param3.{1}"/>
-            <set_value name="$Room" exact="@md.$X4MP_OF_LoungeRoom"/>
-            <do_if value="@$Room.exists">
-              <find_npc_slot name="$Slots" object="$Room" multiple="true" excludefilled="false" excludeblocked="false"/>
-              <set_value name="$Sum" exact="0"/>
-              <set_value name="$Idx" exact="0"/>
-              <do_for_each name="$Sl" in="$Slots">
-                <set_value name="$Idx" exact="$Idx + 1"/>
-                <set_value name="$SP" exact="$Sl.relativeposition.{$Room}"/>
-                <set_value name="$Sum" exact="$Sum + ($Idx * (($SP.x / 1m) + 2 * ($SP.y / 1m) + 3 * ($SP.z / 1m)))"/>
-                <debug_text text="'[X4MP-SPIKE] ' + $Step + ' INFO what=lounge_slot index=' + $Idx + ' x=' + ($SP.x / 1m) + ' y=' + ($SP.y / 1m) + ' z=' + ($SP.z / 1m) + ' ischair=' + (@$Room.ischairslot.{$Sl})" filter="general" context="false"/>
-              </do_for_each>
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' MEASURE what=lounge_slots_summary variant=' + (@md.$X4MP_OF_LoungeVariant) + ' room_macro=' + $Room.macro.id + ' slots=' + $Slots.count + ' checksum=' + $Sum + ' (identical count and checksum across runs = room-local slots deterministic)'" filter="general" context="false"/>
-            </do_if>
-            <do_else>
-              <debug_text text="'[X4MP-SPIKE] ' + $Step + ' FAIL what=lounge_slots_no_lounge'" filter="general" context="false"/>
-            </do_else>
           </actions>
         </cue>
 
