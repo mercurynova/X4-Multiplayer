@@ -103,9 +103,18 @@ function json.array(t) return setmetatable(t or {}, arrayMt) end
 local MAX_DEPTH = 32
 local escapes = { ['"'] = '\\"', ["\\"] = "\\\\", ["\b"] = "\\b", ["\f"] = "\\f", ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t" }
 
+-- Escape only the bytes JSON needs. The obvious '[%c"\\]' is locale-dependent: %c is iscntrl(), and on a
+-- Russian Windows the C locale is CP1251, where the byte 0x98 is "undefined" and therefore a control
+-- character. That byte is a legal UTF-8 continuation byte, so '[%c"\\]' used to eat every character whose
+-- second byte is 0x98 and turn it into \u0098 (4-byte characters such as emoji came out corrupted).
+-- '[^ -~]' is pure ASCII arithmetic: NUL, controls, DEL and every byte >= 0x80; the ones that are real
+-- UTF-8 data are handed back untouched, the rest become \uXXXX.
 local function encodeString(s)
-	local body = s:gsub('[%c"\\]', function(c)
-		return escapes[c] or string.format("\\u%04x", c:byte())
+	local body = s:gsub("\\", "\\\\"):gsub('"', '\\"')
+	body = body:gsub("[^ -~]", function(c)
+		local b = c:byte()
+		if b == 0 or b < 32 or b == 127 then return escapes[c] or string.format("\\u%04x", b) end
+		return c
 	end)
 	return '"' .. body .. '"'
 end
@@ -180,7 +189,9 @@ function json.decode(text)
 		pos = pos + 1 -- opening quote
 		local parts = {}
 		while true do
-			local s, e = text:find('^[^"\\%c]+', pos)
+			-- Same reason as encodeString: no %c here, it is locale-dependent. \1-\31 are the bytes JSON
+			-- forbids in a string; a raw 0x98 from UTF-8 data must pass through.
+			local s, e = text:find('^[^"\\\1-\31]+', pos)
 			if s then
 				parts[#parts + 1] = text:sub(s, e)
 				pos = e + 1
@@ -424,6 +435,11 @@ B.TOPICS[#B.TOPICS + 1] = "appearance_state"
 -- {"v":1,"from":<pid>,"name":"Alice","kind":"wave"} when another player waved at us.
 B.VERBS.onfoot_talk = true
 B.TOPICS[#B.TOPICS + 1] = "onfoot_talk_in"
+
+-- M3b presence list (W6, Tier 0). native -> Lua only, x4mp.presence
+-- {"v":1,"self":2,"container":<net id>,"mode":<local mode>,"entries":[{"id":3,"name":"Alice","mode":1,"here":true}]}, raised when the
+-- relay roster or the local container changes, at most twice a second. x4mp_onfoot.lua turns it into the HUD line and the player table.
+B.TOPICS[#B.TOPICS + 1] = "presence"
 
 --- Save name sanity: no path parts, no extension, printable.
 function B.validSaveName(name)

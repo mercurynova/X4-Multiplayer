@@ -19,7 +19,7 @@
 -- metres, foot height), yaw (degrees).
 -- The janitor removes the avatars a crashed session left in the save; it runs once per process, 5 s after the game is in.
 
--- luacheck: globals X4MPBridge X4MPOnFoot DebugError RegisterEvent AddUITriggeredEvent getElapsedTime Helper
+-- luacheck: globals X4MPBridge X4MPOnFoot DebugError RegisterEvent AddUITriggeredEvent getElapsedTime Helper ReadText
 
 local B = rawget(_G, "X4MPBridge")
 if type(B) ~= "table" then
@@ -135,6 +135,113 @@ B.on("onfoot_talk_in", function(p)
 	local name = (type(p.name) == "string" and p.name ~= "") and p.name or ("player " .. tostring(pid))
 	chatLine(name .. " waves at you")
 end)
+
+-- ---- the presence list (W6, Tier 0) ----------------------------------------------------------------------------------------------
+--   native -> Lua  x4mp.presence {"v":1,"self":2,"container":<net id>,"mode":<local on-foot mode>,
+--                                  "entries":[{"id":3,"name":"Alice","mode":1,"here":true}]}
+-- The relay sends the roster galaxy-wide, but a container the local player is not in has no name on this side until the station mirror
+-- arrives with M4, so the only place we can name is "here". The HUD line lists the players who are here, the player table gets a short
+-- on-foot state per row, and a peer who enters or leaves the container is announced once. The first payload of a session is the
+-- baseline, not a burst of arrivals.
+O.presence = O.presence or { byId = {}, hereList = {}, hereIds = {}, ready = false, arrivals = 0, departures = 0, raises = 0 }
+
+local function T(id, ...)
+	local text = ""
+	if type(ReadText) == "function" then
+		local ok, res = pcall(ReadText, 92000, id)
+		if ok and type(res) == "string" then text = res end
+	end
+	if text == "" then text = "[92000," .. id .. "]" end
+	if select("#", ...) > 0 then
+		local ok, res = pcall(string.format, text, ...)
+		if ok then text = res end
+	end
+	return text
+end
+
+--- the short state of one roster row: "on foot, here" / "on foot" / "in a cockpit" / "in transit", nil when there is nothing to say
+local function stateText(row)
+	local mode = tonumber(row.mode) or 0
+	if mode == 2 then return T(962) end
+	if mode == 3 then return T(963) end
+	if mode ~= 1 then return nil end
+	return row.here and T(960) or T(961)
+end
+
+local function displayName(row)
+	return row.name or ("player " .. tostring(row.id))
+end
+
+--- the HUD suffix: "Alice here", "Alice, Bob here", "Alice, Bob, Cara and 2 more here"
+local function hudText()
+	local list = O.presence.hereList
+	if type(list) ~= "table" or #list == 0 then return nil end
+	local parts = {}
+	for i = 1, math.min(#list, 3) do parts[#parts + 1] = displayName(list[i]) end
+	local text = T(966, table.concat(parts, ", "))
+	if #list > 3 then text = text .. " " .. T(967, #list - 3) end
+	return text
+end
+
+--- the player-table suffix for one row (x4mp_players.lua calls this through X4MPPlayers.presenceResolver)
+local function presenceOf(id)
+	local row = O.presence.byId[tonumber(id) or -1]
+	return row and stateText(row) or nil
+end
+
+--- Hand the two hooks to the HUD and the player table. Both files may load after this one, so this runs again on every payload.
+local function install()
+	local hud = rawget(_G, "X4MPHud")
+	if type(hud) == "table" then hud.presenceText = hudText end
+	local players = rawget(_G, "X4MPPlayers")
+	if type(players) == "table" then players.presenceResolver = presenceOf end
+end
+
+local function onPresence(p)
+	if type(p) ~= "table" then return end
+	O.presence.raises = O.presence.raises + 1
+	local byId, hereList, hereIds = {}, {}, {}
+	local entries = p.entries
+	if type(entries) == "table" then
+		for i = 1, #entries do
+			local e = entries[i]
+			if type(e) == "table" and tonumber(e.id) then
+				local row = {
+					id = tonumber(e.id), mode = tonumber(e.mode) or 0, here = e.here == true,
+					name = (type(e.name) == "string" and e.name ~= "") and e.name or nil,
+				}
+				byId[row.id] = row
+				if row.here and row.mode == 1 then
+					hereList[#hereList + 1] = row
+					hereIds[row.id] = row
+				end
+			end
+		end
+	end
+	if O.presence.ready then
+		for _, row in ipairs(hereList) do
+			if not O.presence.hereIds[row.id] then
+				O.presence.arrivals = O.presence.arrivals + 1
+				chatLine(T(964, displayName(row)))
+			end
+		end
+		for id, row in pairs(O.presence.hereIds) do
+			if not hereIds[id] then
+				O.presence.departures = O.presence.departures + 1
+				chatLine(T(965, displayName(row)))
+			end
+		end
+	end
+	O.presence.byId, O.presence.hereList, O.presence.hereIds, O.presence.ready = byId, hereList, hereIds, true
+	install()
+	local hud = rawget(_G, "X4MPHud")
+	if type(hud) == "table" and type(hud.tick) == "function" then pcall(hud.tick, true) end
+	local S = rawget(_G, "X4MPScreens")
+	if type(S) == "table" and S.state and S.state.screen == "main" and type(S.render) == "function" then pcall(S.render) end
+end
+
+B.on("presence", onPresence)
+install()
 
 -- ---- the 1 Hz pull ---------------------------------------------------------------------------------------------------------------
 local function report()

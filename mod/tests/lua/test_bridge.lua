@@ -94,10 +94,39 @@ test("topics: bad JSON is logged and survived; handler errors are isolated", fun
 	env.fire("x4mp.status", nil)
 end)
 
+-- Topics the bridge only documents: the addon file that owns the topic registers the Lua event,
+-- so the bridge alone cannot have it.  Keep the list honest: a topic added to B.TOPICS must be
+-- either handled here or named with its owner below.
+local ADDON_TOPICS = {
+	appearance_state = "x4mp_menu.lua",
+	onfoot_talk_in = "x4mp_onfoot.lua",
+	presence = "x4mp_onfoot.lua",
+}
+
+local function uiSource(file)
+	local f = assert(io.open(env.uiPath(file), "rb"))
+	local text = f:read("*a")
+	f:close()
+	return text
+end
+
 test("B.on registers one Lua event per topic and supports new topics", function()
 	local B = bridge()
 	for _, topic in ipairs(B.TOPICS) do
-		truthy(env.events["x4mp." .. topic], "x4mp." .. topic .. " registered")
+		local owner = ADDON_TOPICS[topic]
+		if owner then
+			truthy(uiSource(owner):find('B.on("' .. topic .. '"', 1, true),
+				"x4mp." .. topic .. " registered by " .. owner)
+		else
+			truthy(env.events["x4mp." .. topic], "x4mp." .. topic .. " registered")
+		end
+	end
+	for topic in pairs(ADDON_TOPICS) do
+		local listed = false
+		for _, known in ipairs(B.TOPICS) do
+			if known == topic then listed = true end
+		end
+		truthy(listed, topic .. " is still a documented topic")
 	end
 	local got
 	B.on("custom", function(p) got = p.k end)

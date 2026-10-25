@@ -147,12 +147,20 @@ local function statusText(row)
 	return T(521)
 end
 
+--- the on-foot state of one player (M3b Tier 0), set by x4mp_onfoot.lua: "on foot, here" / "on foot" / "in a cockpit" / "in transit"
+P.presenceResolver = nil
+
 --- rowText(player) -> the table line of one player
 function P.rowText(row)
 	local name = P.colorEscape(P.teamColorHex(row.team)) .. tostring(row.name) .. "\027X"
 	local you = (row.id == P.self) and T(526) or ""
 	local team = (row.team or 0) > 0 and T(529, row.team) or T(525)
-	return T(524, name, you, team, statusText(row), tostring(row.ping or 0), sectorText(row.sector))
+	local text = T(524, name, you, team, statusText(row), tostring(row.ping or 0), sectorText(row.sector))
+	if type(P.presenceResolver) == "function" then
+		local ok, presence = pcall(P.presenceResolver, row.id)
+		if ok and type(presence) == "string" and presence ~= "" then text = text .. "  " .. presence end
+	end
+	return text
 end
 
 --- rows(rows): appends the header and one text row per player (nothing while the list is empty)

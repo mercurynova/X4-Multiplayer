@@ -12,6 +12,7 @@
 
 #include "features/onfoot/onfoot_actors.h"
 #include "features/onfoot/onfoot_hub.h"
+#include "features/onfoot/onfoot_presence.h"
 #include "features/onfoot/onfoot_tracker.h"
 #include "features/onfoot/onfoot_types.h"
 #include "message_ids_generated.h"
@@ -804,4 +805,50 @@ TEST_CASE("onfoot: a malformed answer is counted, not trusted") {
   st.reg.on_reply("spawn;99;9001");  // a player we never asked about
   CHECK(st.reg.counters().bad_replies == 3);
   CHECK(st.reg.live() == 0);
+}
+
+TEST_CASE("onfoot: a peer is here only while both share a container and the peer walks", "[onfoot][presence]") {
+  PresenceRow row;
+  row.player_id = 7;
+  row.container = 4242;
+  row.mode = Mode::Walking;
+
+  CHECK(presence_here(row, 4242));
+  CHECK_FALSE(presence_here(row, 0));     // the local player is not in an interior
+  CHECK_FALSE(presence_here(row, 9999));  // another station
+  row.container = 0;
+  CHECK_FALSE(presence_here(row, 4242));  // a peer that reported no container
+
+  row.container = 4242;
+  row.mode = Mode::Seated;
+  CHECK_FALSE(presence_here(row, 4242));  // in a cockpit, not standing here
+  row.mode = Mode::InTransit;
+  CHECK_FALSE(presence_here(row, 4242));  // in a lift or a doorway
+  row.mode = Mode::Conversation;
+  CHECK_FALSE(presence_here(row, 4242));
+  row.mode = Mode::Menu;
+  CHECK_FALSE(presence_here(row, 4242));
+}
+
+TEST_CASE("onfoot: the presence signature changes with the roster and with the local container", "[onfoot][presence]") {
+  std::vector<PresenceRow> rows;
+  PresenceRow a;
+  a.player_id = 7;
+  a.mode = Mode::Walking;
+  a.container = 4242;
+  rows.push_back(a);
+
+  const auto base = presence_signature(rows, 4242, Mode::Walking);
+  CHECK(presence_signature(rows, 4242, Mode::Walking) == base);  // stable text, so nothing is raised twice
+  CHECK(presence_signature(rows, 4242, Mode::Seated) != base);   // the local mode decides whether we are on foot at all
+  CHECK(presence_signature(rows, 9999, Mode::Walking) != base);  // walking into another container changes who is here
+  CHECK(presence_signature({}, 4242, Mode::Walking) != base);    // a peer that left
+
+  auto b = a;
+  b.mode = Mode::Seated;
+  CHECK(presence_signature({b}, 4242, Mode::Walking) != base);
+
+  auto c = a;
+  c.player_id = 8;
+  CHECK(presence_signature({c}, 4242, Mode::Walking) != base);  // a different player, same place
 }

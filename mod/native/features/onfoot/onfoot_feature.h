@@ -40,6 +40,7 @@ class OnFootFeature final : public host::IFeature {
   void drain_replies(host::HostContext& ctx);
   void drain_talk(host::HostContext& ctx);
   void raise_interactions();
+  void raise_presence();
   void install_actor_callbacks(host::HostContext& ctx);
   void send_state(host::HostContext& ctx, const onfoot::OnFootTracker::Step& step, const onfoot::RoomContext& room,
                   float cx, float cy, float cz, float yaw, float pitch);
@@ -63,6 +64,10 @@ class OnFootFeature final : public host::IFeature {
   std::uint64_t bad_talk_ = 0;
   std::uint64_t waves_sent_ = 0;
   std::uint64_t talk_raise_failed_ = 0;
+  std::uint64_t presence_raise_failed_ = 0;
+  std::string presence_sig_;            // what the last raised roster looked like; rebuilt every frame, compared as text
+  std::int64_t last_presence_us_ = 0;
+  bool presence_raised_ = false;
   std::int64_t last_log_us_ = 0;
 };
 

@@ -99,6 +99,9 @@ function H.wanted()
 	return mode() ~= "off" and type(st) == "table" and type(st.state) == "string" and st.state ~= "disconnected"
 end
 
+--- the presence line (M3b Tier 0), set by x4mp_onfoot.lua: "Alice here" while somebody shares the container, nil otherwise
+H.presenceText = nil
+
 --- the one-line text for the current status, nil when there is nothing to say
 function H.text()
 	local st = status()
@@ -107,10 +110,15 @@ function H.text()
 	local detail = tostring(st.detail or st.reject or "")
 	if #detail > H.config.maxDetail then detail = detail:sub(1, H.config.maxDetail - 3) .. "..." end -- a mod refusal detail lists every DLC
 	local label = T(id, detail)
+	local text
 	if st.state == "ingame" and type(st.players) == "number" and type(st.ping_ms) == "number" then
-		return T(302, label, st.players, math.floor(st.ping_ms + 0.5))
+		text = T(302, label, st.players, math.floor(st.ping_ms + 0.5))
+	else
+		text = T(301, label)
 	end
-	return T(301, label)
+	local suffix = type(H.presenceText) == "function" and H.presenceText() or nil
+	if type(suffix) == "string" and suffix ~= "" then text = text .. " | " .. suffix end
+	return text
 end
 
 ------------------------------------------------------------------------------

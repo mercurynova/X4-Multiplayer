@@ -13,6 +13,7 @@
 #include "x4mp/wire.h"
 
 #include "features/chat/chat_json.h"
+#include "features/onfoot/onfoot_presence.h"
 
 namespace x4mp::features {
 
@@ -232,12 +233,52 @@ void OnFootFeature::raise_interactions() {
   }
 }
 
+void OnFootFeature::raise_presence() {
+  if (platform_ == nullptr) return;
+  const auto& hub = onfoot::onfoot_hub();
+  const auto& roster = hub.roster();
+  const auto& room = hub.room();
+  const auto container = room.valid ? room.container_net_id : 0u;
+
+  // A compact text of what the HUD would draw. The roster is a handful of rows, so rebuilding it every frame is cheap; comparing it is
+  // what keeps the bridge quiet.
+  const auto sig = onfoot::presence_signature(roster, container, room.valid ? room.mode : onfoot::Mode::None);
+  const auto now_us = steady_us();
+  if (sig == presence_sig_ && presence_raised_) return;
+  // At most twice a second: the relay rebuilds the roster on any change, and a peer crossing a doorway is not worth a redraw each time.
+  if (presence_raised_ && now_us - last_presence_us_ < 500'000) return;
+  presence_sig_ = sig;
+  presence_raised_ = true;
+  last_presence_us_ = now_us;
+
+  nlohmann::json j;
+  j["v"] = 1;
+  j["self"] = hub.own_player_id();
+  j["container"] = container;
+  j["mode"] = static_cast<int>(room.valid ? room.mode : onfoot::Mode::None);
+  auto entries = nlohmann::json::array();
+  for (const auto& row : roster) {
+    nlohmann::json e;
+    e["id"] = row.player_id;
+    e["mode"] = static_cast<int>(row.mode);
+    // "here" is the only place we can put a peer on the map: the roster carries a container id and nothing else, and the client has no
+    // name for a container it is not in (the server's station mirror is M4). So the HUD says "here" or says nothing about the place.
+    e["here"] = onfoot::presence_here(row, container);
+    const auto* chat_row = chat::chat_hub().roster().find(row.player_id);
+    e["name"] = chat_row != nullptr ? chat_row->name : std::string();
+    entries.push_back(std::move(e));
+  }
+  j["entries"] = std::move(entries);
+  if (!platform_->raise_lua("x4mp.presence", j.dump())) ++presence_raise_failed_;
+}
+
 void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
   auto& hub = onfoot::onfoot_hub();
   drain_inbox(ctx);
   drain_replies(ctx);
   drain_talk(ctx);
   raise_interactions();
+  raise_presence();
 
   if (!info.universe_ready || !ctx.gates.universe_ready) return;
 

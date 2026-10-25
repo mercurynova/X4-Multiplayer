@@ -168,5 +168,13 @@
     <t id="940">Wave</t>
     <t id="941">Message</t>
     <t id="942">Goodbye</t>
+    <t id="960">on foot, here</t>
+    <t id="961">on foot</t>
+    <t id="962">in a cockpit</t>
+    <t id="963">in transit</t>
+    <t id="964">%s is here</t>
+    <t id="965">%s is no longer here</t>
+    <t id="966">%s here</t>
+    <t id="967">and %d more</t>
   </page>
 </language>
