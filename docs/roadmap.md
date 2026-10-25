@@ -311,6 +311,23 @@ plus a janitor trigger 5 s after load (`<delay>`/`event_game_loaded` are silent 
 `B.VERBS`. A remote player is dropped when it leaves the room, the container, stands up, or stops sending. Verified: mod build clean,
 ctest **554/554** (36 `host.onfoot:*` cases). **Next:** the in-game two-client check, then appearance (ADR-051) and the Talk menu.
 
+**Status 2026-10-25 (night): W5 appearance, the picker and the catalogue.** ADR-051's open question was which macros to spawn, and the
+spikes answered it the hard way: `<select race=...>` inside `create_cue_actor` honours **neither race nor gender** (S10 asked for argon
+male and got yaki, pirate and scavenger women), while a bare `macro=` works — the deformed model in the spike came from a macro name
+that does not exist, not from `macro=`. Vanilla uses both paths (`scenario_tutorials.xml` passes an explicit `character_argon_...`),
+but `get_character_definition` has no gender parameter, so the picker cannot use it. `features/appearance/appearance_catalogue.*` is
+therefore a **curated** catalogue compiled into the mod: five races and twelve looks (argon `male/female_cau|afr|asi`, teladi and split
+`male/female`, paranid and boron `generic`), each a real `character_<race>_..._macro` from the base catalogue; terran is left out
+because the base build has no `character_terran_*` macro. The catalogue is pure data and pure functions (`resolve`, `pick_random` with
+its own xorshift, `catalogue_json`), so the 6 new `appearance:*` cases pin every macro name. `AppearanceFeature` answers the bridge verb
+`x4mp.appearance` (a query, `race`+`preset`, `random`, `default`), stores the choice in `x4mp.json` (`avatar_race`/`avatar_preset`,
+written through `config::update_string_keys`), and sends `PlayerAppearance` on the **Control** lane — once per session when the on-foot
+link comes up and again on every change, which needed a second callback (`send_control`) on the link. The in-game menu has an
+Appearance screen (cycle race, cycle look, Random, Default; text ids 900-929 in English and Russian) and the spawn cue now prefers the
+peer's `macro` and only falls back to `<select tags="tag.crew">`. The hub ignores the relay's echo of the node's own revision.
+Verified: mod build clean, ctest **560/560** (42 `host.onfoot:*` and `host.appearance:*` cases). **Next:** the Talk menu
+(`PlayerInteraction`), then the in-game two-client check.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of

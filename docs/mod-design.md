@@ -900,7 +900,7 @@ This section records what exists in code; the server half came first, the client
   `Interactions*`).
 - **FakeNode** (`--onfoot <container_net_id>`) stands a fake client in a station room at 10 Hz and walks it in a 5 m circle, so the relay can be verified on one PC before the mod
   captures real state.
-- **Not built yet (client waves):** the Talk menu, the appearance picker and the server-side appearance catalogue. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
+- **Not built yet (client waves):** the Talk menu and the server-side appearance catalogue check. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
   and then goes quiet while the player stands up.
 - **Capture (client, in).** `mod/native/features/onfoot/`: `onfoot_types` (report grammar, `fnv1a32`, `matched_container_id`, `RoomRef`, `same_room`), `onfoot_tracker` (10 Hz moving /
   1 Hz idle, measured from the last send), `onfoot_hub` (relay frames in, `PresenceRoster` out, the room key and `PlayerAppearance` parsed) and `onfoot_feature` (inbox drain, frame
@@ -912,6 +912,14 @@ This section records what exists in code; the server half came first, the client
   every 2 s, a failed placement is destroyed. Motion is `SetPositionalOffset` every frame in container space (room-local + `anchor/10`) at foot height (`y − 1.72 m`), yaw in
   radians; no pathfinding, no slots, no lounge. v1 shows the idle pose because MD has no locomotion action (S10.4). `Despawn`/`Janitor` cues and a janitor trigger 5 s after a
   load clean up; `onfoot_actor` is in `B.VERBS`.
+- **Appearance (client, in).** `features/appearance/`: `appearance_catalogue` is a **curated** list of five races and twelve looks (argon `male|female_cau|afr|asi`,
+  teladi and split `male|female`, paranid and boron `generic`), each a real `character_<race>_…_macro` of the base build; it is curated because `<select race=…>`
+  ignores race and gender (S10 got yaki, pirate and scavenger women for "argon male"), a bare `macro=` works only with a name that exists, and `get_character_definition`
+  has no gender parameter. Terran is left out (no `character_terran_*` in the base catalogue). `AppearanceFeature` answers the bridge verb `x4mp.appearance`
+  (`{}` query, `race`+`preset`, `random`, `default`), refuses anything the catalogue does not know, stores the choice in `x4mp.json` (`avatar_race`/`avatar_preset`)
+  and sends `PlayerAppearance` on the **Control** lane — once when the on-foot link comes up and again on every change (`OnFootLink::send_control`). The catalogue and
+  the current look go back to Lua as `x4mp.appearance_state`; the in-game menu has an Appearance screen (cycle race, cycle look, Random, Default; text ids 900-929 in
+  English and Russian), and the spawn cue prefers the peer's `macro` over `<select>`, so the remote avatar is the look its player picked.
 
 ---
 

@@ -821,6 +821,21 @@ presence) and ADR-049 (team origins).
 - **Consequences / spike items:** list the NPC character macros per race and their variant options (body, clothing,
   heads) for build 611726; confirm spawning a temporary actor with a chosen macro/variant in a room (S10); decide the
   fallback when a macro is missing on a client (e.g. DLC race not enabled → nearest race + log).
+- **Implemented (M3b, 2026-10-25), with two deviations from the text above:**
+  - The catalogue is **compiled into the mod** (`mod/native/features/appearance/appearance_catalogue.*`) rather than read
+    from the host's install at runtime. A curated list makes the picker, the wire ids and the tests deterministic, and a
+    cat scan would only add names the picker cannot label in every language. It is five races and twelve looks: argon
+    `male|female_cau|afr|asi`, teladi and split `male|female`, paranid and boron `generic`. **Terran is not offered** — the
+    base build has no `character_terran_*` macro. Extending the list is a data edit plus a text id per preset.
+  - `<select race=…>` **does not work** as a variant selector: S10 asked for argon male and got yaki, pirate and scavenger
+    women, so the picker spawns an explicit `character_<race>_…_macro` instead (vanilla does the same in
+    `scenario_tutorials.xml`). `get_character_definition` does take a race but has no gender parameter, so it cannot drive a
+    picker either. A macro the running build does not have makes MD log "no character" and native retry every 2 s; the
+    "nearest race" fallback was dropped because a wrong-looking avatar is worse than none.
+  - The choice is stored client-side in `x4mp.json` (`avatar_race`, `avatar_preset`) and sent on the Control lane once per
+    session plus on change; the server stores it for the session only and relays it, which is enough because the client is
+    the durable copy and re-sends at every join. The per-build catalogue check on the server remains open (the client
+    refuses unknown pairs before they reach the wire).
 
 ## Part 2. Open questions for the user
 

@@ -880,9 +880,16 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   Drops are counted (`RelayStats.OnFootStatesDropped/RateLimited/Stale`), never a protocol violation.
 - **Presence roster (server).** `PresenceRoster{full=true, entries}` is rebuilt on any container/mode/roomtype change and sent galaxy-wide to the nodes
   that negotiated the capability, at most `PresenceRosterHz` (1 Hz). It carries no positions, only where a player is, for the HUD and the player list.
-- **Appearance (ADR-051).** `PlayerAppearance` is sent at join and on change; the server stamps `player_id` and a monotonic `revision`, stores it for the
-  session and relays it to the other capable nodes. A joining node gets the stored appearance of everybody (and its own canonical revision). The
-  per-build catalogue check is the appearance task; the relay only trims and length-caps the strings (96 chars).
+- **Appearance (ADR-051).** `PlayerAppearance` carries the look the *other* nodes render: `race` and `preset` (wire ids),
+  `character_macro`, `is_female`, `clothing`. Empty strings mean "server default" (the team origin race, ADR-049); the local character
+  never changes. It is sent on the **Control lane** — once per session when the on-foot link comes up and again after every change — and
+  the client validates the pair against a **curated catalogue** compiled into the mod (`features/appearance/appearance_catalogue.*`:
+  argon, teladi, paranid, split, boron with their gender and ethnicity variants) and refuses anything else with a log line naming the
+  ids, so a macro the running build does not have cannot reach a peer's spawn command by accident. The server stamps `player_id` and a
+  monotonic `revision`, stores it for the session and relays it to the other capable nodes; a joining node gets the stored appearance of
+  everybody plus its own canonical revision (which it ignores). The relay only trims and length-caps the strings (96 chars): a
+  per-build catalogue check on the server is still open, so a hand-written client can name a macro it cannot spawn — MD then logs
+  "no character" and native retries every 2 s, and nothing else happens.
 - **Interactions.** `PlayerInteraction{to_player, kind, emote_id, arg}` is forwarded to the target only, with `from_player` stamped and a token bucket
   (`InteractionPerSecond` 4/s, `InteractionBurst` 8). Credits and team invites stay on the economy and team messages.
 - **Cost.** About 40 B per sample: ≤ 0.4 kB/s per walking player to each peer in the container, plus a roster frame of a few hundred bytes per second per
