@@ -898,6 +898,12 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   avatar, so every viewer of the room sees the gesture, and both ends print a chat line. Message is a local hint only — the vanilla chat
   window cannot be prefilled, so it tells the player to use `/w <name>`. No interaction is sent for an avatar that is not in the room:
   the choice cue is gated on the actor's `$x4mp_pid`.
+- **Presence list (client).** The roster above is galaxy-wide, but a client can only *name* a place it is in: room names do not exist in MD, the
+  server sends `room_name` empty, and the station mirror that would name a far container is M4. So the HUD and the player list say **"here"** when
+  the peer's `container_net_id` equals the local one and the peer is `Walking`, and only "on foot", "in a cockpit" or "in transit" otherwise. Native
+  raises `x4mp.presence` (`{"v":1,"self","container","mode","entries":[{"id","mode","here","name"}]}`) when the roster signature changes, at most
+  twice a second; the Lua side appends the names to the HUD status line, adds a column to the player table, and prints "X is here" / "X is no
+  longer here" chat lines from the second payload on (the first is the baseline, so a load does not announce everybody).
 - **Cost.** About 40 B per sample: ≤ 0.4 kB/s per walking player to each peer in the container, plus a roster frame of a few hundred bytes per second per
   node.
 

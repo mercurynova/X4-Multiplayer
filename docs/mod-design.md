@@ -920,6 +920,13 @@ This section records what exists in code; the server half came first, the client
   and sends `PlayerAppearance` on the **Control** lane — once when the on-foot link comes up and again on every change (`OnFootLink::send_control`). The catalogue and
   the current look go back to Lua as `x4mp.appearance_state`; the in-game menu has an Appearance screen (cycle race, cycle look, Random, Default; text ids 900-929 in
   English and Russian), and the spawn cue prefers the peer's `macro` over `<select>`, so the remote avatar is the look its player picked.
+- **Presence list (client, in).** `features/onfoot/onfoot_presence.*` holds the two pure rules: `presence_here` (the peer is `Walking` **and** shares the local
+  `container_net_id`) and `presence_signature` (container, local mode and the roster, so an unchanged roster costs nothing). `OnFootFeature::raise_presence`
+  raises `x4mp.presence` when the signature changes, at most twice a second, with `{self, container, mode, entries[{id, mode, here, name}]}`; the name comes from the
+  chat roster. Only "here" is named, because MD has no room names, the relay sends `room_name` empty and naming a far container needs the M4 station mirror; every
+  other row says "on foot", "in a cockpit" or "in transit". `ui/x4mp_onfoot.lua` appends the names to the HUD status line (`X4MPHud.presenceText`), adds a column to
+  the Multiplayer player table (`X4MPPlayers.presenceResolver`) and prints arrival/departure chat lines from the second payload on, so a load stays quiet. Text ids
+  960-967 in English and Russian.
 - **Interaction (client, in).** The Talk menu is the vanilla conversation of the avatar, extended by MD: `X4MP_OnFoot_Talk` answers `event_conversation_started`
   for any object that carries `$x4mp_pid` and adds **Wave** and **Message** next to Goodbye, so the player's own NPCs and vanilla crew keep the stock dialogue. A pick
   arrives as `event_conversation_next_section` with `sectionprefix="x4mp_mp_"` and is raised to Lua as `wave;<pid>;<name>`; `x4mp_onfoot.lua` forwards it on the bridge as

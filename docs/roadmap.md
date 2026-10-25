@@ -343,6 +343,26 @@ sequence to play. Text ids 940-942 in English and Russian.
 Verified: mod build clean, ctest **561/561** (37 `host.onfoot:*` cases, 244 assertions on that filter). **Next:** the in-game
 two-client check (S10.6, the S10.7 conversation round trip), which needs a human at both clients.
 
+**Status 2026-10-25 (late, W6): the Tier 0 presence list, and the JSON codec stops mangling 4-byte characters.** The roster was
+already galaxy-wide, but a client can only *name* a place it is in: MD has no room names, the relay sends `room_name` empty and the
+station mirror that would name a far container is M4. So the list says **"here"** when a peer shares the local container and walks,
+and only "on foot", "in a cockpit" or "in transit" otherwise. `features/onfoot/onfoot_presence.*` holds the two pure rules
+(`presence_here`, `presence_signature`); `OnFootFeature::raise_presence` compares the signature, rate-limits a change to 500 ms and
+raises `x4mp.presence` with `{self, container, mode, entries[{id, mode, here, name}]}`. The UI script turns that into a HUD status
+suffix ("Alice, Bob here"), a column in the Multiplayer player table (`X4MPPlayers.presenceResolver`), and "X is here" / "X is no
+longer here" chat lines from the second payload on, so a load does not announce everybody. Text ids 960-967 in English and Russian.
+Two hooks were added to existing screens rather than a new one: `X4MPHud.presenceText` and `X4MPPlayers.presenceResolver`.
+Also fixed while running the Lua suite for the first time since W5: the bridge's JSON encoder escaped with `[%c"\\]`, and `%c` is
+`iscntrl()`, which on a Russian Windows resolves to CP1251 where the byte **0x98** counts as a control character. 0x98 is a legal
+UTF-8 continuation byte, so every character whose second byte is 0x98 (all emoji, for one) was corrupted on the way out; the
+encoder now tests bytes arithmetically (`[^ -~]` plus the short escapes) and the decoder's raw-string scan no longer uses `%c`
+either. The Lua suite is green for the first time in this wave: **248 passed, 0 failed** (`python mod/tests/lua/run_lupa.py`, lupa
+2.8); one test also had to learn that `appearance_state`, `onfoot_talk_in` and `presence` are registered by addon files, not by the
+bridge alone.
+Verified: mod build clean, ctest **563/563** (39 `host.onfoot:*` cases, 258 assertions on that filter), Lua **248/248**. **Next:**
+the in-game two-client check (S10.6, the S10.7 conversation round trip), which needs a human at both clients; that is the only M3b
+item left that needs a person.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of
