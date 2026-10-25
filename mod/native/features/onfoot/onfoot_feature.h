@@ -6,7 +6,8 @@
 //   Native adds what only it can read (container-local position and yaw via GetPositionalOffset), rate-limits with OnFootTracker
 //   (10 Hz moving / 1 Hz idle / at once on a room change) and sends OnFootState (0x0302) on the Realtime lane.
 //   The relay fans it out to the peers in the same container; their OnFootState / PresenceRoster frames come back through the join
-//   feature into onfoot_hub(). The actor work for remote players is MD's job (W4), driven from the hub's state.
+//   feature into onfoot_hub(). ActorRegistry turns those states into MD commands (x4mp.onfoot_actors -> ui/x4mp_onfoot.lua -> the MD
+//   cues) and moves the confirmed actors with SetPositionalOffset every frame.
 
 #include <chrono>
 #include <cstdint>
@@ -16,6 +17,7 @@
 
 #include <flatbuffers/flatbuffers.h>
 
+#include "features/onfoot/onfoot_actors.h"
 #include "features/onfoot/onfoot_hub.h"
 #include "features/onfoot/onfoot_tracker.h"
 #include "host/feature.h"
@@ -35,10 +37,15 @@ class OnFootFeature final : public host::IFeature {
  private:
   struct Inbox;
   void drain_inbox(host::HostContext& ctx);
+  void drain_replies(host::HostContext& ctx);
+  void install_actor_callbacks(host::HostContext& ctx);
   void send_state(host::HostContext& ctx, const onfoot::OnFootTracker::Step& step, const onfoot::RoomContext& room,
                   float cx, float cy, float cz, float yaw, float pitch);
 
   std::shared_ptr<Inbox> inbox_;
+  std::shared_ptr<Inbox> replies_;
+  host::IPlatform* platform_ = nullptr;  // for raise_lua to Lua (x4mp.onfoot_actors); owned by the host, lives for the run
+  game::GameApi* game_ = nullptr;        // for SetPositionalOffset; same lifetime
   onfoot::OnFootTracker tracker_;
   flatbuffers::FlatBufferBuilder fbb_{256};
   std::uint32_t seq_ = 0;
@@ -49,6 +56,7 @@ class OnFootFeature final : public host::IFeature {
   std::uint64_t reports_ = 0;
   std::uint64_t sent_states_ = 0;
   std::uint64_t sample_failed_ = 0;
+  std::uint64_t actor_raise_failed_ = 0;
   std::int64_t last_log_us_ = 0;
 };
 

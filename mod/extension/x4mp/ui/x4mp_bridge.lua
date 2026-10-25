@@ -22,6 +22,8 @@
 --                        "isworkshop","personal","sync","error","warning"}, ...]}   (fields present only when the game gives them)
 --   x4mp.onfoot_room    {"v":1,"data":"mode=1;sector=..;smacro=..;sx=..;sy=..;sz=..;rmacro=..;ax=..;ay=..;az=..;kind=.."}   (M3b,
 --                        x4mp_onfoot.lua) the room the player stands in, as MD sees it; native parses it, nothing comes back
+--   x4mp.onfoot_actor   {"v":1,"data":"spawn;<pid>;<actor id>"|"gone;<pid>"}   (M3b W4, x4mp_onfoot.lua) MD created or removed the
+--                        avatar of that player; the actor id is what native drives with SetPositionalOffset
 --
 -- TOPICS (native -> Lua), handled by the bridge and forwarded to B.on(topic, fn) handlers
 --   x4mp.status    {"v":1,"state":"disconnected|connecting|handshaking|checking_save|downloading|loading|matching|save_changed|
@@ -62,7 +64,7 @@ if X4MPBridge and X4MPBridge.loaded then return end
 local B = { loaded = true, version = 1, handlers = {}, pending = {} }
 X4MPBridge = B
 
-B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true, onfoot_room = true }
+B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true, onfoot_room = true, onfoot_actor = true }
 B.TOPICS = { "status", "notify", "error", "load_save", "open" }
 local queueable = { ui_ready = true, request_status = true, extensions = true }
 

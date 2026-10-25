@@ -7,6 +7,8 @@
 #include "message_ids_generated.h"
 #include "world_generated.h"
 
+#include "features/onfoot/onfoot_actors.h"
+
 namespace x4mp::features::onfoot {
 
 namespace P = X4MP::Proto;
@@ -40,6 +42,18 @@ void OnFootHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_
       avatar.flags = state->flags();
       avatar.seq = state->seq();
       avatar.at_us = static_cast<std::int64_t>(state->sample_time_us());
+      avatar.px = static_cast<float>(static_cast<double>(state->px()) / 1024.0);
+      avatar.py = static_cast<float>(static_cast<double>(state->py()) / 1024.0);
+      avatar.pz = static_cast<float>(static_cast<double>(state->pz()) / 1024.0);
+      if (const auto* key = state->room()) {  // absent while seated
+        avatar.room.macro_ref = key->macro_ref();
+        avatar.room.anchor_x = key->anchor_x();
+        avatar.room.anchor_y = key->anchor_y();
+        avatar.room.anchor_z = key->anchor_z();
+        avatar.room.path_hash = key->path_hash();
+        avatar.room.kind = static_cast<std::uint8_t>(key->kind());
+        avatar.room.roomtype = key->roomtype();
+      }
       if (avatar.mode == Mode::None) {
         remotes_.erase(state->player_id());  // the leave state
       } else {
@@ -49,7 +63,22 @@ void OnFootHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_
       break;
     }
     case P::MsgType::PlayerAppearance: {
-      ++counters_.appearances;  // W4: the look of a remote avatar (race + preset, ADR-051)
+      // W4: the look of a remote avatar (race + preset, ADR-051). The revision is server-stamped and monotonic, so a late older frame
+      // is dropped instead of overwriting a newer look.
+      const auto* msg = flatbuffers::GetRoot<P::PlayerAppearance>(data);
+      if (msg == nullptr || msg->player_id() == self_id) {
+        ++counters_.bad_frames;
+        return;
+      }
+      auto& slot = appearances_[msg->player_id()];
+      if (msg->revision() < slot.revision) return;
+      slot.revision = msg->revision();
+      slot.race = msg->race() ? msg->race()->str() : std::string();
+      slot.preset = msg->preset() ? msg->preset()->str() : std::string();
+      slot.character_macro = msg->character_macro() ? msg->character_macro()->str() : std::string();
+      slot.clothing = msg->clothing() ? msg->clothing()->str() : std::string();
+      slot.is_female = msg->is_female();
+      ++counters_.appearances;
       break;
     }
     case P::MsgType::PresenceRoster: {
@@ -94,6 +123,9 @@ void OnFootHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_
 }
 
 void OnFootHub::session_ended() {
+  // The avatars belong to the session: tell MD to remove them before the state that describes them is gone. Main thread (the join
+  // feature calls this from its frame path), so raising the Lua event here is allowed.
+  onfoot_actors().clear();
   const auto counters = counters_;
   const auto link = link_;
   *this = OnFootHub{};

@@ -42,6 +42,7 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "IsComponentWrecked", f.IsComponentWrecked);
   bind(get, "IsPlayerOccupiedShipDocked", f.IsPlayerOccupiedShipDocked);
   bind(get, "GetPositionalOffset", f.GetPositionalOffset);
+  bind(get, "SetPositionalOffset", f.SetPositionalOffset);
   return f;
 }
 
@@ -79,6 +80,7 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.IsComponentWrecked), "IsComponentWrecked");
   check(reinterpret_cast<const void*>(f.IsPlayerOccupiedShipDocked), "IsPlayerOccupiedShipDocked");
   check(reinterpret_cast<const void*>(f.GetPositionalOffset), "GetPositionalOffset");
+  check(reinterpret_cast<const void*>(f.SetPositionalOffset), "SetPositionalOffset");
   return out;
 }
 
@@ -179,6 +181,11 @@ std::optional<PosRotPod> GameApi::object_position(UniverseId id) const noexcept 
 std::optional<PosRotPod> GameApi::positional_offset(UniverseId id, UniverseId space) const noexcept {
   if (id == 0 || space == 0 || !fns_.GetPositionalOffset || !assert_main_thread("GetPositionalOffset")) return std::nullopt;
   return fns_.GetPositionalOffset(id, space);
+}
+bool GameApi::set_positional_offset(UniverseId id, const PosRotPod& pos) const noexcept {
+  if (id == 0 || !fns_.SetPositionalOffset || !assert_main_thread("SetPositionalOffset")) return false;
+  fns_.SetPositionalOffset(id, pos);  // radians in, radians out (S10.4): no pos_rot_to_game_write here
+  return true;
 }
 bool GameApi::teleport_player_to(UniverseId id, bool allow_controlling, bool instant, bool force) const noexcept {
   if (id == 0 || !fns_.TeleportPlayerTo || !assert_main_thread("TeleportPlayerTo")) return false;

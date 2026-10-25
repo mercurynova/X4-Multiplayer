@@ -12,6 +12,8 @@
 #include "world_generated.h"
 #include "x4mp/wire.h"
 
+#include "features/chat/chat_json.h"
+
 namespace x4mp::features {
 
 namespace P = X4MP::Proto;
@@ -43,7 +45,7 @@ struct OnFootFeature::Inbox {
   }
 };
 
-OnFootFeature::OnFootFeature() : inbox_(std::make_shared<Inbox>()) {}
+OnFootFeature::OnFootFeature() : inbox_(std::make_shared<Inbox>()), replies_(std::make_shared<Inbox>()) {}
 OnFootFeature::~OnFootFeature() = default;
 
 void OnFootFeature::on_init(host::HostContext& ctx) {
@@ -51,11 +53,39 @@ void OnFootFeature::on_init(host::HostContext& ctx) {
   // The MD room report, forwarded by ui/x4mp_onfoot.lua. May arrive on any thread: copy only.
   const bool ok = ctx.platform.subscribe_event("x4mp.onfoot_room", [inbox](std::string_view text) { inbox->push(text); });
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: bridge verb x4mp.onfoot_room {}", ok ? "subscribed" : "not available");
+
+  auto replies = replies_;
+  // MD's answers to the actor commands: "spawn;<pid>;<actor id>" | "gone;<pid>".
+  const bool ok2 = ctx.platform.subscribe_event("x4mp.onfoot_actor", [replies](std::string_view text) { replies->push(text); });
+  X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: bridge verb x4mp.onfoot_actor {}", ok2 ? "subscribed" : "not available");
+  install_actor_callbacks(ctx);
+}
+
+void OnFootFeature::install_actor_callbacks(host::HostContext& ctx) {
+  // The registry is a process-wide singleton and outlives no host object here, so it gets pointers, not captures of ctx.
+  platform_ = &ctx.platform;
+  game_ = &ctx.game;
+  onfoot::ActorCallbacks cb;
+  cb.raise_lua = [this](std::string_view json) {
+    if (platform_ == nullptr) return;
+    if (!platform_->raise_lua("x4mp.onfoot_actors", json)) ++actor_raise_failed_;
+  };
+  cb.place = [this](std::uint64_t actor, float x, float y, float z, float yaw) {
+    if (game_ == nullptr) return;
+    // S10.4: the per-frame override is what makes the avatar follow; MD cannot animate a teleported actor, so v1 keeps the idle pose.
+    game_->set_positional_offset(actor, game::PosRotPod{x, y, z, yaw, 0.0f, 0.0f});
+  };
+  cb.name = [](std::uint16_t pid) -> std::string {
+    const auto* row = chat::chat_hub().roster().find(pid);
+    return row != nullptr ? row->name : std::string();
+  };
+  onfoot::onfoot_actors().set_callbacks(std::move(cb));
 }
 
 void OnFootFeature::on_game_loaded(host::HostContext& ctx) {
   // A load puts the player somewhere else and MD re-reports the room; drop the stale context until it does.
   onfoot::onfoot_hub().set_room_context({});
+  onfoot::onfoot_actors().clear();
   tracker_.reset();
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: game loaded, waiting for the room report");
 }
@@ -89,6 +119,22 @@ void OnFootFeature::drain_inbox(host::HostContext& ctx) {
                 static_cast<int>(parsed->mode), parsed->container, parsed->container_net_id, parsed->room_macro_ref, parsed->anchor_x,
                 parsed->anchor_y, parsed->anchor_z, static_cast<int>(parsed->kind), static_cast<int>(parsed->roomtype));
     }
+  }
+}
+
+void OnFootFeature::drain_replies(host::HostContext& /*ctx*/) {
+  auto& registry = onfoot::onfoot_actors();
+  for (const auto& raw : replies_->take()) {
+    // {"v":1,"data":"spawn;<pid>;<actor id>"} or {"v":1,"data":"gone;<pid>"}
+    std::string text;
+    try {
+      const auto j = nlohmann::json::parse(raw);
+      text = j.value("data", std::string{});
+    } catch (const std::exception&) {
+      ++bad_reports_;
+      continue;
+    }
+    if (!text.empty()) registry.on_reply(text);
   }
 }
 
@@ -141,6 +187,7 @@ void OnFootFeature::send_state(host::HostContext& /*ctx*/, const onfoot::OnFootT
 void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
   auto& hub = onfoot::onfoot_hub();
   drain_inbox(ctx);
+  drain_replies(ctx);
 
   if (!info.universe_ready || !ctx.gates.universe_ready) return;
 
@@ -152,13 +199,28 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   if (now_us - last_log_us_ >= 30'000'000) {
     last_log_us_ = now_us;
     const auto& c = hub.counters();
-    if (c.states_in || c.rosters || reports_ || send_failed_ || bad_reports_) {
+    const auto& a = onfoot::onfoot_actors().counters();
+    if (c.states_in || c.rosters || reports_ || send_failed_ || bad_reports_ || a.spawns || a.places) {
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info,
-                "onfoot: linked={} reports={} bad={} out={} failed={} no_clock={} in={} roster={} remotes={}", linked, reports_,
-                bad_reports_, sent_states_, send_failed_, no_clock_, c.states_in, c.rosters, hub.remotes().size());
+                "onfoot: linked={} reports={} bad={} out={} failed={} no_clock={} in={} roster={} remotes={} actors={}/{} spawn={} "
+                "despawn={} place={}",
+                linked, reports_, bad_reports_, sent_states_, send_failed_, no_clock_, c.states_in, c.rosters, hub.remotes().size(),
+                onfoot::onfoot_actors().live(), onfoot::onfoot_actors().tracked(), a.spawns, a.despawns, a.places);
     }
   }
-  if (!linked) return;
+  if (!linked) {
+    onfoot::onfoot_actors().clear();  // no session: the avatars must not outlive it, and MD has to drop whatever it still has
+    return;
+  }
+
+  // Remote avatars. The registry's interpolator compares the remote's sample_time_us with `now`, so the clock has to come from the
+  // same source as the stream; without a server clock there is nothing to interpolate against, so the avatars are removed instead.
+  std::int64_t server_now = 0;
+  if (hub.server_now(server_now)) {
+    onfoot::onfoot_actors().update(hub.room(), hub.remotes(), hub.appearances(), server_now);
+  } else {
+    onfoot::onfoot_actors().clear();
+  }
 
   const auto& room = hub.room();
   if (!room.valid || room.mode == onfoot::Mode::None) {

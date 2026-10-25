@@ -55,6 +55,11 @@ class OnFootHub {
   [[nodiscard]] const std::map<std::uint16_t, RemoteAvatar>& remotes() const noexcept { return remotes_; }
   [[nodiscard]] const std::vector<PresenceRow>& roster() const noexcept { return roster_; }
   [[nodiscard]] bool roster_full() const noexcept { return roster_full_; }
+  [[nodiscard]] const std::map<std::uint16_t, Appearance>& appearances() const noexcept { return appearances_; }
+  [[nodiscard]] const Appearance* appearance(std::uint16_t player_id) const noexcept {
+    const auto it = appearances_.find(player_id);
+    return it == appearances_.end() ? nullptr : &it->second;
+  }
   void forget(std::uint16_t player_id) { remotes_.erase(player_id); }
 
   void session_ended();
@@ -77,6 +82,7 @@ class OnFootHub {
   RoomContext room_;
   std::uint16_t own_player_id_ = 0;
   std::map<std::uint16_t, RemoteAvatar> remotes_;
+  std::map<std::uint16_t, Appearance> appearances_;
   std::vector<PresenceRow> roster_;
   bool roster_full_ = false;
   Counters counters_;

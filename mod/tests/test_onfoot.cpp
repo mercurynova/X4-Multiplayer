@@ -5,9 +5,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "features/onfoot/onfoot_actors.h"
 #include "features/onfoot/onfoot_hub.h"
 #include "features/onfoot/onfoot_tracker.h"
 #include "features/onfoot/onfoot_types.h"
@@ -417,11 +420,13 @@ TEST_CASE("onfoot: a presence roster replaces the list and honours the removed i
   CHECK(hub.counters().rosters == 1);
 }
 
-TEST_CASE("onfoot: appearance and interaction frames are counted but change nothing yet") {
+TEST_CASE("onfoot: a broken appearance frame is counted as bad, an interaction frame is only counted") {
   OnFootHub hub;
+  hub.set_own_player_id(1);
   hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerAppearance), presence_roster(true, {}), 1);
   hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerInteraction), presence_roster(true, {}), 1);
-  CHECK(hub.counters().appearances == 1);
+  CHECK(hub.counters().appearances == 0);  // a roster body is not a look
+  CHECK(hub.counters().bad_frames == 1);
   CHECK(hub.counters().interactions == 1);
   CHECK(hub.remotes().empty());
 }
@@ -456,4 +461,303 @@ TEST_CASE("onfoot: ending the session forgets the players but keeps the counters
   CHECK(hub.linked());                   // the join feature clears the link itself
   CHECK(hub.send_realtime(0, {}));       // ... so a late frame still goes out
   CHECK(sent);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// W4: the room key and the look on the avatar, and the remote-avatar pipeline
+// ---------------------------------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+constexpr std::uint16_t kSelf = 1;
+
+// A frame from a player who stands in the room walking_context() describes, so same_room() is true.
+Buf onfoot_state_in_room(std::uint16_t player_id, int px, int py, int pz, std::int16_t yaw = 0, std::uint32_t seq = 1,
+                         P::OnFootMode mode = P::OnFootMode::Walking) {
+  flatbuffers::FlatBufferBuilder fbb;
+  const P::RoomKey key(7u, -20598, -11760, 2, 0xbeefu, P::RoomKind::Dynamic, 4);
+  const auto root = P::CreateOnFootState(fbb, player_id, seq, 1000, mode, walking_context().container_net_id, 0, &key, px, py, pz, 0,
+                                         0, 0, yaw, 127, P::OnFootAnim::Idle, 0, 0);
+  fbb.Finish(root);
+  return finish(fbb);
+}
+
+Buf appearance_frame(std::uint16_t player_id, std::uint32_t revision, const char* race) {
+  flatbuffers::FlatBufferBuilder fbb;
+  const auto root = P::CreatePlayerAppearance(fbb, player_id, revision, fbb.CreateString(race), fbb.CreateString("male_a"), 0,
+                                              false, 0);
+  fbb.Finish(root);
+  return finish(fbb);
+}
+
+// The pipeline with both side effects captured instead of performed.
+struct Stage {
+  struct Place {
+    std::uint64_t actor;
+    float x, y, z, yaw;
+  };
+  ActorRegistry reg;
+  std::vector<std::string> batches;
+  std::vector<Place> places;
+  std::map<std::uint16_t, std::string> names;
+
+  Stage() {
+    ActorCallbacks cb;
+    cb.raise_lua = [this](std::string_view json) { batches.emplace_back(json); };
+    cb.place = [this](std::uint64_t actor, float x, float y, float z, float yaw) { places.push_back({actor, x, y, z, yaw}); };
+    cb.name = [this](std::uint16_t pid) {
+      const auto it = names.find(pid);
+      return it == names.end() ? std::string() : it->second;
+    };
+    reg.set_callbacks(std::move(cb));
+  }
+
+  void step(const std::map<std::uint16_t, RemoteAvatar>& remotes, std::int64_t now_us,
+            const std::map<std::uint16_t, Appearance>& looks = {}) {
+    reg.update(walking_context(), remotes, looks, now_us);
+  }
+};
+
+// px/py/pz are room-local metres; the room is the one walking_context() describes (anchor -2059.8 / -1176.0 / 0.2 m).
+RemoteAvatar avatar_in_room(float px, float py, float pz, std::uint32_t seq = 1, std::int64_t at_us = 1'000'000) {
+  RemoteAvatar a;
+  a.mode = Mode::Walking;
+  a.container = walking_context().container_net_id;
+  a.room = RoomRef{7u, -20598, -11760, 2, 0xbeefu, 2, 4};
+  a.px = px;
+  a.py = py;
+  a.pz = pz;
+  a.anim = Anim::Idle;
+  a.seq = seq;
+  a.at_us = at_us;
+  return a;
+}
+
+}  // namespace
+
+TEST_CASE("onfoot: the hub keeps the room key and the room-local position of a remote avatar") {
+  OnFootHub hub;
+  hub.set_own_player_id(kSelf);
+  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::OnFootState), onfoot_state_in_room(7, 1024, -512, 256, 16384), kSelf);
+  REQUIRE(hub.remotes().count(7) == 1);
+  const auto& a = hub.remotes().at(7);
+  CHECK(a.room.macro_ref == 7u);
+  CHECK(a.room.anchor_x == -20598);
+  CHECK(a.room.anchor_y == -11760);
+  CHECK(a.room.anchor_z == 2);
+  CHECK(a.room.path_hash == 0xbeefu);
+  CHECK(a.room.kind == 2);
+  CHECK(a.room.roomtype == 4);
+  CHECK(a.px == Approx(1.0f));
+  CHECK(a.py == Approx(-0.5f));
+  CHECK(a.pz == Approx(0.25f));
+  CHECK(same_room(a, walking_context()));
+}
+
+TEST_CASE("onfoot: same_room needs the container, the room macro and the anchor to agree") {
+  const auto a = avatar_in_room(0, 0, 0);
+  CHECK(same_room(a, walking_context()));
+
+  auto other = a;
+  other.room.anchor_x = -20599;  // the same macro, a second copy of the room in the same station
+  CHECK_FALSE(same_room(other, walking_context()));
+
+  other = a;
+  other.room.macro_ref = 8u;
+  CHECK_FALSE(same_room(other, walking_context()));
+
+  other = a;
+  other.container = 0x80000002u;
+  CHECK_FALSE(same_room(other, walking_context()));
+
+  other = a;
+  other.room = RoomRef{};
+  CHECK_FALSE(same_room(other, walking_context()));
+
+  auto local = walking_context();
+  local.mode = Mode::None;
+  CHECK_FALSE(same_room(a, local));
+}
+
+TEST_CASE("onfoot: the look table keeps the newest appearance and drops an older revision") {
+  OnFootHub hub;
+  hub.set_own_player_id(kSelf);
+  const auto type = static_cast<std::uint16_t>(P::MsgType::PlayerAppearance);
+  hub.on_frame_message(type, appearance_frame(7, 5, "teladi"), kSelf);
+  hub.on_frame_message(type, appearance_frame(7, 3, "argon"), kSelf);  // late frame of an older look
+  REQUIRE(hub.appearance(7) != nullptr);
+  CHECK(hub.appearance(7)->race == "teladi");
+  CHECK(hub.appearance(7)->preset == "male_a");
+  CHECK(hub.appearance(7)->revision == 5);
+  CHECK(hub.counters().appearances == 1);  // the stale one is not counted
+
+  hub.on_frame_message(type, appearance_frame(7, 6, "split"), kSelf);
+  CHECK(hub.appearance(7)->race == "split");
+
+  hub.on_frame_message(type, appearance_frame(kSelf, 9, "argon"), kSelf);
+  CHECK(hub.appearance(kSelf) == nullptr);  // the relay never echoes our own look back at us
+}
+
+TEST_CASE("onfoot: a remote player in the same room is spawned once, in container metres at foot height") {
+  Stage st;
+  st.names[7] = "Ann";
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(1.0f, 2.0f, 3.0f);
+  std::map<std::uint16_t, Appearance> looks;
+  looks[7].race = "teladi";
+  st.step(remotes, 1'000'000, looks);
+
+  REQUIRE(st.batches.size() == 1);
+  const auto& j = st.batches.front();
+  CHECK(j.find("\"pid\":7") != std::string::npos);
+  CHECK(j.find("\"name\":\"Ann\"") != std::string::npos);
+  CHECK(j.find("\"race\":\"teladi\"") != std::string::npos);
+  CHECK(j.find("\"rmacro\":7") != std::string::npos);
+  CHECK(j.find("\"ax\":-20598") != std::string::npos);
+  CHECK(j.find("\"x\":-2058.800") != std::string::npos);  // anchor (-2059.8 m) + 1.0 m
+  CHECK(j.find("\"y\":-1175.720") != std::string::npos);  // anchor (-1176.0 m) + 2.0 m - 1.72 m eye height
+  CHECK(j.find("\"z\":3.200") != std::string::npos);      // anchor (0.2 m) + 3.0 m
+  CHECK(st.reg.counters().spawns == 1);
+  CHECK(st.reg.tracked() == 1);
+  CHECK(st.reg.live() == 0);  // asked, not confirmed
+  CHECK(st.places.empty());
+}
+
+TEST_CASE("onfoot: an unanswered spawn is retried every two seconds, not every frame") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  REQUIRE(st.batches.size() == 1);
+  for (std::int64_t t = 1'100'000; t < 2'900'000; t += 100'000) st.step(remotes, t);
+  CHECK(st.batches.size() == 1);  // no answer yet: silence
+  st.step(remotes, 3'000'000);
+  CHECK(st.batches.size() == 2);
+  CHECK(st.reg.counters().spawns == 2);
+}
+
+TEST_CASE("onfoot: MD's answer makes the actor live and the pose is written every frame") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(1.0f, 2.0f, 3.0f);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  CHECK(st.reg.live() == 1);
+
+  st.step(remotes, 1'100'000);
+  REQUIRE_FALSE(st.places.empty());
+  const auto& p = st.places.back();
+  CHECK(p.actor == 9001u);
+  CHECK(p.x == Approx(-2058.8f).margin(0.01f));
+  CHECK(p.y == Approx(-1175.72f).margin(0.01f));
+  CHECK(p.z == Approx(3.2f).margin(0.01f));
+  CHECK(p.yaw == Approx(0.0f).margin(1e-4f));
+
+  st.step(remotes, 1'200'000);  // no new sample, the pose is still written
+  CHECK(st.places.size() >= 2);
+  CHECK(st.reg.counters().places >= 2);
+}
+
+TEST_CASE("onfoot: a player who leaves the room, the container or the deck is despawned at once") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  REQUIRE(st.reg.live() == 1);
+
+  SECTION("another room") {
+    remotes[7].room.macro_ref = 8u;
+    st.step(remotes, 1'100'000);
+  }
+  SECTION("another copy of the same room macro") {
+    remotes[7].room.anchor_x = -1000;
+    st.step(remotes, 1'100'000);
+  }
+  SECTION("another container") {
+    remotes[7].container = 0x80000002u;
+    st.step(remotes, 1'100'000);
+  }
+  SECTION("seated in a cockpit") {
+    remotes[7].mode = Mode::Seated;
+    st.step(remotes, 1'100'000);
+  }
+  SECTION("the leave state") {
+    remotes.clear();
+    st.step(remotes, 1'100'000);
+  }
+  REQUIRE(st.reg.tracked() == 0);
+  REQUIRE(st.reg.live() == 0);
+  REQUIRE(st.batches.size() == 2);
+  CHECK(st.batches.back().find("\"despawn\":[7]") != std::string::npos);
+  CHECK(st.reg.counters().despawns == 1);
+}
+
+TEST_CASE("onfoot: a player who stops sending is dropped after five seconds") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  st.step(remotes, 1'100'000);
+  REQUIRE(st.reg.live() == 1);
+  st.step(remotes, 6'200'000);  // 5.1 s after the newest state
+  CHECK(st.reg.tracked() == 0);
+  CHECK(st.reg.counters().despawns == 1);
+}
+
+TEST_CASE("onfoot: nothing is spawned while the local player is not on foot") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  auto local = walking_context();
+  local.mode = Mode::None;
+  st.reg.update(local, remotes, {}, 1'000'000);
+  CHECK(st.batches.empty());
+  CHECK(st.reg.tracked() == 0);
+  CHECK(st.reg.counters().ignored == 1);
+}
+
+TEST_CASE("onfoot: clear asks MD to remove every avatar it still has") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  remotes[8] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  st.batches.clear();
+  st.reg.clear();
+  REQUIRE(st.batches.size() == 1);
+  CHECK(st.batches.front().find("\"despawn\":[7,8]") != std::string::npos);
+  CHECK(st.reg.tracked() == 0);
+  st.reg.clear();  // nothing left: no second batch
+  CHECK(st.batches.size() == 1);
+}
+
+TEST_CASE("onfoot: MD's 'gone' forgets the actor and the throttle delays the re-ask") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  st.reg.on_reply("gone;7");
+  CHECK(st.reg.live() == 0);
+  CHECK(st.reg.tracked() == 1);  // the player is still here, only the actor is gone
+  st.step(remotes, 1'100'000);
+  CHECK(st.reg.counters().spawns == 1);  // no spawn/gone storm
+  st.step(remotes, 3'100'000);
+  CHECK(st.reg.counters().spawns == 2);  // asked again two seconds after the removal
+}
+
+TEST_CASE("onfoot: a malformed answer is counted, not trusted") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;notanumber");
+  st.reg.on_reply("spawn;7");
+  st.reg.on_reply("nonsense");
+  st.reg.on_reply("spawn;99;9001");  // a player we never asked about
+  CHECK(st.reg.counters().bad_replies == 3);
+  CHECK(st.reg.live() == 0);
 }

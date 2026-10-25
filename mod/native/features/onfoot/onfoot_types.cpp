@@ -162,4 +162,11 @@ std::optional<RoomContext> parse_room_context(std::string_view kv, std::string* 
   return ctx;
 }
 
+bool same_room(const RemoteAvatar& avatar, const RoomContext& local) noexcept {
+  if (!local.valid || local.mode == Mode::None || local.container_net_id == 0) return false;
+  if (avatar.container == 0 || avatar.container != local.container_net_id) return false;
+  if (!avatar.room.known() || avatar.room.macro_ref != local.room_macro_ref) return false;
+  return avatar.room.anchor_x == local.anchor_x && avatar.room.anchor_y == local.anchor_y && avatar.room.anchor_z == local.anchor_z;
+}
+
 }  // namespace x4mp::features::onfoot

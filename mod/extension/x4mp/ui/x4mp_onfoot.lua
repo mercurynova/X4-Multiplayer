@@ -8,6 +8,15 @@
 --   Lua -> native  x4mp.onfoot_room {"v":1,"data":"<the same string>"}
 -- The report is pushed by MD on every room change and pulled here once a second: the poll produces the first report after a load and
 -- the leave state after the player steps out. Everything else (remote avatars, rates) is native's business.
+--
+-- The other direction carries the avatars of the other players (W4):
+--   native -> Lua   x4mp.onfoot_actors {"v":1,"spawn":[{pid,name,race,rmacro,ax,ay,az,kind,x,y,z,yaw},...],"despawn":[pid,...]}
+--   Lua -> MD       one AddUITriggeredEvent("X4MP_OnFoot","spawn",{...}) per entry, one "despawn" trigger per batch
+--   MD -> Lua       x4mp.onfoot_actor "spawn;<pid>;<actor>" | "gone;<pid>"  (forwarded to native as it is)
+-- Native decides who is visible; this file never decides anything, it only moves the batch across, because MD cannot call native and
+-- native cannot call MD. A batch element is positional in MD (a Lua table arrives as an MD list), so the spawn order is fixed:
+-- pid, name, race, room macro, anchor x/y/z (decimetres), kind, x/y/z (container metres, foot height), yaw (degrees).
+-- The janitor removes the avatars a crashed session left in the save; it runs once per process, 5 s after the game is in.
 
 -- luacheck: globals X4MPBridge X4MPOnFoot DebugError RegisterEvent AddUITriggeredEvent getElapsedTime Helper
 
@@ -17,7 +26,8 @@ if type(B) ~= "table" then
 	return
 end
 
-local O = { MD_SCREEN = "X4MP_OnFoot", interval = 1.0, sends = 0, triggers = 0, skipped = 0 }
+local O = { MD_SCREEN = "X4MP_OnFoot", interval = 1.0, sends = 0, triggers = 0, skipped = 0,
+	spawnTriggers = 0, despawnTriggers = 0, replies = 0, janitors = 0, loadedAt = nil, janitorDone = false }
 X4MPOnFoot = O
 
 local function log(msg) pcall(DebugError, "[X4MP] onfoot: " .. tostring(msg)) end
@@ -42,6 +52,44 @@ RegisterEvent("x4mp.onfoot_room", function(_, param)
 	end
 end)
 
+-- ---- the remote avatars (native -> MD) -------------------------------------------------------------------------------------------
+-- One spawn trigger per avatar: MD reads the values positionally and a flat list is the only shape MD handles reliably (the spike's
+-- OF_Spawn does the same). Nothing is queued when the native API is gone - the native registry re-asks every 2 s anyway.
+B.on("onfoot_actors", function(p)
+	if type(p) ~= "table" then return end
+	local spawns = p.spawn
+	if type(spawns) == "table" then
+		for i = 1, #spawns do
+			local a = spawns[i]
+			if type(a) == "table" then
+				local ok = pcall(AddUITriggeredEvent, O.MD_SCREEN, "spawn", {
+					a.pid, a.name or "", a.race or "", a.rmacro, a.ax, a.ay, a.az, a.kind,
+					a.x, a.y, a.z, a.yaw,
+				})
+				if ok then O.spawnTriggers = O.spawnTriggers + 1 else log("spawn trigger failed for pid " .. tostring(a.pid)) end
+			end
+		end
+	end
+	local gone = p.despawn
+	if type(gone) == "table" and #gone > 0 then
+		local ok = pcall(AddUITriggeredEvent, O.MD_SCREEN, "despawn", gone)
+		if ok then O.despawnTriggers = O.despawnTriggers + #gone else log("despawn trigger failed") end
+	end
+end)
+
+-- MD answers every spawn with the actor id it created (and every despawn with "gone"), so native can drive that actor. The string is
+-- passed through untouched: "spawn;<pid>;<component id>" / "gone;<pid>".
+RegisterEvent("x4mp.onfoot_actor", function(_, param)
+	if type(param) ~= "string" or param == "" then return end
+	if not B.getApi() then
+		O.skipped = O.skipped + 1
+		return
+	end
+	if B.send("onfoot_actor", { data = param }) then
+		O.replies = O.replies + 1
+	end
+end)
+
 -- ---- the 1 Hz pull ---------------------------------------------------------------------------------------------------------------
 local function report()
 	if type(AddUITriggeredEvent) ~= "function" then return end
@@ -51,6 +99,22 @@ local function report()
 		O.triggers = O.triggers + 1
 	else
 		log("report trigger failed: " .. tostring(err))
+	end
+end
+
+-- ---- the janitor -----------------------------------------------------------------------------------------------------------------
+-- Removes the avatars a crashed or killed session left in the save. It has to be driven from here: a <delay>, event_game_loaded and
+-- check_interval are all silent no-ops in this mdscript (S10). Once per process, five seconds after the game is in, from the poll loop;
+-- native's own registry only knows the players of the current session, so the leftovers of a previous one need this.
+local function maybe_janitor()
+	if O.janitorDone or B.isStartMenu() then return end
+	local t = now()
+	if (O.loadedAt or t) + 5.0 > t then return end
+	O.janitorDone = true
+	if type(AddUITriggeredEvent) ~= "function" then return end
+	if pcall(AddUITriggeredEvent, O.MD_SCREEN, "janitor", 0) then
+		O.janitors = O.janitors + 1
+		log("janitor fired")
 	end
 end
 
@@ -72,6 +136,7 @@ local function schedule()
 		if gen ~= O.timerGen then return end
 		O.timerPending = false
 		pcall(report)
+		pcall(maybe_janitor)
 		pcall(schedule)
 	end, false, t + O.interval)
 end
@@ -80,5 +145,6 @@ pcall(RegisterEvent, "gfx_ok", function() pcall(schedule) end)
 pcall(RegisterEvent, "show", function() pcall(schedule) end)
 
 pcall(report) -- the first report does not wait a second (the MD cue is instantiated with the save)
+O.loadedAt = now()
 pcall(schedule)
 log("loaded")

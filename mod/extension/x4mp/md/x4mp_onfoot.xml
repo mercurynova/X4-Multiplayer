@@ -23,7 +23,22 @@
   the poll), plus a 1 Hz pull from ui/x4mp_onfoot.lua that produces the first report after a load and the leave state (mode=0) when
   the player steps out. Both only signal one report cue, so the report is written once.
 
-  Safety: this file creates nothing, moves nothing and names no component except the player's own room/container for reading.
+  Remote avatars (W4). The same mdscript also owns the temporary crew NPCs that stand in for the other players:
+
+    native -> Lua  x4mp.onfoot_actors  {"v":1,"spawn":[{pid,name,race,rmacro,ax,ay,az,kind,x,y,z,yaw},...],"despawn":[pid,...]}
+    Lua -> MD      AddUITriggeredEvent("X4MP_OnFoot", "spawn", {pid,name,race,rmacro,ax,ay,az,kind,x,y,z,yaw})
+                   AddUITriggeredEvent("X4MP_OnFoot", "despawn", {pid,...})
+    MD -> Lua      raise_lua_event "x4mp.onfoot_actor" "spawn;<pid>;<actor>" | "gone;<pid>"
+    MD -> native   nothing: the position and the look come from the network every frame, native writes them with
+                   SetPositionalOffset (S10.4: p95 0.163 m at 32 commands/s). This file only creates, places once and
+                   destroys the actor; it never moves it afterwards, so there is no per-frame MD cost.
+
+  Why the actor is a cue actor of cue="namespace" with customhandler: it must not run an NPC brain of its own (it would walk
+  away from the network position) and it must not be written into the save as an NPC. temporary stays false - the actor is
+  removed by X4MP_OnFoot_Despawn or by the janitor, which is also what makes a stale avatar disappear after a reload.
+
+  Safety: the only components this file creates are those crew NPCs (faction.x4mp_team_1, tag.crew, the requested race), the
+  only things it destroys are actors listed in md.$X4MP_OnFoot_Actors, and it never moves the player or any vanilla object.
 -->
 <mdscript name="X4MP_OnFoot" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
@@ -69,6 +84,140 @@
           </do_if>
         </do_elseif>
         <raise_lua_event name="'x4mp.onfoot_room'" param="$Report"/>
+      </actions>
+    </cue>
+
+    <!-- ===================== remote avatars (W4) ===================== -->
+
+    <!-- Create one avatar. event.param3 is the Lua table, read positionally: 1 pid, 2 name, 3 race, 4 room macro,
+         5/6/7 room anchor in decimetres, 8 kind, 9/10/11 container-local position in metres at FOOT height (native already
+         removed the 1.72 m eye offset of GetPositionalOffset), 12 yaw in degrees.
+         The room is looked up by macro id plus anchor because one room macro can appear several times in a container.
+         Native re-asks every 2 s until it gets an answer, so a failure here is retried rather than lost. -->
+    <cue name="X4MP_OnFoot_Spawn" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_OnFoot'" control="'spawn'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Pid" exact="event.param3.{1}"/>
+        <set_value name="$Name" exact="event.param3.{2}"/>
+        <set_value name="$RaceName" exact="event.param3.{3}"/>
+        <set_value name="$RMacro" exact="event.param3.{4}"/>
+        <set_value name="$Ax" exact="event.param3.{5}"/>
+        <set_value name="$Ay" exact="event.param3.{6}"/>
+        <set_value name="$Az" exact="event.param3.{7}"/>
+        <set_value name="$X" exact="event.param3.{9} * 1m"/>
+        <set_value name="$Y" exact="event.param3.{10} * 1m"/>
+        <set_value name="$Z" exact="event.param3.{11} * 1m"/>
+        <set_value name="$Yaw" exact="event.param3.{12} * 1deg"/>
+        <do_if value="not md.$X4MP_OnFoot_Actors?">
+          <set_value name="md.$X4MP_OnFoot_Actors" exact="[]"/>
+        </do_if>
+        <set_value name="$Room" exact="null"/>
+        <set_value name="$Cont" exact="player.container"/>
+        <do_if value="$Cont and $Cont.macro.id">
+          <find_room name="$Rooms" object="$Cont" multiple="true"/>
+          <do_for_each name="$Rm" in="$Rooms">
+            <do_if value="not $Room and @$Rm.macro.id == $RMacro">
+              <set_value name="$Anchor" exact="@$Rm.relativeposition.{$Cont}"/>
+              <do_if value="$Anchor">
+                <set_value name="$Dx" exact="($Anchor.x / 1m) * 10 - $Ax"/>
+                <set_value name="$Dy" exact="($Anchor.y / 1m) * 10 - $Ay"/>
+                <set_value name="$Dz" exact="($Anchor.z / 1m) * 10 - $Az"/>
+                <do_if value="($Dx * $Dx + $Dy * $Dy + $Dz * $Dz) le 25">
+                  <set_value name="$Room" exact="$Rm"/>
+                </do_if>
+              </do_if>
+            </do_if>
+          </do_for_each>
+        </do_if>
+        <!-- A race string cannot be passed to <select>, only a race object can (vanilla always passes one: gmc_madscientist
+             race="$Manager.race"). So the wire's "argon" ... is mapped here; an unknown or empty race falls back to the
+             local player's race. -->
+        <set_value name="$Race" exact="player.entity.race"/>
+        <do_if value="$RaceName == 'argon'">
+          <set_value name="$Race" exact="race.argon"/>
+        </do_if>
+        <do_elseif value="$RaceName == 'boron'">
+          <set_value name="$Race" exact="race.boron"/>
+        </do_elseif>
+        <do_elseif value="$RaceName == 'paranid'">
+          <set_value name="$Race" exact="race.paranid"/>
+        </do_elseif>
+        <do_elseif value="$RaceName == 'split'">
+          <set_value name="$Race" exact="race.split"/>
+        </do_elseif>
+        <do_elseif value="$RaceName == 'teladi'">
+          <set_value name="$Race" exact="race.teladi"/>
+        </do_elseif>
+        <do_elseif value="$RaceName == 'terran'">
+          <set_value name="$Race" exact="race.terran"/>
+        </do_elseif>
+        <do_if value="$Room">
+          <set_faction_active faction="faction.x4mp_team_1" active="true"/>
+          <create_cue_actor name="$A" cue="namespace">
+            <select tags="tag.crew" race="$Race"/>
+            <name name="$Name"/>
+            <owner exact="faction.x4mp_team_1"/>
+          </create_cue_actor>
+          <set_entity_traits entity="$A" customhandler="true" temporary="false"/>
+          <set_entity_overrides entity="$A" title="$Name"/>
+          <set_value name="$A.$x4mp_pid" exact="$Pid"/>
+          <set_value name="$A.$x4mp_name" exact="$Name"/>
+          <add_actor_to_room actor="$A" object="$Room" result="$Moved">
+            <position x="$X" y="$Y" z="$Z"/>
+            <rotation yaw="$Yaw"/>
+          </add_actor_to_room>
+          <do_if value="$Moved">
+            <append_to_list name="md.$X4MP_OnFoot_Actors" exact="$A"/>
+            <raise_lua_event name="'x4mp.onfoot_actor'" param="'spawn;' + $Pid + ';' + $A"/>
+          </do_if>
+          <do_else>
+            <!-- not in the list, so nothing will ever despawn it: destroy it here and let native retry -->
+            <debug_text text="'[X4MP] onfoot spawn: add_actor_to_room failed for ' + $Name" filter="general"/>
+            <destroy_object object="$A"/>
+          </do_else>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP] onfoot spawn: no room ' + $RMacro + ' in the player container for ' + $Name" filter="general"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- Remove the avatars of the players native no longer wants shown: event.param3 is a list of player ids. -->
+    <cue name="X4MP_OnFoot_Despawn" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_OnFoot'" control="'despawn'"/>
+      </conditions>
+      <actions>
+        <do_if value="md.$X4MP_OnFoot_Actors?">
+          <do_for_each name="$Pid" in="event.param3">
+            <do_all exact="md.$X4MP_OnFoot_Actors.count" counter="$i" reverse="true">
+              <do_if value="@md.$X4MP_OnFoot_Actors.{$i}.$x4mp_pid == $Pid">
+                <destroy_object object="md.$X4MP_OnFoot_Actors.{$i}"/>
+                <remove_value name="md.$X4MP_OnFoot_Actors.{$i}"/>
+              </do_if>
+            </do_all>
+            <raise_lua_event name="'x4mp.onfoot_actor'" param="'gone;' + $Pid"/>
+          </do_for_each>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- 5 s after every load, driven by ui/x4mp_onfoot.lua (a <delay>, event_game_loaded and check_interval are all silent
+         no-ops in this mdscript - S10 spike). Removes the avatars a crashed or killed session left in the save. -->
+    <cue name="X4MP_OnFoot_Janitor" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_OnFoot'" control="'janitor'"/>
+      </conditions>
+      <actions>
+        <do_if value="md.$X4MP_OnFoot_Actors?">
+          <do_all exact="md.$X4MP_OnFoot_Actors.count" counter="$i">
+            <destroy_object object="md.$X4MP_OnFoot_Actors.{$i}"/>
+          </do_all>
+        </do_if>
+        <set_value name="md.$X4MP_OnFoot_Actors" exact="[]"/>
+        <debug_text text="'[X4MP] onfoot janitor: avatars cleared'" filter="general"/>
       </actions>
     </cue>
 
