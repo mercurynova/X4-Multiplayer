@@ -340,6 +340,10 @@ areas and single-macro room types such as bars and offices come first, corridors
 interiors last. Tier 2 then reuses everything from Tier 1 and only adds the resolver and the
 fallbacks.
 
+> **Amended 2026-10-24:** Tier 1 was dropped (§3.6), so M3b is Tier 0 plus the actor pipeline and the room resolver, without the lounge.
+> S10.2 then proved that a station's RoomKey set is identical across a save/reload once the anchor is quantised to decimetres, which is
+> what lets Tier 2 start on static interiors instead of waiting for the lounge.
+
 ### 3.1 Data model
 
 **`OnFootState`** (C→S, Realtime lane; the server stamps `player_id` and relays it as is):

@@ -279,6 +279,22 @@ the in-game half of S10.7 (MD's `open_conversation_menu` resolves the name but n
 from Lua with `OpenMenu`; a human must press "Back to conversation"). **Next:** S10.6, then the client waves (capture, room resolver,
 actors, appearance picker) — no lounge.
 
+**Status 2026-10-25 (later): W3, the on-foot feature skeleton, is in — native capture plus the extension's room report.** The native side is
+`mod/native/features/onfoot/`: `onfoot_types` (the `key=value;...` report grammar, `fnv1a32`, `matched_container_id`,
+`station_match_key`), `onfoot_tracker` (10 Hz while moving measured **from the last send** — per-frame deltas made a 2 m/s walk look idle —
+1 Hz idle keepalive, 5 s repeat for `mode=None`, immediate keyframe on a mode/container/room change), `onfoot_hub` (relay frames in,
+`PresenceRoster` out) and `onfoot_feature` (inbox drain, frame fan-out, `send_state`). `join_feature` installs/clears the link with caps
+`(1<<10)|(1<<17)`, ends it on `session_ended()`, and the host registers `OnFootFeature` after ghosts. `0x0302`/`0x0303` are whitelisted on UDP
+both sides. Containers are named by the **client-matched key** of §8.2 of protocol.md (`0x8000_0000 | FNV-1a-32` of the sector/station/50 m
+bucket), which the relay accepts without a mirror entry (`RelayModule.MatchedContainerBit`, test
+`AMatchedContainerIdNeedsNoMirrorEntry`) — M4 swaps in manifest ids with no wire change. The extension half is `md/x4mp_onfoot.xml`
+(reports on `event_object_changed_room` and on a 1 s UI trigger; `mode=0` when the player is in transit or in a ship, `mode=2` when seated
+in one) and `ui/x4mp_onfoot.lua` (`RegisterEvent("x4mp.onfoot_room")` → `B.send("onfoot_room", …)`, self-rescheduling trigger loop with the
+HUD's stale-timer guard); `onfoot_room` was added to `B.VERBS`. The parser makes `cont` optional (native falls back to
+`player_container()`), accepts either a composed station `skey` or the parts `sector`/`smacro`/`sx`/`sy`/`sz` (MD has no `round()`), and
+takes anchors as metres with decimals, clamping instead of failing. Verified: mod build clean, ctest **542/542** (24 `host.onfoot:*`
+cases). **Next:** W4 — spawn/move/remove the remote actors from the relay stream, appearance, the Talk menu.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of

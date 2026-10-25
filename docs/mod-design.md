@@ -893,13 +893,17 @@ This section records what exists in code before the client capture lands; nothin
 - **Relay** (`server/src/X4MP.Core/Relay/RelayModule.OnFoot.cs`): `player_id` stamped, validation (known container in the world mirror, container-local position within
   `OnFootRangeMetres`, defined mode, stale `seq` ignored, token bucket `OnFootRelayHz`/`OnFootBurst`), fan-out to the capable nodes whose own last sample shares the innermost container —
   and to the peers of the previous container, which is how they despawn the actor. A `mode=None` sample, a detach and a leave produce a leave state. The authority is not special.
+  A container id with the top bit set (`RelayModule.MatchedContainerBit`) is a **client-matched key** — FNV-1a-32 of sector macro, station macro and the position rounded to 50 m — and
+  skips the mirror lookup, because station interiors get a manifest net id only in M4 (protocol.md §8.2).
 - **Roster** (`PresenceRoster`, full list, ≤ 1 Hz) and **appearance** (stored per player with a monotonic server `revision`, sent on attach and relayed on change) are in the same partial
   class; **interactions** are forwarded to the target only with their own token bucket. Counters live in `RelayStats` (`OnFootStates*`, `PresenceRostersSent`, `AppearancesRelayed`,
   `Interactions*`).
 - **FakeNode** (`--onfoot <container_net_id>`) stands a fake client in a station room at 10 Hz and walks it in a 5 m circle, so the relay can be verified on one PC before the mod
   captures real state.
-- **Not built yet (client waves):** `OnFootCapture`, the room resolver, the MP lounge, the `ActorRegistry` and the actor spawn/move/despawn pipeline, the Talk menu, the appearance
-  picker and the server-side appearance catalogue. The mod's own-ship tracker already sends one `Hidden` `PlayerState` and then goes quiet while the player stands up.
+- **Not built yet (client waves):** the `ActorRegistry` and the actor spawn/move/despawn pipeline, the Talk menu, the appearance picker and the server-side appearance catalogue.
+  The mod's own-ship tracker already sends one `Hidden` `PlayerState` and then goes quiet while the player stands up. What does exist on the client side is the capture path:
+  `mod/native/features/onfoot/` reads the player container and position, takes the room key from MD (`md/x4mp_onfoot.xml` → `ui/x4mp_onfoot.lua` → `x4mp.onfoot_room`), and
+  `md/x4mp_ghosts.xml`-style bookkeeping will spawn the actors in the next wave.
 
 ---
 

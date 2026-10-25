@@ -509,6 +509,16 @@ manifest. The authority keeps `UniverseID ↔ net_id`. Every node keeps
   join, and the table survives migration. `_ref = 0` means none.
 - **Players and teams.** `ushort player_id` and `team_id` are assigned by the server,
   stable for the session and across resume. Team membership is sticky across sessions.
+- **Matched containers (M3b).** A container that a node matches locally, before the
+  manifest is consulted, is named by a **client-matched key**:
+  `0x8000_0000 | (FNV-1a-32("<sector macro>|<station macro>|<x>,<y>,<z>") & 0x7FFF_FFFF)`,
+  the position being the station origin rounded to a 50 m bucket in sector space (MD has
+  no `round()`, so it sends the raw metres and the mod rounds; 50 m is far above the
+  sub-millimetre drift measured between two runs of the same save, S10.2). The top bit
+  marks the id as client-matched: the server accepts it without a world-mirror lookup
+  and it can never collide with an authority-assigned `net_id`, while two nodes that see
+  the same station compute the same key. M4 replaces these ids with manifest `net_id`s
+  without a wire change.
 
 ### 8.3 Kinds, scope and client representation
 
@@ -830,6 +840,17 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
 - **Capture and rate (client, normative).** 10 Hz while moving (more than 0.05 m or 5° since the last sample), 1 Hz keepalive while idle, and an
   immediate sample on a mode, container or room change. `PlayerState` is suspended while on foot; the last ship sample stands (its `Hidden` flag keeps
   the docked ship invisible). Positions: room-local at 1/1024 m, container-local at 1/64 m.
+- **Room key (client, normative).** MD owns the room, because the SDK has no room
+  accessor: it pushes a flat `mode=..;sector=..;smacro=..;sx=..;sy=..;sz=..;rmacro=..;ax=..;ay=..;az=..;kind=..`
+  string over the Lua→native bridge, on every room change and once per second. The mod
+  turns it into the wire `RoomKey`: `macro_ref` = FNV-1a-32 of the room macro id (never a
+  string-table reference, so two nodes can compare without exchanging a table),
+  `anchor_*` = the room origin in the container in **decimetres** (raw metres are not
+  stable across runs, S10.2; a room farther than ±3.27 km clamps), `path_hash` = the
+  same hash of the macro chain truncated to 16 bits, `kind` = static/dynamic/platform
+  (`dynamicinterior` is per-save state, S10.9) and `roomtype` stays 21, because MD prints
+  a name and the native room enum is not recoverable. `mode` is the only field that is
+  always sent; a missing container means the mod reads `player_container()` itself.
 - **Relay (server).** The server stamps `player_id`, keeps `last_onfoot[player]` and forwards a sample to every node that
   - negotiated `OnFootPresence`, and
   - whose own last state is on foot (`mode != None`) in the **same innermost `container_net_id`**.
@@ -838,7 +859,8 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   the explicit leave state, and a detach or leave produces one on the server's side. The authority is treated like any other node: it receives these
   messages only when its own human shares the container. No world interest and no replication are involved.
 - **Validation.** A defined `mode`; `container_net_id != 0` unless `mode=None`; the container (and `outer_container_net_id` when set) must be a known
-  `net_id` of the world mirror; the container-local position within `OnFootRangeMetres` (2 km, 1/64 m) of the container centre. Then a token bucket
+  `net_id` of the world mirror **or carry the client-matched top bit** (§8.2), in which case no mirror entry is required; the container-local
+  position within `OnFootRangeMetres` (2 km, 1/64 m) of the container centre. Then a token bucket
   (`OnFootRelayHz` 20/s sustained, `OnFootBurst` 40) — dropped samples are not queued (the next one is 100 ms away). Stale `seq` values are ignored.
   Drops are counted (`RelayStats.OnFootStatesDropped/RateLimited/Stale`), never a protocol violation.
 - **Presence roster (server).** `PresenceRoster{full=true, entries}` is rebuilt on any container/mode/roomtype change and sent galaxy-wide to the nodes
