@@ -224,7 +224,7 @@ struct DatagramHeader {
 };
 
 /// Message types that may travel in a datagram (protocol.md 3.3): Ping, Pong, UdpHello, UdpHelloAck,
-/// Replication, WorldUpdate, EntityStatusBatch, PlayerState. Others are dropped and counted.
+/// Replication, WorldUpdate, EntityStatusBatch, PlayerState, OnFootState, PlayerAppearance. Others are dropped and counted.
 [[nodiscard]] constexpr bool is_allowed_on_udp(std::uint16_t type) noexcept {
   switch (type) {
     case 0x0005:  // Ping
@@ -235,6 +235,8 @@ struct DatagramHeader {
     case 0x0202:  // WorldUpdate
     case 0x0203:  // EntityStatusBatch
     case 0x0300:  // PlayerState
+    case 0x0302:  // OnFootState (M3b, up to 10 Hz)
+    case 0x0303:  // PlayerAppearance (M3b, rare but tiny)
       return true;
     default:
       return false;

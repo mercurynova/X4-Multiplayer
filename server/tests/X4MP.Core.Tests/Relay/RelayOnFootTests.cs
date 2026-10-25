@@ -155,6 +155,27 @@ public sealed class RelayOnFootTests
     }
 
     [Fact]
+    public async Task AMatchedContainerIdNeedsNoMirrorEntry()
+    {
+        // M3b: station interiors have no net id before M4, so both nodes derive a "matched" container id from the game state
+        // (top bit set). The server must accept it without a mirror entry, or nobody on a station would ever be relayed.
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        await SpawnStationAsync(rig, authority, Station);
+        var alice = await rig.JoinInGameAsync("Alice", caps: OnFootCap);
+        var bob = await rig.JoinInGameAsync("Bob", caps: OnFootCap);
+
+        const uint matched = RelayModule.MatchedContainerBit | 0x1234_5678u;
+        await rig.SendAsync(bob, MsgType.OnFootState, RelayFrames.OnFoot(1, matched));
+        await rig.SendAsync(alice, MsgType.OnFootState, RelayFrames.OnFoot(1, matched));
+
+        Assert.NotEmpty(States(bob));
+        Assert.Equal(0, rig.Relay.Stats.OnFootStatesDropped);
+        Assert.True(rig.Relay.TryGetOnFoot(alice.PlayerId, out var stored));
+        Assert.Equal(matched, stored!.ContainerNetId);
+    }
+
+    [Fact]
     public async Task APositionOutsideTheValidationRangeIsDropped()
     {
         await using var rig = new RelayRig();

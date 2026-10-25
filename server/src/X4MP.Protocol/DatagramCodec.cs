@@ -37,7 +37,8 @@ public static class DatagramCodec
     /// <summary>Message types that may travel in a datagram (protocol.md 3.3). Others are dropped and counted.</summary>
     public static bool IsAllowedOnUdp(MsgType type) => type is
         MsgType.Ping or MsgType.Pong or MsgType.UdpHello or MsgType.UdpHelloAck or MsgType.Replication
-        or MsgType.WorldUpdate or MsgType.EntityStatusBatch or MsgType.PlayerState;
+        or MsgType.WorldUpdate or MsgType.EntityStatusBatch or MsgType.PlayerState
+        or MsgType.OnFootState or MsgType.PlayerAppearance; // M3b: the on-foot stream is up to 10 Hz and tiny
 
     public static void WriteHeader(Span<byte> destination, in DatagramHeader h)
     {

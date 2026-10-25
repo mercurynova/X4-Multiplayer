@@ -28,6 +28,11 @@ public sealed partial class RelayModule
     /// <summary>Longest appearance string the server keeps (macro and preset ids are far shorter; this stops junk).</summary>
     private const int AppearanceStringLimit = 96;
 
+    /// <summary>Top bit of <c>container_net_id</c>: set means the id is a client-matched key (hash of the sector macro, the station
+    /// macro and the position rounded to 50 m) instead of a server-allocated net id. Both clients derive it from the game state, so it
+    /// needs no manifest entry; the server only checks its shape. See <c>docs/protocol.md</c> 8.2 and <c>docs/mod-design.md</c> 4.12.</summary>
+    public const uint MatchedContainerBit = 0x8000_0000u;
+
     /// <summary>Per-player on-foot relay state: the newest accepted sample and the token bucket.</summary>
     private sealed class OnFootFlow(int playerId)
     {
@@ -141,13 +146,20 @@ public sealed partial class RelayModule
             return false;
         }
 
-        if (_mirror is not null && !_mirror.TryGet(state.ContainerNetId, out _))
+        // M3b: a container id with the top bit set is a CLIENT-MATCHED key (sector macro + station macro + position rounded to
+        // 50 m, hashed) rather than a server-allocated net id. Station interiors have no manifest net id until M4 (ADR-009 gives
+        // them one in the checkpoint manifest), so both nodes derive the same id from the game state and the server only checks
+        // its shape. When M4 lands, the client switches to the manifest id and this branch stops being taken.
+        bool matched = (state.ContainerNetId & MatchedContainerBit) != 0;
+        bool matchedOuter = (state.OuterContainerNetId & MatchedContainerBit) != 0;
+
+        if (!matched && _mirror is not null && !_mirror.TryGet(state.ContainerNetId, out _))
         {
             why = "container-not-in-mirror";
             return false;
         }
 
-        if (state.OuterContainerNetId != 0 && _mirror is not null && !_mirror.TryGet(state.OuterContainerNetId, out _))
+        if (state.OuterContainerNetId != 0 && !matchedOuter && _mirror is not null && !_mirror.TryGet(state.OuterContainerNetId, out _))
         {
             why = "outer-container-not-in-mirror";
             return false;
