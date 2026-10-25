@@ -123,6 +123,8 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   read_string(doc, "log_file", true, cfg.log_file, source, diags);
   if (long long v = 0; read_int(doc, "log_rate_limit", 1, 1000, v, source, diags)) cfg.log_rate_limit = static_cast<int>(v);
   read_string(doc, "player_name", true, cfg.player_name, source, diags);
+  read_string(doc, "avatar_race", true, cfg.avatar_race, source, diags);      // ADR-051 (validated by the appearance feature)
+  read_string(doc, "avatar_preset", true, cfg.avatar_preset, source, diags);
   read_string(doc, "password", true, cfg.password, source, diags);
   if (long long v = 0; read_int(doc, "outbox_byte_cap", 64LL * 1024, 1LL << 30, v, source, diags)) {
     cfg.outbox_byte_cap = static_cast<std::size_t>(v);
@@ -154,7 +156,8 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   warn_unknown(doc,
                {"diag", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "diag.team_self_relation_100", "diag.team_move_respawn", "diag.avatars_inert_once",
                 "diag.dress_no_radar_no_known", "diag.no_set_faction_known", "diag.takeover_mode_reown", "diag.takeover_keep_own_ship", "diag.hints_off", "diag.hints_all_speeds", "diag.engine_guard_off", "server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
-                "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest", "last_address", "last_name"},  // last_*: remembered Join fields (M3-07)
+                "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest", "last_address", "last_name",  // last_*: remembered Join fields (M3-07)
+                "avatar_race", "avatar_preset"},  // ADR-051 appearance
                source, diags);
 }
 
@@ -300,6 +303,8 @@ std::string describe(const Config& c) {
   out += "log_file=" + c.log_file + "\n";
   out += "log_rate_limit=" + std::to_string(c.log_rate_limit) + "\n";
   out += "player_name=" + c.player_name + "\n";
+  out += "avatar_race=" + (c.avatar_race.empty() ? "<default>" : c.avatar_race) + "\n";
+  out += "avatar_preset=" + (c.avatar_preset.empty() ? "<default>" : c.avatar_preset) + "\n";
   out += std::string("password=") + (c.password.empty() ? "<unset>" : "<redacted>") + "\n";
   out += "outbox_byte_cap=" + std::to_string(c.outbox_byte_cap) + "\n";
   out += "frame_budget_us=" + std::to_string(c.frame_budget_us) + "\n";

@@ -140,5 +140,30 @@
     <t id="882">Team 8 of an X4MP multiplayer session. The session names its teams; this is the in-game placeholder.</t>
     <t id="883">MP8</t>
     <t id="884">MP Team 8</t>
+    <!-- M3b appearance (ADR-051): the picker in ui/x4mp_menu.lua. Race and look ids are the wire values, so the labels live here. -->
+    <t id="900">Appearance</t>
+    <t id="901">Race: %s</t>
+    <t id="902">Look: %s</t>
+    <t id="903">Random</t>
+    <t id="904">Default</t>
+    <t id="905">Other players see you as this character while you are on foot. Your own character does not change.</t>
+    <t id="906">Current: the server default, a crew member of the station you are on</t>
+    <t id="907">Current: %s, %s</t>
+    <t id="908">The look is stored in x4mp.json and sent to the server when you join.</t>
+    <t id="909">Waiting for the catalogue from the game...</t>
+    <t id="910">Argon</t>
+    <t id="911">Teladi</t>
+    <t id="912">Paranid</t>
+    <t id="913">Split</t>
+    <t id="914">Boron</t>
+    <t id="921">Male, Caucasian</t>
+    <t id="922">Female, Caucasian</t>
+    <t id="923">Male, African</t>
+    <t id="924">Female, African</t>
+    <t id="925">Male, Asian</t>
+    <t id="926">Female, Asian</t>
+    <t id="927">Male</t>
+    <t id="928">Female</t>
+    <t id="929">Generic</t>
   </page>
 </language>

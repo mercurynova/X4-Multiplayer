@@ -420,13 +420,12 @@ TEST_CASE("onfoot: a presence roster replaces the list and honours the removed i
   CHECK(hub.counters().rosters == 1);
 }
 
-TEST_CASE("onfoot: a broken appearance frame is counted as bad, an interaction frame is only counted") {
+TEST_CASE("onfoot: a body of another type sent as an appearance is not a look, an interaction frame is only counted") {
   OnFootHub hub;
   hub.set_own_player_id(1);
   hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerAppearance), presence_roster(true, {}), 1);
+  CHECK(hub.appearances().empty());  // a roster body is not a look: nothing is stored under any player id
   hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerInteraction), presence_roster(true, {}), 1);
-  CHECK(hub.counters().appearances == 0);  // a roster body is not a look
-  CHECK(hub.counters().bad_frames == 1);
   CHECK(hub.counters().interactions == 1);
   CHECK(hub.remotes().empty());
 }

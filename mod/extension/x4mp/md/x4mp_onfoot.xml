@@ -25,8 +25,8 @@
 
   Remote avatars (W4). The same mdscript also owns the temporary crew NPCs that stand in for the other players:
 
-    native -> Lua  x4mp.onfoot_actors  {"v":1,"spawn":[{pid,name,race,rmacro,ax,ay,az,kind,x,y,z,yaw},...],"despawn":[pid,...]}
-    Lua -> MD      AddUITriggeredEvent("X4MP_OnFoot", "spawn", {pid,name,race,rmacro,ax,ay,az,kind,x,y,z,yaw})
+    native -> Lua  x4mp.onfoot_actors  {"v":1,"spawn":[{pid,name,race,macro,rmacro,ax,ay,az,kind,x,y,z,yaw},...],"despawn":[pid,...]}
+    Lua -> MD      AddUITriggeredEvent("X4MP_OnFoot", "spawn", {pid,name,race,macro,rmacro,ax,ay,az,kind,x,y,z,yaw})
                    AddUITriggeredEvent("X4MP_OnFoot", "despawn", {pid,...})
     MD -> Lua      raise_lua_event "x4mp.onfoot_actor" "spawn;<pid>;<actor>" | "gone;<pid>"
     MD -> native   nothing: the position and the look come from the network every frame, native writes them with
@@ -37,8 +37,9 @@
   away from the network position) and it must not be written into the save as an NPC. temporary stays false - the actor is
   removed by X4MP_OnFoot_Despawn or by the janitor, which is also what makes a stale avatar disappear after a reload.
 
-  Safety: the only components this file creates are those crew NPCs (faction.x4mp_team_1, tag.crew, the requested race), the
-  only things it destroys are actors listed in md.$X4MP_OnFoot_Actors, and it never moves the player or any vanilla object.
+  Safety: the only components this file creates are those crew NPCs (faction.x4mp_team_1, tag.crew, the requested race or the
+  character macro a peer picked); the only things it destroys are actors listed in md.$X4MP_OnFoot_Actors; and it never moves the
+  player or any vanilla object.
 -->
 <mdscript name="X4MP_OnFoot" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
@@ -102,14 +103,15 @@
         <set_value name="$Pid" exact="event.param3.{1}"/>
         <set_value name="$Name" exact="event.param3.{2}"/>
         <set_value name="$RaceName" exact="event.param3.{3}"/>
-        <set_value name="$RMacro" exact="event.param3.{4}"/>
-        <set_value name="$Ax" exact="event.param3.{5}"/>
-        <set_value name="$Ay" exact="event.param3.{6}"/>
-        <set_value name="$Az" exact="event.param3.{7}"/>
-        <set_value name="$X" exact="event.param3.{9} * 1m"/>
-        <set_value name="$Y" exact="event.param3.{10} * 1m"/>
-        <set_value name="$Z" exact="event.param3.{11} * 1m"/>
-        <set_value name="$Yaw" exact="event.param3.{12} * 1deg"/>
+        <set_value name="$Macro" exact="event.param3.{4}"/>
+        <set_value name="$RMacro" exact="event.param3.{5}"/>
+        <set_value name="$Ax" exact="event.param3.{6}"/>
+        <set_value name="$Ay" exact="event.param3.{7}"/>
+        <set_value name="$Az" exact="event.param3.{8}"/>
+        <set_value name="$X" exact="event.param3.{10} * 1m"/>
+        <set_value name="$Y" exact="event.param3.{11} * 1m"/>
+        <set_value name="$Z" exact="event.param3.{12} * 1m"/>
+        <set_value name="$Yaw" exact="event.param3.{13} * 1deg"/>
         <do_if value="not md.$X4MP_OnFoot_Actors?">
           <set_value name="md.$X4MP_OnFoot_Actors" exact="[]"/>
         </do_if>
@@ -155,27 +157,45 @@
         </do_elseif>
         <do_if value="$Room">
           <set_faction_active faction="faction.x4mp_team_1" active="true"/>
-          <create_cue_actor name="$A" cue="namespace">
-            <select tags="tag.crew" race="$Race"/>
-            <name name="$Name"/>
-            <owner exact="faction.x4mp_team_1"/>
-          </create_cue_actor>
-          <set_entity_traits entity="$A" customhandler="true" temporary="false"/>
-          <set_entity_overrides entity="$A" title="$Name"/>
-          <set_value name="$A.$x4mp_pid" exact="$Pid"/>
-          <set_value name="$A.$x4mp_name" exact="$Name"/>
-          <add_actor_to_room actor="$A" object="$Room" result="$Moved">
-            <position x="$X" y="$Y" z="$Z"/>
-            <rotation yaw="$Yaw"/>
-          </add_actor_to_room>
-          <do_if value="$Moved">
-            <append_to_list name="md.$X4MP_OnFoot_Actors" exact="$A"/>
-            <raise_lua_event name="'x4mp.onfoot_actor'" param="'spawn;' + $Pid + ';' + $A"/>
+          <set_value name="$A" exact="null"/>
+          <!-- A chosen look is a character macro: <create_cue_actor macro="..."> is how vanilla spawns a named character
+               (md/scenario_tutorials.xml:18520). Without one, a crew NPC is picked by race (S10.7: <select> honours
+               neither race nor gender, so it is the fallback and not the picker). -->
+          <do_if value="$Macro and $Macro != ''">
+            <create_cue_actor name="$A" cue="namespace" macro="$Macro">
+              <name name="$Name"/>
+              <owner exact="faction.x4mp_team_1"/>
+            </create_cue_actor>
           </do_if>
           <do_else>
-            <!-- not in the list, so nothing will ever despawn it: destroy it here and let native retry -->
-            <debug_text text="'[X4MP] onfoot spawn: add_actor_to_room failed for ' + $Name" filter="general"/>
-            <destroy_object object="$A"/>
+            <create_cue_actor name="$A" cue="namespace">
+              <select tags="tag.crew" race="$Race"/>
+              <name name="$Name"/>
+              <owner exact="faction.x4mp_team_1"/>
+            </create_cue_actor>
+          </do_else>
+          <do_if value="$A">
+            <set_entity_traits entity="$A" customhandler="true" temporary="false"/>
+            <set_entity_overrides entity="$A" title="$Name"/>
+            <set_value name="$A.$x4mp_pid" exact="$Pid"/>
+            <set_value name="$A.$x4mp_name" exact="$Name"/>
+            <add_actor_to_room actor="$A" object="$Room" result="$Moved">
+              <position x="$X" y="$Y" z="$Z"/>
+              <rotation yaw="$Yaw"/>
+            </add_actor_to_room>
+            <do_if value="$Moved">
+              <append_to_list name="md.$X4MP_OnFoot_Actors" exact="$A"/>
+              <raise_lua_event name="'x4mp.onfoot_actor'" param="'spawn;' + $Pid + ';' + $A"/>
+            </do_if>
+            <do_else>
+              <!-- not in the list, so nothing will ever despawn it: destroy it here and let native retry -->
+              <debug_text text="'[X4MP] onfoot spawn: add_actor_to_room failed for ' + $Name" filter="general"/>
+              <destroy_object object="$A"/>
+            </do_else>
+          </do_if>
+          <do_else>
+            <!-- the build does not have the macro the peer picked: nothing to show, native retries in 2 s -->
+            <debug_text text="'[X4MP] onfoot spawn: no character ' + $Macro + ' for the avatar of ' + $Name" filter="general"/>
           </do_else>
         </do_if>
         <do_else>

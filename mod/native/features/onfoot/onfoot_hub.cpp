@@ -66,10 +66,13 @@ void OnFootHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_
       // W4: the look of a remote avatar (race + preset, ADR-051). The revision is server-stamped and monotonic, so a late older frame
       // is dropped instead of overwriting a newer look.
       const auto* msg = flatbuffers::GetRoot<P::PlayerAppearance>(data);
-      if (msg == nullptr || msg->player_id() == self_id) {
+      if (msg == nullptr) {
         ++counters_.bad_frames;
         return;
       }
+      // Our own echo: the relay replays the canonical revision back to the sender (RelayModule.OnFoot.cs "the canonical revision
+      // the server holds for this player"). It is expected, not a bad frame, and this node never renders itself.
+      if (msg->player_id() == self_id) return;
       auto& slot = appearances_[msg->player_id()];
       if (msg->revision() < slot.revision) return;
       slot.revision = msg->revision();

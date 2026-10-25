@@ -20,6 +20,8 @@ namespace x4mp::features::onfoot {
 
 struct OnFootLink {
   std::function<bool(std::uint16_t type, std::span<const std::uint8_t> payload)> send_realtime;
+  // Control lane: PlayerAppearance (0x0303) must go there (MessagePolicy: Control only), while the states ride the Realtime lane.
+  std::function<bool(std::uint16_t type, std::span<const std::uint8_t> payload)> send_control;
   std::function<bool(std::int64_t& server_now_us)> server_now;
 };
 
@@ -40,6 +42,9 @@ class OnFootHub {
   [[nodiscard]] bool linked() const noexcept { return static_cast<bool>(link_.send_realtime); }
   bool send_realtime(std::uint16_t type, std::span<const std::uint8_t> payload) const {
     return link_.send_realtime && link_.send_realtime(type, payload);
+  }
+  bool send_control(std::uint16_t type, std::span<const std::uint8_t> payload) const {
+    return link_.send_control && link_.send_control(type, payload);
   }
   [[nodiscard]] bool server_now(std::int64_t& out) const { return link_.server_now && link_.server_now(out); }
 

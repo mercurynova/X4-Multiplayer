@@ -640,4 +640,11 @@ endif()
 if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_onfoot.cpp)
 endif()
+
+# M3b appearance (ADR-051): features/appearance/*.cpp also comes with the features glob.
+#   x4mp_host_tests += tests/test_appearance.cpp (the curated catalogue, race+preset resolution, Random, the picker's JSON)
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_appearance.cpp)
+  target_link_libraries(x4mp_host_tests PRIVATE nlohmann_json::nlohmann_json)
+endif()
 # END M3b on-foot presence

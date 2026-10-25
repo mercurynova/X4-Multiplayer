@@ -229,6 +229,7 @@ local function buildMain(_, rows)
 	else
 		rows[#rows + 1] = { type = "button", id = "join", text = T(2), active = true, onClick = function() S.go("join") end }
 	end
+	rows[#rows + 1] = { type = "button", id = "appearance", text = T(900), active = true, onClick = function() S.openAppearance() end }
 	-- M2-X3: the session's mod list while connected (x4mp_join_mods.lua loads after this file)
 	if S.connectionActive() and X4MPJoinMods then X4MPJoinMods.policyRows(rows) end
 	if S.connectionActive() and X4MPPlayers then X4MPPlayers.rows(rows) end -- M3-06: the player table
@@ -318,8 +319,103 @@ local function buildStatus(st, rows)
 	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
 end
 
-local builders = { main = buildMain, join = buildJoin, status = buildStatus }
-local titles = { main = 1, join = 2, status = 11 }
+-------------------------------------------------------------------------------
+-- appearance (M3b, ADR-051)
+-------------------------------------------------------------------------------
+-- The picker never invents a look: it cycles the catalogue native sends in x4mp.appearance_state (one query when the screen opens), so
+-- every node agrees on the ids and the macros. Nothing here changes the local character - the look is what the OTHER players see, as a
+-- temporary crew NPC. Race and preset are stored in x4mp.json by native and sent to the server as PlayerAppearance.
+local RACE_TEXT = { argon = 910, teladi = 911, paranid = 912, split = 913, boron = 914 }
+local PRESET_TEXT = { male_cau = 921, female_cau = 922, male_afr = 923, female_afr = 924, male_asi = 925, female_asi = 926,
+	male = 927, female = 928, generic = 929 }
+
+S.appearance = { loaded = false, races = {}, race = "", preset = "", macro = "", female = false }
+
+local function labelOf(id, map)
+	if type(id) ~= "string" or id == "" then return T(904) end
+	local textId = map[id]
+	if textId then return T(textId) end
+	return id
+end
+
+local function raceOf(id)
+	for _, race in ipairs(S.appearance.races) do
+		if race.id == id then return race end
+	end
+	return nil
+end
+
+--- Ask for the catalogue and open the screen. Native answers with x4mp.appearance_state, which re-renders.
+local function openAppearance()
+	B.send("appearance", {})
+	S.go("appearance")
+end
+S.openAppearance = openAppearance
+
+--- Cycle the race, keeping the preset when the next race has the same one (Male stays Male across argon, teladi and split).
+local function cycleRace(dir)
+	local races = S.appearance.races
+	if #races == 0 then return end
+	local index
+	for i = 1, #races do
+		if races[i].id == S.appearance.race then index = i break end
+	end
+	if index then
+		index = ((index - 1 + dir) % #races) + 1
+	else
+		index = dir > 0 and 1 or #races -- from "default", forward starts at the first race
+	end
+	local race = races[index]
+	local preset = race.presets[1] and race.presets[1].id or ""
+	for _, p in ipairs(race.presets) do
+		if p.id == S.appearance.preset then preset = p.id break end
+	end
+	B.send("appearance", { race = race.id, preset = preset })
+end
+
+local function cyclePreset(dir)
+	local race = raceOf(S.appearance.race)
+	if not race or #race.presets == 0 then return end
+	local index
+	for i = 1, #race.presets do
+		if race.presets[i].id == S.appearance.preset then index = i break end
+	end
+	if index then
+		index = ((index - 1 + dir) % #race.presets) + 1
+	else
+		index = dir > 0 and 1 or #race.presets
+	end
+	B.send("appearance", { race = race.id, preset = race.presets[index].id })
+end
+
+local function buildAppearance(_, rows)
+	local a = S.appearance
+	rows[#rows + 1] = text(T(905), "inactive")
+	if not a.loaded then
+		rows[#rows + 1] = text(T(909), "warning")
+	else
+		if a.race == "" then
+			rows[#rows + 1] = text(T(906), "normal")
+		else
+			rows[#rows + 1] = text(T(907, labelOf(a.race, RACE_TEXT), labelOf(a.preset, PRESET_TEXT)), "normal")
+		end
+		local race = raceOf(a.race)
+		local single = race ~= nil and #race.presets <= 1
+		rows[#rows + 1] = { type = "button", id = "appearance_race", text = T(901, labelOf(a.race, RACE_TEXT)), active = true,
+			onClick = function() cycleRace(1) end }
+		rows[#rows + 1] = { type = "button", id = "appearance_look", text = T(902, labelOf(a.preset, PRESET_TEXT)),
+			active = race ~= nil and not single, onClick = function() cyclePreset(1) end }
+		rows[#rows + 1] = { type = "button", id = "appearance_random", text = T(903), active = true,
+			onClick = function() B.send("appearance", { random = true }) end }
+		rows[#rows + 1] = { type = "button", id = "appearance_default", text = T(904), active = a.race ~= "",
+			onClick = function() B.send("appearance", { default = true }) end }
+		rows[#rows + 1] = text(T(908), "inactive")
+	end
+	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
+end
+
+local builders = { main = buildMain, join = buildJoin, status = buildStatus, appearance = buildAppearance }
+local titles = { main = 1, join = 2, status = 11, appearance = 900 }
 
 function S.buildModel()
 	local st = S.initState()
@@ -480,6 +576,23 @@ B.on("notify", function(p)
 	end
 end)
 B.on("open", function(p) S.open(p.screen) end)
+
+-- M3b appearance: native answers a query and every change with the current look and the whole catalogue.
+B.on("appearance_state", function(p)
+	if type(p) ~= "table" then return end
+	local a = S.appearance
+	local catalogue = type(p.catalogue) == "table" and p.catalogue or nil
+	if catalogue and type(catalogue.races) == "table" and #catalogue.races > 0 then a.races = catalogue.races end
+	a.race = type(p.race) == "string" and p.race or ""
+	a.preset = type(p.preset) == "string" and p.preset or ""
+	a.macro = type(p.macro) == "string" and p.macro or ""
+	a.female = p.female == true
+	if not a.loaded then
+		a.loaded = true
+		log("menu: appearance catalogue with " .. tostring(#a.races) .. " races, look '" .. (a.race ~= "" and (a.race .. "/" .. a.preset) or "default") .. "'")
+	end
+	S.render()
+end)
 
 -- chat "/x4mp [screen]": the vanilla chat window calls ExecuteDebugCommand("x4mp", "[screen]")
 local function installChatCommand()

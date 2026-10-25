@@ -544,6 +544,10 @@ void JoinFeature::update_diag(host::HostContext&) {
     link.send_realtime = [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
       return session_ && welcomed() && session_->send(wire::Lane::Realtime, type, payload) == net::SendResult::Ok;
     };
+    // The appearance rides the Control lane (MessagePolicy: PlayerAppearance is Control-only), so it gets its own sender.
+    link.send_control = [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
+      return session_ && welcomed() && session_->send(wire::Lane::Control, type, payload) == net::SendResult::Ok;
+    };
     link.server_now = [this](std::int64_t& out) {
       if (!session_) return false;
       const auto ns = session_->net_status();

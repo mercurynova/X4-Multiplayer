@@ -150,7 +150,11 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
           append_int(name, pid);
         }
         std::string race;
-        if (const auto a = appearances.find(pid); a != appearances.end()) race = a->second.race;
+        std::string macro;
+        if (const auto a = appearances.find(pid); a != appearances.end()) {
+          race = a->second.race;
+          macro = a->second.character_macro;  // ADR-051: a curated macro beats a race-only <select> (S10.7)
+        }
 
         if (!spawns.empty()) spawns.push_back(',');
         spawns += "{\"pid\":";
@@ -159,6 +163,8 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         append_json_string(spawns, name);
         spawns += ",\"race\":";
         append_json_string(spawns, race);
+        spawns += ",\"macro\":";
+        append_json_string(spawns, macro);
         spawns += ",\"rmacro\":";
         append_int(spawns, e.avatar.room.macro_ref);
         spawns += ",\"ax\":";

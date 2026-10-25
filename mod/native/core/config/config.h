@@ -67,6 +67,11 @@ struct Config {
   std::string log_file;                       // empty: the caller picks the default location
   int log_rate_limit = 5;                     // lines per second per call site (1..1000)
   std::string player_name;                    // empty: decided at join time
+  // ADR-051: how OTHER players see this one on foot. Both empty = "default" (the game picks a crew NPC and the server keeps its
+  // own default). Written by the appearance picker through core/config/remembered.h; validated against the curated catalogue,
+  // so an unknown pair is treated as "default" instead of an error (the file may name a look a newer build dropped).
+  std::string avatar_race;                    // "argon", "teladi", ... (features/appearance/appearance_catalogue.h)
+  std::string avatar_preset;                  // "female_cau", ... within the race
   std::string password;                       // SECRET: never logged, see describe()
   std::size_t outbox_byte_cap = 8u * 1024u * 1024u;  // reliable outbox cap in bytes (64 KiB..1 GiB)
   int frame_budget_us = 1500;                 // main-thread budget per frame in microseconds (100..50000), M2-04

@@ -24,6 +24,9 @@
 --                        x4mp_onfoot.lua) the room the player stands in, as MD sees it; native parses it, nothing comes back
 --   x4mp.onfoot_actor   {"v":1,"data":"spawn;<pid>;<actor id>"|"gone;<pid>"}   (M3b W4, x4mp_onfoot.lua) MD created or removed the
 --                        avatar of that player; the actor id is what native drives with SetPositionalOffset
+--   x4mp.appearance     {"v":1} | {"v":1,"race":"argon","preset":"male_cau"} | {"v":1,"random":true} | {"v":1,"default":true}
+--                        (M3b W5, x4mp_menu.lua) query / choose the look the OTHER players see; stored in x4mp.json, sent to the
+--                        server as PlayerAppearance, refused when the pair is not in the curated catalogue
 --
 -- TOPICS (native -> Lua), handled by the bridge and forwarded to B.on(topic, fn) handlers
 --   x4mp.status    {"v":1,"state":"disconnected|connecting|handshaking|checking_save|downloading|loading|matching|save_changed|
@@ -406,6 +409,13 @@ B.on("hint", function(p)
 end)
 B.on("takeover", function(p) B.takeover = p end)
 -- M3-12 end
+
+-- M3b appearance (ADR-051). Native -> Lua only: the picker in x4mp_menu.lua asks with x4mp.appearance and re-renders on this topic.
+--   x4mp.appearance_state {"v":1,"race":"argon","preset":"male_cau","macro":"character_argon_male_cau_civ_01_macro","female":false,
+--                          "catalogue":{"races":[{"id":"argon","presets":[{"id":"male_cau","female":false}, ...]}, ...]}}
+--                          race/preset/macro are "" while the look is the server default; the catalogue is the same on every node.
+B.VERBS.appearance = true
+B.TOPICS[#B.TOPICS + 1] = "appearance_state"
 
 --- Save name sanity: no path parts, no extension, printable.
 function B.validSaveName(name)

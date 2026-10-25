@@ -10,12 +10,13 @@
 -- the leave state after the player steps out. Everything else (remote avatars, rates) is native's business.
 --
 -- The other direction carries the avatars of the other players (W4):
---   native -> Lua   x4mp.onfoot_actors {"v":1,"spawn":[{pid,name,race,rmacro,ax,ay,az,kind,x,y,z,yaw},...],"despawn":[pid,...]}
+--   native -> Lua   x4mp.onfoot_actors {"v":1,"spawn":[{pid,name,race,macro,rmacro,ax,ay,az,kind,x,y,z,yaw},...],"despawn":[pid,...]}
 --   Lua -> MD       one AddUITriggeredEvent("X4MP_OnFoot","spawn",{...}) per entry, one "despawn" trigger per batch
 --   MD -> Lua       x4mp.onfoot_actor "spawn;<pid>;<actor>" | "gone;<pid>"  (forwarded to native as it is)
 -- Native decides who is visible; this file never decides anything, it only moves the batch across, because MD cannot call native and
 -- native cannot call MD. A batch element is positional in MD (a Lua table arrives as an MD list), so the spawn order is fixed:
--- pid, name, race, room macro, anchor x/y/z (decimetres), kind, x/y/z (container metres, foot height), yaw (degrees).
+-- pid, name, race, character macro (empty = let MD pick a crew NPC), room macro, anchor x/y/z (decimetres), kind, x/y/z (container
+-- metres, foot height), yaw (degrees).
 -- The janitor removes the avatars a crashed session left in the save; it runs once per process, 5 s after the game is in.
 
 -- luacheck: globals X4MPBridge X4MPOnFoot DebugError RegisterEvent AddUITriggeredEvent getElapsedTime Helper
@@ -63,7 +64,7 @@ B.on("onfoot_actors", function(p)
 			local a = spawns[i]
 			if type(a) == "table" then
 				local ok = pcall(AddUITriggeredEvent, O.MD_SCREEN, "spawn", {
-					a.pid, a.name or "", a.race or "", a.rmacro, a.ax, a.ay, a.az, a.kind,
+					a.pid, a.name or "", a.race or "", a.macro or "", a.rmacro, a.ax, a.ay, a.az, a.kind,
 					a.x, a.y, a.z, a.yaw,
 				})
 				if ok then O.spawnTriggers = O.spawnTriggers + 1 else log("spawn trigger failed for pid " .. tostring(a.pid)) end
