@@ -303,12 +303,26 @@ script's load hook and always log a line, so "it ran" is provable rather than as
   as `event.param` (`g_deliverplayer_destinationselected` in `conversations.xml:1529-1531`), which is what
   `Helper.closeMenuAndReturn(menu, "x4mp_spike_back")` produces.
 
-### Fix applied (to be verified)
+### Fix applied (programmatic half verified, conversation round trip still needs a human)
 
 MD keeps `<open_conversation_menu>` (it is what puts the conversation into the wait state) and still raises
 `x4mp_spike.of what=next_section;section=x4mp_spike_menu`; the Lua handler for that event now sets `menu.mode = "conv"` and
 calls `pcall(OpenMenu, MENU_NAME, {0, 0}, nil)` itself. Closing then goes through `Helper.closeMenuAndReturn`, so the
 conversation should come back with `event.param = x4mp_spike_back`.
+
+Verified without a conversation on 2026-10-25 by feeding the handler the same reply MD sends
+(`X4MPSpike.onfoot.handleReply("conv;what=next_section;section=x4mp_spike_menu")`, the table is exposed as
+`X4MPSpike.onfoot` with `handleReply`, `menu`, `replyHandlers`):
+
+```
+S10.7 INFO what=OpenMenu_called mode=conv err=
+S10.7 INFO what=menu_onShowMenu mode=conv conversation_active=n/a param=table:_0x02756da29d08
+S10.7 PASS what=menu_displayed mode=conv err=
+```
+and a screenshot shows the window "X4MP spike: MP menu (test)" with the S10.7 line and the **Back to conversation**
+button. `C.IsConversationActive()` is not a callable API (`conversation_active=n/a`), which is harmless: `mode` is already
+`conv` and only decides whether the close returns to the conversation. The menu closes cleanly with `Helper.closeMenu`.
+What is still unverified is the round trip itself - a real conversation, the button, and the conversation coming back.
 
 **Consequence for M3b:** do not open the MP menu from a conversation via MD `open_conversation_menu`; open it from Lua. A menu
 that is not registered as `conversationMenu` also cannot return to the conversation, so both halves are needed.
