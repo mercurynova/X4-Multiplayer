@@ -38,12 +38,15 @@ class OnFootFeature final : public host::IFeature {
   struct Inbox;
   void drain_inbox(host::HostContext& ctx);
   void drain_replies(host::HostContext& ctx);
+  void drain_talk(host::HostContext& ctx);
+  void raise_interactions();
   void install_actor_callbacks(host::HostContext& ctx);
   void send_state(host::HostContext& ctx, const onfoot::OnFootTracker::Step& step, const onfoot::RoomContext& room,
                   float cx, float cy, float cz, float yaw, float pitch);
 
   std::shared_ptr<Inbox> inbox_;
   std::shared_ptr<Inbox> replies_;
+  std::shared_ptr<Inbox> talk_;
   host::IPlatform* platform_ = nullptr;  // for raise_lua to Lua (x4mp.onfoot_actors); owned by the host, lives for the run
   game::GameApi* game_ = nullptr;        // for SetPositionalOffset; same lifetime
   onfoot::OnFootTracker tracker_;
@@ -57,6 +60,9 @@ class OnFootFeature final : public host::IFeature {
   std::uint64_t sent_states_ = 0;
   std::uint64_t sample_failed_ = 0;
   std::uint64_t actor_raise_failed_ = 0;
+  std::uint64_t bad_talk_ = 0;
+  std::uint64_t waves_sent_ = 0;
+  std::uint64_t talk_raise_failed_ = 0;
   std::int64_t last_log_us_ = 0;
 };
 

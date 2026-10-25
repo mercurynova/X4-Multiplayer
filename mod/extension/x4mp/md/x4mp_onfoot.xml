@@ -241,5 +241,55 @@
       </actions>
     </cue>
 
+    <!-- ======================================================= the Talk menu (W5) ======================================================= -->
+    <!--
+      S10.7 proved the shape: a conversation with an actor that carries customhandler="true" starts the vanilla "default" conversation,
+      our cue adds choices, and a pick arrives as event_conversation_next_section with event.param = the section and event.param2 = the
+      choiceparam. The actor is event.object. "Message" is not a wire action - the vanilla chat window cannot be prefilled, so the Lua
+      side prints the /w command; "Wave" goes to native, is relayed to the target only, and every viewer plays it on that actor.
+      The choices only appear on our avatars: the $x4mp_pid variable is what tells them apart from a vanilla NPC.
+    -->
+    <cue name="X4MP_OnFoot_Talk" instantiate="true">
+      <conditions>
+        <event_conversation_started conversation="default"/>
+        <check_value value="event.object.$x4mp_pid"/>
+      </conditions>
+      <actions>
+        <add_player_choice text="{92000,940}" section="x4mp_mp_wave" choiceparam="'wave'" position="top_left"/>
+        <add_player_choice text="{92000,941}" section="x4mp_mp_message" choiceparam="'message'" position="left"/>
+        <add_player_choice_return text="{92000,942}" position="bottom_right"/>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_OnFoot_TalkChoice" instantiate="true">
+      <conditions>
+        <event_conversation_next_section sectionprefix="x4mp_mp_"/>
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4mp.onfoot_talk'"
+                         param="event.param2 + ';' + event.object.$x4mp_pid + ';' + event.object.$x4mp_name"/>
+      </actions>
+    </cue>
+
+    <!-- A wave from another player: play it on that player's actor. set_actor_emotion is the action vanilla uses for the emote
+         vocabulary (npc_state_machines.xml: nod01, gesticulate01, crossarms01, ...); a temporary actor has no state machine of its own,
+         so the emote is a one-shot and the next SetPositionalOffset frame leaves the pose alone. -->
+    <cue name="X4MP_OnFoot_Wave" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_OnFoot'" control="'wave'"/>
+      </conditions>
+      <actions>
+        <do_if value="md.$X4MP_OnFoot_Actors?">
+          <do_for_each name="$Pid" in="event.param3">
+            <do_all exact="md.$X4MP_OnFoot_Actors.count" counter="$i" reverse="true">
+              <do_if value="@md.$X4MP_OnFoot_Actors.{$i}.$x4mp_pid == $Pid">
+                <set_actor_emotion actor="md.$X4MP_OnFoot_Actors.{$i}" emotion="'nod01'"/>
+              </do_if>
+            </do_all>
+          </do_for_each>
+        </do_if>
+      </actions>
+    </cue>
+
   </cues>
 </mdscript>

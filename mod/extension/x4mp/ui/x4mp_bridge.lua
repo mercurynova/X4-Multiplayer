@@ -27,6 +27,8 @@
 --   x4mp.appearance     {"v":1} | {"v":1,"race":"argon","preset":"male_cau"} | {"v":1,"random":true} | {"v":1,"default":true}
 --                        (M3b W5, x4mp_menu.lua) query / choose the look the OTHER players see; stored in x4mp.json, sent to the
 --                        server as PlayerAppearance, refused when the pair is not in the curated catalogue
+--   x4mp.onfoot_talk    {"v":1,"to":<pid>,"kind":"wave"}   (M3b W5, x4mp_onfoot.lua) the Talk choice on an MP avatar; native sends
+--                        PlayerInteraction to the relay, which forwards it to the target only
 --
 -- TOPICS (native -> Lua), handled by the bridge and forwarded to B.on(topic, fn) handlers
 --   x4mp.status    {"v":1,"state":"disconnected|connecting|handshaking|checking_save|downloading|loading|matching|save_changed|
@@ -416,6 +418,12 @@ B.on("takeover", function(p) B.takeover = p end)
 --                          race/preset/macro are "" while the look is the server default; the catalogue is the same on every node.
 B.VERBS.appearance = true
 B.TOPICS[#B.TOPICS + 1] = "appearance_state"
+
+-- M3b Talk menu (W5). MD -> Lua x4mp.onfoot_talk "wave;<pid>;<name>" | "message;<pid>;<name>" (a conversation choice on an MP actor);
+-- Lua -> native x4mp.onfoot_talk {"v":1,"to":<pid>,"kind":"wave"}; native -> Lua x4mp.onfoot_talk_in
+-- {"v":1,"from":<pid>,"name":"Alice","kind":"wave"} when another player waved at us.
+B.VERBS.onfoot_talk = true
+B.TOPICS[#B.TOPICS + 1] = "onfoot_talk_in"
 
 --- Save name sanity: no path parts, no extension, printable.
 function B.validSaveName(name)

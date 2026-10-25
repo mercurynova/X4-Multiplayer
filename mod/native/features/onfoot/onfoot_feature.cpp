@@ -45,7 +45,8 @@ struct OnFootFeature::Inbox {
   }
 };
 
-OnFootFeature::OnFootFeature() : inbox_(std::make_shared<Inbox>()), replies_(std::make_shared<Inbox>()) {}
+OnFootFeature::OnFootFeature()
+    : inbox_(std::make_shared<Inbox>()), replies_(std::make_shared<Inbox>()), talk_(std::make_shared<Inbox>()) {}
 OnFootFeature::~OnFootFeature() = default;
 
 void OnFootFeature::on_init(host::HostContext& ctx) {
@@ -58,6 +59,11 @@ void OnFootFeature::on_init(host::HostContext& ctx) {
   // MD's answers to the actor commands: "spawn;<pid>;<actor id>" | "gone;<pid>".
   const bool ok2 = ctx.platform.subscribe_event("x4mp.onfoot_actor", [replies](std::string_view text) { replies->push(text); });
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: bridge verb x4mp.onfoot_actor {}", ok2 ? "subscribed" : "not available");
+
+  auto talk = talk_;
+  // The Talk choice MD added to the conversation: {"v":1,"to":<pid>,"kind":"wave"}.
+  const bool ok3 = ctx.platform.subscribe_event("x4mp.onfoot_talk", [talk](std::string_view text) { talk->push(text); });
+  X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: bridge verb x4mp.onfoot_talk {}", ok3 ? "subscribed" : "not available");
   install_actor_callbacks(ctx);
 }
 
@@ -184,10 +190,54 @@ void OnFootFeature::send_state(host::HostContext& /*ctx*/, const onfoot::OnFootT
   }
 }
 
+void OnFootFeature::drain_talk(host::HostContext& ctx) {
+  auto& hub = onfoot::onfoot_hub();
+  for (const auto& raw : talk_->take()) {
+    // {"v":1,"to":<pid>,"kind":"wave"} — the Talk choice MD added to the conversation, forwarded by ui/x4mp_onfoot.lua.
+    std::uint16_t to = 0;
+    std::string kind;
+    try {
+      const auto j = nlohmann::json::parse(raw);
+      to = static_cast<std::uint16_t>(j.value("to", 0));
+      kind = j.value("kind", std::string{});
+    } catch (const std::exception&) {
+      ++bad_talk_;
+      continue;
+    }
+    if (kind != "wave") {
+      ++bad_talk_;
+      X4MP_CLOG(ctx.log, Cat::Md, Level::Warn, "onfoot: unknown interaction '{}', ignored", kind);
+      continue;
+    }
+    // Control lane, like the appearance: the relay forwards it to the target only.
+    if (hub.send_interaction(to, static_cast<std::uint8_t>(P::InteractionKind::Wave))) {
+      ++waves_sent_;
+    } else {
+      ++send_failed_;
+    }
+  }
+}
+
+void OnFootFeature::raise_interactions() {
+  if (platform_ == nullptr) return;
+  for (const auto& it : onfoot::onfoot_hub().take_interactions()) {
+    // A wave to this player: Lua plays it on that player's actor and says who it came from.
+    nlohmann::json j;
+    j["v"] = 1;
+    j["from"] = it.from;
+    j["kind"] = it.kind == static_cast<std::uint8_t>(P::InteractionKind::Wave) ? "wave" : "other";
+    const auto* row = chat::chat_hub().roster().find(it.from);
+    j["name"] = row != nullptr ? row->name : std::string();
+    if (!platform_->raise_lua("x4mp.onfoot_talk_in", j.dump())) ++talk_raise_failed_;
+  }
+}
+
 void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
   auto& hub = onfoot::onfoot_hub();
   drain_inbox(ctx);
   drain_replies(ctx);
+  drain_talk(ctx);
+  raise_interactions();
 
   if (!info.universe_ready || !ctx.gates.universe_ready) return;
 

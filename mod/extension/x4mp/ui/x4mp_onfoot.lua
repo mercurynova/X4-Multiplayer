@@ -91,6 +91,51 @@ RegisterEvent("x4mp.onfoot_actor", function(_, param)
 	end
 end)
 
+-- ---- the Talk menu (W5) ----------------------------------------------------------------------------------------------------------
+-- MD adds two choices to the conversation with an MP actor and forwards the pick:
+--   MD -> Lua      x4mp.onfoot_talk "wave;<pid>"
+--   Lua -> native  x4mp.onfoot_talk {"v":1,"to":<pid>,"kind":"wave"}   (native sends PlayerInteraction on the Control lane)
+--   native -> Lua  x4mp.onfoot_talk_in {"v":1,"from":<pid>,"name":"Alice","kind":"wave"}
+--   Lua -> MD      AddUITriggeredEvent("X4MP_OnFoot","wave",{pid})      (MD plays the emote on that player's actor)
+-- "Message" is not a wire action: it prints the whisper command in the chat, because the vanilla chat window cannot be prefilled.
+local function chatLine(text)
+	local chat = rawget(_G, "X4MPChat")
+	if type(chat) == "table" and type(chat.systemLine) == "function" then pcall(chat.systemLine, text) end
+end
+
+RegisterEvent("x4mp.onfoot_talk", function(_, param)
+	if type(param) ~= "string" or param == "" then return end
+	local kind, pidText, name = param:match("^(%a+);(%d+);?(.*)$")
+	if not kind then return end
+	local pid = tonumber(pidText)
+	if not pid then return end
+	if name == "" then name = "player " .. tostring(pid) end
+	if kind == "message" then
+		chatLine("To whisper " .. name .. " type /w " .. name .. " your message")
+		return
+	end
+	if kind ~= "wave" then return end
+	if not B.getApi() then
+		O.skipped = O.skipped + 1
+		return
+	end
+	if B.send("onfoot_talk", { v = 1, to = pid, kind = "wave" }) then
+		O.waves = (O.waves or 0) + 1
+		chatLine("You wave at " .. name)
+	end
+end)
+
+B.on("onfoot_talk_in", function(p)
+	if type(p) ~= "table" or p.kind ~= "wave" then return end
+	local pid = tonumber(p.from)
+	if not pid then return end
+	if type(AddUITriggeredEvent) == "function" then
+		if pcall(AddUITriggeredEvent, O.MD_SCREEN, "wave", { pid }) then O.waveTriggers = (O.waveTriggers or 0) + 1 end
+	end
+	local name = (type(p.name) == "string" and p.name ~= "") and p.name or ("player " .. tostring(pid))
+	chatLine(name .. " waves at you")
+end)
+
 -- ---- the 1 Hz pull ---------------------------------------------------------------------------------------------------------------
 local function report()
 	if type(AddUITriggeredEvent) ~= "function" then return end

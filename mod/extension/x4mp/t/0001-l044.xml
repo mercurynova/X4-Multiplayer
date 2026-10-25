@@ -165,5 +165,8 @@
     <t id="927">Male</t>
     <t id="928">Female</t>
     <t id="929">Generic</t>
+    <t id="940">Wave</t>
+    <t id="941">Message</t>
+    <t id="942">Goodbye</t>
   </page>
 </language>

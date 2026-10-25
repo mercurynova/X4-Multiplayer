@@ -425,9 +425,54 @@ TEST_CASE("onfoot: a body of another type sent as an appearance is not a look, a
   hub.set_own_player_id(1);
   hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerAppearance), presence_roster(true, {}), 1);
   CHECK(hub.appearances().empty());  // a roster body is not a look: nothing is stored under any player id
-  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerInteraction), presence_roster(true, {}), 1);
-  CHECK(hub.counters().interactions == 1);
+  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerInteraction), {}, 1);
+  CHECK(hub.counters().bad_frames == 1);  // an interaction needs a body; an empty one is not a wave
+  CHECK(hub.take_interactions().empty());
   CHECK(hub.remotes().empty());
+}
+
+TEST_CASE("onfoot: a wave goes out on the control lane and comes back as an interaction") {
+  OnFootHub hub;
+  hub.set_own_player_id(1);
+
+  std::vector<std::uint8_t> wire;
+  std::uint16_t lane_type = 0;
+  OnFootLink link;
+  link.send_control = [&wire, &lane_type](std::uint16_t type, std::span<const std::uint8_t> payload) {
+    lane_type = type;
+    wire.assign(payload.begin(), payload.end());
+    return true;
+  };
+  hub.set_link(std::move(link));
+
+  REQUIRE(hub.send_interaction(7, static_cast<std::uint8_t>(P::InteractionKind::Wave)));
+  CHECK(lane_type == static_cast<std::uint16_t>(P::MsgType::PlayerInteraction));  // Control, not Realtime
+  const auto* out = flatbuffers::GetRoot<P::PlayerInteraction>(wire.data());
+  REQUIRE(out != nullptr);
+  CHECK(out->from_player() == 0);  // the relay stamps the sender
+  CHECK(out->to_player() == 7);
+  CHECK(out->kind() == P::InteractionKind::Wave);
+  CHECK(hub.counters().interactions == 0);  // sending is not receiving
+
+  flatbuffers::FlatBufferBuilder fbb;
+  const auto msg = P::CreatePlayerInteraction(fbb, 7, 1, P::InteractionKind::Wave, 0, 0);
+  fbb.Finish(msg);
+  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerInteraction), {fbb.GetBufferPointer(), fbb.GetSize()}, 1);
+  const auto got = hub.take_interactions();
+  REQUIRE(got.size() == 1);
+  CHECK(got[0].from == 7);
+  CHECK(got[0].kind == 0);
+  CHECK(hub.take_interactions().empty());  // drained, so a second frame does not replay it
+
+  flatbuffers::FlatBufferBuilder own;
+  const auto self = P::CreatePlayerInteraction(own, 1, 1, P::InteractionKind::Wave, 0, 0);
+  own.Finish(self);
+  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::PlayerInteraction), {own.GetBufferPointer(), own.GetSize()}, 1);
+  CHECK(hub.take_interactions().empty());  // the relay never sends a wave from this very player
+
+  hub.clear_link();
+  CHECK_FALSE(hub.send_interaction(7, 0));
+  CHECK_FALSE(hub.send_interaction(0, 0));
 }
 
 TEST_CASE("onfoot: an empty frame is counted as bad, not trusted") {

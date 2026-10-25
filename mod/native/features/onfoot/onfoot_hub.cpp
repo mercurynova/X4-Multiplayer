@@ -117,12 +117,40 @@ void OnFootHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_
       break;
     }
     case P::MsgType::PlayerInteraction: {
-      ++counters_.interactions;  // W4: wave / emote / poke towards this player
+      const auto* msg = flatbuffers::GetRoot<P::PlayerInteraction>(data);
+      if (msg == nullptr) {
+        ++counters_.bad_frames;
+        break;
+      }
+      ++counters_.interactions;
+      // The relay stamps from_player; a frame that claims to be from this very player is a bug, not a wave from myself.
+      if (msg->from_player() != 0 && msg->from_player() != self_id) {
+        Interaction it;
+        it.from = msg->from_player();
+        it.kind = static_cast<std::uint8_t>(msg->kind());
+        it.emote = msg->emote_id();
+        it.arg = msg->arg();
+        interactions_.push_back(it);
+      }
       break;
     }
     default:
       break;
   }
+}
+
+std::vector<Interaction> OnFootHub::take_interactions() {
+  auto out = std::move(interactions_);
+  interactions_.clear();
+  return out;
+}
+
+bool OnFootHub::send_interaction(std::uint16_t to, std::uint8_t kind, std::uint8_t emote, std::uint32_t arg) const {
+  if (to == 0 || !link_.send_control) return false;
+  flatbuffers::FlatBufferBuilder fbb{64};
+  const auto msg = P::CreatePlayerInteraction(fbb, 0, to, static_cast<P::InteractionKind>(kind), emote, arg);
+  fbb.Finish(msg);
+  return send_control(static_cast<std::uint16_t>(P::MsgType::PlayerInteraction), {fbb.GetBufferPointer(), fbb.GetSize()});
 }
 
 void OnFootHub::session_ended() {

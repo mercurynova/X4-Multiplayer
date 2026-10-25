@@ -34,6 +34,15 @@ struct PresenceRow {
   std::string room_name;
 };
 
+// One PlayerInteraction (0x0305, Control lane) that another player sent to this one. The server stamps from_player, so the hub only
+// keeps what the receiver needs: who waved, and what kind. W5 ships Wave; the other kinds are on the wire for M5b.
+struct Interaction {
+  std::uint16_t from = 0;
+  std::uint8_t kind = 0;   // P::InteractionKind: 0 wave, 1 emote, 2 poke, 3 invite team, 4 open trade
+  std::uint8_t emote = 0;  // valid with kind 1
+  std::uint32_t arg = 0;   // kind-specific
+};
+
 class OnFootHub {
  public:
   // --- link (installed by the join feature) ---
@@ -67,6 +76,12 @@ class OnFootHub {
   }
   void forget(std::uint16_t player_id) { remotes_.erase(player_id); }
 
+  // --- interactions (W5: a wave; the other kinds are M5b) ---
+  // Everything received since the last call. The feature raises one Lua event per frame, so a burst cannot flood the UI.
+  std::vector<Interaction> take_interactions();
+  // A wave or emote to another player. Control lane: PlayerInteraction is not a realtime message (MessagePolicy).
+  bool send_interaction(std::uint16_t to, std::uint8_t kind, std::uint8_t emote = 0, std::uint32_t arg = 0) const;
+
   void session_ended();
 
   struct Counters {
@@ -90,6 +105,7 @@ class OnFootHub {
   std::map<std::uint16_t, Appearance> appearances_;
   std::vector<PresenceRow> roster_;
   bool roster_full_ = false;
+  std::vector<Interaction> interactions_;
   Counters counters_;
 };
 
