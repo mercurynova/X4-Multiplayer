@@ -295,6 +295,22 @@ HUD's stale-timer guard); `onfoot_room` was added to `B.VERBS`. The parser makes
 takes anchors as metres with decimals, clamping instead of failing. Verified: mod build clean, ctest **542/542** (24 `host.onfoot:*`
 cases). **Next:** W4 — spawn/move/remove the remote actors from the relay stream, appearance, the Talk menu.
 
+**Status 2026-10-25 (evening): W4, the remote avatars, is in — a player you share a room with is now a temporary NPC actor.** The hub
+parses the rest of `OnFootState` (the `RoomKey`, room-local `px/py/pz`, and `PlayerAppearance` per player, newest revision wins) and
+`onfoot_types` gained `RoomRef` plus `same_room()` — container **and** macro **and** anchor must match, because one station macro can
+appear several times. `onfoot_actors` (`ActorRegistry`) is pure logic with injected callbacks: it keeps one entry per remote player,
+feeds a `ghost::Interpolator` (the ship interpolator, unchanged) from the samples, and decides visibility by four rules — on foot
+(Walking/InTransit), same container, same room, newest sample at most 5 s old. On a change it raises one batch
+`{"v":1,"spawn":[...],"despawn":[...]}` over `x4mp.onfoot_actors`; MD creates the actor (`create_cue_actor` + `<select tags="tag.crew">`,
+owned by `faction.x4mp_team_1`, `customhandler="true"`, `temporary="false"`), finds the room by macro + 0.5 m anchor, places it, and
+answers `spawn;<pid>;<actor>`; a failed placement is destroyed and retried every 2 s. `SetPositionalOffset` is bound (radians, no degree
+conversion, `kGameFnCount` 30) and the pose is written **every frame** in container space (room-local + `anchor/10`) at foot height
+(`y − 1.72 m`): pathfinding is not involved at all, as S10.4 measured p95 0.163 m. v1 shows the idle pose, because MD has no locomotion
+action. `md/x4mp_onfoot.xml` gained the `Spawn`/`Despawn`/`Janitor` cues, `ui/x4mp_onfoot.lua` the `onfoot_actors`/`onfoot_actor` bridge
+plus a janitor trigger 5 s after load (`<delay>`/`event_game_loaded` are silent in this mdscript), and `onfoot_actor` was added to
+`B.VERBS`. A remote player is dropped when it leaves the room, the container, stands up, or stops sending. Verified: mod build clean,
+ctest **554/554** (36 `host.onfoot:*` cases). **Next:** the in-game two-client check, then appearance (ADR-051) and the Talk menu.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of

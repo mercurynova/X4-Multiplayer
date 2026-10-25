@@ -885,7 +885,7 @@ universe keeps running unsynced next to the shared player ships.
 ### 4.12 On-foot presence: the server side as built (M3b)
 
 The design is [research/on-foot-presence.md](research/on-foot-presence.md), the wire rules are protocol.md §13.2 and the decisions are ADR-046 / ADR-051.
-This section records what exists in code before the client capture lands; nothing here renders an actor yet.
+This section records what exists in code; the server half came first, the client half follows below.
 
 - **Schema** (`protocol/schema/world.fbs`): `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRoster` 0x0304, `PlayerInteraction` 0x0305 (Control), the `RoomKey` struct
   and the `OnFootMode`/`OnFootAnim`/`RoomKind`/`InteractionKind` enums; capability `OnFootPresence` (1<<17, **not** bit 9 as the research note first proposed — bit 9 is `InGameAdmin`).
@@ -900,10 +900,18 @@ This section records what exists in code before the client capture lands; nothin
   `Interactions*`).
 - **FakeNode** (`--onfoot <container_net_id>`) stands a fake client in a station room at 10 Hz and walks it in a 5 m circle, so the relay can be verified on one PC before the mod
   captures real state.
-- **Not built yet (client waves):** the `ActorRegistry` and the actor spawn/move/despawn pipeline, the Talk menu, the appearance picker and the server-side appearance catalogue.
-  The mod's own-ship tracker already sends one `Hidden` `PlayerState` and then goes quiet while the player stands up. What does exist on the client side is the capture path:
-  `mod/native/features/onfoot/` reads the player container and position, takes the room key from MD (`md/x4mp_onfoot.xml` → `ui/x4mp_onfoot.lua` → `x4mp.onfoot_room`), and
-  `md/x4mp_ghosts.xml`-style bookkeeping will spawn the actors in the next wave.
+- **Not built yet (client waves):** the Talk menu, the appearance picker and the server-side appearance catalogue. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
+  and then goes quiet while the player stands up.
+- **Capture (client, in).** `mod/native/features/onfoot/`: `onfoot_types` (report grammar, `fnv1a32`, `matched_container_id`, `RoomRef`, `same_room`), `onfoot_tracker` (10 Hz moving /
+  1 Hz idle, measured from the last send), `onfoot_hub` (relay frames in, `PresenceRoster` out, the room key and `PlayerAppearance` parsed) and `onfoot_feature` (inbox drain, frame
+  fan-out, `send_state`). The room key comes from MD (`md/x4mp_onfoot.xml` → `ui/x4mp_onfoot.lua` → `x4mp.onfoot_room`), because the SDK has no room accessor.
+- **Avatars (client, in).** `onfoot_actors` (`ActorRegistry`, pure logic, callbacks injected) turns the relay stream into temporary NPC actors: one entry per remote player, a
+  `ghost::Interpolator` per entry, and four visibility rules — on foot, same container, same room (macro **and** anchor), newest sample ≤ 5 s old. It raises one
+  `{"v":1,"spawn":[…],"despawn":[…]}` batch over `x4mp.onfoot_actors`; `md/x4mp_onfoot.xml` creates the actor (`create_cue_actor` + `<select tags="tag.crew">`, owned by
+  `faction.x4mp_team_1`, `customhandler="true"` so the NPC AI stays out of it), places it in the matched room and answers `spawn;<pid>;<actor>`; an unanswered spawn is retried
+  every 2 s, a failed placement is destroyed. Motion is `SetPositionalOffset` every frame in container space (room-local + `anchor/10`) at foot height (`y − 1.72 m`), yaw in
+  radians; no pathfinding, no slots, no lounge. v1 shows the idle pose because MD has no locomotion action (S10.4). `Despawn`/`Janitor` cues and a janitor trigger 5 s after a
+  load clean up; `onfoot_actor` is in `B.VERBS`.
 
 ---
 

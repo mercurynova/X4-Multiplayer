@@ -442,7 +442,9 @@ The mod's native side owns the state. MD does the actor work through one batched
      start one walk to a far slot to enter the walking state, then override the position
      every frame and see whether the walk animation survives. If it does not, the answer
      is native animation control in the X4Native extension, and v1 ships with the idle
-     pose.
+     pose. **Answered by S10.4 mode D (negative):** the actor keeps the idle pose after
+     the override, so v1 ships with the idle pose and the answer for a later wave is
+     native animation control in the X4Native extension.
    - Re-place with `add_actor_to_room` (snap) only on a room change, a container change or
      a jump over 3 m.
 3. **Despawn** on any of:

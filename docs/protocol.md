@@ -858,6 +858,21 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   The peers of the *previous* container also get the sample, which is how they learn about the move and despawn the actor; a `mode=None` sample is
   the explicit leave state, and a detach or leave produces one on the server's side. The authority is treated like any other node: it receives these
   messages only when its own human shares the container. No world interest and no replication are involved.
+- **Avatars (client, normative).** A node shows a remote player as a temporary NPC actor when that player is on foot
+  (`mode` Walking or InTransit), shares the viewer's innermost container, has a known room key, and its newest sample is at most
+  5 s old — all four, or the actor is removed. There is no lounge and no opt-in: the rule is "wherever both are loaded", the
+  same as an NPC.
+  - The actor is created by MD (`create_cue_actor` with `<select tags="tag.crew">`, owned by `faction.x4mp_team_1`,
+    `customhandler="true"`, `temporary="false"`), placed in the room matched by `macro_ref` plus an anchor within 0.5 m, and
+    announced back to native as `spawn;<pid>;<actor id>`. A failed placement is destroyed, not tracked, and retried after 2 s.
+  - Motion is **not** pathfinding: the viewer interpolates `px/py/pz` and writes the pose every frame with
+    `SetPositionalOffset` in **container** space (room-local + `anchor_/10`), at foot height (`y − 1.72 m`, because the
+    sender's sample is eye height) and with the sender's yaw in radians. A per-frame write measured p95 0.163 m of error
+    against the sender (S10.4). A sample flagged Teleport snaps instead of blending.
+  - v1 shows the idle pose: MD has no locomotion action, so a teleported actor cannot be made to walk. The animation field is
+    on the wire for a later wave.
+  - Removal is explicit (`mode=None`, a room or container change, seating) or by staleness; a leave or session end clears
+    every avatar through one `despawn` batch, and a janitor cue destroys any survivor 5 s after a load.
 - **Validation.** A defined `mode`; `container_net_id != 0` unless `mode=None`; the container (and `outer_container_net_id` when set) must be a known
   `net_id` of the world mirror **or carry the client-matched top bit** (§8.2), in which case no mirror entry is required; the container-local
   position within `OnFootRangeMetres` (2 km, 1/64 m) of the container centre. Then a token bucket
