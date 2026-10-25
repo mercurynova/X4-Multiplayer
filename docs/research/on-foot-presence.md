@@ -465,6 +465,13 @@ The mod's native side owns the state. MD does the actor work through one batched
   "Go to" / follow via transporter, seated pilot-chair representation on shared capital ships,
   and `set_actor_lookat` toward the local player while talking.
 
+> **Amended 2026-10-25 (as built).** The v1 row shipped with one deviation: "Message" does not
+> open a prefilled whisper, because the vanilla chat window cannot be filled from a script. The
+> choice prints the hint `/w <name>` and leaves the typing to the player. Wave is
+> `PlayerInteraction{kind = Wave}` on the Control lane, and every viewer of the room plays
+> `set_actor_emotion nod01` on the avatar — there is no body sequence for a wave, and
+> `set_actor_emotion` is the only gesture action MD has.
+
 ### 3.5 Fallbacks (in order)
 
 | Id | Trigger | Behaviour |

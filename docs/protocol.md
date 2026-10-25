@@ -892,6 +892,12 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   "no character" and native retries every 2 s, and nothing else happens.
 - **Interactions.** `PlayerInteraction{to_player, kind, emote_id, arg}` is forwarded to the target only, with `from_player` stamped and a token bucket
   (`InteractionPerSecond` 4/s, `InteractionBurst` 8). Credits and team invites stay on the economy and team messages.
+  The client half is the Talk menu: the vanilla conversation of an avatar carries the choices from `md/x4mp_onfoot.xml` (`x4mp_mp_wave`,
+  `x4mp_mp_message`), and a pick is raised to native as `wave;<player id>;<name>` over the bridge. Wave sends one
+  `PlayerInteraction{to_player, kind = Wave}` on the **Control lane**; the receiving node turns it into `set_actor_emotion nod01` on that
+  avatar, so every viewer of the room sees the gesture, and both ends print a chat line. Message is a local hint only — the vanilla chat
+  window cannot be prefilled, so it tells the player to use `/w <name>`. No interaction is sent for an avatar that is not in the room:
+  the choice cue is gated on the actor's `$x4mp_pid`.
 - **Cost.** About 40 B per sample: ≤ 0.4 kB/s per walking player to each peer in the container, plus a roster frame of a few hundred bytes per second per
   node.
 

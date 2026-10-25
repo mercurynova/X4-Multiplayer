@@ -328,6 +328,21 @@ peer's `macro` and only falls back to `<select tags="tag.crew">`. The hub ignore
 Verified: mod build clean, ctest **560/560** (42 `host.onfoot:*` and `host.appearance:*` cases). **Next:** the Talk menu
 (`PlayerInteraction`), then the in-game two-client check.
 
+**Status 2026-10-25 (late): W5b, the Talk menu on a remote avatar.** The spike had already shown that a conversation with a
+`customhandler="true"` actor starts the vanilla `default` conversation and that a picked choice arrives as
+`event_conversation_next_section` with `event.param2` as the choice parameter, so the menu is MD, not a custom window.
+`md/x4mp_onfoot.xml` adds `X4MP_OnFoot_Talk`, which offers **Wave** and **Message** on any avatar that carries `$x4mp_pid` (a
+`check_value` gate, so the player's own NPCs and vanilla crew keep the stock conversation), plus Goodbye; the pick cue raises
+`x4mp.onfoot_talk` as `wave;<player id>;<name>` and the UI script turns it into `onfoot_talk` on the bridge. Native
+`OnFootHub::send_interaction` puts `PlayerInteraction{to_player, kind = Wave}` on the **Control** lane, the relay forwards it to
+the target only, and the receiver raises `x4mp.onfoot_talk_in`, which fires the MD cue `X4MP_OnFoot_Wave`: every node in the room
+plays `set_actor_emotion nod01` on that avatar, so the gesture is visible to everyone, not only to the two players. Both ends print
+a chat line. Message is a local hint — the vanilla chat window cannot be prefilled, so it tells the player to use `/w <name>`.
+Emotes use the vanilla `set_actor_emotion` vocabulary (`nod01`, `gesticulate01`, `crossarms01`, ...); there is no `wave`
+sequence to play. Text ids 940-942 in English and Russian.
+Verified: mod build clean, ctest **561/561** (37 `host.onfoot:*` cases, 244 assertions on that filter). **Next:** the in-game
+two-client check (S10.6, the S10.7 conversation round trip), which needs a human at both clients.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of

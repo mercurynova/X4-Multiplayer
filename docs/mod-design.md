@@ -900,7 +900,7 @@ This section records what exists in code; the server half came first, the client
   `Interactions*`).
 - **FakeNode** (`--onfoot <container_net_id>`) stands a fake client in a station room at 10 Hz and walks it in a 5 m circle, so the relay can be verified on one PC before the mod
   captures real state.
-- **Not built yet (client waves):** the Talk menu and the server-side appearance catalogue check. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
+- **Not built yet (client waves):** the server-side appearance catalogue check. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
   and then goes quiet while the player stands up.
 - **Capture (client, in).** `mod/native/features/onfoot/`: `onfoot_types` (report grammar, `fnv1a32`, `matched_container_id`, `RoomRef`, `same_room`), `onfoot_tracker` (10 Hz moving /
   1 Hz idle, measured from the last send), `onfoot_hub` (relay frames in, `PresenceRoster` out, the room key and `PlayerAppearance` parsed) and `onfoot_feature` (inbox drain, frame
@@ -920,6 +920,12 @@ This section records what exists in code; the server half came first, the client
   and sends `PlayerAppearance` on the **Control** lane — once when the on-foot link comes up and again on every change (`OnFootLink::send_control`). The catalogue and
   the current look go back to Lua as `x4mp.appearance_state`; the in-game menu has an Appearance screen (cycle race, cycle look, Random, Default; text ids 900-929 in
   English and Russian), and the spawn cue prefers the peer's `macro` over `<select>`, so the remote avatar is the look its player picked.
+- **Interaction (client, in).** The Talk menu is the vanilla conversation of the avatar, extended by MD: `X4MP_OnFoot_Talk` answers `event_conversation_started`
+  for any object that carries `$x4mp_pid` and adds **Wave** and **Message** next to Goodbye, so the player's own NPCs and vanilla crew keep the stock dialogue. A pick
+  arrives as `event_conversation_next_section` with `sectionprefix="x4mp_mp_"` and is raised to Lua as `wave;<pid>;<name>`; `x4mp_onfoot.lua` forwards it on the bridge as
+  `onfoot_talk`. `OnFootHub::send_interaction` puts `PlayerInteraction{to_player, kind = Wave}` on the **Control** lane (the relay forwards to the target only, 4/s token
+  bucket), the receiver raises `x4mp.onfoot_talk_in` and the MD cue `X4MP_OnFoot_Wave` plays `set_actor_emotion nod01` on that avatar — so every node in the room sees the
+  gesture. Message only prints a hint (`/w <name>`): the vanilla chat window cannot be prefilled.
 
 ---
 
