@@ -866,7 +866,9 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
     owned by `faction.x4mp_team_1`, `customhandler="true"`, `temporary="false"`), placed in the room matched by the room
     macro **id string** plus an anchor within 0.5 m, and announced back to native as `spawn;<pid>;<actor id>`. The id
     string, not `macro_ref`, is what the spawn command carries: MD cannot hash, and it looks the room up with `find_room`
-    and compares `$Rm.macro.id`. A failed placement is destroyed, not tracked, and retried after 2 s.
+    and compares `$Rm.macro.id`. A failed placement is destroyed, not tracked, and retried after 2 s. The reply is a
+    client-local string, not a wire field: MD prints a component as hex (`spawn;7;0x18ead5`), so the client parses the
+    actor id in base 16 when it carries a `0x` prefix and in base 10 otherwise.
   - Motion is **not** pathfinding: the viewer interpolates `px/py/pz` and writes the pose every frame with
     `SetPositionalOffset` in **container** space (room-local + `anchor_/10`), at foot height (`y − 1.72 m`, because the
     sender's sample is eye height) and with the sender's yaw in radians. A per-frame write measured p95 0.163 m of error
