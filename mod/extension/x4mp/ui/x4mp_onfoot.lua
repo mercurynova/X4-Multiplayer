@@ -18,6 +18,10 @@
 -- pid, name, race, character macro (empty = let MD pick a crew NPC), room macro, anchor x/y/z (decimetres), kind, x/y/z (container
 -- metres, foot height), yaw (degrees).
 -- The janitor removes the avatars a crashed session left in the save; it runs once per process, 5 s after the game is in.
+--
+-- M3c (Tier 2) adds the room catalogue, because native must name a room that is not the player's own and the wire carries only a hash:
+--   MD -> Lua      x4mp.onfoot_rooms "room_a_macro;room_b_macro;..."
+--   Lua -> native  x4mp.onfoot_rooms {"v":1,"data":"<the same string>"}
 
 -- luacheck: globals X4MPBridge X4MPOnFoot DebugError RegisterEvent AddUITriggeredEvent getElapsedTime Helper ReadText
 
@@ -28,7 +32,8 @@ if type(B) ~= "table" then
 end
 
 local O = { MD_SCREEN = "X4MP_OnFoot", interval = 1.0, sends = 0, triggers = 0, skipped = 0,
-	spawnTriggers = 0, despawnTriggers = 0, replies = 0, janitors = 0, loadedAt = nil, janitorDone = false }
+	spawnTriggers = 0, despawnTriggers = 0, replies = 0, janitors = 0, loadedAt = nil, janitorDone = false,
+	roomSends = 0, roomsTriggers = 0 }
 X4MPOnFoot = O
 
 local function log(msg) pcall(DebugError, "[X4MP] onfoot: " .. tostring(msg)) end
@@ -50,6 +55,21 @@ RegisterEvent("x4mp.onfoot_room", function(_, param)
 	end
 	if B.send("onfoot_room", { data = param }) then
 		O.sends = O.sends + 1
+	end
+end)
+
+-- ---- the room catalogue (MD -> native, M3c) ---------------------------------------------------------------------------------------
+-- Every room macro id of the container the player is in, "id;id;...". Native needs the ids because the wire carries only a hash of the
+-- room macro and MD cannot hash; without them an avatar in another room of the same station cannot be placed. The ids never change for
+-- a given macro, so the native table is never cleared.
+RegisterEvent("x4mp.onfoot_rooms", function(_, param)
+	if type(param) ~= "string" or param == "" then return end
+	if not B.getApi() then
+		O.skipped = O.skipped + 1
+		return
+	end
+	if B.send("onfoot_rooms", { data = param }) then
+		O.roomSends = O.roomSends + 1
 	end
 end)
 
@@ -268,6 +288,11 @@ local function maybe_janitor()
 	if pcall(AddUITriggeredEvent, O.MD_SCREEN, "janitor", 0) then
 		O.janitors = O.janitors + 1
 		log("janitor fired")
+	end
+	-- M3c: ask for the room catalogue. MD pushes it on its own when the container changes, but a reload of the DLL empties the
+	-- native table while the container stays the same, so one ask per UI session keeps the two in step.
+	if pcall(AddUITriggeredEvent, O.MD_SCREEN, "rooms", 0) then
+		O.roomsTriggers = O.roomsTriggers + 1
 	end
 end
 

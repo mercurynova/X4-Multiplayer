@@ -119,4 +119,9 @@ struct Appearance {
 // on foot, never matches.
 [[nodiscard]] bool same_room(const RemoteAvatar& avatar, const RoomContext& local) noexcept;
 
+// True when the remote player is inside the container the local player is in (M3c, Tier 2): the avatar then belongs in that
+// container even when it stands in another room, because MD can place an actor in any room of a loaded container. Says nothing
+// about the room: same_room() is the strict case, and an avatar with an unknown room key cannot be placed at all.
+[[nodiscard]] bool same_container(const RemoteAvatar& avatar, const RoomContext& local) noexcept;
+
 }  // namespace x4mp::features::onfoot

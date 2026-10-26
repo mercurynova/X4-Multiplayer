@@ -24,6 +24,9 @@ using host::Level;
 namespace {
 constexpr std::size_t kInboxCap = 16;
 constexpr std::size_t kMaxReportBytes = 512;
+// The room catalogue lists every room of the container (27 on a small factory, hundreds on a shipyard), so it needs its own cap: a
+// station with 400 rooms of 30 characters is 12 KB, and dropping it would silently disable Tier 2 placement.
+constexpr std::size_t kMaxRoomsBytes = 64 * 1024;
 constexpr float kPi = 3.14159265358979323846f;
 
 std::int64_t steady_us() {
@@ -32,10 +35,12 @@ std::int64_t steady_us() {
 }  // namespace
 
 struct OnFootFeature::Inbox {
+  explicit Inbox(std::size_t max_bytes = kMaxReportBytes) : max_bytes_(max_bytes) {}
   std::mutex m;
   std::vector<std::string> q;
+  std::size_t max_bytes_ = kMaxReportBytes;
   void push(std::string_view text) {
-    if (text.size() > kMaxReportBytes) return;
+    if (text.size() > max_bytes_) return;
     const std::lock_guard lock(m);
     if (q.size() >= kInboxCap) q.erase(q.begin());
     q.emplace_back(text);
@@ -47,7 +52,8 @@ struct OnFootFeature::Inbox {
 };
 
 OnFootFeature::OnFootFeature()
-    : inbox_(std::make_shared<Inbox>()), replies_(std::make_shared<Inbox>()), talk_(std::make_shared<Inbox>()) {}
+    : inbox_(std::make_shared<Inbox>()), replies_(std::make_shared<Inbox>()), talk_(std::make_shared<Inbox>()),
+      rooms_(std::make_shared<Inbox>(kMaxRoomsBytes)) {}
 OnFootFeature::~OnFootFeature() = default;
 
 void OnFootFeature::on_init(host::HostContext& ctx) {
@@ -65,6 +71,11 @@ void OnFootFeature::on_init(host::HostContext& ctx) {
   // The Talk choice MD added to the conversation: {"v":1,"to":<pid>,"kind":"wave"}.
   const bool ok3 = ctx.platform.subscribe_event("x4mp.onfoot_talk", [talk](std::string_view text) { talk->push(text); });
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: bridge verb x4mp.onfoot_talk {}", ok3 ? "subscribed" : "not available");
+
+  auto rooms = rooms_;
+  // The room macro ids of the current container: {"v":1,"data":"id;id;..."} (M3c).
+  const bool ok4 = ctx.platform.subscribe_event("x4mp.onfoot_rooms", [rooms](std::string_view text) { rooms->push(text); });
+  X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: bridge verb x4mp.onfoot_rooms {}", ok4 ? "subscribed" : "not available");
   install_actor_callbacks(ctx);
 }
 
@@ -86,6 +97,12 @@ void OnFootFeature::install_actor_callbacks(host::HostContext& ctx) {
   cb.name = [](std::uint16_t pid) -> std::string {
     const auto* row = chat::chat_hub().roster().find(pid);
     return row != nullptr ? row->name : std::string();
+  };
+  cb.room_id = [this](std::uint32_t macro_ref) -> std::string {
+    // M3c: an avatar in another room needs that room's macro id, because MD matches $Rm.macro.id and cannot hash. The catalogue
+    // comes from our own MD (drain_rooms); an unknown hash returns "" and the registry sends no spawn for that player.
+    const auto it = room_ids_.find(macro_ref);
+    return it != room_ids_.end() ? it->second : std::string();
   };
   cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us) {
     // One line per avatar per 5 s. A session reads `lag` to check the M3b "error < 0.5 m" criterion: it is how far behind the
@@ -227,6 +244,39 @@ void OnFootFeature::drain_talk(host::HostContext& ctx) {
   }
 }
 
+void OnFootFeature::drain_rooms(host::HostContext& ctx) {
+  for (const auto& raw : rooms_->take()) {
+    // {"v":1,"data":"room_arg_bar_01_macro;room_arg_corridor_01_macro;..."} — every room of the container the player is in, pushed by
+    // our own MD because the SDK has no room accessor and MD cannot hash. Ids are stable per macro, so the table never needs to be
+    // cleared: the same id always hashes to the same key.
+    std::string data;
+    try {
+      const auto j = nlohmann::json::parse(raw);
+      data = j.value("data", std::string{});
+    } catch (const std::exception&) {
+      ++bad_reports_;
+      continue;
+    }
+    std::size_t added = 0;
+    std::size_t total = 0;
+    std::size_t pos = 0;
+    while (pos < data.size()) {
+      const auto end = data.find(';', pos);
+      const std::string_view id(data.data() + pos, (end == std::string::npos ? data.size() : end) - pos);
+      pos = end == std::string::npos ? data.size() : end + 1;
+      if (id.empty()) continue;
+      ++total;
+      const auto hash = onfoot::fnv1a32(id);
+      if (hash == 0) continue;
+      if (room_ids_.emplace(hash, std::string(id)).second) ++added;
+    }
+    if (total > 0) {
+      ++rooms_pushed_;
+      X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "onfoot: room catalogue {} ids, {} new, {} known", total, added, room_ids_.size());
+    }
+  }
+}
+
 void OnFootFeature::raise_interactions() {
   if (platform_ == nullptr) return;
   for (const auto& it : onfoot::onfoot_hub().take_interactions()) {
@@ -284,6 +334,7 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   auto& hub = onfoot::onfoot_hub();
   drain_inbox(ctx);
   drain_replies(ctx);
+  drain_rooms(ctx);
   drain_talk(ctx);
   raise_interactions();
   raise_presence();
@@ -300,13 +351,13 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
     const auto& c = hub.counters();
     const auto& a = onfoot::onfoot_actors().counters();
     if (c.states_in || c.rosters || reports_ || send_failed_ || bad_reports_ || a.spawns || a.places ||
-        a.bad_replies) {
+        a.bad_replies || a.no_room) {
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info,
                 "onfoot: linked={} reports={} bad={} out={} failed={} no_clock={} in={} roster={} remotes={} actors={}/{} spawn={} "
-                "despawn={} place={} answers={} bad_answers={}",
+                "despawn={} place={} answers={} bad_answers={} rooms={} no_room={}",
                 linked, reports_, bad_reports_, sent_states_, send_failed_, no_clock_, c.states_in, c.rosters, hub.remotes().size(),
                 onfoot::onfoot_actors().live(), onfoot::onfoot_actors().tracked(), a.spawns, a.despawns, a.places, a.replies,
-                a.bad_replies);
+                a.bad_replies, room_ids_.size(), a.no_room);
     }
   }
   if (!linked) {

@@ -552,6 +552,8 @@ struct Stage {
     std::int64_t age_us;
   };
   std::vector<Diag> diags;
+  // The room catalogue the feature keeps from MD (M3c): hash -> macro id. Empty unless a test seeds it.
+  std::map<std::uint32_t, std::string> roomIds;
 
   Stage() {
     ActorCallbacks cb;
@@ -560,6 +562,10 @@ struct Stage {
     cb.name = [this](std::uint16_t pid) {
       const auto it = names.find(pid);
       return it == names.end() ? std::string() : it->second;
+    };
+    cb.room_id = [this](std::uint32_t macro_ref) {
+      const auto it = roomIds.find(macro_ref);
+      return it == roomIds.end() ? std::string() : it->second;
     };
     cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us) {
       diags.push_back({pid, lag_m, speed_mps, age_us});
@@ -713,7 +719,84 @@ TEST_CASE("onfoot: MD's answer makes the actor live and the pose is written ever
   CHECK(st.reg.counters().places >= 2);
 }
 
-TEST_CASE("onfoot: a player who leaves the room, the container or the deck is despawned at once") {
+TEST_CASE("onfoot: another room of the same container is a spawn, not a despawn") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  REQUIRE(st.reg.live() == 1);
+  REQUIRE(st.batches.size() == 1);
+
+  SECTION("a room the catalogue knows: removed from the old room, asked for in the new one") {
+    remotes[7].room.macro_ref = fnv1a32("room_arg_bar_01_macro");
+    remotes[7].room.anchor_x = -1000;
+    st.roomIds[fnv1a32("room_arg_bar_01_macro")] = "room_arg_bar_01_macro";
+    st.step(remotes, 1'100'000);
+    REQUIRE(st.reg.tracked() == 1);
+    CHECK(st.reg.live() == 0);  // the actor of the old room is gone, a new one is asked for
+    REQUIRE(st.batches.size() == 2);
+    CHECK(st.batches.back().find("\"despawn\":[7]") != std::string::npos);
+    CHECK(st.batches.back().find("\"rmacro\":\"room_arg_bar_01_macro\"") != std::string::npos);
+    CHECK(st.batches.back().find("\"ax\":-1000") != std::string::npos);
+    CHECK(st.reg.counters().despawns == 1);
+    CHECK(st.reg.counters().spawns == 2);
+  }
+
+  SECTION("a room the catalogue does not know yet: no actor, counted, retried") {
+    remotes[7].room.macro_ref = 8u;
+    st.step(remotes, 1'100'000);
+    CHECK(st.reg.counters().no_room == 1);
+    CHECK(st.batches.back().find("\"rmacro\"") == std::string::npos);
+    CHECK(st.reg.tracked() == 1);  // the player stays tracked, the presence list still names them
+  }
+}
+
+TEST_CASE("onfoot: a player in another room of the station is spawned with the id from the catalogue") {
+  Stage st;
+  st.roomIds[fnv1a32("room_arg_bar_01_macro")] = "room_arg_bar_01_macro";
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(1.0f, 2.0f, 3.0f);
+  remotes[7].room.macro_ref = fnv1a32("room_arg_bar_01_macro");
+  remotes[7].room.anchor_x = -5000;
+  remotes[7].room.anchor_y = 100;
+  remotes[7].room.anchor_z = 40;
+  st.step(remotes, 1'000'000);
+  REQUIRE(st.batches.size() == 1);
+  const auto& batch = st.batches.back();
+  CHECK(batch.find("\"rmacro\":\"room_arg_bar_01_macro\"") != std::string::npos);
+  CHECK(batch.find("\"ax\":-5000") != std::string::npos);
+  // container metres = room metres + anchor/10; y loses the 1.72 m between the eye and the floor
+  CHECK(batch.find("\"x\":-499.000") != std::string::npos);
+  CHECK(batch.find("\"y\":10.280") != std::string::npos);
+  CHECK(batch.find("\"z\":7.000") != std::string::npos);
+  CHECK(st.reg.counters().spawns == 1);
+  CHECK(st.reg.counters().no_room == 0);
+}
+
+TEST_CASE("onfoot: same_container ignores the room but needs both sides on foot in one container") {
+  const auto local = walking_context();
+  auto a = avatar_in_room(0, 0, 0);
+  CHECK(same_container(a, local));
+  a.room = RoomRef{};  // an unknown room key does not matter for the container
+  CHECK(same_container(a, local));
+  a.container = 0x80000002u;
+  CHECK_FALSE(same_container(a, local));
+  a.container = 0;
+  CHECK_FALSE(same_container(a, local));
+
+  auto off = local;
+  off.mode = Mode::None;
+  CHECK_FALSE(same_container(avatar_in_room(0, 0, 0), off));
+  off = local;
+  off.container_net_id = 0;
+  CHECK_FALSE(same_container(avatar_in_room(0, 0, 0), off));
+  off = local;
+  off.valid = false;
+  CHECK_FALSE(same_container(avatar_in_room(0, 0, 0), off));
+}
+
+TEST_CASE("onfoot: another container, a cockpit seat or the leave state is despawned at once") {
   Stage st;
   std::map<std::uint16_t, RemoteAvatar> remotes;
   remotes[7] = avatar_in_room(0, 0, 0);
@@ -721,14 +804,6 @@ TEST_CASE("onfoot: a player who leaves the room, the container or the deck is de
   st.reg.on_reply("spawn;7;9001");
   REQUIRE(st.reg.live() == 1);
 
-  SECTION("another room") {
-    remotes[7].room.macro_ref = 8u;
-    st.step(remotes, 1'100'000);
-  }
-  SECTION("another copy of the same room macro") {
-    remotes[7].room.anchor_x = -1000;
-    st.step(remotes, 1'100'000);
-  }
   SECTION("another container") {
     remotes[7].container = 0x80000002u;
     st.step(remotes, 1'100'000);

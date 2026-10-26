@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include <flatbuffers/flatbuffers.h>
 
@@ -39,6 +40,7 @@ class OnFootFeature final : public host::IFeature {
   void drain_inbox(host::HostContext& ctx);
   void drain_replies(host::HostContext& ctx);
   void drain_talk(host::HostContext& ctx);
+  void drain_rooms(host::HostContext& ctx);
   void raise_interactions();
   void raise_presence();
   void install_actor_callbacks(host::HostContext& ctx);
@@ -48,6 +50,7 @@ class OnFootFeature final : public host::IFeature {
   std::shared_ptr<Inbox> inbox_;
   std::shared_ptr<Inbox> replies_;
   std::shared_ptr<Inbox> talk_;
+  std::shared_ptr<Inbox> rooms_;
   host::IPlatform* platform_ = nullptr;  // for raise_lua to Lua (x4mp.onfoot_actors); owned by the host, lives for the run
   game::GameApi* game_ = nullptr;        // for SetPositionalOffset; same lifetime
   host::HostLog* log_ = nullptr;         // for the 5 s per-avatar measurement line; same lifetime
@@ -66,6 +69,10 @@ class OnFootFeature final : public host::IFeature {
   std::uint64_t waves_sent_ = 0;
   std::uint64_t talk_raise_failed_ = 0;
   std::uint64_t presence_raise_failed_ = 0;
+  // Room macro id catalogue of the current container, pushed by our own MD (M3c): hash -> id. Needed because the wire carries only
+  // RoomKey.macro_ref and MD cannot hash, so an avatar in another room can only be placed if its id string is known here.
+  std::unordered_map<std::uint32_t, std::string> room_ids_;
+  std::uint64_t rooms_pushed_ = 0;
   std::string presence_sig_;            // what the last raised roster looked like; rebuilt every frame, compared as text
   std::int64_t last_presence_us_ = 0;
   bool presence_raised_ = false;

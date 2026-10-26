@@ -34,6 +34,10 @@ struct ActorCallbacks {
   std::function<void(std::string_view json)> raise_lua;
   std::function<void(std::uint64_t actor, float x, float y, float z, float yaw)> place;
   std::function<std::string(std::uint16_t player_id)> name;  // roster name; empty -> "Player <id>"
+  // The room macro id behind a wire hash (M3c). The wire carries only RoomKey.macro_ref, and MD cannot hash: an avatar in another
+  // room of the same container needs the id string to look the room up. The feature fills this from the catalogue its own MD pushes.
+  // An unknown hash returns an empty string, and then no spawn is sent at all (fallback F3: the HUD still lists the player).
+  std::function<std::string(std::uint32_t macro_ref)> room_id;
   // Measurement only (no effect on the pipeline): how far behind the stream an avatar is drawn, every 5 s while it is live.
   // lag_m = speed * (render time - represented time), so a standing avatar reads 0.0 and a 1.4 m/s walk at 90 ms reads 0.13 m.
   // The M3b acceptance criterion is "seen at the correct position, error < 0.5 m"; this line is how a session measures it.
@@ -69,6 +73,7 @@ class ActorRegistry {
     std::uint32_t replies = 0;     // well-formed MD answers
     std::uint32_t bad_replies = 0;
     std::uint32_t ignored = 0;     // states for a player who is not visible here
+    std::uint32_t no_room = 0;     // wanted, but its room macro id is not in the local catalogue (fallback F3)
   };
   [[nodiscard]] const Counters& counters() const noexcept { return counters_; }
 
@@ -86,6 +91,7 @@ class ActorRegistry {
     bool requested = false;   // asked MD, no answer yet
     bool live = false;        // actor id known, being moved
     bool seen = false;        // the hub still lists this player in the current frame
+    RoomRef placed_room;      // the room the live actor was created in; MD keeps an actor inside its room
     std::int64_t last_request_us = 0;
     std::int64_t last_seen_us = 0;  // server time of the newest STATE (a repeated frame is not a sign of life)
     std::int64_t last_diag_us = 0;  // last measurement line

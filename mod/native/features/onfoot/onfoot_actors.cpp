@@ -124,7 +124,7 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
     }
     e.avatar = avatar;
     e.seen = true;
-    if (!local_ok || !on_foot(avatar) || !same_room(avatar, local)) ++counters_.ignored;
+    if (!local_ok || !on_foot(avatar) || !same_container(avatar, local)) ++counters_.ignored;
   }
 
   // 2. Decide: who is wanted here and now, who has to go, who has to move.
@@ -133,7 +133,10 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
   for (auto it = entries_.begin(); it != entries_.end();) {
     const auto pid = it->first;
     Entry& e = it->second;
-    const bool visible = e.seen && local_ok && on_foot(e.avatar) && same_room(e.avatar, local) && now_us - e.last_seen_us <= kStaleUs;
+    // M3c: any room of the shared container, not only the viewer's own (Tier 2). An unknown room key cannot be placed, so it is
+    // no actor at all - the HUD still lists the player (fallback F3).
+    const bool visible = e.seen && local_ok && on_foot(e.avatar) && same_container(e.avatar, local) && e.avatar.room.known() &&
+                         now_us - e.last_seen_us <= kStaleUs;
     e.seen = false;  // the next update sets it again if the hub still lists the player
     if (!visible) {
       if (e.requested || e.live) {
@@ -142,6 +145,16 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
       }
       it = entries_.erase(it);
       continue;
+    }
+    // M3c: the actor lives in another room than the player does now. MD created it in the old room and the engine keeps an actor
+    // inside the room it was placed in, so the player who walked through a door has to be removed and created again.
+    if (e.live && !(e.avatar.room == e.placed_room)) {
+      append_despawn(despawns, pid);
+      ++counters_.despawns;
+      e.live = false;
+      e.requested = false;
+      e.actor = 0;
+      e.last_request_us = now_us - kSpawnRetryUs;  // ask again in this same frame
     }
     if (!e.live) {
       if (now_us - e.last_request_us >= kSpawnRetryUs) {
@@ -164,6 +177,21 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
           macro = a->second.character_macro;  // ADR-051: a curated macro beats a race-only <select> (S10.7)
         }
 
+        // The room macro id, not its hash: MD matches $Rm.macro.id. The viewer's own id is the fast path; another room comes from
+        // the catalogue MD pushed for this container.
+        std::string rmacro;
+        if (e.avatar.room.macro_ref == local.room_macro_ref) {
+          rmacro = local.room_macro;
+        } else if (cb_.room_id) {
+          rmacro = cb_.room_id(e.avatar.room.macro_ref);
+        }
+        if (rmacro.empty()) {
+          ++counters_.no_room;  // F3: no actor, the presence list still names the player. Retried, the catalogue may arrive late.
+          e.last_request_us = now_us;
+          ++it;
+          continue;
+        }
+
         if (!spawns.empty()) spawns.push_back(',');
         spawns += "{\"pid\":";
         append_int(spawns, pid);
@@ -174,7 +202,7 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         spawns += ",\"macro\":";
         append_json_string(spawns, macro);
         spawns += ",\"rmacro\":";
-        append_json_string(spawns, local.room_macro);  // MD matches $Rm.macro.id against this string; a hash would never match
+        append_json_string(spawns, rmacro);  // MD matches $Rm.macro.id against this string; a hash would never match
         spawns += ",\"ax\":";
         append_int(spawns, e.avatar.room.anchor_x);
         spawns += ",\"ay\":";
@@ -194,6 +222,7 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         spawns.push_back('}');
 
         e.requested = true;
+        e.placed_room = e.avatar.room;
         e.last_request_us = now_us;
         ++counters_.spawns;
       }
