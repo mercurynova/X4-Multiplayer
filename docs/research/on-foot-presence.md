@@ -482,6 +482,12 @@ The mod's native side owns the state. MD does the actor work through one batched
 | F3 | No matching room locally (e.g. bar not unlocked) | No actor. HUD/roster line: "Alice is on this station, in the bar". Optionally a waypoint marker on the station later |
 | F4 | Container not shared or not matched | Roster only (galaxy-wide list) |
 
+> **Amended 2026-10-26 (as built, M3c).** F2 is not "nearest slot of the same roomtype": `roomtype` is not observable
+> (MD prints `$R.type` as a name, the wire field stays 21), so F2 is "the **nearest copy of the same room macro** in the
+> container", chosen by anchor distance, with the requested anchor logged. The slot machinery is not used at all — the
+> position always comes from the network, so a slot would only add jitter. F3 is what an avatar whose room macro hash is
+> not yet in the local catalogue gets: no actor, a `no_room` counter and a 2 s retry, roster unchanged.
+
 The MP lounge (§3.6) is the controlled alternative to F2/F3. When a room can't be matched,
 the HUD can offer "Alice is in the bar. Meet in the MP lounge?"
 

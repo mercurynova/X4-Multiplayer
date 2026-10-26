@@ -906,7 +906,8 @@ This section records what exists in code; the server half came first, the client
   1 Hz idle, measured from the last send), `onfoot_hub` (relay frames in, `PresenceRoster` out, the room key and `PlayerAppearance` parsed) and `onfoot_feature` (inbox drain, frame
   fan-out, `send_state`). The room key comes from MD (`md/x4mp_onfoot.xml` → `ui/x4mp_onfoot.lua` → `x4mp.onfoot_room`), because the SDK has no room accessor.
 - **Avatars (client, in).** `onfoot_actors` (`ActorRegistry`, pure logic, callbacks injected) turns the relay stream into temporary NPC actors: one entry per remote player, a
-  `ghost::Interpolator` per entry, and four visibility rules — on foot, same container, same room (macro **and** anchor), newest sample ≤ 5 s old. It raises one
+  `ghost::Interpolator` per entry, and four visibility rules — on foot, same container, a known room key, newest sample ≤ 5 s old (M3c replaced "same room" with "same
+  container", see the Tier 2 bullet below). It raises one
   `{"v":1,"spawn":[…],"despawn":[…]}` batch over `x4mp.onfoot_actors`; `md/x4mp_onfoot.xml` creates the actor (`create_cue_actor` + `<select tags="tag.crew">`, owned by
   `faction.x4mp_team_1`, `customhandler="true"` so the NPC AI stays out of it), places it in the matched room and answers `spawn;<pid>;<actor>`; an unanswered spawn is retried
   every 2 s, a failed placement is destroyed. Motion is `SetPositionalOffset` every frame in container space (room-local + `anchor/10`) at foot height (`y − 1.72 m`), yaw in
@@ -914,6 +915,14 @@ This section records what exists in code; the server half came first, the client
   load clean up; `onfoot_actor` is in `B.VERBS`. A fifth, read-only callback measures the pipeline: once per avatar per 5 s the log gets
   `onfoot: avatar pid=7 lag=0.12m speed=1.40m/s age=91ms`, where `lag` is `speed × (render time − represented time)`, i.e. how far behind the newest sample the actor is
   drawn. That is the number the acceptance run reads for "seen at the correct position, error < 0.5 m" ([in-game-session-6.md](in-game-session-6.md)).
+- **Tier 2 rooms (client, in).** M3c draws a peer in **any room of the shared container**, not only in the viewer's own room: `same_container` replaces `same_room` as the
+  visibility test, and the actor is created in the peer's room. Because the wire carries only `RoomKey.macro_ref` (a hash) and MD compares `$Rm.macro.id` (a string, and
+  cannot hash), the viewer's own MD pushes every room macro id of the container over `x4mp.onfoot_rooms` (`id;id;...`, on a container change and once per UI session — a
+  DLL reload empties the native table) and `drain_rooms` keeps `hash -> id` for the run. An unknown hash is fallback **F3**: no actor, counted as `no_room`, retried with
+  the usual 2 s throttle, presence list unchanged. When the exact copy of the room is absent, MD uses the nearest copy of the same macro and logs the anchor it wanted —
+  fallback **F2**, not by `roomtype`, because `roomtype` is not observable (MD prints `$R.type` as a name and the wire field stays 21). A live actor whose player walks
+  into another room is despawned and created again there (the engine keeps an actor inside the room it was placed in). The catalogue inbox has its own 64 KB cap; the
+  shared 512-byte report cap silently dropped the 27-id catalogue of a small factory.
 - **Appearance (client, in).** `features/appearance/`: `appearance_catalogue` is a **curated** list of five races and twelve looks (argon `male|female_cau|afr|asi`,
   teladi and split `male|female`, paranid and boron `generic`), each a real `character_<race>_…_macro` of the base build; it is curated because `<select race=…>`
   ignores race and gender (S10 got yaki, pirate and scavenger women for "argon male"), a bare `macro=` works only with a name that exists, and `get_character_definition`

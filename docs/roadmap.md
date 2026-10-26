@@ -373,6 +373,23 @@ callback once per avatar per 5 s and the feature logs `onfoot: avatar pid=7 lag=
 `onfoot: a live avatar is measured once per five seconds`. Verified: mod build clean, `host.onfoot:*` **40 cases, 270 assertions**.
 **Next:** run session 6.
 
+**Status 2026-10-26 (later): M3c, Tier 2 — a peer is drawn in any room of the station you share, not only in yours.** The rule moved
+from the room to the container: a remote avatar is wanted while the peer is on foot, in the same container, has a known room key and a
+sample younger than 5 s, and the actor is created **in the peer's room**, which MD resolves with `find_room`. The blocker was that the
+wire carries only `RoomKey.macro_ref` (a hash) while MD compares `$Rm.macro.id` (a string) and cannot hash, so the client now learns
+the ids: the viewer's own MD pushes every room macro id of the container over a new bridge verb `x4mp.onfoot_rooms` (`id;id;...`, on a
+container change and once per UI session, because a DLL reload empties the native table), and native hashes them into `hash -> id`
+(`onfoot_feature.cpp: room_ids_`, `drain_rooms`). An avatar whose hash is not known yet is not spawned, is counted (`no_room`) and is
+retried with the usual 2 s throttle while the presence list still names the player — fallback F3. When the exact copy of the room is not
+in the container MD uses the **nearest copy of the same macro** and logs the anchor it was asked for (fallback F2); the position is
+still the peer's own, written every frame. A live actor whose player walks into another room is removed and created again there, because
+MD placed it in one room and the engine keeps it there. Two bugs surfaced while wiring this: the feature's `rooms_` inbox was not
+constructed (a null `shared_ptr` crashed every DLL-loading test), and the shared 512-byte report cap silently dropped the catalogue (27
+room ids on a small factory), so the catalogue inbox has its own 64 KB cap.
+Verified: mod build clean, ctest **568/568** (`host.onfoot:*` **44 cases, 296 assertions**), Lua **248/248**; in the running game the MD
+half pushes **27 ids / 17 distinct macros** and native logs `onfoot: room catalogue 27 ids, 17 new, 17 known`. **Next:** session 6 on two
+clients (unchanged), which now also has to check the second room and the doorway hand-over.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of

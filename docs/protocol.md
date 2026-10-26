@@ -861,7 +861,8 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
 - **Avatars (client, normative).** A node shows a remote player as a temporary NPC actor when that player is on foot
   (`mode` Walking or InTransit), shares the viewer's innermost container, has a known room key, and its newest sample is at most
   5 s old — all four, or the actor is removed. There is no lounge and no opt-in: the rule is "wherever both are loaded", the
-  same as an NPC.
+  same as an NPC. M3c widens this from "the viewer's room" to "any room of the shared container" (Tier 2): the viewer places
+  the actor in the room the peer is in, not in a room of its own.
   - The actor is created by MD (`create_cue_actor` with `<select tags="tag.crew">` or an explicit `macro` the peer picked,
     owned by `faction.x4mp_team_1`, `customhandler="true"`, `temporary="false"`), placed in the room matched by the room
     macro **id string** plus an anchor within 0.5 m, and announced back to native as `spawn;<pid>;<actor id>`. The id
@@ -869,6 +870,16 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
     and compares `$Rm.macro.id`. A failed placement is destroyed, not tracked, and retried after 2 s. The reply is a
     client-local string, not a wire field: MD prints a component as hex (`spawn;7;0x18ead5`), so the client parses the
     actor id in base 16 when it carries a `0x` prefix and in base 10 otherwise.
+  - The wire carries only `RoomKey.macro_ref`, a hash, so a peer's room is nameable only if the client knows that hash's id.
+    The viewer's own MD therefore pushes every room macro id of the current container over the bridge (`x4mp.onfoot_rooms`,
+    `id;id;...`, once per container and once per UI session); native hashes each id with FNV-1a and keeps `hash → id` for
+    the run. An avatar whose hash is not in that table yet is not spawned at all, is counted (`no_room`) and is retried with
+    the usual 2 s throttle, while the presence list still names the player — that is fallback F3.
+  - When the exact copy of the room is not in the container (the peer stands in another copy of the same room macro), MD
+    falls back to the **nearest copy** of that macro and logs which anchor it was asked for (fallback F2). The position is
+    still the peer's own, written every frame, so the fallback only changes which room geometry the actor belongs to.
+  - A live actor whose player walks into another room is removed and created again in the new room: MD placed the actor in
+    one room and the engine keeps it there, so the actor cannot simply be moved across the door.
   - Motion is **not** pathfinding: the viewer interpolates `px/py/pz` and writes the pose every frame with
     `SetPositionalOffset` in **container** space (room-local + `anchor_/10`), at foot height (`y − 1.72 m`, because the
     sender's sample is eye height) and with the sender's yaw in radians. A per-frame write measured p95 0.163 m of error
