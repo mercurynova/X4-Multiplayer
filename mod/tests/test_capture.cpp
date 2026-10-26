@@ -258,3 +258,26 @@ TEST_CASE("capture wire: SectorComplete round trips", "[authority][capture][wire
   CHECK(root->epoch() == 3);
   CHECK(root->entity_count() == 7);
 }
+
+// M4-02: the index is fed by scans that repeat the same objects, so insert has to be idempotent and a pass over a full sector has to stay
+// cheap. The timing half of the AC is measured in game (the frame counter, W7); here the shape of the table is pinned.
+TEST_CASE("index: ten thousand inserts with duplicates keep seven thousand rows", "[authority][index]") {
+  UniverseIndex idx;
+  idx.reserve(10'000);
+  std::int64_t now = 1'000'000;
+  idx.begin_scan(12);
+  for (std::uint32_t i = 0; i < 10'000; ++i) {
+    // 30% of the inserts name an object the scan already saw, which is what a re-scan of a live sector looks like.
+    const std::uint32_t net = 1 + (i < 7'000 ? i : i - 7'000);
+    idx.upsert(net, 12, 100 + net, 7, 0, 0, 0x1000'0000ull + net, now);
+    if (i % 1'000 == 999) now += 1'000;
+  }
+  const auto gone = idx.end_scan(12);
+  CHECK(gone == 0);
+  CHECK(idx.size() == 7'000);
+  CHECK(idx.counters().inserted == 7'000);
+  CHECK(idx.counters().refreshed == 3'000);
+  const auto* ids = idx.ids_of(12);
+  REQUIRE(ids != nullptr);
+  CHECK(ids->size() == 7'000);
+}
