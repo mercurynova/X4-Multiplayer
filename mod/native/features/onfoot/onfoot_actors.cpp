@@ -204,6 +204,13 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
                   static_cast<float>(pose.rot.yaw));
       }
       ++counters_.places;
+      // Measurement for the M3b acceptance run: the avatar is drawn this many metres behind the newest sample.
+      if (cb_.diag && now_us - e.last_diag_us >= kDiagUs) {
+        const auto behind_s = static_cast<double>(pose.render_t_us - pose.represented_t_us) / 1e6;
+        cb_.diag(pid, static_cast<float>(pose.speed_mps * behind_s), static_cast<float>(pose.speed_mps),
+                 now_us - e.avatar.at_us);
+        e.last_diag_us = now_us;
+      }
     }
     ++it;
   }

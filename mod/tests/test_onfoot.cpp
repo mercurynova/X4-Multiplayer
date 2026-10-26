@@ -545,6 +545,12 @@ struct Stage {
   std::vector<std::string> batches;
   std::vector<Place> places;
   std::map<std::uint16_t, std::string> names;
+  struct Diag {
+    std::uint16_t pid;
+    float lag_m, speed_mps;
+    std::int64_t age_us;
+  };
+  std::vector<Diag> diags;
 
   Stage() {
     ActorCallbacks cb;
@@ -553,6 +559,9 @@ struct Stage {
     cb.name = [this](std::uint16_t pid) {
       const auto it = names.find(pid);
       return it == names.end() ? std::string() : it->second;
+    };
+    cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us) {
+      diags.push_back({pid, lag_m, speed_mps, age_us});
     };
     reg.set_callbacks(std::move(cb));
   }
@@ -851,4 +860,43 @@ TEST_CASE("onfoot: the presence signature changes with the roster and with the l
   auto c = a;
   c.player_id = 8;
   CHECK(presence_signature({c}, 4242, Mode::Walking) != base);  // a different player, same place
+}
+
+TEST_CASE("onfoot: a live avatar is measured once per five seconds", "[onfoot][diag]") {
+  // The measurement line is what a session reads to check the M3b "error < 0.5 m" criterion, so its cadence and its inputs
+  // (pid, how far behind the stream the avatar is drawn, its speed, the age of the newest sample) must be stable.
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0, 1, 1'000'000);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+
+  remotes[7] = avatar_in_room(0, 0, 0, 2, 1'100'000);
+  st.step(remotes, 1'100'000);
+  CHECK(st.reg.live() == 1);
+  CHECK(st.diags.empty());  // the first line comes five seconds after the actor went live, not on every frame
+
+  remotes[7] = avatar_in_room(0, 0, 0, 3, 4'900'000);
+  st.step(remotes, 4'900'000);
+  CHECK(st.diags.empty());
+
+  remotes[7] = avatar_in_room(0, 0, 0, 4, 5'000'000);
+  st.step(remotes, 5'000'000);
+  REQUIRE(st.diags.size() == 1);
+  CHECK(st.diags.front().pid == 7);
+  CHECK(st.diags.front().lag_m >= 0.0f);
+  CHECK(st.diags.front().speed_mps >= 0.0f);
+  CHECK(st.diags.front().age_us == 0);  // now is the newest sample
+
+  remotes[7] = avatar_in_room(0, 0, 0, 5, 5'100'000);
+  st.step(remotes, 5'100'000);
+  CHECK(st.diags.size() == 1);  // not again until five seconds later
+
+  remotes[7] = avatar_in_room(0, 0, 0, 6, 10'000'000);
+  st.step(remotes, 10'000'000);
+  CHECK(st.diags.size() == 2);
+
+  // A standing avatar is drawn where its newest sample says: no lag. A walking one is behind by speed x the display delay.
+  CHECK(st.diags.back().speed_mps == Approx(0.0f).margin(0.01f));
+  CHECK(st.diags.back().lag_m == Approx(0.0f).margin(0.01f));
 }

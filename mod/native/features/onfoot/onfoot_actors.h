@@ -34,6 +34,10 @@ struct ActorCallbacks {
   std::function<void(std::string_view json)> raise_lua;
   std::function<void(std::uint64_t actor, float x, float y, float z, float yaw)> place;
   std::function<std::string(std::uint16_t player_id)> name;  // roster name; empty -> "Player <id>"
+  // Measurement only (no effect on the pipeline): how far behind the stream an avatar is drawn, every 5 s while it is live.
+  // lag_m = speed * (render time - represented time), so a standing avatar reads 0.0 and a 1.4 m/s walk at 90 ms reads 0.13 m.
+  // The M3b acceptance criterion is "seen at the correct position, error < 0.5 m"; this line is how a session measures it.
+  std::function<void(std::uint16_t player_id, float lag_m, float speed_mps, std::int64_t age_us)> diag;
 };
 
 class ActorRegistry {
@@ -42,6 +46,7 @@ class ActorRegistry {
   static constexpr float kEyeToFoot = 1.72f;
   static constexpr std::int64_t kSpawnRetryUs = 2'000'000;  // an unanswered spawn request is repeated this often
   static constexpr std::int64_t kStaleUs = 5'000'000;       // no state for this long: remove the avatar
+  static constexpr std::int64_t kDiagUs = 5'000'000;        // one measurement line per avatar per 5 s
 
   void set_callbacks(ActorCallbacks cb) { cb_ = std::move(cb); }
   [[nodiscard]] bool has_callbacks() const noexcept { return static_cast<bool>(cb_.raise_lua); }
@@ -83,6 +88,7 @@ class ActorRegistry {
     bool seen = false;        // the hub still lists this player in the current frame
     std::int64_t last_request_us = 0;
     std::int64_t last_seen_us = 0;  // server time of the newest STATE (a repeated frame is not a sign of life)
+    std::int64_t last_diag_us = 0;  // last measurement line
   };
 
   void append_despawn(std::string& out, std::uint16_t player_id);

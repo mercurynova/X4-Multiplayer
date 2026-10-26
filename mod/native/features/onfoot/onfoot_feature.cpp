@@ -72,6 +72,7 @@ void OnFootFeature::install_actor_callbacks(host::HostContext& ctx) {
   // The registry is a process-wide singleton and outlives no host object here, so it gets pointers, not captures of ctx.
   platform_ = &ctx.platform;
   game_ = &ctx.game;
+  log_ = &ctx.log;
   onfoot::ActorCallbacks cb;
   cb.raise_lua = [this](std::string_view json) {
     if (platform_ == nullptr) return;
@@ -85,6 +86,13 @@ void OnFootFeature::install_actor_callbacks(host::HostContext& ctx) {
   cb.name = [](std::uint16_t pid) -> std::string {
     const auto* row = chat::chat_hub().roster().find(pid);
     return row != nullptr ? row->name : std::string();
+  };
+  cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us) {
+    // One line per avatar per 5 s. A session reads `lag` to check the M3b "error < 0.5 m" criterion: it is how far behind the
+    // newest sample the actor is drawn, so a standing avatar reads 0.00 m and a walking one about speed x 90 ms.
+    if (log_ == nullptr) return;
+    X4MP_CLOG(*log_, Cat::Md, Level::Info, "onfoot: avatar pid={} lag={:.2f}m speed={:.2f}m/s age={}ms", pid,
+              static_cast<double>(lag_m), static_cast<double>(speed_mps), age_us / 1000);
   };
   onfoot::onfoot_actors().set_callbacks(std::move(cb));
 }

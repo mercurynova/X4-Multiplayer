@@ -50,6 +50,7 @@ class OnFootFeature final : public host::IFeature {
   std::shared_ptr<Inbox> talk_;
   host::IPlatform* platform_ = nullptr;  // for raise_lua to Lua (x4mp.onfoot_actors); owned by the host, lives for the run
   game::GameApi* game_ = nullptr;        // for SetPositionalOffset; same lifetime
+  host::HostLog* log_ = nullptr;         // for the 5 s per-avatar measurement line; same lifetime
   onfoot::OnFootTracker tracker_;
   flatbuffers::FlatBufferBuilder fbb_{256};
   std::uint32_t seq_ = 0;
