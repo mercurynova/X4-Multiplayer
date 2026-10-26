@@ -94,6 +94,27 @@ exit report has to quote.
 **AC (wave).** With 3 interest sectors the authority's per-frame mod cost stays ≤ 2 ms at p95 (mod-design sub-item 1),
 measured by the existing frame-time counter and logged every 30 s.
 
+**Status 2026-10-26: W1 done.** `CaptureSet` is parsed, applied once per epoch and diffed in one log line
+(`authority: CaptureSet epoch 3: 2 sectors [12@5Hz 44@1Hz], 0 focus [] (added 44@1Hz, asked MD for 1 sector scan)`).
+`UniverseIndex` keeps `net_id → row`, `sector → net ids` and `component → net_id` (first binding wins, so a rescan never
+allocates a second id), and a pass drops exactly the rows of that sector that the scan no longer saw. MD produces the id
+list: `md/x4mp_capture.xml` finds the sector by macro, runs `find_object class="class.ship" space="$Sec" multiple="true"`,
+pushes `S;<sector>;<component>|<macro>|<owner>;...` in chunks of 60 and closes with `E;<sector>;<count>`; a sector that
+does not exist still answers with a count of 0 so the authority stops waiting. The authority asks for a sector when it
+enters the set and has no rows, retries after 10 s, forgets the request when the count arrives, when the sector leaves the
+set and on a disconnect. `SectorComplete` is sent only from the closing count, never from a partial chunk.
+
+Two things worth knowing for W2. First, native cannot enumerate objects (`x4_game_func_list.inc` has no "objects of a
+sector" and no "sector of an object"), which is why MD owns the scan; the component id travels as MD prints it (`0x1b1d`),
+so the parser accepts hex and decimal. Second, a scan is an *id list only*: it carries no position, no velocity and no
+class, so the streamer still has to read every pose natively (`GetObjectPositionInSector`) and the ship class is not
+known to the index yet (`kind` stays `Other`).
+
+Verified: mod build clean, ctest **582/582**, `[capture],[index],[scan]` **14 cases / 135 assertions** (the 10 000-insert
+duplicate test pins the dedupe shape; the timing half of the AC is W7's in-game measurement), Lua **252/252**. Live in the
+running game with save `x4mp_s108_b`: the MD half answered one requested sector with 3 messages — two chunks and
+`E;cluster_409_sector001_macro;82` — carrying rows such as `0x1b1d|ship_spl_s_heavyfighter_01_a_macro|split`.
+
 ### W2 — The stream (M4-06..M4-11)
 
 | Task | Work | AC |
