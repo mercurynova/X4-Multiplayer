@@ -129,6 +129,35 @@ running game with save `x4mp_s108_b`: the MD half answered one requested sector 
 **AC (wave).** In a synthetic 200-ship sector the stream holds the protocol's bandwidth target (< 200 kB/s per client at the
 CaptureSet rates) and never emits the same net id twice in one tick.
 
+**Status 2026-10-26: W2 done (code + tests).** Four modules, all pure C++ and unit-driven:
+
+* `capture_scheduler.{h,cpp}` — per sector `ceil(total × rate / 20 Hz)` entities per tick with a rotating cursor, so a
+  200-ship 1 Hz sector visits 10 per tick and sweeps in 20 ticks while a 5 Hz sector visits 50 and sweeps in 4. A rate
+  change keeps the cursor (no restart, no double poll); a sector with fewer ships than the tick rate still visits one per
+  tick. The slice is a *poll* order, not a send order.
+* `dead_reckoning.{h,cpp}` — `position_epsilon` ramps 0.5 m at ≤ 2 km to 20 m at 50 km, `rotation_error` wraps Euler
+  angles (0.5° Near / 1° Far), `finite_difference` refuses a gap over 2 s, `predict` extrapolates from the last *sent*
+  pose, and `classify` orders the reasons Sector → Flags → Rotation → Threshold → Keepalive (1 s Near / 5 s Far).
+* `entity_wire.{h,cpp}` — the four encoders (`WorldUpdate`, `EntityDespawn`, `EntityChange`, `EntityStatusBatch`) over
+  the generated structs, with caps 32 states / 64 despawns / 32 spawns / 64 statuses. A full 32-state `WorldUpdate` is
+  ≤ 1100 B, i.e. one datagram once the UDP lane lands (M4-25).
+* `entity_stream.{h,cpp}` — `EntityTrack` keeps the pose the client actually holds (dequantised after the send) and the
+  quantised velocity the client predicts with, so authority and client dead reckoning agree exactly. Spawn chunks commit
+  their tracks only after the frame left (a failed send retries next tick, never double-spawns); `SectorComplete` is now
+  sent by the streamer after the last spawn chunk of a pass, not by `on_scan_text`; a sector that leaves the set starts a
+  60 s `OutOfInterest` grace that a re-entry cancels; a row the pass no longer sees despawns once as `Destroyed`
+  (`IsValidComponent` false) or `Removed`; `EntityChange` fires on an owner/macro change detected by the scan; one
+  `WorldUpdate` is emitted every 20 Hz tick even when empty (the M3-14 clock reference is unchanged).
+
+Caveats, deliberately deferred: a scan carries ids only, so `kind` is still `Other` and a client spawns from the macro
+(W4's manifest adds class/statics); `StateFlags` is always 0 because docked/travel-drive have no source yet; and
+`note_status` (hull/shield ≤ 1 Hz + 10 s keepalive) has the API and tests but no game source, so no status entry goes out
+in a real session until W4 reads hull from the object.
+
+Verified: mod build clean, `x4mp_host_tests "[stream]"` **16 cases / 1223 assertions**, full ctest **598/598** (4 skipped
+live/smoke), Lua **252/252**. The bandwidth half of the AC and the never-twice-per-tick property are pinned by the tests
+(200-ship sweep, poll counting); the in-game FPS/bandwidth measurement is W7's.
+
 ### W3 — Client: sector entry and suppression (M4-12..M4-16)
 
 | Task | Work | AC |

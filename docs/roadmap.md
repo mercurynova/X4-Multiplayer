@@ -390,7 +390,7 @@ Verified: mod build clean, ctest **568/568** (`host.onfoot:*` **44 cases, 296 as
 half pushes **27 ids / 17 distinct macros** and native logs `onfoot: room catalogue 27 ids, 17 new, 17 known`. **Next:** session 6 on two
 clients (unchanged), which now also has to check the second room and the doorway hand-over.
 
-**Status 2026-10-26 (M4): the plan is written and wave 1 has landed.** [m4-plan.md](m4-plan.md) turns the M4 row and mod-design §9 into
+**Status 2026-10-26 (M4): the plan is written and waves 1 and 2 have landed.** [m4-plan.md](m4-plan.md) turns the M4 row and mod-design §9 into
 seven waves with per-task ACs, eight open questions with recommended defaults and the verification gate per wave. Wave 1 is the
 `CaptureSet` and the universe index: the authority now parses what the server asks it to watch (epoch rule, focus spheres that raise the
 rate of the points inside them, one log line per change), keeps a sector-indexed table of the entities it knows (`net_id → row`,
@@ -400,8 +400,18 @@ a sector that a fresh pass no longer sees. The scan itself is MD's job, because 
 count, and the authority asks for a sector when it enters the set, retries after 10 s, and sends `SectorComplete` only from the closing
 count. Live in the running game one requested sector answered with two chunks and `E;<sector>;82`, rows such as
 `0x1b1d|ship_spl_s_heavyfighter_01_a_macro|split`. Verified: mod build clean, ctest **582/582** (`[capture],[index],[scan]` **14 cases, 135
-assertions**), Lua **252/252**. **Next:** W2, the stream itself — the per-sector scheduler, dead reckoning and `EntitySpawn`/`WorldUpdate`/
-`EntityDespawn`, extending the 20 Hz keepalive `WorldUpdate` that M3-14 left in `authority_flow.cpp`.
+assertions**), Lua **252/252**.
+
+Wave 2 is the stream: `capture_scheduler` hands out a rotating slice per sector per 20 Hz tick (a 200-ship 1 Hz sector visits 10 per
+tick and sweeps in 20; 5 Hz visits 50 and sweeps in 4), `dead_reckoning` predicts from the last sent pose and only sends on the
+ε(d)/rotation/flag/sector/keepalive rules, `entity_wire` encodes `WorldUpdate`/`EntityDespawn`/`EntityChange`/`EntityStatusBatch`
+(a full 32-state update is ≤ 1100 B), and `entity_stream` owns the per-entity state: spawn chunks that commit only after the frame left,
+`SectorComplete` after the last chunk of a pass, a 60 s `OutOfInterest` grace a re-entry cancels, `Destroyed`/`Removed` from the scan
+pass, `EntityChange` on an owner/macro change, and one `WorldUpdate` every tick even when empty so the M3-14 clock reference still holds.
+A scan is ids only, so `kind` stays `Other` (the macro drives the client spawn) and `StateFlags` is 0 until W4; `note_status` has the
+API and tests but no game source yet. Verified: mod build clean, `[stream]` **16 cases / 1223 assertions**, ctest **598/598** (4
+skipped), Lua **252/252**. **Next:** W3, the client side — budgeted `SectorEntered` spawns, local NPC suppression, leave grace, the
+late-spawn sweep and frozen ghosts.
 
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
