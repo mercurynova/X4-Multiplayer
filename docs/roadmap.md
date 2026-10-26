@@ -363,6 +363,16 @@ Verified: mod build clean, ctest **563/563** (39 `host.onfoot:*` cases, 258 asse
 the in-game two-client check (S10.6, the S10.7 conversation round trip), which needs a human at both clients; that is the only M3b
 item left that needs a person.
 
+**Status 2026-10-26: the M3b acceptance run is written, and the avatar pipeline now measures itself.** The run is
+[in-game-session-6.md](in-game-session-6.md): it reuses the session-4 kit, walks the five acceptance criteria in order (meeting in one
+room, the second room, the presence list, the Talk menu both ways, the appearance picker, save hygiene plus a load without the mod) and
+names the log lines to read for each. So that "error < 0.5 m" is a number and not an opinion, `ActorRegistry` now raises a measurement
+callback once per avatar per 5 s and the feature logs `onfoot: avatar pid=7 lag=0.12m speed=1.40m/s age=91ms`, where `lag` is
+`speed x (render time - represented time)` - how far behind the newest sample the actor is drawn: 0.00 m standing, about 0.13 m for a
+1.4 m/s walk at 90 ms. It is a pure readout (no effect on the pipeline) and it is covered by
+`onfoot: a live avatar is measured once per five seconds`. Verified: mod build clean, `host.onfoot:*` **40 cases, 270 assertions**.
+**Next:** run session 6.
+
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
 **Status 2026-10-03: M3 planned, awaiting the user's answers** to the 14 open questions at the top of

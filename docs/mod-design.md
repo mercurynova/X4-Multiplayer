@@ -911,7 +911,9 @@ This section records what exists in code; the server half came first, the client
   `faction.x4mp_team_1`, `customhandler="true"` so the NPC AI stays out of it), places it in the matched room and answers `spawn;<pid>;<actor>`; an unanswered spawn is retried
   every 2 s, a failed placement is destroyed. Motion is `SetPositionalOffset` every frame in container space (room-local + `anchor/10`) at foot height (`y − 1.72 m`), yaw in
   radians; no pathfinding, no slots, no lounge. v1 shows the idle pose because MD has no locomotion action (S10.4). `Despawn`/`Janitor` cues and a janitor trigger 5 s after a
-  load clean up; `onfoot_actor` is in `B.VERBS`.
+  load clean up; `onfoot_actor` is in `B.VERBS`. A fifth, read-only callback measures the pipeline: once per avatar per 5 s the log gets
+  `onfoot: avatar pid=7 lag=0.12m speed=1.40m/s age=91ms`, where `lag` is `speed × (render time − represented time)`, i.e. how far behind the newest sample the actor is
+  drawn. That is the number the acceptance run reads for "seen at the correct position, error < 0.5 m" ([in-game-session-6.md](in-game-session-6.md)).
 - **Appearance (client, in).** `features/appearance/`: `appearance_catalogue` is a **curated** list of five races and twelve looks (argon `male|female_cau|afr|asi`,
   teladi and split `male|female`, paranid and boron `generic`), each a real `character_<race>_…_macro` of the base build; it is curated because `<select race=…>`
   ignores race and gender (S10 got yaki, pirate and scavenger women for "argon male"), a bare `macro=` works only with a name that exists, and `get_character_definition`
