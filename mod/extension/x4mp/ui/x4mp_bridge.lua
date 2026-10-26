@@ -26,6 +26,8 @@
 --                        avatar of that player; the actor id is what native drives with SetPositionalOffset
 --   x4mp.onfoot_rooms   {"v":1,"data":"room_a_macro;room_b_macro;..."}   (M3c, x4mp_onfoot.lua) every room macro id of the
 --                        container the player is in; native hashes them so it can name a room that is not the player's own
+--   x4mp.capture_scan   {"v":1,"data":"S;<sector macro>;<component>|<macro>|<owner>;...|E;<sector macro>;<count>"}
+--                        (M4-03, x4mp_capture.lua) one sector's ship ids, as MD listed them; native resolves the sector number
 --   x4mp.appearance     {"v":1} | {"v":1,"race":"argon","preset":"male_cau"} | {"v":1,"random":true} | {"v":1,"default":true}
 --                        (M3b W5, x4mp_menu.lua) query / choose the look the OTHER players see; stored in x4mp.json, sent to the
 --                        server as PlayerAppearance, refused when the pair is not in the curated catalogue
@@ -71,7 +73,7 @@ if X4MPBridge and X4MPBridge.loaded then return end
 local B = { loaded = true, version = 1, handlers = {}, pending = {} }
 X4MPBridge = B
 
-B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true, onfoot_room = true, onfoot_actor = true, onfoot_rooms = true }
+B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true, onfoot_room = true, onfoot_actor = true, onfoot_rooms = true, capture_scan = true }
 B.TOPICS = { "status", "notify", "error", "load_save", "open" }
 local queueable = { ui_ready = true, request_status = true, extensions = true }
 

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP sector scan for the authority's universe index, MD side (M4-03). Lua side: ui/x4mp_capture.lua; consumer: native
+  features/authority (on_scan_text).
+
+  Why MD: native cannot enumerate the objects of a sector (x4_game_func_list.inc has no "objects of a sector" and no "sector of an
+  object"; docs/x4-api-notes.md 2.3), while MD has find_object with a space filter. So MD produces the id list and native owns
+  everything else - the net ids, the index, the rates and every per-frame position read. No position ever travels this path.
+
+    native -> Lua  x4mp.capture_request {"v":1,"sector":"<sector macro id>"}   (raise_lua, authority_flow.cpp)
+    Lua -> MD      AddUITriggeredEvent("X4MP_Capture", "scan", { <sector macro id> })
+    MD -> Lua      raise_lua_event "x4mp.capture_scan" "S;<sector macro>;<component>|<ship macro>|<owner>;..."
+                   raise_lua_event "x4mp.capture_scan" "E;<sector macro>;<count>"
+    Lua -> native  verb x4mp.capture_scan {"v":1,"data":"<the same string>"}
+
+  The component is written by concatenating the object into the string, which is how MD prints a component ("0x18ead5"); the native
+  parser accepts that and plain decimal. One 'S;' message carries at most kChunk rows, the 'E;' message closes the pass - and only
+  after a closing count does native send SectorComplete (protocol 9.2: never claim a sector complete before a full index pass).
+
+  No sector is found by macro id directly, so the cue lists the sectors and compares $Sec.macro.id, the same way the on-foot room
+  lookup compares $Rm.macro.id.
+-->
+<mdscript name="X4MP_Capture" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Capture_Scan" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Capture'" control="'scan'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Macro" exact="event.param3.{1}"/>
+        <set_value name="$Sec" exact="null"/>
+        <do_if value="$Macro">
+          <find_sector name="$Sectors" multiple="true"/>
+          <do_for_each name="$S" in="$Sectors">
+            <do_if value="not $Sec and $S.macro.id == $Macro">
+              <set_value name="$Sec" exact="$S"/>
+            </do_if>
+          </do_for_each>
+        </do_if>
+        <do_if value="$Sec">
+          <find_object name="$Ships" class="class.ship" space="$Sec" multiple="true"/>
+          <set_value name="$Chunk" exact="''"/>
+          <set_value name="$InChunk" exact="0"/>
+          <set_value name="$Total" exact="0"/>
+          <do_for_each name="$Ship" in="$Ships">
+            <do_if value="$Ship.exists">
+              <set_value name="$Owner" exact="@$Ship.owner.id"/>
+              <do_if value="$Owner == null">
+                <set_value name="$Owner" exact="''"/>
+              </do_if>
+              <do_if value="$Chunk != ''">
+                <set_value name="$Chunk" exact="$Chunk + ';'"/>
+              </do_if>
+              <set_value name="$Chunk" exact="$Chunk + '' + $Ship + '|' + $Ship.macro.id + '|' + $Owner"/>
+              <set_value name="$InChunk" exact="$InChunk + 1"/>
+              <set_value name="$Total" exact="$Total + 1"/>
+              <do_if value="$InChunk ge 60">
+                <raise_lua_event name="'x4mp.capture_scan'" param="'S;' + $Macro + ';' + $Chunk"/>
+                <set_value name="$Chunk" exact="''"/>
+                <set_value name="$InChunk" exact="0"/>
+              </do_if>
+            </do_if>
+          </do_for_each>
+          <do_if value="$Chunk != ''">
+            <raise_lua_event name="'x4mp.capture_scan'" param="'S;' + $Macro + ';' + $Chunk"/>
+          </do_if>
+          <raise_lua_event name="'x4mp.capture_scan'" param="'E;' + $Macro + ';' + $Total"/>
+        </do_if>
+        <do_else>
+          <!-- The sector macro is not in this universe: say so with an empty pass, so native stops waiting instead of retrying forever. -->
+          <do_if value="$Macro">
+            <raise_lua_event name="'x4mp.capture_scan'" param="'E;' + $Macro + ';0'"/>
+          </do_if>
+        </do_else>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

@@ -26,6 +26,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -184,6 +185,11 @@ class AuthorityFlow {
   UniverseIndex index_;
   std::uint32_t capture_sets_ = 0, capture_stale_ = 0, capture_bad_ = 0;
   std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0, sector_complete_sent_ = 0;
+  // M4-03: a sector whose scan MD has been asked for, and when. The entry is dropped when the closing count arrives, so a sector that MD
+  // never answered is asked again after kScanRetryUs instead of waiting forever.
+  static constexpr std::int64_t kScanRetryUs = 10'000'000;
+  std::unordered_map<std::uint16_t, std::int64_t> scan_asked_;
+  std::uint32_t scan_request_failed_ = 0;
 };
 
 }  // namespace x4mp::features::auth

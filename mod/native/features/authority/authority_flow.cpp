@@ -173,6 +173,7 @@ void AuthorityFlow::on_net_disconnected() {
   // A new session brings a new CaptureSet with its own epoch; keeping the old one would refuse the first set of the new server if its epoch
   // counter starts lower. The index itself stays: net ids must survive a reconnect.
   capture_.clear();
+  scan_asked_.clear();  // the next session asks for its sectors again
 }
 
 void AuthorityFlow::note_loaded_save(const std::vector<std::uint8_t>& sha) {
@@ -237,11 +238,40 @@ void AuthorityFlow::on_capture_set(host::HostContext& ctx, std::span<const std::
   // A sector that left the set is captured no more: keeping its rows would cost memory and schedule time for nothing.
   std::uint32_t dropped = 0;
   for (const auto& s : before.sectors()) {
-    if (!capture_.contains(s.sector)) dropped += static_cast<std::uint32_t>(index_.drop_sector(s.sector));
+    if (!capture_.contains(s.sector)) {
+      dropped += static_cast<std::uint32_t>(index_.drop_sector(s.sector));
+      scan_asked_.erase(s.sector);
+    }
   }
   const auto change = capture_.describe_change(before);
   std::string tail = change.empty() ? "unchanged" : change;
   if (dropped != 0) tail += ", " + std::to_string(dropped) + " rows dropped";
+
+  // A sector that just entered the set has no rows yet: ask our own MD for its ship list (M4-03). MD cannot name the sector the way the wire
+  // does - it knows the macro id, native owns the number - so the request carries the macro and MD answers with the same macro.
+  std::uint32_t asked = 0;
+  const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
+  for (const auto& s : capture_.sectors()) {
+    const auto* rows = index_.ids_of(s.sector);
+    if (rows != nullptr && !rows->empty()) continue;
+    if (const auto it = scan_asked_.find(s.sector); it != scan_asked_.end() && now_us - it->second < kScanRetryUs) continue;
+    const auto* map = selfship::selfship_hub().map();
+    const auto macro = map != nullptr ? map->macro_of(s.sector) : std::string_view{};
+    if (macro.empty()) {
+      ++scan_no_sector_;  // the galaxy map has no row for this sector yet; the next CaptureSet tries again
+      continue;
+    }
+    nlohmann::json j;
+    j["v"] = 1;
+    j["sector"] = std::string(macro);
+    if (ctx.platform.raise_lua("x4mp.capture_request", j.dump())) {
+      scan_asked_[s.sector] = now_us;
+      ++asked;
+    } else {
+      ++scan_request_failed_;
+    }
+  }
+  if (asked != 0) tail += ", asked MD for " + std::to_string(asked) + " sector scan(s)";
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: CaptureSet epoch {}: {} ({})", epoch, capture_.describe(), tail);
 }
 
@@ -283,6 +313,7 @@ void AuthorityFlow::on_scan_text(host::HostContext& ctx, std::string_view text) 
   if (!batch->end) return;
   index_.reserve(static_cast<std::size_t>(batch->count));
   const auto removed = index_.end_scan(sector);
+  scan_asked_.erase(sector);  // the pass is closed: a later CaptureSet may ask again (the sector's ship list can change)
   const auto* ids = index_.ids_of(sector);
   const auto count = ids != nullptr ? static_cast<std::uint32_t>(ids->size()) : 0u;
   const auto payload = encode_sector_complete(sector, capture_.epoch(), count);
