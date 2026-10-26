@@ -10,7 +10,10 @@ namespace x4mp::features::ghosts {
 namespace {
 constexpr int kDebug = 0, kInfo = 1, kWarn = 2, kError = 3;
 constexpr std::string_view kMetaKey = "ghost.meta";
-constexpr std::string_view kMetaHeader = "x4gm 1";
+// M4-13: version 2 appends an NPC flag (1 = an NPC of the authority's world). Version 1 is still read (a stash written before W3), so a
+// /reloadui across the upgrade adopts the old ghosts instead of respawning them.
+constexpr std::string_view kMetaHeader = "x4gm 2";
+constexpr std::string_view kMetaHeaderV1 = "x4gm 1";
 
 ghost::InterpolatorConfig interp_config(const GhostConfig& c) {
   ghost::InterpolatorConfig i;
@@ -107,7 +110,8 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
     return false;
   }
   Ghost* g = find(info.net_id);
-  const std::string label = make_label(info.name, info.controller, info.player_id);
+  // M4-13: an NPC keeps the authority's name (usually none) and is never labelled or dressed; only a player's ship gets the [MP] label.
+  const std::string label = info.npc ? std::string() : make_label(info.name, info.controller, info.player_id);
   if (!g) {
     ghosts_.emplace_back();
     g = &ghosts_.back();
@@ -118,15 +122,16 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
     g->info = info;
     g->hidden_by_server = false;
     dirty_ = true;
-    log(kInfo, std::format("ghost record: net={} player={} controller={} team={} macro={} owner={} label='{}'", info.net_id, info.player_id, info.controller,
-                           info.team, info.macro, info.owner, label));
+    log(kInfo, std::format("ghost record: net={} player={} controller={} team={} macro={} owner={} label='{}'{}", info.net_id, info.player_id,
+                           info.controller, info.team, info.macro, info.owner, label, info.npc ? " (npc)" : ""));
   } else {
     // A refresh (the server re-sends every spawn after a resume). Keep the object; update what may have changed.
-    const bool relabel = g->label != label;
+    const bool relabel = !info.npc && g->label != label;
     const bool reown = g->info.owner != info.owner && !info.owner.empty();
     g->info.player_id = info.player_id;
     g->info.controller = info.controller;
     g->info.team = info.team;
+    g->info.npc = info.npc;
     if (!info.macro.empty()) g->info.macro = info.macro;
     if (!info.name.empty()) g->info.name = info.name;
     if (reown) {
@@ -139,6 +144,11 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
     }
     g->hidden_by_server = false;
     if (relabel || reown) dirty_ = true;
+    // M4-14: the sector came back inside the leave grace: the object stays, no despawn/respawn churn.
+    if (g->erase_at_us >= 0) {
+      g->erase_at_us = -1;
+      log(kDebug, std::format("ghost kept: net={} came back inside the leave grace", info.net_id));
+    }
   }
   g->initial = state;
   if (state) g->initial_used = false;
@@ -156,6 +166,10 @@ void GhostDriver::on_change(std::uint32_t net_id, std::optional<std::string> nam
     g->info.owner = *owner;
     g->owner_dirty = true;
   }
+  if (g->info.npc) {  // an NPC has no label to keep in step
+    dirty_ = true;
+    return;
+  }
   const std::string label = make_label(g->info.name, g->info.controller, g->info.player_id);
   if (label != g->label) {
     g->label = label;
@@ -172,6 +186,14 @@ void GhostDriver::on_despawn(std::uint32_t net_id, DespawnKind kind) {
     g->hidden_by_server = true;
     const ghost::Interpolator* in = streams_.find(net_id);
     g->hidden_at_newest_us = in ? in->newest_sample_us() : 0;
+    return;
+  }
+  // M4-14: the sector left interest. Keep the object for the grace so a quick re-entry reuses it; a Destroyed/Removed/PlayerLeft entry
+  // still goes at once (the entity is gone for good).
+  if (kind == DespawnKind::OutOfInterest && cfg_.leave_grace_us > 0 && g->local_id != 0) {
+    g->erase_at_us = last_now_us_ + cfg_.leave_grace_us;
+    log(kDebug, std::format("ghost kept for the leave grace: net={} label='{}' ({:.1f} s)", net_id, g->label,
+                            static_cast<double>(cfg_.leave_grace_us) / 1e6));
     return;
   }
   log(kInfo, std::format("ghost removed by the server: net={} label='{}'", net_id, g->label));
@@ -350,7 +372,7 @@ bool GhostDriver::try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_
     return false;
   }
   world_->make_inert(id);
-  world_->dress(id, g.label, cfg_.min_hull_percent);
+  if (!g.info.npc) world_->dress(id, g.label, cfg_.min_hull_percent);  // M4-13: an NPC keeps the game's own name, no [MP] label
   g.idcode = world_->id_code(id);
   g.local_id = id;
   g.restored_id = 0;
@@ -363,7 +385,7 @@ bool GhostDriver::try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_
   g.last_inert_us = now_us;
   g.last_valid_us = now_us;
   g.hint_was_zero = true;
-  g.dressed_ok = false;
+  g.dressed_ok = g.info.npc;  // an NPC has nothing to dress, so the check never runs for it
   g.dress_retries = 0;
   g.dress_check_us = now_us + cfg_.dress_check_delay_us;
   g.label_dirty = false;
@@ -388,7 +410,26 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
   if (!world_) return fs;
   last_now_us_ = now_us;
   if (remove_all_ || !remove_queue_.empty()) process_removals();
+  // M4-16: the link is gone. Keep every ghost exactly where it was: no stale-hide, no placement, no hint, no validity check. A session end
+  // still runs above, so remove_all() is honoured even while frozen.
+  if (frozen_) {
+    fs.tracked = static_cast<int>(ghosts_.size());
+    return fs;
+  }
   hint_batch_.clear();
+  pending_spawns_.clear();
+
+  // M4-14: a ghost the server dropped with OutOfInterest goes when its leave grace runs out.
+  for (const Ghost& g : ghosts_) {
+    if (g.erase_at_us >= 0 && now_us >= g.erase_at_us) pending_erase_.push_back(g.info.net_id);
+  }
+  for (const std::uint32_t net_id : pending_erase_) {
+    const Ghost* g = find(net_id);
+    if (g != nullptr) log(kInfo, std::format("ghost removed after the leave grace: net={} label='{}'", net_id, g->label));
+    erase_record(net_id);
+  }
+  pending_erase_.clear();
+  if (!remove_queue_.empty()) process_removals();
 
   for (Ghost& g : ghosts_) {
     ghost::Interpolator* in = streams_.find(g.info.net_id);
@@ -429,11 +470,8 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     const Pose pose{rp.pos, rp.rot};
 
     if (g.local_id == 0) {
-      if (fs.spawns >= cfg_.max_spawns_per_frame || now_us < g.spawn_not_before_us) continue;
-      if (try_spawn(g, now_us, sec, pose)) {
-        ++fs.spawns;
-        ++fs.visible;
-      }
+      // M4-12: not spawned in this loop; after it the nearest pending ghosts spawn, up to the frame budget.
+      if (now_us >= g.spawn_not_before_us) pending_spawns_.push_back({world_->player_distance(sec, rp.pos), g.info.net_id, sec, pose});
       continue;
     }
     ++fs.visible;
@@ -527,6 +565,24 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     }
   }
 
+  // M4-12: spawn the pending ghosts nearest to the player first, at most max_spawns_per_frame. Anything beyond max_pending_spawns waits for a
+  // later frame (its samples are still buffered, so it spawns at the right pose when its turn comes).
+  if (!pending_spawns_.empty()) {
+    // stable: equal distances keep the record order, so a world without a player pose behaves exactly as before M4-12
+    std::ranges::stable_sort(pending_spawns_, [](const PendingSpawn& a, const PendingSpawn& b) { return a.distance < b.distance; });
+    const std::size_t cap = static_cast<std::size_t>(std::max(cfg_.max_pending_spawns, 1));
+    if (pending_spawns_.size() > cap) pending_spawns_.resize(cap);
+    for (const PendingSpawn& p : pending_spawns_) {
+      if (fs.spawns >= cfg_.max_spawns_per_frame) break;
+      Ghost* g = find(p.net_id);
+      if (g == nullptr || g->local_id != 0) continue;
+      if (try_spawn(*g, now_us, p.sector, p.pose)) {
+        ++fs.spawns;
+        ++fs.visible;
+      }
+    }
+  }
+
   if (!hint_batch_.empty()) {
     world_->hint_velocities(hint_batch_);
     counters_.hints_sent += hint_batch_.size();
@@ -553,8 +609,8 @@ std::string GhostDriver::to_meta() const {
   std::string out(kMetaHeader);
   out += '\n';
   for (const Ghost& g : ghosts_) {
-    out += std::format("G\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", g.info.net_id, g.info.player_id, g.info.controller, g.info.team, g.local_id, dash(g.idcode),
-                       dash(g.info.macro), dash(g.info.owner), dash(g.info.name));
+    out += std::format("G\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", g.info.net_id, g.info.player_id, g.info.controller, g.info.team, g.local_id,
+                       dash(g.idcode), dash(g.info.macro), dash(g.info.owner), dash(g.info.name), g.info.npc ? 1 : 0);
   }
   out += std::format("end\t{}\n", ghosts_.size());
   return out;
@@ -577,7 +633,7 @@ bool GhostDriver::restore(std::string_view meta, std::int64_t now_us) {
     pos = nl + 1;
     if (line.empty()) continue;
     if (!header) {
-      if (line != kMetaHeader) return false;
+      if (line != kMetaHeader && line != kMetaHeaderV1) return false;
       header = true;
       continue;
     }
@@ -587,7 +643,7 @@ bool GhostDriver::restore(std::string_view meta, std::int64_t now_us) {
       ended = true;
       continue;
     }
-    if (f[0] != "G" || f.size() != 10) return false;
+    if (f[0] != "G" || (f.size() != 10 && f.size() != 11)) return false;
     Ghost g;
     std::uint32_t net = 0;
     unsigned player = 0, controller = 0, team = 0;
@@ -602,7 +658,8 @@ bool GhostDriver::restore(std::string_view meta, std::int64_t now_us) {
     g.info.macro = undash(f[7]);
     g.info.owner = undash(f[8]);
     g.info.name = undash(f[9]);
-    g.label = make_label(g.info.name, g.info.controller, g.info.player_id);
+    g.info.npc = f.size() == 11 && f[10] == "1";
+    g.label = g.info.npc ? std::string() : make_label(g.info.name, g.info.controller, g.info.player_id);
     g.first_seen_us = now_us;
     g.ever_shown = local != 0;
     restored.push_back(std::move(g));

@@ -165,6 +165,14 @@ class FakeWorld final : public IGhostWorld {
   bool local_ship_within(std::uint64_t sector, const Vec3& pos, double radius) override {
     return local_present && local_sector == sector && ghost::distance(local_pos, pos) <= radius;
   }
+  // M4-12: the spawn budget's order. Off by default (every distance 0, the record order); a test sets the flag and the player's position.
+  bool distance_from_player = false;
+  Vec3 player_pos{};
+  double player_distance(std::uint64_t sector, const Vec3& pos) override {
+    if (!distance_from_player) return 0.0;
+    (void)sector;
+    return ghost::distance(player_pos, pos);
+  }
 
   // helpers for tests
   [[nodiscard]] std::size_t count_owned(const std::string& owner) const {

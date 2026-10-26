@@ -4,12 +4,16 @@
 #include <format>
 #include <utility>
 
+#include "features/authority/capture_ingest.h"
 #include "features/diag/diag_hub.h"
 #include "features/diag/knowledge_feature.h"
 #include "features/ghosts/ghost_hub.h"
+#include "features/ghosts/local_suppression.h"
 #include "features/join/platform_stash.h"
 #include "features/selfship/galaxy_map.h"
 #include "features/selfship/selfship_hub.h"
+#include "game/safe_remove.h"
+#include "nlohmann/json.hpp"
 
 namespace x4mp::features {
 
@@ -62,6 +66,17 @@ GhostFeature::GhostFeature() = default;
 
 GhostFeature::~GhostFeature() { ghosts::ghost_hub().detach(); }
 
+void ScanInbox::push(std::string text) {
+  const std::lock_guard lock(mutex);
+  if (items.size() >= 64) items.erase(items.begin());  // a stuck frame thread must not grow this without bound
+  items.push_back(std::move(text));
+}
+
+std::vector<std::string> ScanInbox::take() {
+  const std::lock_guard lock(mutex);
+  return std::exchange(items, {});
+}
+
 void GhostFeature::on_init(host::HostContext& ctx) {
   host::HostLog* log = &ctx.log;
   ghosts::GhostConfig gcfg{};
@@ -101,6 +116,17 @@ void GhostFeature::on_init(host::HostContext& ctx) {
   last_saved_strings_version_ = core_->strings.version();
 
   ghosts::ghost_hub().attach(core_.get());
+
+  // M4-13: the suppression pass. It asks MD for a sector's local ships over the same scan pair the authority uses (x4mp.capture_request ->
+  // x4mp.capture_scan); the answers arrive as platform events and are drained on the frame thread.
+  suppression_ = std::make_unique<ghosts::LocalSuppression>();
+  scan_inbox_ = std::make_shared<ScanInbox>();
+  {
+    auto inbox = scan_inbox_;
+    (void)ctx.platform.subscribe_event("x4mp.capture_scan", [inbox](std::string_view text) {
+      if (text.size() <= 256 * 1024) inbox->push(std::string(text));
+    });
+  }
   X4MP_CLOG(ctx.log, Cat::Ghost, Level::Info, "ghosts: init (restored {} ghost records and {} strings from the stash, spawn export {}, move export {})",
             restored, core_->strings.size(), ctx.game.fns().SpawnObjectAtPos2 ? "yes" : "NO", ctx.game.fns().SetObjectSectorPos ? "yes" : "NO");
 }
@@ -151,7 +177,12 @@ void GhostFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
     X4MP_CLOG(ctx.log, Cat::Ghost, Level::Info, "ghosts: waiting for the sector map (selfship feature, MD collector)");
   }
   const auto t0 = std::chrono::steady_clock::now();
+  // M4-16: the link is gone (a reconnect clears the own-ship link): keep every ghost exactly where it is, unmoving, and resume without a
+  // respawn when the link comes back.
+  c.driver.set_frozen(!selfship::selfship_hub().linked());
   const ghosts::FrameStats fs = c.driver.frame(now_server);
+  // M4-13/M4-15: local NPC suppression for the sectors the server has closed for us, and the 1 Hz late-spawn sweep.
+  pump_suppression(ctx, c, now_server);
   const double cost_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
   last_visible_ = fs.visible;
   if (!first_spawn_probed_ && c.driver.counters().spawned > 0) {  // M3-23: the knowledge probe after the first ghost spawn
@@ -171,6 +202,48 @@ void GhostFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
     if (last_report_us_ != 0) report(ctx, now_server);
     last_report_us_ = steady;
   }
+}
+
+void GhostFeature::pump_suppression(host::HostContext& ctx, ghosts::GhostCore& c, std::int64_t now_us) {
+  if (!suppression_ || !scan_inbox_) return;
+  const auto* map = selfship::selfship_hub().map();
+
+  // M4-13: the server closed these sectors for this client: every entity of them has been sent as EntitySpawn, so our own copies of their
+  // ships may go. The marker is what keeps us from suppressing a ship the authority has not streamed yet (it would vanish for a moment).
+  for (const auto& closed : c.take_sector_closed()) suppression_->on_sector_closed(closed.sector);
+  // M4-15: only sectors still in interest are swept; the ids we removed are remembered, so a re-entry removes nothing twice.
+  suppression_->on_interest(c.interest_sectors());
+
+  self_component_ = api_ ? api_->local_ship() : 0;
+  const auto skip = [this](std::uint64_t component) {
+    if (component == 0) return true;
+    if (self_component_ != 0 && component == self_component_) return true;  // the player's own ship is never suppressed
+    return ghosts::ghost_hub().is_ghost_local(component);                   // our ghosts are the authority's ships, not local ones
+  };
+
+  for (const auto& text : scan_inbox_->take()) {
+    const auto batch = auth::parse_scan_batch(text);
+    if (!batch) {
+      ++scan_bad_;
+      continue;
+    }
+    const std::uint16_t sector = map != nullptr ? map->index_of_macro(batch->sector_macro) : 0;
+    if (sector == 0) {
+      ++scan_bad_;  // the galaxy map does not know the macro yet; the next sweep asks again
+      continue;
+    }
+    suppression_->on_scan(sector, batch->rows, skip);
+  }
+
+  suppression_->frame(now_us, [&ctx, map](std::uint16_t sector) {
+    if (map == nullptr) return;
+    const std::string_view macro = map->macro_of(sector);
+    if (macro.empty()) return;
+    nlohmann::json j;
+    j["v"] = 1;
+    j["sector"] = std::string(macro);
+    (void)ctx.platform.raise_lua("x4mp.capture_request", j.dump());
+  }, [](std::uint64_t component) { (void)game::safe_remove(component); });
 }
 
 void GhostFeature::save_state(host::HostContext&) {
@@ -193,6 +266,17 @@ void GhostFeature::report(host::HostContext& ctx, std::int64_t) {
                           c.driver.size(), last_visible_, k.spawned, k.respawned, k.hidden, k.removed, k.adopted, k.hints_sent, c.counters.replication,
                           c.counters.replication_entries, frame_cost_us_.percentile(0.95), frame_cost_max_us_, c.clock_offset_us / 1000, c.stream_clock.bias_us() / 1000,
                           c.counters.replication_bad, k.spawn_failed, k.unmapped_frames, c.counters.spawn_unresolved));
+  // M4-13: the suppression pass, one line, only when it has done something.
+  if (suppression_) {
+    const ghosts::LocalSuppression::Stats& s = suppression_->stats();
+    if (s.requests != 0 || s.removed != 0) {
+      ctx.log.raw(Cat::Ghost, Level::Info,
+                  std::format("[sync] suppression: suppressed={} requests={} scans={} rows={} queued={} removed={} skipped_player={} skipped_mission={} skipped_known={} "
+                              "skipped_dup={} bad={}",
+                              suppression_->total_suppressed(), s.requests, s.scans, s.rows, s.queued, s.removed, s.skipped_player, s.skipped_mission,
+                              s.skipped_known, s.skipped_dup, scan_bad_));
+    }
+  }
   frame_cost_us_.clear();
   frame_cost_max_us_ = 0;
   // M3-34: the engine guard's totals, one line, only when the totals changed (the engine touched one of our objects)

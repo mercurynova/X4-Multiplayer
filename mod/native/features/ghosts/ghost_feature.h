@@ -15,14 +15,24 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/ghost/sync_stats.h"
 #include "features/ghosts/ghost_core.h"
 #include "features/ghosts/ghost_world.h"
+#include "features/ghosts/local_suppression.h"
 #include "host/feature.h"
 
 namespace x4mp::features {
+
+// M4-13: the scan answers (x4mp.capture_scan) arrive on the platform's event thread; the frame thread drains them.
+struct ScanInbox {
+  std::mutex mutex;
+  std::vector<std::string> items;
+  void push(std::string text);
+  [[nodiscard]] std::vector<std::string> take();
+};
 
 class GhostFeature final : public host::IFeature {
  public:
@@ -39,11 +49,17 @@ class GhostFeature final : public host::IFeature {
  private:
   void save_state(host::HostContext& ctx);
   void report(host::HostContext& ctx, std::int64_t now_us);
+  // M4-13/M4-15: the local NPC suppression pass (SectorComplete -> scan -> SafeRemove), plus the late-spawn sweep.
+  void pump_suppression(host::HostContext& ctx, ghosts::GhostCore& c, std::int64_t now_us);
 
   std::unique_ptr<ghosts::GhostCore> core_;
   std::unique_ptr<game::GhostsApi> api_;
   std::unique_ptr<ghosts::GameGhostWorld> world_;
   std::unique_ptr<session::IStash> stash_;
+  std::unique_ptr<ghosts::LocalSuppression> suppression_;
+  std::shared_ptr<ScanInbox> scan_inbox_;
+  std::uint64_t self_component_ = 0;  // the player's ship, never suppressed
+  std::uint64_t scan_bad_ = 0;        // scan answers that were not ours or did not parse
 
   bool universe_seen_ = false;
   std::uint64_t last_saved_strings_version_ = 0;

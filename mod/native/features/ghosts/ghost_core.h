@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "features/ghosts/ghost_driver.h"
 
@@ -38,9 +39,18 @@ class StringTable {
 
 struct MessageCounters {
   std::uint64_t replication = 0, replication_entries = 0, replication_bad = 0;
-  std::uint64_t spawn_messages = 0, spawn_player_ships = 0, spawn_ignored = 0, spawn_bad = 0, spawn_unresolved = 0;
+  std::uint64_t spawn_messages = 0, spawn_player_ships = 0, spawn_npcs = 0, spawn_ignored = 0, spawn_bad = 0, spawn_unresolved = 0;
   std::uint64_t change = 0, despawn = 0, strings = 0, bad_frames = 0;
+  std::uint64_t sector_complete = 0, interest = 0;
   std::map<std::uint16_t, std::uint32_t> frames_seen;  // every inbound frame type the hub saw (diagnostics: which messages reached us)
+};
+
+// M4-13: the server closed a sector for this client (SectorComplete, S->N): every entity of that sector in the client's interest has been
+// sent as EntitySpawn, so the client may suppress its own NPC ships there. The feature drains this list every frame.
+struct SectorClosed {
+  std::uint16_t sector = 0;
+  std::uint32_t epoch = 0;
+  std::uint32_t entity_count = 0;
 };
 
 // The Replication time base is the AUTHORITY's capture clock (Replication.server_time_us = the latest WorldUpdate's capture time). It is
@@ -83,6 +93,12 @@ class GhostCore {
   StreamClock stream_clock;  // see StreamClock: the render clock is now_server - stream_clock.bias_us()
   std::int64_t clock_offset_us = 0;  // server - local steady clock; 0 until the first Pong
 
+  // M4-13: sectors the server has closed for this client, drained by the feature (which asks MD for their local ships).
+  std::vector<SectorClosed> sector_closed;
+  [[nodiscard]] std::vector<SectorClosed> take_sector_closed();
+  // M4-15: the sectors in this client's interest (InterestUpdate). The suppression sweep only rescans these.
+  [[nodiscard]] const std::vector<std::uint16_t>& interest_sectors() const noexcept { return interest_; }
+
   // Handles one inbound frame of the session. Returns true when the type is one this core consumes (the caller keeps routing it
   // to the other features anyway). `now_server_us` = the receiver's server-clock estimate now.
   bool on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_player_id, std::int64_t now_server_us);
@@ -96,6 +112,10 @@ class GhostCore {
   void on_entity_change(std::span<const std::uint8_t> payload);
   void on_entity_despawn(std::span<const std::uint8_t> payload);
   void on_replication(std::span<const std::uint8_t> payload, std::int64_t now_us);
+  void on_sector_complete(std::span<const std::uint8_t> payload);
+  void on_interest(std::span<const std::uint8_t> payload);
+
+  std::vector<std::uint16_t> interest_;
 };
 
 }  // namespace x4mp::features::ghosts

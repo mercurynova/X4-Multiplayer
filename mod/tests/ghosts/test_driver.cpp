@@ -374,13 +374,135 @@ TEST_CASE("the spawn state is used when no Replication sample ever arrives", "[g
   CHECK(r.world.only()->name == "[MP] Pax (offline)");
 }
 
-TEST_CASE("at most two spawns per frame", "[ghosts][driver][budget]") {
-  Rig r;
+TEST_CASE("M4-12: at most max_spawns_per_frame spawns per frame, and every pending ghost still spawns", "[ghosts][driver][budget][m412]") {
+  GhostConfig cfg;
+  cfg.max_spawns_per_frame = 2;
+  Rig r(cfg);
   for (std::uint32_t n = 1; n <= 7; ++n) r.add(n, circle_track(1000.0 + 50.0 * n, 150), Rig::info(n, static_cast<std::uint16_t>(n + 1), "P" + std::to_string(n), static_cast<std::uint16_t>(n + 1)));
   int max_spawns = 0;
   for (int i = 0; i < 400; ++i) max_spawns = std::max(max_spawns, r.step().spawns);
   CHECK(max_spawns <= 2);
   CHECK(r.world.objs.size() == 7);
+}
+
+TEST_CASE("M4-12: the spawn budget is spent nearest to the player first", "[ghosts][driver][budget][m412]") {
+  GhostConfig cfg;
+  cfg.max_spawns_per_frame = 1;  // one at a time, so the order is visible
+  Rig r(cfg);
+  r.world.distance_from_player = true;
+  r.world.player_pos = {0, 0, 0};
+  r.add(31, circle_track(3000, 150), Rig::info(31, 2, "Far", 2));
+  r.add(32, circle_track(1000, 150), Rig::info(32, 3, "Near", 3));
+  r.add(33, circle_track(2000, 150), Rig::info(33, 4, "Mid", 4));
+  int frames = 0;
+  while (r.world.objs.empty() && frames < 400) {
+    (void)r.step();
+    ++frames;
+  }
+  REQUIRE(r.world.objs.size() == 1);
+  std::uint32_t first = 0;
+  for (const auto& v : r.driver->views()) {
+    if (v.local_id != 0) first = v.net_id;
+  }
+  CHECK(first == 32);  // the 1 km ghost, not the 3 km one that was added first
+  r.run(2.0);
+  CHECK(r.world.objs.size() == 3);
+}
+
+TEST_CASE("M4-12: the pending set is capped, so the farthest wait for a later frame", "[ghosts][driver][budget][m412]") {
+  GhostConfig cfg;
+  cfg.max_spawns_per_frame = 40;   // the budget is not the limit here
+  cfg.max_pending_spawns = 2;      // the cap is
+  Rig r(cfg);
+  r.world.distance_from_player = true;
+  r.world.player_pos = {0, 0, 0};
+  for (std::uint32_t n = 1; n <= 5; ++n) r.add(n, circle_track(1000.0 * n, 150), Rig::info(n, static_cast<std::uint16_t>(n + 1), "P" + std::to_string(n), static_cast<std::uint16_t>(n + 1)));
+  int max_spawns = 0;
+  for (int i = 0; i < 400; ++i) max_spawns = std::max(max_spawns, r.step().spawns);
+  CHECK(max_spawns <= 2);
+  CHECK(r.world.objs.size() == 5);  // the cap delays them, it never loses a ghost
+}
+
+TEST_CASE("M4-13: an NPC ghost keeps the real faction and is never labelled or dressed", "[ghosts][driver][npc][m413]") {
+  Rig r;
+  r.world.factions.insert("split");
+  auto info = Rig::info(41, 0, "", 0, "split", "ship_spl_s_heavyfighter_01_a_macro", 0);
+  info.npc = true;
+  r.add(41, circle_track(1000, 150), info);
+  r.run(1.0);
+  REQUIRE(r.world.only() != nullptr);
+  CHECK(r.world.only()->owner == "split");  // the authority's faction, not a team faction
+  CHECK(r.world.only()->name == "ship_spl_s_heavyfighter_01_a_macro");  // the game's own name: no [MP] label
+  CHECK(r.world.only()->min_hull == -1);
+  CHECK(r.world.only()->inert);
+  CHECK(r.world.dress_calls == 0);
+  REQUIRE(r.driver->views().size() == 1);
+  CHECK(r.driver->views()[0].label.empty());
+}
+
+TEST_CASE("M4-14: a ghost dropped with OutOfInterest keeps its object for the grace, and a re-entry reuses it", "[ghosts][driver][grace][m414]") {
+  Rig r;
+  r.add(11, circle_track(1000, 150), Rig::info(11, 2, "Pax", 2));
+  r.run(1.0);
+  REQUIRE(r.world.only() != nullptr);
+  const std::uint64_t id = r.world.only()->id;
+  const int removes = r.world.remove_calls;
+  r.driver->on_despawn(11, DespawnKind::OutOfInterest);
+  r.run(5.0);  // inside the 10 s window
+  REQUIRE(r.world.only() != nullptr);
+  CHECK(r.world.only()->id == id);
+  CHECK(r.world.remove_calls == removes);
+  CHECK(r.driver->size() == 1);
+  // the sector comes back before the grace runs out: same record, same object, no churn
+  r.driver->on_spawn(Rig::info(11, 2, "Pax", 2), r.now, std::nullopt);
+  r.run(6.0);  // past the point where the grace would have expired
+  REQUIRE(r.world.only() != nullptr);
+  CHECK(r.world.only()->id == id);
+  CHECK(r.world.remove_calls == removes);
+  CHECK(r.driver->counters().spawned == 1);
+  CHECK(r.driver->counters().respawned == 0);
+}
+
+TEST_CASE("M4-14: when the leave grace runs out the object is removed exactly once", "[ghosts][driver][grace][m414]") {
+  Rig r;
+  r.add(11, circle_track(1000, 150), Rig::info(11, 2, "Pax", 2));
+  r.run(1.0);
+  REQUIRE(r.world.only() != nullptr);
+  const std::uint64_t id = r.world.only()->id;
+  r.driver->on_despawn(11, DespawnKind::OutOfInterest);
+  r.run(9.0);
+  CHECK(r.world.only() != nullptr);  // still inside the window
+  r.run(2.0);
+  CHECK(r.world.objs.empty());
+  REQUIRE(r.world.removed_ids.size() == 1);
+  CHECK(r.world.removed_ids[0] == id);
+  CHECK(r.driver->size() == 0);
+}
+
+TEST_CASE("M4-16: a frozen driver leaves every ghost in place and resumes without a respawn", "[ghosts][driver][freeze][m416]") {
+  Rig r;
+  r.add(11, circle_track(1000, 60), Rig::info(11, 2, "Pax", 2));
+  r.run(1.0);
+  REQUIRE(r.world.only() != nullptr);
+  const std::uint64_t id = r.world.only()->id;
+  const Vec3 held = r.world.only()->pose.pos;
+  const int places = r.world.place_calls;
+  r.driver->set_frozen(true);
+  CHECK(r.driver->frozen());
+  r.run(10.0);  // the link is gone: the track keeps arriving here, but nothing may move
+  REQUIRE(r.world.only() != nullptr);
+  CHECK(r.world.only()->id == id);
+  CHECK(dist(r.world.only()->pose.pos, held) < 1e-9);
+  CHECK(r.world.place_calls == places);
+  CHECK(r.world.remove_calls == 0);
+  CHECK(r.driver->size() == 1);
+  r.driver->set_frozen(false);
+  r.run(1.0);
+  REQUIRE(r.world.only() != nullptr);
+  CHECK(r.world.only()->id == id);
+  CHECK(r.driver->counters().spawned == 1);
+  CHECK(r.driver->counters().respawned == 0);
+  CHECK(r.world.place_calls > places);  // moving again
 }
 
 TEST_CASE("an owner change from the server re-owns the object", "[ghosts][driver]") {

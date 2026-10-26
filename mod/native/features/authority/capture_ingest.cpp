@@ -27,7 +27,8 @@ std::string_view next_sep(std::string_view& rest, char sep) {
 // One ';'-separated field of the batch.
 std::string_view next_field(std::string_view& rest) { return next_sep(rest, ';'); }
 
-// One '|'-separated row: component|macro|owner. Extra fields are ignored, so MD can append without breaking the parser.
+// One '|'-separated row: component|macro|owner|mission. The mission field is optional (M4-13: the client's suppression scan appends it; the
+// authority ignores it), so a three-field row stays valid.
 bool parse_row(std::string_view text, ScanRow& out) {
   text = trim(text);
   if (text.empty()) return false;
@@ -47,9 +48,11 @@ bool parse_row(std::string_view text, ScanRow& out) {
   const auto macro = trim(next_sep(text, '|'));
   if (macro.empty()) return false;
   const auto owner = trim(next_sep(text, '|'));
+  const auto mission = trim(next_sep(text, '|'));
   out.component = component;
   out.macro.assign(macro);
   out.owner.assign(owner);
+  out.mission = mission == "1" || mission == "true";
   return true;
 }
 

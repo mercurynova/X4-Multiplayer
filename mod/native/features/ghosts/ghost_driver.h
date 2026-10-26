@@ -89,6 +89,9 @@ class IGhostWorld {
   virtual FactionPresence faction(std::string_view faction) = 0;
   // True when the local player's ship is in `sector` within `radius` metres of `pos` (spawn clearance).
   virtual bool local_ship_within(std::uint64_t sector, const Vec3& pos, double radius) = 0;
+  // M4-12: how far a not-yet-spawned ghost is from the player, in metres, for the spawn budget's order. A world without a player pose
+  // (the test fakes) returns 0 and keeps the record order.
+  virtual double player_distance(std::uint64_t /*sector*/, const Vec3& /*pos*/) { return 0.0; }
 };
 
 // What the wire says about one player ship (EntitySpawn / EntityRecord, or restored from the stash).
@@ -100,6 +103,9 @@ struct SpawnInfo {
   std::string name;               // as sent; the label is derived (prefix, offline suffix)
   std::string macro;
   std::string owner;              // faction id passed to the spawn, e.g. "x4mp_team_1"
+  // M4-13: an NPC entity of the authority's world (EntityOrigin::AuthorityRuntime / Manifest). It has no player, no controller and no
+  // team, is never labelled or dressed, and keeps the authority's real owner faction (mod-design 4.4).
+  bool npc = false;
 };
 
 // The pose an EntitySpawn carried (used only when no Replication sample arrives within kSpawnPoseFallbackUs).
@@ -112,12 +118,21 @@ struct InitialState {
 };
 
 enum class DespawnKind : std::uint8_t {
-  Remove,     // Destroyed / Removed / OutOfInterest / PlayerLeft / unknown: the ghost goes away for good
-  HideOnly    // DockedInside: the ship still exists, the ghost is hidden until samples say otherwise
+  Remove,     // Destroyed / Removed / PlayerLeft / unknown: the ghost goes away for good
+  HideOnly,   // DockedInside: the ship still exists, the ghost is hidden until samples say otherwise
+  OutOfInterest  // M4-14: the sector left the client's interest: the object is kept for the leave grace, then removed
 };
 
 struct GhostConfig {
-  int max_spawns_per_frame = 2;
+  // M4-12 (mod-design 4.3): ghosts are created at most this many per frame, nearest to the player first. The M3 value was 2 (player
+  // ships only); a sector entry can carry a few hundred, so the design's 40 is the default now.
+  int max_spawns_per_frame = 40;
+  // M4-12: how many records may wait for their turn. Beyond this the farthest are dropped from the pending set (their samples stay, so
+  // they spawn when the budget reaches them again).
+  int max_pending_spawns = 512;
+  // M4-14: a ghost the server despawns (OutOfInterest) keeps its object this long, so leaving and re-entering a sector within the window
+  // reuses the same object instead of a despawn/respawn pair.
+  std::int64_t leave_grace_us = 10'000'000;
   std::int64_t hint_interval_us = 200'000;           // velocity hint 5 Hz (S13.2 mode c)
   std::int64_t zero_hint_interval_us = 2'000'000;    // a stationary ghost gets its zero velocity re-sent this often
   std::int64_t parked_set_interval_us = 250'000;     // unchanged pose: re-assert this often (puts a pushed ghost back)
@@ -178,10 +193,15 @@ class GhostDriver {
   void bind_world(IGhostWorld* world) noexcept { world_ = world; }
   void set_self(std::uint16_t player_id) noexcept { self_ = player_id; }
   [[nodiscard]] std::uint16_t self() const noexcept { return self_; }
+  // M4-16: the link is gone. While frozen frame() does nothing at all: the ghosts stay where they were, unmoving, and no stale-hide,
+  // placement, hint or validity check runs. Unfreezing resumes from the interpolators with no respawn.
+  void set_frozen(bool frozen) noexcept { frozen_ = frozen; }
+  [[nodiscard]] bool frozen() const noexcept { return frozen_; }
 
   // ---- messages (no game calls) ----
-  // Own ship (controller == self, or parked with owner == self) and non-player entities are ignored; returns true when a ghost record
-  // exists afterwards. A second spawn for a known net_id refreshes it (a resume re-sends every spawn).
+  // Own ship (controller == self, or parked with owner == self) is ignored; an NPC entity (info.npc) is admitted when it has a macro and an
+  // owner. Returns true when a ghost record exists afterwards. A second spawn for a known net_id refreshes it (a resume re-sends every spawn)
+  // and cancels a pending leave-grace erase.
   bool on_spawn(const SpawnInfo& info, std::int64_t now_us, const std::optional<InitialState>& state = std::nullopt);
   // EntityChange: any subset; an empty optional leaves the field alone.
   void on_change(std::uint32_t net_id, std::optional<std::string> name, std::optional<std::uint16_t> controller, std::optional<std::string> owner,
@@ -257,6 +277,7 @@ class GhostDriver {
     bool dressed_ok = false;
     bool hint_was_zero = false;
     std::int64_t last_guard_us = 0, guard_hot_until_us = 0, last_guard_log_us = 0;  // M3-34 engine guard
+    std::int64_t erase_at_us = -1;  // M4-14: >= 0 = the server dropped it, the object goes when the leave grace runs out
     bool force_place = false;
     bool have_prev = false;
     Pose last_pose{}, prev_pose{};
@@ -299,6 +320,16 @@ class GhostDriver {
   bool dirty_ = false;
   bool adopt_pending_ = false;
   bool remove_all_ = false;
+  bool frozen_ = false;  // M4-16: the link is gone (see set_frozen)
+  // M4-12: the not-yet-spawned ghosts of this frame, nearest first, cut to max_pending_spawns; the first max_spawns_per_frame of them spawn.
+  struct PendingSpawn {
+    double distance = 0.0;
+    std::uint32_t net_id = 0;
+    std::uint64_t sector = 0;
+    Pose pose;
+  };
+  std::vector<PendingSpawn> pending_spawns_;
+  std::vector<std::uint32_t> pending_erase_;  // M4-14: net ids whose leave grace ran out this frame
   std::int64_t last_now_us_ = 0;  // server clock of the last frame (for the age of the newest sample in the [sync] line)
 };
 

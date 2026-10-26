@@ -139,18 +139,22 @@ TEST_CASE("EntitySpawn of a player ship makes a ghost record with macro, owner a
   CHECK(std::abs(r.world.only()->pose.pos.z - 200.0) < 0.1);
 }
 
-TEST_CASE("EntitySpawn: non-player entities, the own ship and unresolved strings", "[ghosts][messages]") {
+TEST_CASE("EntitySpawn: NPC entities, the own ship and unresolved strings", "[ghosts][messages][m413]") {
   CoreRig r;
+  // M4-13: the authority's own world arrives as AuthorityRuntime / Manifest and is admitted as an NPC ghost.
   r.feed(type_of(P::MsgType::EntitySpawn), spawn_payload(21, 0, 0, 0, 1, 2, "NPC", authority::SpawnOrigin::AuthorityRuntime));
   r.feed(type_of(P::MsgType::EntitySpawn), spawn_payload(22, 0, 0, 0, 1, 2, "Station", authority::SpawnOrigin::Manifest));
-  CHECK(r.core.driver.size() == 0);
-  CHECK(r.core.counters.spawn_ignored == 2);
+  CHECK(r.core.driver.size() == 2);
+  CHECK(r.core.counters.spawn_npcs == 2);
+  CHECK(r.core.counters.spawn_player_ships == 0);
+  CHECK(r.core.counters.spawn_ignored == 0);
   r.feed(type_of(P::MsgType::EntitySpawn), spawn_payload(23, kSelf, kSelf, 1, 1, 2, "[MP] Me"));      // my own avatar
   r.feed(type_of(P::MsgType::EntitySpawn), spawn_payload(24, 0, kSelf, 1, 1, 2, "[MP] Me (parked)"));  // my parked avatar
-  CHECK(r.core.driver.size() == 0);
+  CHECK(r.core.driver.size() == 2);
   // the faction string says `player`: never used as the ghost owner; the team faction is derived from owner_team
   r.feed(type_of(P::MsgType::EntitySpawn), spawn_payload(25, 3, 3, 1, 1, 3, "[MP] Pia"));
-  REQUIRE(r.core.driver.size() == 1);
+  REQUIRE(r.core.driver.size() == 3);
+  CHECK(r.core.counters.spawn_player_ships == 1);
   // a macro the table does not know: the record exists, the spawn never happens (error logged), nothing crashes
   r.feed(type_of(P::MsgType::EntitySpawn), spawn_payload(26, 4, 4, 1, 99, 2, "[MP] Bob"));
   CHECK(r.core.counters.spawn_unresolved == 1);
@@ -158,8 +162,73 @@ TEST_CASE("EntitySpawn: non-player entities, the own ship and unresolved strings
     r.now += 16'667;
     (void)r.core.driver.frame(r.now);
   }
-  CHECK(r.world.objs.size() == 1);  // only Pia (Bob has no macro)
-  CHECK(r.world.only()->owner == "x4mp_team_1");
+  CHECK(r.world.objs.size() == 3);  // the two NPCs and Pia (Bob has no macro)
+  CHECK(r.world.count_owned("x4mp_team_1") == 3);
+}
+
+TEST_CASE("M4-13: an NPC ghost is spawned under its real faction and is never labelled or dressed", "[ghosts][messages][m413]") {
+  CoreRig r;
+  r.feed(type_of(P::MsgType::EntitySpawn), spawn_payload(21, 0, 0, 0, 1, 2, "NPC", authority::SpawnOrigin::AuthorityRuntime));
+  REQUIRE(r.core.driver.size() == 1);
+  CHECK(r.core.driver.views()[0].label.empty());  // no [MP] prefix: it is not a player
+  for (int i = 0; i < 120; ++i) {
+    r.now += 16'667;
+    (void)r.core.driver.frame(r.now);
+  }
+  const FakeObj* obj = r.world.only();
+  REQUIRE(obj != nullptr);
+  CHECK(obj->owner == "x4mp_team_1");  // the authority's faction, not a team slot
+  CHECK(obj->name == "ship_arg_s_fighter_01_a_macro");  // the game's own name: dress never ran
+  CHECK(obj->min_hull == -1);
+  CHECK(r.world.dress_calls == 0);
+  CHECK(obj->inert);
+  // an EntityChange on it keeps the empty label and does not schedule a dress
+  r.feed(type_of(P::MsgType::EntityChange), change_payload(21, P::ChangeField::Name, 0, "Renamed"));
+  for (int i = 0; i < 120; ++i) {
+    r.now += 16'667;
+    (void)r.core.driver.frame(r.now);
+  }
+  CHECK(r.core.driver.views()[0].label.empty());
+  CHECK(r.world.dress_calls == 0);
+}
+
+TEST_CASE("M4-13/M4-15: SectorComplete and InterestUpdate reach the client state", "[ghosts][messages][m413]") {
+  CoreRig r;
+  const auto sector_complete = [](std::uint16_t sector, std::uint32_t epoch, std::uint32_t count) {
+    flatbuffers::FlatBufferBuilder fbb;
+    fbb.Finish(P::CreateSectorComplete(fbb, sector, epoch, count));
+    return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
+  };
+  CHECK(GhostCore::wants(type_of(P::MsgType::SectorComplete)));
+  CHECK(GhostCore::wants(type_of(P::MsgType::InterestUpdate)));
+  r.feed(type_of(P::MsgType::SectorComplete), sector_complete(7, 3, 82));
+  r.feed(type_of(P::MsgType::SectorComplete), sector_complete(0, 3, 0));  // sector 0 is not a sector
+  CHECK(r.core.counters.sector_complete == 2);
+  auto closed = r.core.take_sector_closed();
+  REQUIRE(closed.size() == 1);
+  CHECK(closed[0].sector == 7);
+  CHECK(closed[0].epoch == 3);
+  CHECK(closed[0].entity_count == 82);
+  CHECK(r.core.take_sector_closed().empty());  // drained: the feature sees each marker once
+
+  // InterestUpdate, full: replaces the set. SectorTier is a struct, so build the vector by hand.
+  const auto interest = [](std::uint32_t epoch, bool full, const std::vector<std::uint16_t>& sectors) {
+    std::vector<P::SectorTier> tiers;
+    for (const auto sector : sectors) tiers.push_back(P::SectorTier(sector, P::InterestTier::Linger));
+    flatbuffers::FlatBufferBuilder fbb;
+    fbb.Finish(P::CreateInterestUpdateDirect(fbb, epoch, full, &tiers));
+    return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
+  };
+  r.feed(type_of(P::MsgType::InterestUpdate), interest(3, true, {7, 9}));
+  CHECK(r.core.counters.interest == 1);
+  REQUIRE(r.core.interest_sectors().size() == 2);
+  CHECK(r.core.interest_sectors()[0] == 7);
+  CHECK(r.core.interest_sectors()[1] == 9);
+  r.feed(type_of(P::MsgType::InterestUpdate), interest(3, true, {9}));  // full: 7 left the interest
+  REQUIRE(r.core.interest_sectors().size() == 1);
+  CHECK(r.core.interest_sectors()[0] == 9);
+  r.feed(type_of(P::MsgType::InterestUpdate), interest(3, false, {7}));  // delta: union
+  REQUIRE(r.core.interest_sectors().size() == 2);
 }
 
 TEST_CASE("EntityChange: controller, name, owner; EntityDespawn: remove vs hide", "[ghosts][messages]") {

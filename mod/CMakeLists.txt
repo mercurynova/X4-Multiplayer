@@ -664,3 +664,11 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_stream.cpp)
 endif()
 # END M4 wave 2
+
+# BEGIN M4 wave 3: the client side (local_suppression comes with the features glob).
+#   x4mp_host_tests += tests/test_suppression.cpp (closed+interest gating, the player/mission/ghost filters, the 200-per-frame spread,
+#                     no double suppression on re-entry, the 1 Hz late-spawn sweep). Plan: docs/m4-plan.md W3 (M4-12..M4-16).
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_suppression.cpp)
+endif()
+# END M4 wave 3

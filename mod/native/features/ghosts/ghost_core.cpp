@@ -1,7 +1,9 @@
 #include "features/ghosts/ghost_core.h"
 
 #include <charconv>
+#include <algorithm>
 #include <format>
+#include <utility>
 
 #include "message_ids_generated.h"
 #include "session_generated.h"
@@ -116,10 +118,15 @@ bool GhostCore::wants(std::uint16_t type) noexcept {
     case P::MsgType::EntitySpawn:
     case P::MsgType::EntityChange:
     case P::MsgType::EntityDespawn:
-    case P::MsgType::Replication: return true;
+    case P::MsgType::Replication:
+    // M4-13/M4-15: the sector marker that unlocks local suppression, and the interest that scopes its sweep.
+    case P::MsgType::SectorComplete:
+    case P::MsgType::InterestUpdate: return true;
     default: return false;
   }
 }
+
+std::vector<SectorClosed> GhostCore::take_sector_closed() { return std::exchange(sector_closed, {}); }
 
 bool GhostCore::on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_player_id, std::int64_t now_server_us) {
   driver.set_self(self_player_id);
@@ -129,7 +136,46 @@ bool GhostCore::on_frame_message(std::uint16_t type, std::span<const std::uint8_
     case P::MsgType::EntityChange: on_entity_change(payload); return true;
     case P::MsgType::EntityDespawn: on_entity_despawn(payload); return true;
     case P::MsgType::Replication: on_replication(payload, now_server_us); return true;
+    case P::MsgType::SectorComplete: on_sector_complete(payload); return true;
+    case P::MsgType::InterestUpdate: on_interest(payload); return true;
     default: return false;
+  }
+}
+
+// M4-13: "every entity of this sector in your interest has been sent". The feature asks MD for the sector's local ships and suppresses the
+// ones the authority does not stream.
+void GhostCore::on_sector_complete(std::span<const std::uint8_t> payload) {
+  const auto* m = verified_root<P::SectorComplete>(payload);
+  if (!m) {
+    ++counters.bad_frames;
+    return;
+  }
+  ++counters.sector_complete;
+  if (m->sector() == 0) return;
+  sector_closed.push_back(SectorClosed{m->sector(), m->epoch(), m->entity_count()});
+}
+
+// M4-15: the sectors this client's interest covers; a sector that leaves stops being swept. `full` means the list is the whole set, which is
+// what the server sends today; a delta would need merging, so a non-full update is treated as a delta by union (safe: a stale sector is only
+// an extra scan).
+void GhostCore::on_interest(std::span<const std::uint8_t> payload) {
+  const auto* m = verified_root<P::InterestUpdate>(payload);
+  if (!m) {
+    ++counters.bad_frames;
+    return;
+  }
+  ++counters.interest;
+  if (!m->sectors()) return;
+  std::vector<std::uint16_t> next;
+  next.reserve(m->sectors()->size());
+  for (const auto* tier : *m->sectors()) {
+    if (tier != nullptr && tier->sector() != 0) next.push_back(tier->sector());
+  }
+  if (m->full()) interest_ = std::move(next);
+  else {
+    for (const auto sector : next) {
+      if (std::find(interest_.begin(), interest_.end(), sector) == interest_.end()) interest_.push_back(sector);
+    }
   }
 }
 
@@ -157,16 +203,21 @@ void GhostCore::on_entity_spawn(std::span<const std::uint8_t> payload, std::int6
   if (!m->entities()) return;
   for (const auto* r : *m->entities()) {
     if (!r) continue;
-    if (r->origin() != P::EntityOrigin::PlayerShip) {  // M3: players only (M4 brings NPC streaming)
+    // M3: player ships. M4-13: the authority's world (NPC ships of a captured sector) arrives as AuthorityRuntime / Manifest and is admitted
+    // as an NPC ghost with the entity's real owner faction. Player-built stations and the rest wait for W4 (the manifest).
+    const bool player_ship = r->origin() == P::EntityOrigin::PlayerShip;
+    const bool npc = r->origin() == P::EntityOrigin::AuthorityRuntime || r->origin() == P::EntityOrigin::Manifest;
+    if (!player_ship && !npc) {
       ++counters.spawn_ignored;
       continue;
     }
     SpawnInfo info;
     info.net_id = r->net_id();
-    info.controller = r->controller_player();
-    info.player_id = r->controller_player() != 0 ? r->controller_player() : r->owner_player();
-    info.team = r->owner_team();
-    info.name = str(r->name());
+    info.npc = npc;
+    info.controller = npc ? 0 : r->controller_player();
+    info.player_id = npc ? 0 : (r->controller_player() != 0 ? r->controller_player() : r->owner_player());
+    info.team = npc ? 0 : r->owner_team();
+    info.name = npc ? std::string() : str(r->name());
     info.macro = std::string(strings.value(r->macro_ref()));
     info.owner = std::string(strings.value(r->owner_ref()));
     // The canonical team faction (M3-08: slot of the team). A ghost must never be owned by the `player` faction (it would show up as the
@@ -188,8 +239,12 @@ void GhostCore::on_entity_spawn(std::span<const std::uint8_t> payload, std::int6
       i.vel = {wire::dequantize_velocity(s->vx(), coarse), wire::dequantize_velocity(s->vy(), coarse), wire::dequantize_velocity(s->vz(), coarse)};
       st = i;
     }
-    if (driver.on_spawn(info, now_us, st)) ++counters.spawn_player_ships;
-    else ++counters.spawn_ignored;
+    if (driver.on_spawn(info, now_us, st)) {
+      if (npc) ++counters.spawn_npcs;
+      else ++counters.spawn_player_ships;
+    } else {
+      ++counters.spawn_ignored;
+    }
   }
 }
 
@@ -227,7 +282,9 @@ void GhostCore::on_entity_despawn(std::span<const std::uint8_t> payload) {
   if (!m->entries()) return;
   for (const auto* e : *m->entries()) {
     if (!e) continue;
-    const DespawnKind k = e->reason() == P::DespawnReason::DockedInside ? DespawnKind::HideOnly : DespawnKind::Remove;
+    const DespawnKind k = e->reason() == P::DespawnReason::DockedInside ? DespawnKind::HideOnly
+                           : e->reason() == P::DespawnReason::OutOfInterest ? DespawnKind::OutOfInterest
+                                                                           : DespawnKind::Remove;
     driver.on_despawn(e->net_id(), k);
   }
 }

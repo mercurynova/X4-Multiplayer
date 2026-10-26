@@ -49,10 +49,15 @@
               <do_if value="$Owner == null">
                 <set_value name="$Owner" exact="''"/>
               </do_if>
+              <!-- M4-13: the client's suppression pass skips mission ships; the authority ignores the 4th field. -->
+              <set_value name="$Mission" exact="0"/>
+              <do_if value="$Ship.ismission">
+                <set_value name="$Mission" exact="1"/>
+              </do_if>
               <do_if value="$Chunk != ''">
                 <set_value name="$Chunk" exact="$Chunk + ';'"/>
               </do_if>
-              <set_value name="$Chunk" exact="$Chunk + '' + $Ship + '|' + $Ship.macro.id + '|' + $Owner"/>
+              <set_value name="$Chunk" exact="$Chunk + '' + $Ship + '|' + $Ship.macro.id + '|' + $Owner + '|' + $Mission"/>
               <set_value name="$InChunk" exact="$InChunk + 1"/>
               <set_value name="$Total" exact="$Total + 1"/>
               <do_if value="$InChunk ge 60">
