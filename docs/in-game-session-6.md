@@ -175,7 +175,8 @@ mission actors use exactly that), which is a one-word change, but it must be che
 
 | Symptom | What to do |
 |---|---|
-| No avatar on the other PC at all | Both must be **standing** in the same room of the same station. Check `actors=` in the 30 s `onfoot:` line (0/1 = nothing visible) and `reports=` (0 = no room report) |
+| No avatar on the other PC at all | Both must be **standing** in the same room of the same station. Check `actors=` in the 30 s `onfoot:` line (0/1 = nothing visible) and `reports=` (0 = no room report). If the log says `onfoot spawn: no room <id>` the two clients disagree about the room macro id — send that line |
+| No avatar and the log says `no character` | The appearance macro the peer picked is not in this build. Switch the picker back to Default and re-enter the room |
 | Avatar exists but 1.7 m too high/low | Note it: it is the eye-to-foot constant. Send a screenshot |
 | Avatar exists but in another room / far away | Note the distance: it is the room anchor. Send the `onfoot: avatar` lines and the room you were in |
 | Avatar blinks at doorways and lifts | Expected for a moment (the room is null there). Note how long |
