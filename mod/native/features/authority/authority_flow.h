@@ -37,6 +37,7 @@
 #include "features/authority/authority_data.h"
 #include "features/authority/capture_ingest.h"
 #include "features/authority/capture_set.h"
+#include "features/authority/entity_stream.h"
 #include "features/authority/universe_index.h"
 #include "features/avatars/avatar_plan.h"
 #include "host/feature.h"
@@ -171,20 +172,21 @@ class AuthorityFlow {
   std::optional<ShipRec> spawn_ship_;
   GalaxyPlan spawn_plan_;
   // M3-14: the authority's clock reference. The server replicates player ships only after it has seen one WorldUpdate (its game time and capture time
-  // are the reference every entity state is stamped with), and the M3 mod streams no world: this sends the keepalive WorldUpdate (no states) at 20 Hz.
+  // are the reference every entity state is stamped with). M4-08: the same 20 Hz tick now carries the captured world through EntityStream, and an empty
+  // WorldUpdate is still the keepalive when nothing moved.
   void step_world_clock(host::HostContext& ctx);
-  flatbuffers::FlatBufferBuilder wu_fbb_{256};
-  std::uint32_t wu_tick_ = 0;
   Clock::time_point next_wu_{};
-  std::uint64_t wu_sent_ = 0, wu_failed_ = 0;
   bool wu_logged_ = false;
 
   // M4-01/02: the server's interest and the entities we know. `capture_stale_` counts resends (refused, not an error), `capture_bad_` broken
   // messages, `scan_no_sector_` scans of a sector macro the galaxy map does not know.
   CaptureSet capture_;
   UniverseIndex index_;
+  // M4-06..11: the world streamer. Reads poses natively (the scan carries ids only), owns the per-entity dead-reckoning state and
+  // sends EntitySpawn / WorldUpdate / EntityDespawn / EntityChange / EntityStatusBatch through this flow's lanes.
+  EntityStream stream_;
   std::uint32_t capture_sets_ = 0, capture_stale_ = 0, capture_bad_ = 0;
-  std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0, sector_complete_sent_ = 0;
+  std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0;
   // M4-03: a sector whose scan MD has been asked for, and when. The entry is dropped when the closing count arrives, so a sector that MD
   // never answered is asked again after kScanRetryUs instead of waiting forever.
   static constexpr std::int64_t kScanRetryUs = 10'000'000;

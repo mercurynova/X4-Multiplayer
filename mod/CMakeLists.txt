@@ -656,3 +656,11 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_capture.cpp)
 endif()
 # END M4 wave 1
+
+# BEGIN M4 wave 2: the world stream (capture_scheduler, dead_reckoning, entity_wire, entity_stream come with the features glob).
+#   x4mp_host_tests += tests/test_stream.cpp (round-robin slices, epsilon/rotation/keepalive, the four encoders, spawn chunking,
+#                       grace, changes, status batching, focus polling). Plan: docs/m4-plan.md W2 (M4-06..M4-11).
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_stream.cpp)
+endif()
+# END M4 wave 2

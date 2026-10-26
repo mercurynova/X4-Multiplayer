@@ -91,7 +91,23 @@ void AuthorityFlow::forget_loaded_sha(session::IStash& stash) {
 }
 
 AuthorityFlow::AuthorityFlow(host::HostContext& ctx, session::Session& session, session::IStash& stash, std::shared_ptr<AuthInbox> inbox)
-    : session_(session), stash_(stash), inbox_(std::move(inbox)) {
+    : session_(session), stash_(stash), inbox_(std::move(inbox)),
+      // M4-06..11: the streamer reads every pose through the game adapter (the scan carries ids only) and sends through this flow's two lanes.
+      stream_(
+          [&game = ctx.game](std::uint64_t component, TrackPose& out) {
+            const auto pose = game.object_position(component);
+            if (!pose) return false;
+            out = TrackPose{pose->x, pose->y, pose->z, pose->yaw, pose->pitch, pose->roll};
+            return true;
+          },
+          EntityStream::Sink{
+              [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
+                return session_.send(wire::Lane::Control, type, payload) == net::SendResult::Ok;
+              },
+              [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
+                return selfship::selfship_hub().send_realtime(type, payload);
+              }},
+          StreamConfig{}) {
   if (const auto text = stash_.get(kStashKey)) state_ = AuthorityState::from_json(*text);
   if (const auto dir = ctx.game.save_folder_path()) save_dir_ = fs::path(*dir);
   if (ctx.paths != nullptr && !ctx.paths->dir.empty()) {
@@ -161,6 +177,10 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
     state_.string_count = 0;
     state_.next_net_id = 1;
     state_.checkpoints = 0;
+    // M4: a fresh join means a new server world (no mirror to resume). The index and the stream state are caches of the old
+    // session; clearing them makes the new CaptureSet ask MD for a scan and spawn every entity again under the restarted ids.
+    index_.clear();
+    stream_.on_disconnect();
     persist();
   }
   // M3-11: the avatars announce themselves again; ids already given to avatars stay reserved (a fresh join restarts the counter at 1).
@@ -244,6 +264,8 @@ void AuthorityFlow::on_capture_set(host::HostContext& ctx, std::span<const std::
     }
   }
   const auto change = capture_.describe_change(before);
+  // M4-06: the scheduler and the focus classification follow the new set; a sector that left starts the OutOfInterest grace in the streamer.
+  stream_.on_capture_set(capture_);
   std::string tail = change.empty() ? "unchanged" : change;
   if (dropped != 0) tail += ", " + std::to_string(dropped) + " rows dropped";
 
@@ -304,25 +326,33 @@ void AuthorityFlow::on_scan_text(host::HostContext& ctx, std::string_view text) 
       net = allocate_net_id();
       index_.bind_component(row.component, net);
     }
+    // M4-11: the scan is also the only source of an owner/macro change we have today. Read the old row BEFORE the upsert (it may rehash).
+    const auto* old = index_.find(net);
+    const bool known = old != nullptr;
+    const std::uint32_t old_owner = known ? old->owner_ref : 0;
+    const std::uint32_t old_macro = known ? old->macro_ref : 0;
     const auto macro_ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Macro), row.macro);
     const auto owner_ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Faction), row.owner);
     // The kind stays Other until a later wave carries the ship class; a client spawns from the macro, not from the kind.
     index_.upsert(net, sector, macro_ref, owner_ref, static_cast<std::uint8_t>(x4mp::authority::SpawnKind::Other), 0, row.component, now_us);
+    if (known && (owner_ref != old_owner || macro_ref != old_macro)) stream_.on_change(net, owner_ref, macro_ref);
   }
 
   if (!batch->end) return;
   index_.reserve(static_cast<std::size_t>(batch->count));
-  const auto removed = index_.end_scan(sector);
+  std::vector<UniverseIndex::RemovedRow> removed_rows;
+  const auto removed = index_.end_scan(sector, &removed_rows);
   scan_asked_.erase(sector);  // the pass is closed: a later CaptureSet may ask again (the sector's ship list can change)
+  // M4-10: a ship the pass no longer sees is gone. If its component no longer exists in the game it was destroyed; otherwise it left the sector.
+  for (const auto& row : removed_rows) {
+    const bool destroyed = row.component != 0 && !ctx.game.is_valid_component(row.component);
+    stream_.on_row_removed(row.net_id, destroyed);
+  }
+  // M4-09: the spawns and the SectorComplete marker go out on the next stream tick, in that order.
+  stream_.on_scan_complete(sector);
   const auto* ids = index_.ids_of(sector);
   const auto count = ids != nullptr ? static_cast<std::uint32_t>(ids->size()) : 0u;
-  const auto payload = encode_sector_complete(sector, capture_.epoch(), count);
-  if (send_control(T(P::MsgType::SectorComplete), payload)) {
-    ++sector_complete_sent_;
-  } else {
-    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: SectorComplete for sector {} could not be sent", sector);
-  }
-  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: sector {} scanned: {} ships, {} gone, SectorComplete epoch {}", sector, count, removed,
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: sector {} scanned: {} ships, {} gone, spawns queued (epoch {})", sector, count, removed,
             capture_.epoch());
 }
 
@@ -407,8 +437,8 @@ void AuthorityFlow::step(host::HostContext& ctx) {
 }
 
 // M3-14 (found by the two-DLL pair run): without a WorldUpdate the server never replicates anything (ReplicationModule: "no WorldUpdate yet: its game time is the
-// reference every entry is stamped with"), so no client would see another player move. The M3 mod streams no NPC world (M4), so the authority only sends the
-// clock: a WorldUpdate with no states, 20 Hz (the server's tick), on the Realtime lane like PlayerState. Starts once a checkpoint exists (the session runs).
+// reference every entry is stamped with"), so no client would see another player move. M4-08: the same 20 Hz tick now carries the captured world; an empty
+// WorldUpdate is still the clock keepalive, so the M3 guarantee is unchanged.
 void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   if (state_.checkpoints == 0 && stored_total_ == 0) return;
   const auto now = Clock::now();
@@ -419,17 +449,23 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   const auto game_time = ctx.game.game_time();
   if (!game_time || !x4mp::authority::EntitySpawnBuilder::is_valid_game_time(*game_time)) return;
   next_wu_ = std::max(next_wu_ + std::chrono::milliseconds(50), now - std::chrono::milliseconds(50));  // 20 Hz, at most one extra send after a long frame
-  wu_fbb_.Clear();
-  const auto states = wu_fbb_.CreateVectorOfStructs<P::EntityState>(nullptr, 0);
-  wu_fbb_.Finish(P::CreateWorldUpdate(wu_fbb_, ++wu_tick_, static_cast<std::uint64_t>(server_now), *game_time, states));
-  if (hub.send_realtime(T(P::MsgType::WorldUpdate), std::span<const std::uint8_t>(wu_fbb_.GetBufferPointer(), wu_fbb_.GetSize()))) {
-    ++wu_sent_;
-    if (!wu_logged_) {
-      wu_logged_ = true;
-      X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: world clock: keepalive WorldUpdate at 20 Hz started (game_time {:.3f}); the server replicates player ships from now on", *game_time);
-    }
+
+  // The dead-reckoning tiers are measured from the authority's own ship; without it every entity is "far".
+  const auto& status = hub.status();
+  const auto observer = status.ship != 0 ? ctx.game.object_position(status.ship) : std::nullopt;
+  if (observer) {
+    stream_.set_observer(status.sector, observer->x, observer->y, observer->z);
   } else {
-    ++wu_failed_;
+    stream_.set_observer(0, 0.0, 0.0, 0.0);
+  }
+  const auto now_s = std::chrono::duration<double>(now.time_since_epoch()).count();
+  stream_.step(*game_time, server_now, now_s, capture_, index_);
+
+  if (!wu_logged_) {
+    wu_logged_ = true;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Info,
+              "authority: world clock: WorldUpdate at 20 Hz started (game_time {:.3f}); the streamer follows the CaptureSet and the server replicates from now on",
+              *game_time);
   }
 }
 

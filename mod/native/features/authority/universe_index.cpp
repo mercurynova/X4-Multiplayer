@@ -64,7 +64,9 @@ bool UniverseIndex::scanning(std::uint16_t sector) const {
   return open_.contains(sector);
 }
 
-std::size_t UniverseIndex::end_scan(std::uint16_t sector) {
+std::size_t UniverseIndex::end_scan(std::uint16_t sector) { return end_scan(sector, nullptr); }
+
+std::size_t UniverseIndex::end_scan(std::uint16_t sector, std::vector<RemovedRow>* removed) {
   open_.erase(sector);
   const auto it = by_sector_.find(sector);
   if (it == by_sector_.end()) {
@@ -72,7 +74,7 @@ std::size_t UniverseIndex::end_scan(std::uint16_t sector) {
     return 0;
   }
   auto& ids = it->second;
-  std::size_t removed = 0;
+  std::size_t removed_count = 0;
   std::size_t keep = 0;
   for (std::size_t i = 0; i < ids.size(); ++i) {
     const auto id = ids[i];
@@ -84,13 +86,16 @@ std::size_t UniverseIndex::end_scan(std::uint16_t sector) {
     // Gone from the sector: either the scan did not see it (destroyed) or it moved and upsert already re-bucketed it. Only the first case is
     // a removal; a moved row is still in `entries_` under its new sector.
     if (e != entries_.end() && e->second.sector != sector) continue;
-    if (e != entries_.end()) entries_.erase(e);
-    ++removed;
+    if (e != entries_.end()) {
+      if (removed != nullptr) removed->push_back(RemovedRow{id, e->second.component});
+      entries_.erase(e);
+    }
+    ++removed_count;
   }
   ids.resize(keep);
-  counters_.removed += static_cast<std::uint32_t>(removed);
+  counters_.removed += static_cast<std::uint32_t>(removed_count);
   ++counters_.scans;
-  return removed;
+  return removed_count;
 }
 
 std::uint32_t UniverseIndex::net_id_of_component(std::uint64_t component) const {

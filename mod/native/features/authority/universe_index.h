@@ -64,6 +64,12 @@ class UniverseIndex {
   [[nodiscard]] bool scanning(std::uint16_t sector) const;
   // Close the pass: rows of `sector` that were not seen are dropped. Returns how many.
   std::size_t end_scan(std::uint16_t sector);
+  // Same, and names the dropped rows so the streamer can despawn them (M4-10). `component` is the row's last known X4 id.
+  struct RemovedRow {
+    std::uint32_t net_id = 0;
+    std::uint64_t component = 0;
+  };
+  std::size_t end_scan(std::uint16_t sector, std::vector<RemovedRow>* removed);
   // Drop every row of one sector (it left the CaptureSet). Returns how many.
   std::size_t drop_sector(std::uint16_t sector);
 
