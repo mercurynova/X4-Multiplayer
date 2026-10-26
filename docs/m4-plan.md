@@ -170,6 +170,42 @@ live/smoke), Lua **252/252**. The bandwidth half of the AC and the never-twice-p
 
 **AC (wave).** The client's world in an interest sector contains exactly the authority's ships plus the player's own.
 
+**Status 2026-10-26: W3 done (code + tests).** The client half of the stream, in five parts:
+
+* **M4-12, the spawn budget.** `GhostDriver::frame` no longer spawns in record order. A not-yet-spawned ghost is collected into
+  `pending_spawns_` with `IGhostWorld::player_distance(sector, pos)`, the list is stable-sorted nearest first, cut to
+  `max_pending_spawns` (512) and the first `max_spawns_per_frame` (40, the design's number; the M3 default was 2) spawn. A world
+  without a player pose (the test fakes, `player_distance` defaults to 0) keeps the record order exactly as before. Nothing is
+  dropped: the samples keep arriving, so a ghost the cap delayed spawns at the right pose when its turn comes.
+* **M4-13, local NPC suppression.** New `features/ghosts/local_suppression.{h,cpp}`, a pure state machine. `SectorComplete` (S→N,
+  now decoded in `GhostCore`, together with `InterestUpdate`) marks a sector *closed* and asks MD for its ships over the scan pair
+  the authority already uses (`x4mp.capture_request` → `md/x4mp_capture.xml` → `x4mp.capture_scan`). A row is suppressed when the
+  sector is closed **and** the ship is not the player's (`owner != "player"`), not a mission object (MD now appends a 4th `mission`
+  field to every row; the authority ignores it), not in the caller's skip set (the player's own ship and every local id in the ghost
+  registry) and not already suppressed. Removal is `game::safe_remove`, spread at 200 objects per frame. The per-sector `suppressed`
+  set survives leaving and re-entering the sector, so nothing is removed twice. `GhostFeature` owns the module, a `ScanInbox`
+  (mutex, 64 items) carries the answers from the event thread to the frame thread, and `[sync] suppression:` reports the counters.
+* **M4-13, NPC ghosts.** `GhostCore::on_entity_spawn` admits `EntityOrigin::AuthorityRuntime` and `Manifest` as `SpawnInfo::npc`
+  (no player, controller or team) instead of counting them `spawn_ignored`. An NPC ghost keeps the authority's real owner faction,
+  is never labelled (`make_label` is skipped, `EntityChange` never relabels it) and is never dressed — only `make_inert` runs, so
+  the game's own name and hull stay. The stash meta moved to `x4gm 2` with a trailing NPC flag; `x4gm 1` is still read, so a
+  `/reloadui` across the upgrade adopts the old ghosts instead of respawning them.
+* **M4-14, leave grace.** `DespawnReason::OutOfInterest` no longer erases: the record keeps its object for `leave_grace_us` (10 s),
+  and a re-`on_spawn` of the same net id cancels the pending erase, so leaving and re-entering a sector inside the window produces
+  no despawn and no respawn of that net id. `Destroyed`/`Removed`/`PlayerLeft` still erase at once.
+* **M4-16, frozen ghosts.** `GhostDriver::set_frozen` makes `frame()` return immediately after the removal queue: no stale-hide, no
+  placement, no hint, no validity check, so every ghost stays exactly where it was. `GhostFeature` sets it from
+  `!selfship_hub().linked()` — a reconnect clears the own-ship link — and unfreezing resumes from the interpolators with no respawn.
+  A session end still goes through `remove_all()`.
+
+Verified: mod build clean, `x4mp_ghosts_tests` **47 cases / 7049 assertions** (the budget, distance order, the pending cap, the NPC
+ghost, both grace cases and the freeze are new; `test_messages` now pins the NPC admission and the `SectorComplete`/`InterestUpdate`
+decode), `x4mp_host_tests "[suppression]"` **9 cases / 54 assertions**, full ctest **615/615** (4 skipped live/smoke), Lua
+**252/252**. The wave AC is pinned by the 50-local/50-streamed test (exactly the streamed ones survive) and the "nothing is
+suppressed before `SectorComplete`" case; the two-client in-game run is W7's session 7. Deliberately deferred: the scan answers
+carry no position, so suppression is per sector and not distance-limited, and stopping the local job spawners themselves stays
+[VERIFY] (the 1 Hz sweep is the answer to a late spawn).
+
 ### W4 — Statics and the manifest (M4-17..M4-21)
 
 | Task | Work | AC |

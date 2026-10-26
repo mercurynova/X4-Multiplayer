@@ -390,7 +390,7 @@ Verified: mod build clean, ctest **568/568** (`host.onfoot:*` **44 cases, 296 as
 half pushes **27 ids / 17 distinct macros** and native logs `onfoot: room catalogue 27 ids, 17 new, 17 known`. **Next:** session 6 on two
 clients (unchanged), which now also has to check the second room and the doorway hand-over.
 
-**Status 2026-10-26 (M4): the plan is written and waves 1 and 2 have landed.** [m4-plan.md](m4-plan.md) turns the M4 row and mod-design §9 into
+**Status 2026-10-26 (M4): the plan is written and waves 1 to 3 have landed.** [m4-plan.md](m4-plan.md) turns the M4 row and mod-design §9 into
 seven waves with per-task ACs, eight open questions with recommended defaults and the verification gate per wave. Wave 1 is the
 `CaptureSet` and the universe index: the authority now parses what the server asks it to watch (epoch rule, focus spheres that raise the
 rate of the points inside them, one log line per change), keeps a sector-indexed table of the entities it knows (`net_id → row`,
@@ -410,8 +410,17 @@ tick and sweeps in 20; 5 Hz visits 50 and sweeps in 4), `dead_reckoning` predict
 pass, `EntityChange` on an owner/macro change, and one `WorldUpdate` every tick even when empty so the M3-14 clock reference still holds.
 A scan is ids only, so `kind` stays `Other` (the macro drives the client spawn) and `StateFlags` is 0 until W4; `note_status` has the
 API and tests but no game source yet. Verified: mod build clean, `[stream]` **16 cases / 1223 assertions**, ctest **598/598** (4
-skipped), Lua **252/252**. **Next:** W3, the client side — budgeted `SectorEntered` spawns, local NPC suppression, leave grace, the
-late-spawn sweep and frozen ghosts.
+skipped), Lua **252/252**.
+
+Wave 3 is the client: ghosts now spawn nearest-to-the-player first (40 per frame, a 512-record pending cap, the design's budget instead
+of M3's 2), the client suppresses its own NPC ships in a sector only after the server's `SectorComplete` (the scan pair the authority
+already uses, a 4th `mission` field on every row, `SafeRemove` at 200 objects per frame, a per-sector set so a re-entry never removes
+twice, a 1 Hz sweep for a ship vanilla spawns later), streamed NPC ships become ghosts under their real owner faction with no `[MP]`
+label and no dress, a `OutOfInterest` despawn keeps the object for a 10 s leave grace a re-entry cancels, and a lost link freezes every
+ghost in place until it returns (no respawn). Verified: mod build clean, `x4mp_ghosts_tests` **47 cases / 7049 assertions**,
+`[suppression]` **9 cases / 54 assertions**, ctest **615/615** (4 skipped), Lua **252/252**. **Next:** W4, statics and the manifest —
+the client reads the checkpoint sidecar, matches stations by (sector, macro, rounded position) in the interest sectors, takes their net
+ids for the on-foot container hash, prunes rows for stations that are gone and sends a real `ManifestReport`.
 
 **Status 2026-10-04: M3 build phase done.** Waves 0-3 merged (M3-001/002, M3-01..14); sitting 0 ran 2026-10-03; main verified after M3-14 (mod 445 ctest + 230 Lua, all .NET suites, 16 local e2e steps incl. the new HostSimM3 / UdpLane / Session4Kit). M3-14 took ~3 h: its two-DLL pair run found and fixed three integration bugs (no authority `WorldUpdate`, host ship not a player ship, NodeStats UDP/ghost fields empty). **Next: session 4 sittings 1-3**, then the M3 exit report.
 
