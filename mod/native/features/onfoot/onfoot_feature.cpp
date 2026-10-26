@@ -299,12 +299,14 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
     last_log_us_ = now_us;
     const auto& c = hub.counters();
     const auto& a = onfoot::onfoot_actors().counters();
-    if (c.states_in || c.rosters || reports_ || send_failed_ || bad_reports_ || a.spawns || a.places) {
+    if (c.states_in || c.rosters || reports_ || send_failed_ || bad_reports_ || a.spawns || a.places ||
+        a.bad_replies) {
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info,
                 "onfoot: linked={} reports={} bad={} out={} failed={} no_clock={} in={} roster={} remotes={} actors={}/{} spawn={} "
-                "despawn={} place={}",
+                "despawn={} place={} answers={} bad_answers={}",
                 linked, reports_, bad_reports_, sent_states_, send_failed_, no_clock_, c.states_in, c.rosters, hub.remotes().size(),
-                onfoot::onfoot_actors().live(), onfoot::onfoot_actors().tracked(), a.spawns, a.despawns, a.places);
+                onfoot::onfoot_actors().live(), onfoot::onfoot_actors().tracked(), a.spawns, a.despawns, a.places, a.replies,
+                a.bad_replies);
     }
   }
   if (!linked) {

@@ -79,8 +79,16 @@ void append_json_string(std::string& out, std::string_view s) {
 [[nodiscard]] bool parse_u64(std::string_view s, std::uint64_t& out) noexcept {
   s = trim(s);
   if (s.empty()) return false;
+  // MD prints a component id in hex ("0x18ead5") and Lua hands the reply through unchanged, so both forms arrive here.
+  // std::from_chars has no prefix handling: strip the 0x and pick base 16 ourselves.
+  int base = 10;
+  if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+    base = 16;
+    s.remove_prefix(2);
+    if (s.empty()) return false;
+  }
   std::uint64_t value = 0;
-  const auto res = std::from_chars(s.data(), s.data() + s.size(), value);
+  const auto res = std::from_chars(s.data(), s.data() + s.size(), value, base);
   if (res.ec != std::errc{} || res.ptr != s.data() + s.size()) return false;
   out = value;
   return true;

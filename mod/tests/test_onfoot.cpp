@@ -817,6 +817,31 @@ TEST_CASE("onfoot: a malformed answer is counted, not trusted") {
   CHECK(st.reg.live() == 0);
 }
 
+TEST_CASE("onfoot: an answer may name the actor in hex, as MD prints it") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  // MD builds the reply by concatenating the component into a string, and a component prints as "0x18ead5".
+  st.reg.on_reply("spawn;7;0x18ead5");
+  CHECK(st.reg.live() == 1);
+  std::uint64_t actor = 0;
+  REQUIRE(st.reg.actor_of(7, actor));
+  CHECK(actor == 0x18ead5ull);
+  CHECK(st.reg.counters().bad_replies == 0);
+
+  // The decimal form still works, and a broken hex tail is still a bad answer.
+  st.reg.on_reply("gone;7");
+  CHECK(st.reg.live() == 0);
+  st.reg.on_reply("spawn;7;1632981");
+  REQUIRE(st.reg.actor_of(7, actor));
+  CHECK(actor == 1632981ull);
+  st.reg.on_reply("gone;7");
+  st.reg.on_reply("spawn;7;0x");
+  st.reg.on_reply("spawn;7;0xzz");
+  CHECK(st.reg.counters().bad_replies == 2);
+}
+
 TEST_CASE("onfoot: a peer is here only while both share a container and the peer walks", "[onfoot][presence]") {
   PresenceRow row;
   row.player_id = 7;
