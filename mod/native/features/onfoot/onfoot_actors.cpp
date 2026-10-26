@@ -166,7 +166,7 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         spawns += ",\"macro\":";
         append_json_string(spawns, macro);
         spawns += ",\"rmacro\":";
-        append_int(spawns, e.avatar.room.macro_ref);
+        append_json_string(spawns, local.room_macro);  // MD matches $Rm.macro.id against this string; a hash would never match
         spawns += ",\"ax\":";
         append_int(spawns, e.avatar.room.anchor_x);
         spawns += ",\"ay\":";

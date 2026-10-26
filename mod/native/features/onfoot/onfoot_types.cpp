@@ -138,7 +138,8 @@ std::optional<RoomContext> parse_room_context(std::string_view kv, std::string* 
   if (get_field(kv, "oskey", v)) ctx.outer_net_id = matched_container_id(trim(v));
 
   if (!get_field(kv, "rmacro", v)) return fail("rmacro");
-  ctx.room_macro_ref = fnv1a32(trim(v));
+  ctx.room_macro = trim(v);
+  ctx.room_macro_ref = fnv1a32(ctx.room_macro);
   if (ctx.room_macro_ref == 0) return fail("rmacro");
   if (get_field(kv, "chain", v)) ctx.path_hash = static_cast<std::uint16_t>(fnv1a32(v) & 0xffffu);
 

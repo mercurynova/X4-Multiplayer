@@ -32,6 +32,10 @@ struct RoomContext {
   std::uint32_t container_net_id = 0;   // matched id derived from the station key
   std::uint32_t outer_net_id = 0;
   std::uint32_t room_macro_ref = 0;     // FNV-1a 32 of the room macro id
+  // The room macro id itself, as MD spells it. The wire carries only room_macro_ref, but MD cannot hash: the spawn cue looks the
+  // room up with find_room and compares $Rm.macro.id to this string. same_room() guarantees the two clients share the hash, so the
+  // viewer's own id is also the sender's id.
+  std::string room_macro;
   std::uint16_t path_hash = 0;          // FNV-1a 32 of the macro chain, truncated
   std::int16_t anchor_x = 0;            // room origin in the container, decimetres (S10.2: raw metres are not stable)
   std::int16_t anchor_y = 0;

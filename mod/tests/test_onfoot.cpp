@@ -48,6 +48,7 @@ RoomContext walking_context(std::uint32_t room_macro_ref = 7, std::int16_t ancho
   ctx.container_net_id = matched_container_id(kStationKey);
   ctx.outer_net_id = matched_container_id("S|z_macro|0,0,0");
   ctx.room_macro_ref = room_macro_ref;
+  ctx.room_macro = "room_arg_corridor_01_macro";
   ctx.path_hash = 0xbeef;
   ctx.anchor_x = anchor_x;
   ctx.anchor_y = -11760;
@@ -666,7 +667,7 @@ TEST_CASE("onfoot: a remote player in the same room is spawned once, in containe
   CHECK(j.find("\"pid\":7") != std::string::npos);
   CHECK(j.find("\"name\":\"Ann\"") != std::string::npos);
   CHECK(j.find("\"race\":\"teladi\"") != std::string::npos);
-  CHECK(j.find("\"rmacro\":7") != std::string::npos);
+  CHECK(j.find("\"rmacro\":\"room_arg_corridor_01_macro\"") != std::string::npos);
   CHECK(j.find("\"ax\":-20598") != std::string::npos);
   CHECK(j.find("\"x\":-2058.800") != std::string::npos);  // anchor (-2059.8 m) + 1.0 m
   CHECK(j.find("\"y\":-1175.720") != std::string::npos);  // anchor (-1176.0 m) + 2.0 m - 1.72 m eye height

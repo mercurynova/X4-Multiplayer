@@ -232,8 +232,14 @@
       </conditions>
       <actions>
         <do_if value="md.$X4MP_OnFoot_Actors?">
-          <do_all exact="md.$X4MP_OnFoot_Actors.count" counter="$i">
+          <do_all exact="md.$X4MP_OnFoot_Actors.count" counter="$i" reverse="true">
+            <set_value name="$Pid" exact="@md.$X4MP_OnFoot_Actors.{$i}.$x4mp_pid"/>
             <destroy_object object="md.$X4MP_OnFoot_Actors.{$i}"/>
+            <remove_value name="md.$X4MP_OnFoot_Actors.{$i}"/>
+            <!-- Tell native the actor is gone, or it keeps writing a pose to a dead id and never asks for a new one. -->
+            <do_if value="$Pid">
+              <raise_lua_event name="'x4mp.onfoot_actor'" param="'gone;' + $Pid"/>
+            </do_if>
           </do_all>
         </do_if>
         <set_value name="md.$X4MP_OnFoot_Actors" exact="[]"/>
