@@ -648,3 +648,11 @@ if(X4MP_TESTS)
   target_link_libraries(x4mp_host_tests PRIVATE nlohmann_json::nlohmann_json)
 endif()
 # END M3b on-foot presence
+
+# BEGIN M4 wave 1: capture set, universe index, sector scan (features/authority/*.cpp comes with the M2-04 features glob).
+#   x4mp_host_tests += tests/test_capture.cpp (epoch rule, focus spheres, dedupe/pass/removal/move, scan text, CaptureSet decode,
+#                       SectorComplete encode). Plan: docs/m4-plan.md W1 (M4-01..M4-05).
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_capture.cpp)
+endif()
+# END M4 wave 1

@@ -9,8 +9,10 @@
 #include "core/authority/checkpoint_messages.h"
 #include "core/authority/entity_spawn.h"
 #include "core/crypto/crypto.h"
+#include "features/authority/capture_set_wire.h"
 #include "features/avatars/avatar_hub.h"
 #include "features/chat/chat_json.h"
+#include "features/selfship/galaxy_map.h"
 #include "features/selfship/selfship_hub.h"
 #include "session_generated.h"
 #include "world_generated.h"
@@ -65,7 +67,7 @@ std::vector<std::pair<std::string, std::string>> AuthInbox::take() {
 
 std::shared_ptr<AuthInbox> subscribe_authority_verbs(host::IPlatform& platform) {
   auto inbox = std::make_shared<AuthInbox>();
-  for (const char* verb : {"auth_md", "auth_saved"}) {
+  for (const char* verb : {"auth_md", "auth_saved", "capture_scan"}) {
     const std::string v = verb;
     std::shared_ptr<AuthInbox> in = inbox;
     (void)platform.subscribe_event(("x4mp." + v).c_str(), [in, v](std::string_view text) {
@@ -166,7 +168,12 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
   reserve_net_ids_above(avatars::avatar_hub().max_net_id());
 }
 
-void AuthorityFlow::on_net_disconnected() { uploader_.connection_lost(); }
+void AuthorityFlow::on_net_disconnected() {
+  uploader_.connection_lost();
+  // A new session brings a new CaptureSet with its own epoch; keeping the old one would refuse the first set of the new server if its epoch
+  // counter starts lower. The index itself stays: net ids must survive a reconnect.
+  capture_.clear();
+}
 
 void AuthorityFlow::note_loaded_save(const std::vector<std::uint8_t>& sha) {
   if (sha.size() != 32) return;
@@ -193,6 +200,10 @@ bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::sp
     }
     return true;
   }
+  if (type == T(P::MsgType::CaptureSet)) {
+    on_capture_set(ctx, payload);
+    return true;
+  }
   if (type == T(P::MsgType::RequestSave)) {
     const auto req = x4mp::authority::parse_request_save(payload);
     if (!req) return true;
@@ -206,8 +217,85 @@ bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::sp
   return uploader_.on_frame(type, payload);
 }
 
-void AuthorityFlow::begin_request(host::HostContext& ctx, std::uint32_t request_id) {
-  request_id_ = request_id;
+// M4-01: the server's interest. It owns the set and resends it after any change; the authority only obeys. A resend of the same epoch is
+// refused, because restarting capture would re-send EntitySpawn for every entity of every sector.
+void AuthorityFlow::on_capture_set(host::HostContext& ctx, std::span<const std::uint8_t> payload) {
+  std::string why;
+  auto data = decode_capture_set(payload, &why);
+  if (!data) {
+    ++capture_bad_;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: CaptureSet ignored ({})", why);
+    return;
+  }
+  const auto epoch = data->epoch;
+  const CaptureSet before = capture_;
+  if (!capture_.apply(epoch, std::move(data->sectors), std::move(data->focus))) {
+    ++capture_stale_;
+    return;
+  }
+  ++capture_sets_;
+  // A sector that left the set is captured no more: keeping its rows would cost memory and schedule time for nothing.
+  std::uint32_t dropped = 0;
+  for (const auto& s : before.sectors()) {
+    if (!capture_.contains(s.sector)) dropped += static_cast<std::uint32_t>(index_.drop_sector(s.sector));
+  }
+  const auto change = capture_.describe_change(before);
+  std::string tail = change.empty() ? "unchanged" : change;
+  if (dropped != 0) tail += ", " + std::to_string(dropped) + " rows dropped";
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: CaptureSet epoch {}: {} ({})", epoch, capture_.describe(), tail);
+}
+
+// M4-03: our own MD scanned one sector and pushed the ids. MD cannot produce the wire sector number (native owns it, galaxy_map.h), so it
+// sends the sector macro id and this resolves it. Rows never carry positions: the streamer reads those natively.
+void AuthorityFlow::on_scan_text(host::HostContext& ctx, std::string_view text) {
+  auto batch = parse_scan_batch(text);
+  if (!batch) {
+    ++scan_bad_;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: unreadable sector scan ignored ({} bytes)", text.size());
+    return;
+  }
+  const auto* map = selfship::selfship_hub().map();
+  const auto sector = map != nullptr ? map->index_of_macro(batch->sector_macro) : std::uint16_t{0};
+  if (sector == 0) {
+    // Guessing a number would place ships in the wrong sector; without the map row there is nothing to index.
+    ++scan_no_sector_;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: scan of unknown sector '{}' ignored ({} rows)", batch->sector_macro,
+              batch->rows.size());
+    return;
+  }
+  ++scan_batches_;
+  if (!index_.scanning(sector)) index_.begin_scan(sector);
+  const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
+
+  for (const auto& row : batch->rows) {
+    auto net = index_.net_id_of_component(row.component);
+    if (net == 0) {
+      // First sight of this object: the net id comes from the session's one counter, so it can never collide with an avatar's.
+      net = allocate_net_id();
+      index_.bind_component(row.component, net);
+    }
+    const auto macro_ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Macro), row.macro);
+    const auto owner_ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Faction), row.owner);
+    // The kind stays Other until a later wave carries the ship class; a client spawns from the macro, not from the kind.
+    index_.upsert(net, sector, macro_ref, owner_ref, static_cast<std::uint8_t>(x4mp::authority::SpawnKind::Other), 0, row.component, now_us);
+  }
+
+  if (!batch->end) return;
+  index_.reserve(static_cast<std::size_t>(batch->count));
+  const auto removed = index_.end_scan(sector);
+  const auto* ids = index_.ids_of(sector);
+  const auto count = ids != nullptr ? static_cast<std::uint32_t>(ids->size()) : 0u;
+  const auto payload = encode_sector_complete(sector, capture_.epoch(), count);
+  if (send_control(T(P::MsgType::SectorComplete), payload)) {
+    ++sector_complete_sent_;
+  } else {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: SectorComplete for sector {} could not be sent", sector);
+  }
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: sector {} scanned: {} ships, {} gone, SectorComplete epoch {}", sector, count, removed,
+            capture_.epoch());
+}
+
+void AuthorityFlow::begin_request(host::HostContext& ctx, std::uint32_t request_id) {  request_id_ = request_id;
   collected_.reset();
   end_seen_at_.reset();
   plan_ = GalaxyPlan{};
@@ -254,6 +342,9 @@ void AuthorityFlow::drain_inbox(host::HostContext& ctx) {
       } else if (collected_.end_seen() && !end_seen_at_) {
         end_seen_at_ = Clock::now();
       }
+    } else if (verb == "capture_scan") {
+      // M4-03: one sector scan batch from our own MD. Runs whether or not a checkpoint is in progress.
+      on_scan_text(ctx, json_string(text, "data"));
     } else if (verb == "auth_saved") {
       if (step_ == Step::WaitSaveReply) {
         on_save_reply(ctx, text);

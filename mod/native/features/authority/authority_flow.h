@@ -34,6 +34,9 @@
 #include "core/authority/upload_job.h"
 #include "core/session/session.h"
 #include "features/authority/authority_data.h"
+#include "features/authority/capture_ingest.h"
+#include "features/authority/capture_set.h"
+#include "features/authority/universe_index.h"
 #include "features/avatars/avatar_plan.h"
 #include "host/feature.h"
 
@@ -88,6 +91,13 @@ class AuthorityFlow {
   [[nodiscard]] static std::vector<std::uint8_t> stored_loaded_sha(const session::IStash& stash);
   static void forget_loaded_sha(session::IStash& stash);
 
+  // M4-01/02: what the server asked us to capture, and the entities we know about. The streamer (M4-06..) reads both.
+  [[nodiscard]] const CaptureSet& capture() const noexcept { return capture_; }
+  [[nodiscard]] const UniverseIndex& index() const noexcept { return index_; }
+  // The scan answer from our own MD (bridge verb x4mp.capture_scan): rows of one sector, or its terminating count. `sector_macro` is resolved
+  // to the wire index through the self-ship galaxy map; an unknown macro is counted, never guessed.
+  void on_scan_text(host::HostContext& ctx, std::string_view text);
+
  private:
   struct Prepared {
     bool ok = false;
@@ -97,6 +107,7 @@ class AuthorityFlow {
   };
 
   void drain_inbox(host::HostContext& ctx);
+  void on_capture_set(host::HostContext& ctx, std::span<const std::uint8_t> payload);
   void begin_request(host::HostContext& ctx, std::uint32_t request_id);
   void step_collecting(host::HostContext& ctx);
   void request_save(host::HostContext& ctx);
@@ -166,6 +177,13 @@ class AuthorityFlow {
   Clock::time_point next_wu_{};
   std::uint64_t wu_sent_ = 0, wu_failed_ = 0;
   bool wu_logged_ = false;
+
+  // M4-01/02: the server's interest and the entities we know. `capture_stale_` counts resends (refused, not an error), `capture_bad_` broken
+  // messages, `scan_no_sector_` scans of a sector macro the galaxy map does not know.
+  CaptureSet capture_;
+  UniverseIndex index_;
+  std::uint32_t capture_sets_ = 0, capture_stale_ = 0, capture_bad_ = 0;
+  std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0, sector_complete_sent_ = 0;
 };
 
 }  // namespace x4mp::features::auth
