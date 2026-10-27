@@ -26,6 +26,8 @@ using selfship::SeatEdge;
 constexpr std::int64_t kMapRetryUs = 10'000'000;
 constexpr std::int64_t kStatusEveryUs = 1'000'000;
 constexpr std::int64_t kBlockedLogEveryUs = 10'000'000;
+// M4-22: the gate gives no ETA; the server clamps to its HintMaxSeconds (60 s) anyway, so ask for the maximum and let arrival be the end.
+constexpr std::uint32_t kHintEtaMs = 60'000;
 constexpr std::size_t kMaxInbox = 64;
 
 std::int64_t steady_us() noexcept {
@@ -77,7 +79,12 @@ void SelfShipFeature::on_init(host::HostContext& ctx) {
     if (text.size() <= 64 * 1024) in->push(0, std::string(text));
   });
   (void)ctx.platform.subscribe_event("x4mp.seta_blocked", [in](std::string_view text) { in->push(1, std::string(text.substr(0, 256))); });
-  (void)ctx.platform.subscribe_event("x4mp.highway_signal", [in](std::string_view text) { in->push(2, json_string(std::string(text.substr(0, 256)), "source")); });
+  (void)ctx.platform.subscribe_event("x4mp.highway_signal", [in](std::string_view text) {
+    const std::string raw(text.substr(0, 256));
+    const std::string source = json_string(raw, "source");
+    const std::string target = json_string(raw, "target");  // M4-22: the gate's destination sector macro, "" for the other sources
+    in->push(2, target.empty() ? source : source + "|" + target);
+  });
   X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: ready (20 Hz moving / 5 Hz idle / 1 Hz hidden, SETA blocked while connected)");
 }
 
@@ -139,7 +146,10 @@ void SelfShipFeature::drain_inbox(host::HostContext& ctx, std::int64_t now_us) {
 void SelfShipFeature::process_highway_signals(host::HostContext& ctx, std::int64_t now_us, selfship::Observation& obs, std::uint16_t sector_idx) {
   auto pending = std::move(sh_pending_);
   sh_pending_.clear();
-  for (const auto& src : pending) {
+  for (const auto& raw : pending) {
+    const selfship::HighwaySignal sig = selfship::parse_highway_signal(raw);
+    const std::string_view src = sig.source;
+    if (src.empty()) continue;
     if (src == "exit") {
       obs.sh_exited = true;
       X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: superhighway exit signalled by {} at sector {}", src, sector_idx);
@@ -151,6 +161,30 @@ void SelfShipFeature::process_highway_signals(host::HostContext& ctx, std::int64
       X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: superhighway entry also signalled by {} at sector {} (+{} ms after the first)", src, sector_idx,
                 (now_us - sh_first_us_) / 1000);
     }
+    // M4-22: a gate names where it puts the ship. Ask for that sector now, so its ghosts are streamed before the arrival is drawn.
+    if (sig.names_destination()) send_lookahead_hint(ctx, sig.target, now_us);
+  }
+}
+
+// M4-22: the client half of the region lookahead. The macro comes from the game (the entry gate's destination); the wire wants the sector
+// index the whole protocol uses. A hint is best effort: an unmapped macro (the sector map is still arriving) or a link that cannot carry
+// control messages costs nothing but a log line.
+void SelfShipFeature::send_lookahead_hint(host::HostContext& ctx, std::string_view target_macro, std::int64_t now_us) {
+  if (diag_hub().role() == NodeRole::Authority) return;  // the authority owns every sector; it has nothing to prefetch
+  const std::uint16_t target = map_.index_of_macro(target_macro);
+  if (target == 0) {
+    X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: lookahead skipped: sector '{}' is not in the sector map yet", target_macro);
+    return;
+  }
+  if (!hint_gate_.accept(target_macro, now_us)) return;  // the same destination was asked for a moment ago
+
+  flatbuffers::FlatBufferBuilder fbb(64);
+  fbb.Finish(P::CreateInterestHint(fbb, target, kHintEtaMs, P::HintReason::GateApproach));
+  const std::uint8_t* data = fbb.GetBufferPointer();
+  std::vector<std::uint8_t> payload(data, data + fbb.GetSize());
+  if (diag_hub().send_control(static_cast<std::uint16_t>(P::MsgType::InterestHint), std::move(payload))) {
+    X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: lookahead hint for sector {} ('{}') sent before arrival ({} in total)", target, target_macro,
+              hint_gate_.sent());
   }
 }
 

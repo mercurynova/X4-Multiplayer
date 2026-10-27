@@ -308,6 +308,38 @@ public sealed class InterestCaptureBudgetTests
     }
 
     [Fact]
+    public void AHintedDestinationSectorSpawnsItsShipsBeforeTheClientArrives()
+    {
+        // M4-22: a highway or gate transit hints the sector the client is heading for. Its ships must be held (and therefore spawned)
+        // while the client is still somewhere else, so the arrival itself produces no pop.
+        var rig = new InterestRig(8);
+        rig.Ships(6, 600, 3);
+        rig.Activate(InterestRig.Alice, HintCap);
+        rig.Move(InterestRig.Alice, 2);              // adjacent: 1, 2, 3 -- sector 6 is not one of them
+        rig.Settle();
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        rig.Manager.HandleHint(InterestRig.Alice, Hint(6, etaMs: 4000));
+        rig.Settle();
+        rig.CompleteAllCaptured();
+
+        Assert.Equal(InterestTier.Adjacent, rig.Manager.GetSectorTier(InterestRig.Alice, 6));
+        Assert.True(Ids(6, 600, 3).SequenceEqual(rig.Spawned(InterestRig.Alice).OrderBy(id => id)));
+        Assert.True(Ids(6, 600, 3).All(id => rig.Manager.IsHeld(InterestRig.Alice, id)));
+
+        // Arrival: the sector becomes the current one, but nothing is spawned again and nothing is dropped.
+        rig.ClearSent();
+        rig.Move(InterestRig.Alice, 6);
+        rig.Settle();
+        rig.CompleteAllCaptured();
+        Assert.Empty(rig.Spawned(InterestRig.Alice));
+        Assert.Empty(rig.Despawned(InterestRig.Alice));
+        Assert.Equal(InterestTier.Sector, rig.Manager.GetSectorTier(InterestRig.Alice, 6));
+        Assert.True(Ids(6, 600, 3).All(id => rig.Manager.IsHeld(InterestRig.Alice, id)));
+    }
+
+    [Fact]
     public void HintsAreIgnoredWithoutTheCapabilityForUnknownSectorsAndWhenDisabled()
     {
         var rig = new InterestRig(8);

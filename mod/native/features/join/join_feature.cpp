@@ -451,7 +451,9 @@ void JoinFeature::start_session(host::HostContext& ctx, const join::JoinRequest&
   // quicksave warning would stay in the local log only (found by the session-3 kit dry run).
   // Capability OnFootPresence (1<<17): the server only relays OnFootState/PresenceRoster to and from nodes that advertise it, so a
   // node without this bit would see no on-foot players and its own samples would be dropped.
-  o.client_caps = (std::uint64_t{1} << 10) | (std::uint64_t{1} << 17);
+  // Capability InterestHint (1<<12, M4-22): the server ignores an InterestHint from a node that did not ask for it, and the selfship
+  // feature sends one when a gate names its destination sector, so the sector is streamed before the client arrives.
+  o.client_caps = (std::uint64_t{1} << 10) | (std::uint64_t{1} << 12) | (std::uint64_t{1} << 17);
   o.net.backoff_first_ms = 500;
 
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "joining {} (roles {}, {})", server_text_, static_cast<int>(o.requested_roles),

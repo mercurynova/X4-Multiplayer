@@ -285,7 +285,15 @@
       <actions>
         <do_if value="@event.param.isclass.highwayentrygate">
           <do_if value="@event.param.highway.issuperhighway">
-            <raise_lua_event name="'x4mp.md_highway'" param="'gate'"/>
+            <!-- M4-22: the gate names the sector it drops the ship into. Native turns the macro into a wire index and sends an
+                 InterestHint, so the destination's ghosts are already streaming when the ship arrives. A gate without a resolvable
+                 destination still raises the plain signal, exactly as before. -->
+            <do_if value="@event.param.destination.sector.exists">
+              <raise_lua_event name="'x4mp.md_highway'" param="'gate|' + @event.param.destination.sector.macro.id"/>
+            </do_if>
+            <do_else>
+              <raise_lua_event name="'x4mp.md_highway'" param="'gate'"/>
+            </do_else>
           </do_if>
         </do_if>
       </actions>

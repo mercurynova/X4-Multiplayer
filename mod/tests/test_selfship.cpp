@@ -9,6 +9,7 @@
 
 #include "core/ghost/sample.h"
 #include "features/selfship/galaxy_map.h"
+#include "features/selfship/highway_hint.h"
 #include "features/selfship/own_ship_tracker.h"
 #include "features/selfship/seta_guard.h"
 #include "game/game_api.h"
@@ -644,4 +645,45 @@ TEST_CASE("selfship adapter: seat, container ship, sector, highway, dock and pos
   CHECK_FALSE(r.pose_valid);
   x4mp::game::main_thread().reset();
   x4mp::game::main_thread().set_definition(x4mp::game::MainThreadDefinition::FrameUpdateThread);
+}
+
+// M4-22 (docs/m4-plan.md W5): the gate's destination reaches native as "gate|<sector macro>", and the hint gate keeps one prefetch per
+// destination per interval. The wire side (encode + send) is covered by the server test AHintedDestinationSectorSpawnsItsShipsBeforeTheClientArrives.
+TEST_CASE("M4-22: a highway signal carries the gate's destination", "[selfship][m422]") {
+  const HighwaySignal gate = parse_highway_signal("gate|cluster_01_sector001_macro");
+  CHECK(gate.source == "gate");
+  CHECK(gate.target == "cluster_01_sector001_macro");
+  CHECK(gate.names_destination());
+
+  // The other sources never name a sector: entry by zone, the sector-null entry, and the exit.
+  for (const char* raw : {"zone", "sector", "exit"}) {
+    const HighwaySignal s = parse_highway_signal(raw);
+    CHECK(s.source == raw);
+    CHECK(s.target.empty());
+    CHECK_FALSE(s.names_destination());
+  }
+
+  // A gate whose destination did not resolve arrives plain, and a trailing separator is not a destination.
+  CHECK(parse_highway_signal("gate").target.empty());
+  CHECK(parse_highway_signal("gate|").target.empty());
+  CHECK(parse_highway_signal("").source.empty());
+}
+
+TEST_CASE("M4-22: the hint gate repeats a destination only after its interval", "[selfship][m422]") {
+  HighwayHintGate gate(15'000'000);
+  CHECK(gate.accept("a_macro", 1'000'000));
+  CHECK(gate.sent() == 1);
+  CHECK_FALSE(gate.accept("a_macro", 2'000'000));   // the same gate again: nothing new to prefetch
+  CHECK(gate.sent() == 1);
+  CHECK_FALSE(gate.accept("a_macro", 15'999'999));  // still inside the interval (14.999 s after the first)
+  CHECK(gate.accept("a_macro", 17'000'000));        // 16 s after the first: a re-approach, send again
+  CHECK(gate.sent() == 2);
+  CHECK(gate.accept("b_macro", 17'100'000));        // a different destination is a new prefetch, at once
+  CHECK(gate.sent() == 3);
+  CHECK_FALSE(gate.accept("", 20'000'000));         // no destination, no hint
+  CHECK(gate.sent() == 3);
+
+  gate.reset();
+  CHECK(gate.sent() == 0);
+  CHECK(gate.accept("a_macro", 21'000'000));        // a new universe: the memory of the old one is gone
 }

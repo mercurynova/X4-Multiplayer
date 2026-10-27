@@ -193,10 +193,13 @@ end)
 
 -- M3-33: the game's own superhighway signal (md/x4mp_galaxy.xml X4MP_Highway_*), one string per event ('gate' / 'zone' / 'sector' = entry,
 -- 'exit'). Native decides what to do (features/selfship): the entry hides the ghost / holds the avatar at once.
---   MD -> Lua      x4mp.md_highway <source>
---   Lua -> native  x4mp.highway_signal {"v":1,"source":"<source>"}
+--   MD -> Lua      x4mp.md_highway <source>            or   <source>|<destination sector macro>   (M4-22: only the gate names one)
+--   Lua -> native  x4mp.highway_signal {"v":1,"source":"<source>","target":"<macro or empty>"}
 RegisterEvent("x4mp.md_highway", function(_, param)
-	local ok, err = send("highway_signal", { source = tostring(param or "") })
+	local raw = tostring(param or "")
+	local source, target = string.match(raw, "^([^|]*)|(.*)$")
+	if not source then source, target = raw, "" end
+	local ok, err = send("highway_signal", { source = source, target = target })
 	if not ok then log("could not report the superhighway signal: " .. tostring(err)) end
 end)
 

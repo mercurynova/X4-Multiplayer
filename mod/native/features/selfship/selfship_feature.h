@@ -25,6 +25,7 @@
 #include <flatbuffers/flatbuffers.h>
 
 #include "features/selfship/galaxy_map.h"
+#include "features/selfship/highway_hint.h"
 #include "features/selfship/own_ship_tracker.h"
 #include "features/selfship/seta_guard.h"
 #include "host/feature.h"
@@ -50,6 +51,8 @@ class SelfShipFeature final : public host::IFeature {
   void publish_status(host::HostContext& ctx, std::int64_t now_us, bool force);
   void notify_seta(host::HostContext& ctx);
   void process_highway_signals(host::HostContext& ctx, std::int64_t now_us, selfship::Observation& obs, std::uint16_t sector_idx);
+  // M4-22: asks the server to warm the sector a gate is about to drop the client into.
+  void send_lookahead_hint(host::HostContext& ctx, std::string_view target_macro, std::int64_t now_us);
 
   std::shared_ptr<Inbox> inbox_;
   selfship::GalaxyMap map_;
@@ -63,6 +66,7 @@ class SelfShipFeature final : public host::IFeature {
   bool map_logged_ready_ = false;
   bool was_linked_ = false;
   std::vector<std::string> sh_pending_;  // M3-33: superhighway signal sources received since the last frame ('zone', 'gate', 'sector', 'exit')
+  selfship::HighwayHintGate hint_gate_;  // M4-22: one lookahead hint per destination per interval
   std::int64_t sh_first_us_ = 0;
   bool was_in_highway_ = false;
   bool was_held_ = false;  // M3-12: the takeover held the PlayerState stream last frame
