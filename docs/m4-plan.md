@@ -292,6 +292,57 @@ W4 ≥ 99 % station measurement.
 
 **AC (wave).** A recorded session replays byte-identically (same message sequence, same counts).
 
+**Built.** M4-25 had most of its work already done by M3: `UdpLane` binds after `UdpHello`, falls back to TCP after 3 s
+without `UdpHelloAck`, and keeps `UdpStats` (state, frames, datagrams, binds, fallbacks, reprobes, malformed,
+duplicates). What the wave adds is visibility. `NetSample` grows those counters, `features/stats/stats_lane.h` copies
+`UdpStats` into it in one place (`apply_lane`) and formats it (`format_lane`), `JoinFeature` calls the first instead of
+its four hand-written lines, and the 5 s `stats:` line ends with
+`udp=<state> udp_frames=out/in udp_dgram=out/in udp_loss=..% udp_binds=.. udp_fb=.. udp_reprobe=.. udp_bad=.. udp_dup=..`.
+The wave's "30 s line" is read as *the periodic session status line*: the mod has no 30 s line of its own — the only
+30 s interval in the mod is onfoot's `onfoot: linked=… actors=…` line, and that one prints only when the on-foot flow
+is linked, so it cannot carry the transport state of a session that never goes on foot. The 5 s `stats:` line always
+prints, connection or not.
+
+M4-26 adds the recorder in `X4MP.Transport/Recording`. `.x4rec` is a 48-byte header (magic `X4MR`, version, protocol
+stamp, session seed, creation time) and then 24-byte record headers — monotonic µs since the recording started,
+`MsgType`, lane, flags (datagram / synthetic), stream id, payload length — with the payload padded to 8 bytes. The
+payload is stored *without* the 8-byte frame header, so `FrameCodec` re-encodes it byte for byte. Parts rotate by size
+(`X4MP:Net:RecordPartBytes`, 64 MiB by default) and continue their numbering across a restart, so a session that is
+stopped and started again lands in the same series. `PipeNodeConnection` gained `SendObserver`, invoked for every frame
+`TrySend` accepted and for the datagram/queue path that took it; the flush observer could not be reused because
+replication already owns it (`ReplicationTransport.SetDeliveryObserver`). `NodeListenerBase.CreateConnection` forwards
+its own `FrameObserver` to every connection it builds, and `X4MP:Net:RecordDirectory` wires a `MessageRecorder` into the
+listener; empty, the default, means no recorder and no observer at all. A write failure increments `DroppedRecords` and
+is logged — it never throws into the send path.
+
+M4-27 is the reader and the replayer. `RecordingReader` walks the parts in rotation order and rejects a foreign magic, a
+bad lane, an empty or oversized payload and a truncated header, payload or padding with `InvalidDataException`.
+`RecordingReplayer` feeds records to any sink — a delegate, a `FakeNode`, or an `INodeConnection` through
+`RunIntoAsync` — either as fast as possible or at real time scaled by `Speed`.
+
+M4-28 is the comparison. `RecordingDivergence.Compare` reports missing, extra, field and payload mismatches, the first
+divergent index and the per-type count deltas; stream ids are compared only with `compareStreams: true`, because
+connection ids are assigned per server and a mirror legitimately renumbers them while the net ids inside the payloads
+stay identical. `x4mp-server record info|verify|compare` runs the three without starting a host, so a recording can be
+inspected while the server that produced it is live.
+
+**Verified:** mod build clean, `x4mp_core_tests "[m425]"` **1 case / 28 assertions** (an active lane's counters reaching
+the line, and a 3.5 s silent server driving the lane to `fallback`), `dotnet build` clean, `X4MP.Server.Tests`
+**597 passed / 1 skipped** with only the timing-sensitive `SaveLatencyTests` p99 gate failing (it passes in isolation;
+recording is off in every other test), `X4MP.Core.Tests` **1378/1378**, and `RecordingTests` **13/13** — among them a
+600 s, ~54 000-message recording that rotates through several parts and reads back without a decode error, a replay
+whose `SectorComplete` and `WorldUpdate` counts match the recording, and a mirror run that re-records the replayed
+stream and reports **divergence 0**.
+
+**Not done, deliberately.** The mirror mode is a library plus a command, not a second server instance that attaches to
+the authority: `RunIntoAsync` feeds an `INodeConnection`, and the wiring that would let a mirror server *join* as a node
+needs the handshake and the manifest upload, which the wave did not touch — a 10-minute mirror run against a live
+authority is therefore still an in-game measurement. `record replay` has no network sink for the same reason; it
+verifies and paces a recording but sends nothing. The recorder sits in `TrySend`, so it records what the server
+*accepted*, including frames the datagram path or the queue later dropped for watermarks; the file is a record of
+intent, not a packet capture. And the 30 s line the wave asked for is the 5 s `stats:` line: M4-30 still owes the
+aggregated 30 s line with per-frame mod time, bytes per client per second, ghost count and suppression count.
+
 ### W7 — Measurement and exit (M4-29..M4-31)
 
 | Task | Work | AC |
