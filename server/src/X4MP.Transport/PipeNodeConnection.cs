@@ -146,10 +146,38 @@ public sealed class PipeNodeConnection : INodeConnection, IDisposable
         var datagram = _datagram;
         if (datagram is not null && frame.Lane == Lane.Realtime && datagram.TrySend(frame))
         {
+            ObserveSend(frame, datagram: true);
             return SendResult.Queued;
         }
 
-        return _queue.TrySend(frame);
+        SendResult result = _queue.TrySend(frame);
+        ObserveSend(frame, datagram: false);
+        return result;
+    }
+
+    /// <summary>
+    /// Optional tap on the single point every outbound frame leaves through (M4-26 recording, M4-28 mirroring).
+    /// The second argument is true when the frame was handed to the UDP Realtime path. A tap that throws never
+    /// breaks the send path: recording is diagnostic and must not take a session down.
+    /// </summary>
+    public Action<OutboundFrame, bool>? SendObserver { get; set; }
+
+    private void ObserveSend(OutboundFrame frame, bool datagram)
+    {
+        Action<OutboundFrame, bool>? observer = SendObserver;
+        if (observer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            observer(frame, datagram);
+        }
+        catch (Exception)
+        {
+            // The frame is still valid and already queued; a broken observer loses a recording, not a message.
+        }
     }
 
     private void OnOverflow(DisconnectCode code) => Close(code, "send queue overflow");

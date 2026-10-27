@@ -5,10 +5,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "control_generated.h"
 #include "core/net/udp_lane.h"
+#include "features/stats/stats_lane.h"
 #include "message_ids_generated.h"
 #include "x4mp/wire.h"
 
@@ -486,4 +488,50 @@ TEST_CASE("udp lane: block switch drops everything in both directions; stop() re
   r.lane.stop();
   CHECK(r.lane.state() == UdpState::Off);
   CHECK(r.lane.stats().datagrams_out == 0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// M4-25: the lane is visible in the session status line
+// ---------------------------------------------------------------------------------------------------------------------------
+TEST_CASE("M4-25: lane counters reach the session status line", "[udp][m425]") {
+  // A node that never bound a lane reports the lane as off, with zeroed counters - Realtime is on TCP and the line says so.
+  x4mp::features::NetSample idle;
+  const auto idle_line = x4mp::features::stats::format_lane(idle);
+  CHECK(idle_line.starts_with("udp=off udp_frames=0/0 udp_dgram=0/0 "));
+  CHECK(idle_line.find("udp_binds=0") != std::string::npos);
+
+  // A bound lane: the counters the lane kept are what the line prints.
+  Rig r;
+  r.bind();
+  REQUIRE(r.lane.state() == UdpState::Active);
+  REQUIRE(r.lane.send_realtime(kPlayerState, payload_of(20), r.now));
+  r.lane.flush(r.now);
+  r.advance_ms(10);  // the server acks; the lane's own stats settle
+
+  x4mp::features::NetSample net;
+  x4mp::features::stats::apply_lane(net, r.lane.stats());
+  CHECK(net.udp_active);
+  CHECK(std::string(net.udp_state) == "active");
+  CHECK(net.udp_frames_out == r.lane.stats().frames_out);
+  CHECK(net.udp_frames_out >= 1);
+  CHECK(net.udp_datagrams_out == r.lane.stats().datagrams_out);
+  CHECK(net.udp_binds == 1);
+
+  const auto line = x4mp::features::stats::format_lane(net);
+  CHECK(line.starts_with("udp=active "));
+  CHECK(line.find("udp_frames=" + std::to_string(net.udp_frames_out) + "/") != std::string::npos);
+  CHECK(line.find("udp_binds=1") != std::string::npos);
+
+  // A lane that fell back prints fallback and still shows the attempt it made.
+  Rig f;
+  f.start();
+  f.server.blocked = true;  // no UdpHelloAck ever: the lane must give up and let TCP carry Realtime
+  f.advance_ms(3500);
+  REQUIRE(f.lane.state() == UdpState::Fallback);
+  x4mp::features::NetSample fell;
+  x4mp::features::stats::apply_lane(fell, f.lane.stats());
+  CHECK_FALSE(fell.udp_active);
+  CHECK(std::string(fell.udp_state) == "fallback");
+  CHECK(x4mp::features::stats::format_lane(fell).starts_with("udp=fallback "));
+  CHECK(fell.udp_fallbacks == 1);
 }

@@ -152,4 +152,17 @@ public sealed record NetOptions
             | X4MP.Proto.Capability.InterestHint
             | X4MP.Proto.Capability.Economy
             | X4MP.Proto.Capability.OnFootPresence);
+
+    // --- Session recording (M4-26, docs/m4-plan.md W6) ---
+
+    /// <summary>
+    /// Directory the authority writes its <c>.x4rec</c> parts to. Empty (the default) turns recording off: nothing is
+    /// opened and the send path keeps its single branch. Relative paths resolve against the server's working directory.
+    /// </summary>
+    [Setting("Session recording directory (empty = recording off)", MaxLength = 260)]
+    public string RecordDirectory { get; set; } = "";
+
+    /// <summary>A recording rotates into its next part once it would grow past this many bytes.</summary>
+    [Setting("Session recording part size (bytes)", Min = 1048576, Max = 1073741824)]
+    public long RecordPartBytes { get; set; } = 64L * 1024 * 1024;
 }

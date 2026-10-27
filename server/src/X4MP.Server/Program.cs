@@ -22,6 +22,8 @@ switch (cli.Verb)
         return ServiceCommands.Install(cli, Environment.ProcessPath ?? "x4mp-server.exe", Console.Out, ServiceCommands.RunProcess, ServiceCommands.IsElevated());
     case CliVerb.ServiceUninstall when cli.Error is null:
         return ServiceCommands.Uninstall(cli, Console.Out, ServiceCommands.RunProcess, ServiceCommands.IsElevated());
+    case CliVerb.Record when cli.Error is null:
+        return RecordCommands.Run(cli.Remaining, Console.Out, Console.Error);
 }
 
 if (cli.Error is not null)

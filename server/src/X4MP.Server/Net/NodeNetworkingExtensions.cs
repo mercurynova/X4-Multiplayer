@@ -3,10 +3,12 @@ using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using X4MP.Core.Net;
 using X4MP.Core.Session;
 using X4MP.Persistence;
 using X4MP.Transport;
+using X4MP.Transport.Recording;
 
 namespace X4MP.Server.Net;
 
@@ -36,7 +38,16 @@ public static class NodeNetworkingExtensions
             throw new InvalidOperationException($"X4MP:Net:NodeTcpEndpoint '{options.NodeTcpEndpoint}' is not a valid address:port.");
         }
 
-        services.AddSingleton<TcpNodeListener>(sp => new TcpNodeListener(sp.GetRequiredService<NetOptions>(), sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<TcpNodeListener>(sp =>
+        {
+            var listener = new TcpNodeListener(sp.GetRequiredService<NetOptions>(), sp.GetRequiredService<TimeProvider>());
+            if (sp.GetService<MessageRecorder>() is { } recorder)
+            {
+                listener.FrameObserver = recorder.Record;
+            }
+
+            return listener;
+        });
         services.AddSingleton<INodeListener>(sp => sp.GetRequiredService<TcpNodeListener>());
         services.AddSingleton<NodeConnectionHandler>();
         services.Configure<KestrelServerOptions>(kestrel =>
@@ -49,6 +60,20 @@ public static class NodeNetworkingExtensions
             services.AddSingleton(sp => new UdpRealtimeServer(endpoint.Address, options.UdpPort, sp.GetRequiredService<TimeProvider>(), sp.GetService<ILogger<UdpRealtimeServer>>()));
             services.AddSingleton<IUdpRealtimeHost>(sp => sp.GetRequiredService<UdpRealtimeServer>());
             services.AddHostedService<UdpRealtimeService>();
+        }
+
+        // Session recording (M4-26, docs/m4-plan.md W6). A tap on the single outbound choke point; off by default so a
+        // normal server never touches the disk. The recorder is resolved lazily by the listener factory above.
+        if (!string.IsNullOrWhiteSpace(options.RecordDirectory))
+        {
+            services.AddSingleton(sp => new MessageRecorder(
+                new MessageRecorderOptions
+                {
+                    Directory = options.RecordDirectory,
+                    MaxPartBytes = options.RecordPartBytes,
+                    Logger = sp.GetService<ILogger<MessageRecorder>>(),
+                }));
+            services.AddHostedService<RecordingService>();
         }
 
         // Gateway and session hand-off. TryAdd so tests (and later the SessionActor) can pre-register replacements.
@@ -109,4 +134,17 @@ internal sealed class UdpRealtimeService(UdpRealtimeServer server) : IHostedServ
 internal sealed class NodeGatewayService(NodeGateway gateway, INodeListener listener) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken) => gateway.RunAsync(listener, stoppingToken);
+}
+
+/// <summary>Flushes and closes the session recording when the host stops (M4-26).</summary>
+internal sealed class RecordingService(MessageRecorder recorder) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        recorder.Flush();
+        recorder.Dispose();
+        return Task.CompletedTask;
+    }
 }

@@ -24,6 +24,7 @@
 #include "features/join/join_requests.h"
 #include "features/selfship/selfship_hub.h"
 #include "features/statics/statics_hub.h"
+#include "features/stats/stats_lane.h"
 #include "features/join/join_mods_json.h"
 #include "host/build_check.h"
 #include "host/extension_roots.h"
@@ -593,10 +594,8 @@ void JoinFeature::update_diag(host::HostContext&) {
       out.bytes_in = ns.bytes_in;
       out.bytes_out = ns.bytes_out;
       out.write_buffer_bytes = ns.write_buffer_bytes;
-      out.udp_active = ns.udp.state == net::UdpState::Active;
-      out.udp_rx_loss_pct = ns.udp.rx_loss_pct;
-      out.udp_bytes_in = ns.udp.bytes_in;
-      out.udp_bytes_out = ns.udp.bytes_out;
+      // M3-14 / M4-25: the UDP realtime lane's counters for the status line (core/net/udp_types.h -> NetSample).
+      stats::apply_lane(out, ns.udp);
       return true;
     };
     link.send_control = [this](std::uint16_t type, std::vector<std::uint8_t> payload) {

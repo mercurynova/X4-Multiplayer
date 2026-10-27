@@ -3,6 +3,7 @@
 #include "features/diag/diag_hub.h"
 #include "features/ghosts/ghost_hub.h"
 #include "features/stats/stats_message.h"
+#include "features/stats/stats_lane.h"
 #include "features/teams/team_hub.h"
 
 namespace x4mp::features {
@@ -53,8 +54,9 @@ void StatsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
     const auto w = log_collector_.take_window();
     since_log_s_ = 0.0;
     X4MP_CLOG(ctx.log, Cat::Perf, Level::Info,
-              "stats: fps={:.1f} frame_p95={:.2f}ms mod_p95={:.3f}ms mod_max={:.3f}ms connected={} rtt={:.1f}ms rx={}B/s tx={}B/s node_stats_sent={}",
-              w.fps, w.frame_ms_p95, w.mod_ms_p95, w.mod_ms_max, connected ? 1 : 0, last_rtt_ms_, last_rx_, last_tx_, sent_);
+              "stats: fps={:.1f} frame_p95={:.2f}ms mod_p95={:.3f}ms mod_max={:.3f}ms connected={} rtt={:.1f}ms rx={}B/s tx={}B/s node_stats_sent={} {}",
+              w.fps, w.frame_ms_p95, w.mod_ms_p95, w.mod_ms_max, connected ? 1 : 0, last_rtt_ms_, last_rx_, last_tx_, sent_,
+              stats::format_lane(net));
   }
 }
 

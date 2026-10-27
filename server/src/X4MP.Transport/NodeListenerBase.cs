@@ -27,6 +27,12 @@ public abstract class NodeListenerBase : INodeListener
 
     public abstract string Name { get; }
 
+    /// <summary>
+    /// Optional tap on every outbound frame of every connection this listener created (M4-26 recording). Set it
+    /// before the listener starts accepting; connections created earlier do not pick it up.
+    /// </summary>
+    public Action<OutboundFrame, bool>? FrameObserver { get; set; }
+
     /// <summary>Connections created and not yet fully closed.</summary>
     public int ActiveConnections => Volatile.Read(ref _active);
 
@@ -40,7 +46,9 @@ public abstract class NodeListenerBase : INodeListener
     {
         Interlocked.Increment(ref _active);
         Interlocked.Increment(ref _total);
-        return new PipeNodeConnection(pipe, remote, _options, _time, _ => Interlocked.Decrement(ref _active));
+        var connection = new PipeNodeConnection(pipe, remote, _options, _time, _ => Interlocked.Decrement(ref _active));
+        connection.SendObserver = FrameObserver;
+        return connection;
     }
 
     /// <summary>Queues a connection for <see cref="AcceptAsync"/>. False if the backlog is full or the listener is disposed.</summary>

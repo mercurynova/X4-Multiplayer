@@ -38,6 +38,18 @@ struct NetSample {
   float udp_rx_loss_pct = 0.0f;
   std::uint64_t udp_bytes_in = 0;
   std::uint64_t udp_bytes_out = 0;
+  // M4-25: the rest of the lane's counters, so the session status line can show which lane carries Realtime and how it behaves
+  // (net::UdpStats, core/net/udp_types.h). A static literal, not a std::string: this struct is copied once per frame.
+  const char* udp_state = "off";  // net::to_string(UdpState): off / binding / active / fallback
+  std::uint64_t udp_frames_out = 0;
+  std::uint64_t udp_frames_in = 0;
+  std::uint64_t udp_datagrams_out = 0;
+  std::uint64_t udp_datagrams_in = 0;
+  std::uint32_t udp_binds = 0;
+  std::uint32_t udp_fallbacks = 0;
+  std::uint32_t udp_reprobes = 0;
+  std::uint64_t udp_malformed = 0;
+  std::uint64_t udp_duplicates = 0;
 };
 struct StatsLink {
   std::function<bool(NetSample&)> sample;

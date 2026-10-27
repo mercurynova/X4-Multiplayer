@@ -6,6 +6,7 @@ public enum CliVerb
     Version,
     ServiceInstall,
     ServiceUninstall,
+    Record,
     Help,
 }
 
@@ -31,6 +32,7 @@ public sealed record CliArguments(
           version                  Print server version, protocol range and build hash.
           service install          Install the Windows service (elevated).
           service uninstall        Stop and remove the Windows service (elevated).
+          record <sub>             Session recordings: info | verify | compare (M4-26..M4-28).
 
         Options:
           --data-dir <dir>         Data directory (else X4MP_DATA_DIR, else ./data next to the exe,
@@ -65,6 +67,10 @@ public sealed record CliArguments(
                     break;
                 case "help":
                     verb = CliVerb.Help;
+                    index = 1;
+                    break;
+                case "record":
+                    verb = CliVerb.Record;
                     index = 1;
                     break;
                 case "service":
