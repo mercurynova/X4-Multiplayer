@@ -353,6 +353,35 @@ aggregated 30 s line with per-frame mod time, bytes per client per second, ghost
 
 **AC (wave).** Every roadmap M4 acceptance number is quoted from a log, not asserted.
 
+**Built.**
+- **M4-30, the 30 s line** (`f92581c`). `features/stats/frame_timing.h` holds named timing slots: a subsystem drops its
+  per-frame milliseconds in, the report takes the slot and resets it, so one window never leaks into the next.
+  `AuthorityFlow::step` feeds the `authority` slot, and that is the `< 3 ms/frame authority mod cost` number the roadmap
+  asks for - the whole-mod `FrameBudget` cannot isolate it, because it also carries the ghost driver, statics and the
+  bridge. `features/stats/budget_line.h` pins the struct and the one format string, so the field order is held by a test
+  rather than by whoever edits the log call next:
+  `budget: fps=.. frame_ms=P50/P95 mod_ms=P50/P95/MAX authority_ms=P50/P95/MAX clients=N ghosts=N suppressed=N rx=..B/s tx=..B/s per_client=..B/s udp=<state>`.
+  `WindowSummary` gained `frame_ms_p50` and `mod_ms_p50`; `ghost_hub` publishes the suppression pass's running total,
+  which lives in the ghost feature and is otherwise unreachable from stats. `per_client` is `tx / clients` and is
+  therefore an **upper bound**: the server fans out by interest, so a real client pulls this or less. The 5 s `stats:`
+  line stays as it was - it is the fast loop, the 30 s line is the one a person quotes.
+- **M4-29, the attention A/B** (`a9080f6`). Q7 says measure first and default to `native`, and measuring needs both arms
+  reachable from the same save in the same sector, so the arm is a config flip rather than a rebuild:
+  `diag.ghost_attention_activate` (`false` = `native`, `true` = `activate`). `IGhostWorld` gained `activate()` with an
+  empty default body, so every fake and every old world keeps the `native` policy untouched; `GhostsApi::activate` is the
+  only new native call (`ActivateObject(true)`), and it runs right after every `make_inert` - at the spawn and at the 5 s
+  re-assert - so one run has one policy throughout. The feature logs a warning when the switch is set and `describe()`
+  prints it, so a log from either arm says which arm it was.
+
+**Verified.** Mod build clean; `ctest` 635 (631 passed, 4 skipped); `x4mp_host_tests` 321 cases; Lua 252;
+`X4MP.Core.Tests` 1378/1378; `X4MP.Server.Tests` 597 passed / 1 skipped (one known timing flake that passes alone);
+`[m429]` green in `x4mp_ghosts_tests` (6 assertions) and in `x4mp_core_tests` (11 assertions, the config switch).
+
+**Not done, deliberately.** The numbers. Both arms of M4-29, the 200-ship sector, the highway transit and the two-client
+run are in-game measurements; [m4-exit-report.md](m4-exit-report.md) section 2 names the log line behind each one and
+[in-game-session-7.md](in-game-session-7.md) is the run sheet that fills it. Until that run, M4 is code complete and the
+milestone stays open.
+
 ---
 
 ## 4. Verification per wave

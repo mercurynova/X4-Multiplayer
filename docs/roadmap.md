@@ -23,6 +23,13 @@ developer). "Deps" lists task ids that must be done first. Tracks: **P** protoco
 | **M5b** | Talk-menu actions on remote players: send credits, invite to team, trade (uses M5 economy + teams) | yes (2 PCs) | Each action executes through the server economy/team APIs with an audit trail; works from the lounge and Tier 2 rooms. |
 | **M6** | Packaging and hardening: installer, Check Install, Collect Logs, launcher (`launch.json`), HTTP save fallback in mod, release pipeline, user docs; loans/trades in game if not in M5; team asset commands from our UI | partly | One-zip install on a clean Windows PC passes the health check (Protected UI, VC++ redist, MotW, `version_db`, extensions enabled); release tag produces signed-checksum artifacts for server and mod; 4-hour soak with 3 clients and reconnects without leaks. |
 
+**M4 status (2026-10-27): code complete, acceptance numbers pending.** All eight waves of [m4-plan.md](m4-plan.md) are
+merged (M4-01..M4-31) and every CI gate is green: `ctest` 635 (631 passed, 4 skipped), `x4mp_host_tests` 321 cases,
+Lua 252, `X4MP.Core.Tests` 1378, `X4MP.Server.Tests` 597 passed / 1 skipped, plus 13 recording tests. The milestone's
+own criteria are in-game numbers, so M4 stays open until [in-game-session-7.md](in-game-session-7.md) is run; each
+criterion there names the log line the number comes from, and [m4-exit-report.md](m4-exit-report.md) section 2 is the
+table it fills.
+
 ---
 
 ## 2. M0 tasks (ordered)
