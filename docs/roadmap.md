@@ -30,6 +30,14 @@ own criteria are in-game numbers, so M4 stays open until [in-game-session-7.md](
 criterion there names the log line the number comes from, and [m4-exit-report.md](m4-exit-report.md) section 2 is the
 table it fills.
 
+**M5 status (2026-10-27): planned, not started.** [m5-plan.md](m5-plan.md) splits the milestone into eight waves
+(M5-01..M5-34) and starts by recording that the server half already ships: the ledger, credit modes, transfers, loans,
+escrowed trades, the auditor, the admin REST and the web page landed in M1 (M1-E1..E7), the teams in M1-T1..T5, and
+`RelayModule` already validates every `IntentBody` and fans out every `GameEventBody`. The wire is likewise complete
+(`events.fbs`, `economy.fbs`). What does not exist is the mod side: no `features/events`, no `features/economy`, and no
+C++ reference to any economy or event message in the 207 sources under `mod/native`. M5 is therefore a detection-and-apply
+milestone, and its numbers need the same two-client sitting as M4's.
+
 ---
 
 ## 2. M0 tasks (ordered)

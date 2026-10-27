@@ -1,0 +1,225 @@
+# M5 plan: events and the economy, on both sides
+
+Status: plan v1, 2026-10-27 (after M4 code-complete). Owner: lead. Implementers: one agent per task, in a worktree
+([execution-plan.md](execution-plan.md) §5, §6.1). In-game tester: the user (two PCs). `docs/in-game-session-7.md` is still
+the open M4 run and is a prerequisite for the M5 acceptance sitting, because M5's numbers are measured in the same session
+shape.
+
+Read with: [mod-design.md](mod-design.md) §5 (event pipelines), §11.6-11.8 (relations, commands, save hygiene), §12
+(credits and economy), [protocol.md](protocol.md) §14 (intents and events), §15 (economy), §16.2 (asset permissions),
+[roadmap.md](roadmap.md) M5 and M5b rows, [decisions.md](decisions.md) ADR-019 (credits are int64 whole credits),
+ADR-021 (loans), ADR-022 (escrowed trades), and the two schemas that are the wire contract:
+`protocol/schema/events.fbs`, `protocol/schema/economy.fbs`.
+
+---
+
+## 0. What is already built (so that no wave rebuilds it)
+
+M5 is a **mod-side milestone**. The server half shipped in M1 and the wire was designed before either side existed.
+
+| Area | Where | State |
+|---|---|---|
+| Ledger, wallets, double-entry journal, `economy_requests` idempotency, `EconomyAuditor` + freeze | `server/src/X4MP.Core/Economy/*` (M1-E1) | done, property-tested |
+| Credit modes Auto/PerPlayer/Shared, pool policy, `CreditDelta` booking with `seq` dedupe, `acked_delta_seq` in `WalletUpdate` | `EconomyService.cs`, `EconomyLedger.cs` (M1-E2) | done |
+| Donate, transfer, pool actions, scopes, rate limit | `EconomyService.Transfers.cs` (M1-E3) | done |
+| Loans: offer with principal escrow, accept/decline/repay/forgive, overdue, auto-repay | `EconomyService.Loans.cs`, `LoanModels.cs` (M1-E4) | done |
+| Escrowed trades, asset locks, `AssetTransferOrder`/`AssetTransferConfirm`, InDoubt, rollback | `EconomyService.Trades.cs`, `TradeModels.cs`, `MirrorTradeWorld.cs` (M1-E5) | done |
+| Economy admin REST + hub + web page | `EconomyService.Admin.cs`, `server/web` (M1-E6, E7) | done |
+| Teams: registry, relation matrix, fanout, `ReassignPlayerAssets`, member changes | `X4MP.Core/Teams/*` (M1-T1..T5) | done |
+| Wire: `Intent` with 9 bodies, `IntentResult` with 15 reject reasons, `GameEvent` with 11 kinds, 18 economy messages | `events.fbs`, `economy.fbs`, generated for C# and C++ | done |
+| Server relay: every `IntentBody` validated (including `KillClaim`/`HitReport` interest checks), every `GameEventBody` fanned out with player/world filtering | `RelayModule.Intents.cs`, `RelayModule.Events.cs` | done |
+| Chat relay, rate limits, moderation hooks | `RelayModule.Chat.cs` | server side done |
+
+**What is missing is the mod, entirely.** A scan of all 207 C++ sources under `mod/native` finds no reference to
+`GameEvent`, `Intent`, `IntentResult`, `WalletUpdate`, `CreditDelta`, `EconomyResult`, `TradeStatus` or `LoanStatus`.
+There is no `features/events` and no `features/economy`. Every wave below is therefore about detecting something in the
+game, saying it on a wire that already exists, and applying a result that the server already computes.
+
+---
+
+## Open questions for the user (answer these first)
+
+The user is away ("продолжай"), so every wave proceeds with the recommended answer. Changing one later costs a wave, not a
+milestone, unless the row says otherwise.
+
+| # | Question | Recommended answer |
+|---|---|---|
+| Q1 | **How does the mod learn that something happened?** MD hooks are the only source that carries a killer; native has no event stream. | **All three layers, counted separately:** MD hooks primary, `event_player_*` MD fallbacks second, native polling last. AC item 1 asks for the `md_hook` state precisely because a silently dead MD half is the failure mode to avoid. |
+| Q2 | **What is "the `md_hook` state"?** | A `hooks=` block in the existing 30 s budget line: which hook files answered, per-hook fire counters since the last line, the age of the last event, and the fallback count. One line tells a tester whether MD is alive. |
+| Q3 | **Intent or GameEvent for a client-observed kill?** | `Intent{KillClaim}` upward — the authority applies it. `GameEvent` is A→S only and informational (events.fbs header). A client never sends a `GameEvent`. |
+| Q4 | **Who destroys, and with what?** | The authority only. `SafeDestroy` (SelfDestructComponent, explosion) for a ghost within 20 km of a client camera, `SafeRemove` beyond it, both behind PlayerGuard. Clients apply the despawn, they do not destroy. |
+| Q5 | **Trade money.** `TradeReport` carries `unit_price` and a comment saying credits are not synced, but §12 makes the ledger authoritative. | **The comment is stale.** `TradeReport` is about the station's stock only. Money moves as `CreditDelta` from the reconciliation loop (12.2), never derived from a price. |
+| Q6 | **Station stock broadcast.** There is no `StationStock` message. | `EntityCargo` (0x0205) on the station net id. A client computes the delta against its own matched station and applies it through the actions shim; an unmatched station is skipped and counted, never guessed. |
+| Q7 | **Station builds: plan or macro?** | **Macro plus module list first.** `ConstructionDB_CreatePlanDirect`/`AddPlan` are `[VERIFY]`; plan extraction is a stretch inside W5, not a dependency of W5. |
+| Q8 | **Damage relay (AC item 7, stretch).** `HitReport` exists in the schema (≤ 4 Hz, DamageSync capability) and `DamageReport 0x0403` is reserved and unused. | **Upward `HitReport` in W3** because the wire is already there and it is cheap. "An NPC kills a client player" closes only if W3 has budget; otherwise it is deferred to M6 with a note in the exit report, not silently dropped. |
+
+---
+
+## 1. Goal, scope and non-goals
+
+**Goal.** The world stops being only positions. A kill made on one screen happens on every screen; a player who dies
+rejoins without leaving a duplicate ghost; a trade moves the station's stock on every node; a captured ship changes owner
+everywhere and survives a save; and money is one number, owned by the server, that every node's local `player` balance
+converges to within a round trip. The cost is bounded: a 500-unit stock application stays under 2 ms of authority frame
+time, and a wallet converges within 30 s even after a forced local edit.
+
+**In scope**
+
+| Area | What M5 delivers |
+|---|---|
+| Capture | MD capture ring for the nine hooks §5 names, native fallbacks, `md_hook` state reported |
+| Kills | `KillClaim` upward, authority `SafeDestroy`/`SafeRemove`, `Despawn{destroyed}` + `KillEvent` outward, authority-side kills as state |
+| Death | `PlayerDeath` upward, ghost removed everywhere, rejoin without a duplicate, `HitReport` damage relay (stretch) |
+| Trade | `TradeReport` upward, `EntityCargo` for the ship, authority stock application through the actions shim, `EntityCargo` for the station outward, NPC faction counter-flow |
+| Builds | Build detection with a 10 s diff, `StationBuildRequest`, authority spawn, global `EntitySpawn`, no duplicate on the builder |
+| Capture | `CaptureReport`, boarding inert exemption, `SetComponentOwner`, `EntityChange{owner}`, save/load survival |
+| Wallets | `GetPlayerMoney` poll, §12.2 reconciliation loop, `CreditDelta` with reasons, credit modes, overdraft policy |
+| Transfers | Send credits, team pool deposit/withdraw, loans and trade offers visible and actionable from the game |
+| Relations | Live relation matrix apply within 2 s, `admin_only` team switch moving the avatar owner |
+| Chat | Moderation hooks, `/who`, `/ping`, `/w`, `/t` |
+| UI | Economy screen first cut, notifications, `/mp accept|decline` |
+| Acceptance | `m5-exit-report.md` quoting every number from a log, `in-game-session-8.md` run sheet |
+
+**Non-goals (deliberately later)**
+
+- No NPC AI, combat, orders or economy replication. Streamed ships stay visual and positional (M4's rule).
+- No open-market trade offers: v1 offers are directed, per ADR-022.
+- No damage to structures and no station destruction.
+- No mod-side economy. The ledger is the server's; the mod holds a balance and a pending queue, nothing else.
+- No removal of a player's ship by the mod, ever (§6.1). Death is the game's job.
+- No M5b talk-menu actions on remote players (send credits / invite / trade from the talk menu). That is its own milestone row.
+- No story/unlocks (ADR-037) and no player portal (ADR-050).
+
+---
+
+## 2. Waves
+
+### W1 — Capture: the MD half, the bus and the hook state (M5-01..M5-05)
+
+| Task | Work | AC |
+|---|---|---|
+| M5-01 | `md/x4mp_events.xml`: capture `Killed`, `event_player_killed_object`, `event_object_destroyed`, `event_player_trade_completed`, `event_player_build_finished` and `_components`, `EntityChangedOwner`, `BoardingOperationStarted`/`Removed`, `event_player_money_updated`. Each pushes one compact line over the existing bridge, never at frame rate. | Every hook §5 names is wired and produces exactly one line per occurrence, with the component id exactly as MD prints it |
+| M5-02 | `features/events/`: the bus. `eventId` = (node epoch, monotonic counter), a dedupe ring of the last 256 ids, a per-frame budgeted outbound queue, and a ring of the last 64 events for `[events] dump`. | A duplicate `eventId` is dropped once and counted; 500 events in one frame send at most K per frame and drop none |
+| M5-03 | `md_hook` state: hook files that answered, per-hook counters, age of the last event, fallback count, printed as a `hooks=` block in the 30 s budget line. | With the MD half removed the line says `hooks=dead` within one interval instead of doing nothing silently |
+| M5-04 | Fallback detectors, each on its own timer: `event_player_killed_object`, `event_object_destroyed object="player.occupiedship"`, a 2 s cargo diff, a 10 s station diff. A detector that fires while its hook also fired is deduped by (kind, subject, second). | With the hooks removed the fallbacks produce the same events one poll later, and never twice |
+| M5-05 | `Intent`/`GameEvent`/`IntentResult` encode and decode in C++ over the generated structs, plus a round-trip test against the server relay's decoder. | Every body the mod sends decodes on the server unchanged; an unknown body is skipped and counted, not fatal |
+
+**AC (wave).** AC item 1: the MD capture ring plus fallbacks exist and the `md_hook` state is reported.
+
+### W2 — Kills (M5-06..M5-09)
+
+| Task | Work | AC |
+|---|---|---|
+| M5-06 | Client kill detection: `Killed` or the fallback, victim UniverseID → NetId through NetMap, `Intent{KillClaim{target, killer, weapon}}` with a fresh `request_key`. | A ghost kill sends exactly one claim, naming the claimant's own ship as killer when it is known |
+| M5-07 | Authority validation and destruction: the id must exist, must not be a player, must be in interest; `SafeDestroy` (explosion) when within 20 km of a client camera, `SafeRemove` otherwise, both behind PlayerGuard. | A claim for an unknown, player or out-of-interest id is rejected with the right `RejectReason` and destroys nothing |
+| M5-08 | Result outward: `EntityDespawn{reason=Destroyed, killer}` plus `KillEvent` for the feed; a client explodes an on-screen ghost and removes an off-screen one. | A client kill removes the ghost within 500 ms on the authority and on a second client, and the same net id is never despawned twice |
+| M5-09 | Authority-originated kills: a tracked entity that becomes invalid during a read despawns once as `Destroyed`, with no intent and no double report. | An NPC killed by NPCs on the authority disappears for every client with exactly one despawn |
+
+**AC (wave).** AC item 2.
+
+### W3 — Death, rejoin, damage (M5-10..M5-12)
+
+| Task | Work | AC |
+|---|---|---|
+| M5-10 | Player death detection on the client: `Killed` where the victim is in PlayerGuard, or `event_object_destroyed object="player.occupiedship"`; send `Intent{PlayerDeath}` and let the game run its own death flow. The mod never removes the player's ship. | The client's own death sends one `PlayerDeath` and the mod touches no object |
+| M5-11 | Ghost removal and rejoin: the authority and the other clients despawn that player's ghost; the server keeps the slot and the reloaded client gets `Welcome{resume}`; the janitor must not resurrect a ghost from a stale registry. | After death and reload the session holds one ghost for that player, not two, and no orphan in the `[sync] ghosts` line |
+| M5-12 | Damage relay (stretch): the authority watches the avatar's hull and shield and sends `HitReport` at most 4 Hz; the client applies it to its own ship through MD `set_object_hull`/`set_object_shield` (**[VERIFY]** names). | An NPC damages a client player and the client's hull drops; hull 0 goes through the W3 death path |
+
+**AC (wave).** AC item 3; item 7 only if M5-12 lands.
+
+### W4 — Trade and station stock (M5-13..M5-17)
+
+| Task | Work | AC |
+|---|---|---|
+| M5-13 | Detection: `event_player_trade_completed` primary, a 2 s cargo diff fallback that only accepts non-empty reads. | A sale of 500 units produces exactly one report; a failed cargo read produces none |
+| M5-14 | `Intent{TradeReport{station, ship, ware_ref, amount}}` upward, and `EntityCargo` for the own ship at most 1 Hz on change. | The report names the matched station net id; the cargo state line is at most 1 Hz |
+| M5-15 | The authority applies the stock change through the MD actions shim (`add_cargo`/`remove_cargo` with `exact=`), batched into one `AddUITriggeredEvent` per frame under a per-frame ware budget. | 500 units land within 10 s with no frame over 2 ms in the `authority_ms` slot of the budget line |
+| M5-16 | Broadcast and client apply: the authority sends `EntityCargo` for the station; each client computes the delta against its matched station and applies it through the same shim. | A buy reduces the stock on every node; an unmatched station is skipped and counted, never guessed |
+| M5-17 | NPC counter-flow: `transfer_money` to the station owner's faction so the NPC economy does not leak, resolved node-relative. | A sale raises the owner faction's money by the same amount, once |
+
+**AC (wave).** AC item 4.
+
+### W5 — Builds and capture (M5-18..M5-21)
+
+| Task | Work | AC |
+|---|---|---|
+| M5-18 | Build detection: `event_player_build_finished` and `_components`, plus a 10 s player-faction station diff against the `on_universe_ready` baseline. | A finished client build produces exactly one request, and the diff does not repeat it |
+| M5-19 | Authority spawn: `SpawnStationAtPos` with the plan when the `ConstructionDB_*` helpers work, macro plus modules otherwise, owned by the requesting player's team faction. Emit `EntitySpawn` static **globally** (stations are few and the map view must agree) and `IntentResult{result_net_id}`. The requesting client keeps its local station; the two are matched by (sector, macro, 50 m) so nothing duplicates. | AC item 5: the station appears for the authority and the other clients at the same position, with no duplicate on the builder |
+| M5-20 | Capture detection: `EntityChangedOwner` where the new owner is the local `player` and the entity is a ghost; `BoardingOperationStarted`/`Removed` temporarily re-activate the ghost so the local operation can run and re-inert it afterwards; send `Intent{CaptureReport}`. | A capture sends one report, and the ghost is inert again once boarding ends |
+| M5-21 | Authority apply: `SetComponentOwner` to the capturer's team faction (node-relative), broadcast `EntityChange{owner_team}`, and make the captured ship survive an authority save/load under the right faction. | AC item 6, including the save/load cycle |
+
+**AC (wave).** AC items 5 and 6.
+
+### W6 — Wallets (M5-22..M5-26)
+
+| Task | Work | AC |
+|---|---|---|
+| M5-22 | Money reading: `x4mp_bridge.lua` polls `GetPlayerMoney()` every frame and pushes `x4mp.money {value}` to native on change only; `event_player_money_updated` is a wake-up and a reason hint, never the value source. | A change in the game is seen by native within one frame; a quiet frame costs nothing on the wire |
+| M5-23 | Reconciliation loop exactly as §12.2: `pending[]` of `(seq, delta, reason)`, `expectedAdjust` to swallow the echo of our own `AddPlayerMoney`, converge to `serverBalance + Σpending` on every `WalletUpdate`. | A forced local edit is corrected within 30 s; our own write is never booked as a player delta |
+| M5-24 | `CreditDelta{account, seq, d, reason, ref}` upward with the reason taken from the same frame's events, resent with the same `seq` after a reconnect. | A reconnect mid-purchase loses no delta and the server books it once |
+| M5-25 | Credit modes on the node: resolve Auto/PerPlayer/Shared from `SessionSettings`, point "spendable" at `wallet:<p>` or `pool:<team>`, and request a `WalletUpdate` refresh every 30 s. | Switching to Shared makes every member's local money equal to the pool balance within 2 s |
+| M5-26 | Shared-pool overdraft: negative pool if the game tolerates it, otherwise clamp local money at 0 and surface the team debt in the HUD and the economy screen. | Two simultaneous purchases in Shared mode leave all members at the same final balance within 2 s |
+
+**AC (wave).** AC item 10.
+
+### W7 — Relations, chat and the economy screen (M5-27..M5-31)
+
+| Task | Work | AC |
+|---|---|---|
+| M5-27 | Live relations: apply `TeamRelations` on every node within 2 s, and `ReassignPlayerAssets` for an `admin_only` team switch. | AC item 9: two hostile teams show red targeting on both sides; allied takes effect within 2 s; a team switch moves the avatar's owner |
+| M5-28 | Chat: moderation hooks and `/who`, `/ping`, `/w`, `/t` in `x4mp_chat.lua`, keeping the existing pass-through for every other command. | Each command answers with a system line; an unknown command still reaches the vanilla handler |
+| M5-29 | Economy screen first cut (12.7): header with wallet, pool and mode badge; send credits with a recipient picker; deposit and withdraw; a loans table with Repay and Forgive; trade tabs Incoming/Outgoing with Accept and Decline; the last 50 ledger entries. | Every section renders live data and every action reaches the server API with an audit trail |
+| M5-30 | Notifications: HUD badge, a transient notification, a system chat line, and `/mp accept <id>` / `/mp decline <id>`. | An incoming offer is visible three ways and can be accepted from the chat line |
+| M5-31 | Escrowed settlement on the authority (12.6, stretch): `AssetTransferOrder` → precheck everything, journal, apply in order, compensate in reverse on failure, `AssetTransferConfirm`. | AC item 12: a ship-for-credits offer settles atomically, an injected failure after the first op rolls back exactly, residuals are 0 |
+
+**AC (wave).** AC items 8, 9 and 11; item 12 if M5-31 lands.
+
+### W8 — Acceptance and exit (M5-32..M5-34)
+
+| Task | Work |
+|---|---|
+| M5-32 | `docs/m5-exit-report.md`: every AC number quoted with the log line it came from, and the M4 numbers re-quoted wherever M5 moved them |
+| M5-33 | `docs/in-game-session-8.md`: the two-client run sheet, one step per AC item, with the exact log greps and what to send back |
+| M5-34 | Roadmap status, the `docs/README.md` index, and the ledger auditor clean after a 60-minute session with purchases on all nodes |
+
+**AC (wave).** Every roadmap M5 acceptance number is quoted from a log, not asserted.
+
+---
+
+## 3. Rules that bind every wave
+
+- **The mod never writes money for offers, transfers or loans** (§12.6). Only the ledger changes; every node converges
+  through the W6 loop. A wave that "fixes" a balance locally is a bug, not a shortcut.
+- **A node never applies its own optimistic result twice.** Idempotency is `request_key` upward and a set of applied
+  `eventId`s downward; applying "remove NetId 42" twice is a no-op by construction.
+- **The player's ship is never removed by the mod** (§6.1). PlayerGuard is checked at every mutation, not at the call site.
+- **Every new counter goes in a log line the tester can grep.** M5's acceptance is a table of numbers with sources; a
+  counter that only exists in a debugger does not count.
+- **No new MD work at frame rate.** MD pushes on an event, native polls on a timer, and the two never fight: a hook and its
+  fallback dedupe by (kind, subject, second).
+
+---
+
+## 4. Gates
+
+| Gate | Command | Passing means |
+|---|---|---|
+| Mod build | `game_build` (relwithdebinfo) or `mod\build.ps1 -Config relwithdebinfo -NoTest` | exit 0, zero errors |
+| Host tests | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "<filter>"` | every new `[events]`/`[kill]`/`[trade]`/`[wallet]` case green |
+| Full ctest | `ctest --output-on-failure` from `mod\build\msvc-x64-relwithdebinfo` | no regression against the M4 baseline of 635 tests / 4 skipped |
+| Lua | `python mod\tests\lua\run_lupa.py` | 252+ green, including the new chat commands and economy screen |
+| Server economy | `dotnet test X4MP.Core.Tests --filter "FullyQualifiedName~Economy"` and the `X4MP.Server.Tests` economy/trade filters | green; the auditor stays clean |
+| Server build | `dotnet build X4MP.Server` | zero warnings (the repo treats them as errors) |
+| In game | `game_deploy` + `game_reload`, X4Mcp `POST http://127.0.0.1:7779/mcp`, log `%LOCALAPPDATA%\X4MP\logs\x4mp.log` | the AC's own log line, quoted |
+
+A wave is closed when the build is clean, ctest and Lua are green, the new tests pin the AC, and the commit is local.
+
+---
+
+## 5. Definition of done for M5
+
+1. AC items 2-12 each executed once in session 8, with the log line quoted in `docs/m5-exit-report.md`.
+2. The ledger auditor is clean after a 60-minute session with purchases on all nodes.
+3. Every event in the REQ §8.3 checklist executed once with log evidence.
+4. No regression in the M4 gates: 635-test ctest baseline, the 30 s budget line, the UDP lane counters, record/replay.
+5. M5b (talk-menu actions on remote players) is explicitly out of scope here and stays its own row.

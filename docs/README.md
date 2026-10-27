@@ -51,6 +51,7 @@ below. The repo is the only memory that follows you between computers.
 | [m4-plan.md](m4-plan.md) | M4 plan (authority world streaming, manifest matching, interest/prefetch, ghost-only clients, record/replay): open questions Q1-Q8, scope/non-goals, the eight roadmap criteria, design decisions (who scans, what streams, who suppresses, the manifest, the UDP lane, recordings), waves W1-W7 (M4-01..M4-31), gates |
 | [m4-exit-report.md](m4-exit-report.md) | M4 exit evidence: CI gates quoted from commands, all eight roadmap criteria with the log line each number comes from (in-game rows pending session 7), the wave-by-wave commit map, deliberate non-goals |
 | [in-game-session-7.md](in-game-session-7.md) | User test script for in-game session 7 (M4 acceptance): station match rate, the same NPCs on both sides, path error, a 200-ship sector, a highway transit, the attention A/B, record/replay/mirror; logs to send back |
+| [m5-plan.md](m5-plan.md) | M5 plan (events and the economy, both sides): what the server already ships, open questions Q1-Q8, scope/non-goals, waves W1-W8 (M5-01..M5-34) with the roadmap's twelve acceptance items mapped onto them, the rules that bind every wave, gates |
 | [in-game-session-4.md](in-game-session-4.md) | **Outline** of the session-4 user script: sitting 0 spikes S13, sittings 1-2 on one PC with FakeNode wingmen, sitting 3 on two PCs; finalised by M3-14 |
 | [spikes/session-1.md](spikes/session-1.md), [spikes/session-1-results.md](spikes/session-1-results.md) | In-game session 1 script and verdicts (2026-10-01) |
 
