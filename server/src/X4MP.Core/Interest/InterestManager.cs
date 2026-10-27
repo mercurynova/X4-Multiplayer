@@ -176,10 +176,25 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
 
         if (c.Subs.TryGetValue(entity.Sector, out var sub))
         {
-            if (sub.Tier == InterestTier.Sector && entity.Sector == c.Sector
-                && NearGrid.DistanceSquared(entity, c.Px, c.Py, c.Pz) <= NearRadiusSquared(Opt.NearRadiusM))
+            if (sub.Tier == InterestTier.Sector && entity.Sector == c.Sector)
             {
-                return InterestTier.Near;
+                // M4-24: hysteresis. An entity enters the Near tier inside NearRadiusM and leaves it only beyond NearLeaveRadiusM, so
+                // one hovering on the boundary does not flip Near <-> Sector every tick (each flip changes its replication rate and
+                // makes the ghost jitter). The dead-band is outside the enter radius: leave >= enter, and a leave at or below the
+                // enter radius (or 0) means no dead-band. The memory lives in ClientInterest.Near; this query keeps it up to date, and
+                // it is the only caller of TierOf (ReplicationModule.Tick), so there is one writer.
+                var opt = Opt;
+                int leaveM = opt.NearLeaveRadiusM <= opt.NearRadiusM ? opt.NearRadiusM : opt.NearLeaveRadiusM;
+                long enter = NearRadiusSquared(opt.NearRadiusM);
+                long leave = NearRadiusSquared(leaveM);
+                long d2 = NearGrid.DistanceSquared(entity, c.Px, c.Py, c.Pz);
+                if (c.Near.Contains(entity.NetId) ? d2 <= leave : d2 <= enter)
+                {
+                    c.Near.Add(entity.NetId);
+                    return InterestTier.Near;
+                }
+
+                c.Near.Remove(entity.NetId);
             }
 
             return sub.Tier;

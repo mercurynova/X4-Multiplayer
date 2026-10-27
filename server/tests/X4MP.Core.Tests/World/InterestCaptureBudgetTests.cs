@@ -403,6 +403,55 @@ public sealed class InterestCaptureBudgetTests
     }
 
     [Fact]
+    public void NearHysteresisKeepsAShipAtTheBoundaryNearWithoutChurn()
+    {
+        // M4-24: a ship loitering on the 15 km edge must not flip Near <-> Sector. It enters inside NearRadiusM and leaves only once
+        // it crosses NearLeaveRadiusM (the dead-band sits outside the enter radius), so 60 s on the boundary produce no churn.
+        var rig = new InterestRig(3, new InterestOptions { NearRadiusM = 15_000, NearLeaveRadiusM = 16_500 });
+        int m = 64;     // wire units per metre
+        rig.Mirror.Spawn(Rec(1, EntityKind.ShipS, 2, 14_900 * m));
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 2, 0, 0, 0);
+        rig.CompleteAllCaptured();
+
+        InterestTier TierOf1() => rig.Manager.TierOf(InterestRig.Alice, rig.Mirror.TryGet(1, out var e) ? e : null!);
+
+        Assert.Equal(InterestTier.Near, TierOf1());     // inside the enter radius
+
+        // 120 updates across the boundary: 15.1 km is still inside the 16.5 km leave radius, so the tier never changes.
+        for (int i = 0; i < 120; i++)
+        {
+            rig.Mirror.Update(State(1, 2, (i % 2 == 0 ? 15_100 : 14_900) * m));
+            Assert.Equal(InterestTier.Near, TierOf1());
+        }
+
+        // Past the leave radius it drops back to Sector, and re-enters only inside the enter radius.
+        rig.Mirror.Update(State(1, 2, 16_600 * m));
+        Assert.Equal(InterestTier.Sector, TierOf1());
+        rig.Mirror.Update(State(1, 2, 15_500 * m));
+        Assert.Equal(InterestTier.Sector, TierOf1());    // inside the dead-band, but no longer Near: still outside 15 km
+        rig.Mirror.Update(State(1, 2, 14_900 * m));
+        Assert.Equal(InterestTier.Near, TierOf1());
+    }
+
+    [Fact]
+    public void NearLeaveRadiusZeroDisablesTheDeadBand()
+    {
+        var rig = new InterestRig(3, new InterestOptions { NearRadiusM = 15_000, NearLeaveRadiusM = 0 });
+        int m = 64;
+        rig.Mirror.Spawn(Rec(1, EntityKind.ShipS, 2, 14_900 * m));
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 2, 0, 0, 0);
+        rig.CompleteAllCaptured();
+
+        InterestTier TierOf1() => rig.Manager.TierOf(InterestRig.Alice, rig.Mirror.TryGet(1, out var e) ? e : null!);
+
+        Assert.Equal(InterestTier.Near, TierOf1());
+        rig.Mirror.Update(State(1, 2, 15_100 * m));
+        Assert.Equal(InterestTier.Sector, TierOf1());
+    }
+
+    [Fact]
     public void GridsExistOnlyForSectorsWithAPlayerAndMoveWithHim()
     {
         var rig = new InterestRig(4);

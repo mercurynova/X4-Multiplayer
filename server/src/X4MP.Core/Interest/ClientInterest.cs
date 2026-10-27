@@ -86,6 +86,13 @@ internal sealed class ClientInterest(int playerId, ulong caps, bool isAuthority)
     /// <summary>Entities the client holds as ghosts; the value says whether the entity was a player ship when sent (those are exempt from the budget).</summary>
     public Dictionary<uint, bool> Held { get; } = [];
 
+    /// <summary>
+    /// Net ids this client currently holds in the Near tier (M4-24): the hysteresis memory that keeps an entity Near until it crosses
+    /// <see cref="InterestOptions.NearLeaveRadiusM"/>. Cleared when the player changes sector, because the ids of the old sector are
+    /// no longer in this client's grid.
+    /// </summary>
+    public HashSet<uint> Near { get; } = [];
+
     public int Ghosts { get; set; }
 
     public List<SpawnJob> Jobs { get; } = [];

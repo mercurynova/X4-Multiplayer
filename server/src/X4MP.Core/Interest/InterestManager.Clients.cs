@@ -214,6 +214,7 @@ public sealed partial class InterestManager
 
         c.Linger.Remove(newSector);
         c.Hints.Remove(newSector);
+        c.Near.Clear();  // M4-24: the Near memory belongs to the old sector's grid
         c.Sector = newSector;
         SetGridSector(c, c.ReceivesSpawns ? newSector : (ushort)0);
         Recompute(c, now);

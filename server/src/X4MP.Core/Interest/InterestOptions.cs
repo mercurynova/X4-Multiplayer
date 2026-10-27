@@ -17,6 +17,15 @@ public sealed class InterestOptions
     [Setting("Near radius: full-rate tier around each player ship (m)", Scope = SettingScope.Live, Min = 500, Max = 200000)]
     public int NearRadiusM { get; set; } = 15_000;
 
+    /// <summary>
+    /// Leave radius of the Near tier (metres): an entity that is already Near stays Near until it is farther than this, so an object
+    /// hovering on the edge of <see cref="NearRadiusM"/> does not flip between Near and its sector tier every tick (M4-24). The
+    /// dead-band is therefore outside the enter radius; a value at or below <see cref="NearRadiusM"/> (0 included) means "no
+    /// dead-band".
+    /// </summary>
+    [Setting("Near leave radius: hysteresis dead-band for the Near tier (m, 0 = off)", Scope = SettingScope.Live, Min = 0, Max = 200000)]
+    public int NearLeaveRadiusM { get; set; } = 16_500;
+
     /// <summary>Hops of the adjacent prefetch tier (0 = no prefetch).</summary>
     [Setting("Prefetch depth: gate/highway hops around the player's sector that are pre-warmed", Scope = SettingScope.Live, Min = 0, Max = SectorGraph.MaxHops)]
     public int PrefetchDepth { get; set; } = 1;
