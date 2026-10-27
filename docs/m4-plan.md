@@ -218,6 +218,30 @@ carry no position, so suppression is per sector and not distance-limited, and st
 
 **AC (wave).** ≥ 99% station matches in the interest sectors, and the on-foot flow is unchanged from the player's point of view.
 
+**Built.** `features/statics` (manifest index, scan parser, hub) plus the MD/Lua scan pair (`md/x4mp_statics.xml`,
+`ui/x4mp_statics.lua`). The reader loads the X4MF the avatars feature already knows the path of (`avatar_hub().manifest_file()`), verifies
+it, resolves its string and sector tables and files every row under `onfoot::station_match_key`, so the matcher and the on-foot container
+flow cannot drift apart. Matching runs per interest sector (the player's own sector until the first `InterestUpdate`): the client asks MD
+for the sector's stations, MD answers in chunks and closes with a count, and every row is bound to its manifest net id. A closed pass
+prunes the bindings of stations the pass no longer lists, a new manifest replaces the index and drops every binding, and the on-foot
+container id now comes from the manifest row (the M3 hash stays as the fallback when there is no row).
+
+The report is built once per closed pass set: the wire `ManifestReport` carries the counters (`total`, `matched`, `unmatched`,
+`ambiguous`, `tiebreak_owner`, `tiebreak_idcode`, `universe_id_equal`, `duration_ms`) and the per-sector lines plus up to 16 mismatch keys
+go out as `LogForward` lines, which is what makes a key reproducible from the server log alone. `JoinFeature::finish_ready` waits up to
+1.5 s for that pass set before it sends the report (the server only accepts `ManifestReport` in `Matching`/`CatchingUp`); if the pass set
+did not close in time, or there is no manifest, it sends the M2 count-only body as before.
+
+**Verified:** mod build clean, `x4mp_host_tests` statics cases **10 cases** (scan text, reader and its 5 000-row budget, the sector
+filter, the duplicate-key tie-break, the on-foot container id, pruning, the report aggregate), full ctest **625/625**, MD XML
+well-formed and the Lua half loads.
+
+**Not done, deliberately.** The id-code tie-break is implemented in the index (`lookup(key, idcode)`) and the scan parser reads an
+optional sixth field, but `md/x4mp_statics.xml` still sends five fields: `$St.idcode` is not proven on every station class in game, and a
+wrong expression would kill the whole scan rather than one tie-break. The owner tie-break is not measurable from the scan (it carries no
+owner), so `tiebreak_owner` is always 0. `unmatched_sample` stays empty: an unmatched row has no net id to sample. The in-game
+two-client measurement of the ≥ 99 % AC is still the open W7 item.
+
 ### W5 — Pops, interest and the highway (M4-22..M4-24)
 
 | Task | Work | AC |
