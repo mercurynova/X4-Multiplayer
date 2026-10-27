@@ -252,6 +252,35 @@ two-client measurement of the ≥ 99 % AC is still the open W7 item.
 
 **AC (wave).** Zero `spawn-near-player` pops on the highway transit; no `[FLK]` flicker over the whole run.
 
+**Built.** M4-24 gives the Near tier a dead-band: `InterestOptions.NearLeaveRadiusM` (16.5 km by default, a value at or below
+`NearRadiusM` switches the band off) sits outside the enter radius, `ClientInterest.Near` remembers which entities are already near, and
+`TierOf` — the only consumer, called from `ReplicationModule.Tick` — keeps an entity near until it crosses the leave radius. The memory is
+cleared when the client changes sector, because the near grid is per sector.
+
+M4-22 splits in two. The server half already existed: `InterestHint` admits a sector outside the graph as `Adjacent(predicted)`, which is
+captured at the adjacent rate and spawns its entities before the client arrives. The client half is new: the MD highway gate cue now
+raises `'gate|<sector macro>'` when the gate names a destination sector, Lua forwards `{source, target}` as before, and
+`features/selfship/highway_hint` parses the string and sends `InterestHint{target_sector, eta_ms = 60 s, GateApproach}` on the control lane
+through `diag_hub().send_control`. `HighwayHintGate` allows one hint per destination per 15 s, and a new destination goes out at once.
+`JoinFeature` now negotiates `Capability::InterestHint` (`1 << 12`) alongside `LogForward`.
+
+M4-23 counts the pops: `DriverCounters::spawn_near` and the `spawn-near-player: net=… sector=… distance=… m macro=…` line in the
+new-record branch of `GhostDriver::on_spawn`, plus `spawn_near=` at the end of the 5 s `[sync]` line. `GameGhostWorld::player_distance` is
+now implemented (the local ship's pose when it is in that sector, 0 otherwise), so the counter works in game and not only in the fake
+world.
+
+**Verified:** mod build clean, `x4mp_ghosts_tests "[m423]"` **1 case / 7 assertions**, `x4mp_host_tests "[m422]"` **2 cases / 28
+assertions**, full ctest **627/627** (4 smoke/live cases skipped), Lua **252 passed**, MD XML well-formed, and `X4MP.Core.Tests`
+**1378/1378** — including the two hysteresis tests and the hinted-destination test, which shows a hinted sector's ships arriving before
+the client moves and no spawn or despawn burst when it does.
+
+**Not done, deliberately.** The hint rides on `event_player_entered_gate`, which the M3-33 notes already mark as unproven for a highway
+entry gate, and on `destination.sector` resolving for such a gate. When either fails the client sends nothing and behaviour is exactly the
+old one: the server still prefetches one hop by graph. The `'zone'` and `'sector'` entry sources carry no destination, so a superhighway
+entered that way is not hinted. The counter counts a spawn in the 5 km bubble whether or not the client is moving — the stricter reading of
+"while the client moves". The zero-pops AC itself is an in-game two-client highway transit, so it is measured in W7 together with the
+W4 ≥ 99 % station measurement.
+
 ### W6 — Transport and tooling (M4-25..M4-28)
 
 | Task | Work | AC |
