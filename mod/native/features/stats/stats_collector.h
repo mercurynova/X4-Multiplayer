@@ -20,7 +20,9 @@ struct WindowSummary {
   std::uint32_t frames = 0;
   double window_s = 0.0;
   float fps = 0.0f;
+  float frame_ms_p50 = 0.0f;  // M4-30: the 30 s budget line quotes p50 as well as p95
   float frame_ms_p95 = 0.0f;
+  float mod_ms_p50 = 0.0f;
   float mod_ms_p95 = 0.0f;
   float mod_ms_max = 0.0f;
 };

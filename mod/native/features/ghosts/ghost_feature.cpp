@@ -258,6 +258,8 @@ void GhostFeature::report(host::HostContext& ctx, std::int64_t) {
   ghosts::GhostCore& c = *core_;
   for (const std::string& line : c.driver.take_sync_lines()) ctx.log.raw(Cat::Ghost, Level::Info, line);
   const ghosts::DriverCounters& k = c.driver.counters();
+  // M4-30: the 30 s budget line quotes this; publish it even when the ghost line below is skipped.
+  ghosts::ghost_hub().set_suppressed(suppression_ ? suppression_->total_suppressed() : 0);
   if (c.driver.size() == 0 && c.counters.replication == 0) return;
   // one line (the log cuts lines at ~240 characters, so the fields that matter come first; sync-report.ps1 reads this exact order)
   ctx.log.raw(Cat::Ghost, Level::Info,

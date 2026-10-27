@@ -18,6 +18,8 @@
 #include "features/join/join_requests.h"
 #include "features/launch/launch_feature.h"
 #include "features/launch/launch_json.h"
+#include "features/stats/budget_line.h"
+#include "features/stats/frame_timing.h"
 #include "features/stats/stats_collector.h"
 #include "features/stats/stats_message.h"
 #include "game/main_thread.h"
@@ -317,4 +319,77 @@ TEST_CASE("stats: the NodeStats payload decodes with the appended field", "[stat
   CHECK(m->net_main_ms_p95() == 0.75f);
   CHECK(m->tcp_send_queue_bytes() == 99u);
   CHECK(stats::msg_node_stats() == static_cast<std::uint16_t>(X4MP::Proto::MsgType::NodeStats));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// M4-30: the 30 s budget line
+// ---------------------------------------------------------------------------------------------------------------------
+TEST_CASE("M4-30: a timing slot reports p50/p95/max and starts a new window", "[stats][m430]") {
+  stats::TimingHub hub;
+  CHECK(hub.take("authority").samples == 0);  // a slot nobody wrote is empty, not a crash
+  stats::FrameTiming& t = hub.slot("authority");
+  for (int i = 1; i <= 100; ++i) t.add(static_cast<double>(i) / 100.0);  // 0.01 .. 1.00 ms
+  CHECK(t.size() == 100);
+  const auto s = hub.take("authority");
+  CHECK(s.samples == 100);
+  CHECK(s.ms_p50 == Catch::Approx(0.50));
+  CHECK(s.ms_p95 == Catch::Approx(0.95));
+  CHECK(s.ms_max == Catch::Approx(1.00));
+  CHECK(t.size() == 0);                       // the take reset the window
+  CHECK(hub.take("authority").samples == 0);
+  t.add(-1.0);                                // garbage is ignored, not folded into the max
+  t.add(std::nan(""));
+  CHECK(hub.take("authority").samples == 0);
+}
+
+TEST_CASE("M4-30: a full timing window overwrites instead of growing without bound", "[stats][m430]") {
+  stats::FrameTiming t;
+  for (std::size_t i = 0; i < stats::FrameTiming::kMaxSamples + 500; ++i) t.add(0.5);
+  CHECK(t.size() == stats::FrameTiming::kMaxSamples);
+  const auto s = t.take();
+  CHECK(s.samples == stats::FrameTiming::kMaxSamples);
+  CHECK(s.ms_p95 == Catch::Approx(0.5));
+  CHECK(s.ms_max == Catch::Approx(0.5));
+}
+
+TEST_CASE("M4-30: the collector reports the p50 the budget line quotes", "[stats][m430]") {
+  stats::StatsCollector c;
+  for (int i = 0; i < 10; ++i) c.on_frame(0.010, 0.1 * (i + 1));  // mod cost 0.1 .. 1.0 ms, frame 10 ms
+  const auto w = c.take_window();
+  CHECK(w.frame_ms_p50 == Catch::Approx(10.0));
+  CHECK(w.mod_ms_p50 == Catch::Approx(0.5));
+  CHECK(w.mod_ms_p95 == Catch::Approx(1.0));
+}
+
+TEST_CASE("M4-30: the budget line names every acceptance field in a fixed order", "[stats][m430]") {
+  stats::BudgetSample s;
+  s.fps = 47.5f;
+  s.frame_ms_p50 = 18.0f;
+  s.frame_ms_p95 = 26.5f;
+  s.mod_ms_p50 = 0.4f;
+  s.mod_ms_p95 = 1.1f;
+  s.mod_ms_max = 2.5f;
+  s.authority_ms_p50 = 1.2;
+  s.authority_ms_p95 = 2.4;
+  s.authority_ms_max = 2.9;
+  s.clients = 3;
+  s.ghosts = 42;
+  s.suppressed = 17;
+  s.rx_bytes_per_s = 150000;
+  s.tx_bytes_per_s = 450000;
+  s.per_client_bytes_per_s = stats::per_client_rate(s.tx_bytes_per_s, s.clients);
+  s.udp_state = "active";
+  const std::string line = stats::format_budget(s);
+  CHECK(line.starts_with("budget: fps=47.5 "));
+  CHECK(line.find("frame_ms=18.00/26.50 ") != std::string::npos);
+  CHECK(line.find("mod_ms=0.400/1.100/2.500 ") != std::string::npos);
+  CHECK(line.find("authority_ms=1.200/2.400/2.900 ") != std::string::npos);
+  CHECK(line.find("clients=3 ghosts=42 suppressed=17 ") != std::string::npos);
+  CHECK(line.find("rx=150000B/s tx=450000B/s per_client=150000B/s udp=active") != std::string::npos);
+  // a node with nobody else in the session has no per-client cost, and an unset lane is "off", never an empty field
+  stats::BudgetSample idle;
+  CHECK(stats::per_client_rate(450000, 0) == 0u);
+  CHECK(stats::format_budget(idle).find("per_client=0B/s udp=off") != std::string::npos);
+  idle.udp_state = nullptr;  // defensive: a null literal must not produce "udp="
+  CHECK(stats::format_budget(idle).find("udp=off") != std::string::npos);
 }

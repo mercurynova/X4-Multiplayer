@@ -29,6 +29,10 @@ class GhostHub {
   [[nodiscard]] bool is_ghost_local(std::uint64_t local_id) const noexcept;
   // M3-13: how many ghosts this node's registry holds (0 without a ghost core). The authority's checkpoint check wants 0.
   [[nodiscard]] std::size_t ghost_count() const noexcept { return core_ ? core_->driver.registries().ghosts.size() : 0; }
+  // M4-30: the suppression pass's running total, published by the ghost feature on every report so the 30 s budget line can quote it
+  // without reaching into the feature (the line lives in the stats feature, which owns no ghosts).
+  void set_suppressed(std::size_t count) noexcept { suppressed_ = count; }
+  [[nodiscard]] std::size_t suppressed() const noexcept { return suppressed_; }
   // M3-12: while true the ghost feature spawns / moves nothing (messages still queue). A client's takeover holds it from the moment the node is
   // in game until the vacated host copy and the other avatar copies are removed, so no ghost stands on a copy that is about to go.
   void set_spawn_hold(bool hold) noexcept { spawn_hold_ = hold; }
@@ -37,6 +41,7 @@ class GhostHub {
  private:
   GhostCore* core_ = nullptr;
   bool spawn_hold_ = false;
+  std::size_t suppressed_ = 0;  // M4-30: cumulative, published by the ghost feature
 };
 
 [[nodiscard]] GhostHub& ghost_hub() noexcept;

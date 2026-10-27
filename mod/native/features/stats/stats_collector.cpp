@@ -31,7 +31,9 @@ WindowSummary StatsCollector::take_window() {
   s.frames = frames_;
   s.window_s = window_s_;
   if (window_s_ > 0.0) s.fps = static_cast<float>(static_cast<double>(frames_) / window_s_);
+  s.frame_ms_p50 = static_cast<float>(percentile(frame_ms_, 0.50));
   s.frame_ms_p95 = static_cast<float>(percentile(frame_ms_, 0.95));
+  s.mod_ms_p50 = static_cast<float>(percentile(mod_ms_, 0.50));
   s.mod_ms_p95 = static_cast<float>(percentile(mod_ms_, 0.95));
   s.mod_ms_max = mod_ms_.empty() ? 0.0f : static_cast<float>(*std::max_element(mod_ms_.begin(), mod_ms_.end()));
   frame_ms_.clear();

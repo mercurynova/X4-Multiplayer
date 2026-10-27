@@ -14,6 +14,7 @@
 #include "features/chat/chat_json.h"
 #include "features/selfship/galaxy_map.h"
 #include "features/selfship/selfship_hub.h"
+#include "features/stats/frame_timing.h"
 #include "session_generated.h"
 #include "world_generated.h"
 #include "features/janitor/janitor_feature.h"
@@ -417,6 +418,10 @@ void AuthorityFlow::drain_inbox(host::HostContext& ctx) {
 }
 
 void AuthorityFlow::step(host::HostContext& ctx) {
+  // M4-30: the authority's own per-frame cost, the number the M4 acceptance quotes ("< 3 ms/frame authority mod cost"). It covers
+  // everything below - capture ingest, the scan answers, the 20 Hz world tick and the uploader pump - because that is what the
+  // authority costs the frame. The stats feature takes the slot every 30 s (stats::timing_hub()).
+  const Clock::time_point started = Clock::now();
   drain_inbox(ctx);
   switch (step_) {
     case Step::Collecting: step_collecting(ctx); break;
@@ -434,6 +439,7 @@ void AuthorityFlow::step(host::HostContext& ctx) {
   if (spawn_due_) maybe_spawn(ctx);
   if (ship_wait_ && step_ == Step::Idle && !spawn_due_) step_ship_wait(ctx);
   step_world_clock(ctx);
+  stats::timing_hub().slot("authority").add(std::chrono::duration<double, std::milli>(Clock::now() - started).count());
 }
 
 // M3-14 (found by the two-DLL pair run): without a WorldUpdate the server never replicates anything (ReplicationModule: "no WorldUpdate yet: its game time is the
