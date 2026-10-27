@@ -383,6 +383,7 @@ bool GhostDriver::try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_
     return false;
   }
   world_->make_inert(id);
+  if (cfg_.activate_streamed) world_->activate(id);  // M4-29 attention A/B: `activate` instead of `native` (off by default)
   if (!g.info.npc) world_->dress(id, g.label, cfg_.min_hull_percent);  // M4-13: an NPC keeps the game's own name, no [MP] label
   g.idcode = world_->id_code(id);
   g.local_id = id;
@@ -559,6 +560,7 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     if (!cfg_.inert_once && now_us - g.last_inert_us >= cfg_.inert_interval_us) {
       g.last_inert_us = now_us;
       world_->make_inert(g.local_id);
+      if (cfg_.activate_streamed) world_->activate(g.local_id);  // M4-29: the same pair as at spawn, so the A/B keeps one policy
     }
     if (!g.dressed_ok && now_us >= g.dress_check_us) {
       if (world_->name(g.local_id) == g.label) {

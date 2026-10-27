@@ -66,6 +66,9 @@ class IGhostWorld {
   // 0 = failed. The ghost must already be inert-able; the driver calls make_inert right after.
   virtual std::uint64_t spawn(std::string_view macro, std::uint64_t sector, const Pose& pose, std::string_view owner) = 0;
   virtual void make_inert(std::uint64_t id) = 0;
+  // M4-29: the `activate` half of the attention A/B - ActivateObject(true) on a ghost the driver has just made inert. Default: nothing,
+  // so every fake and every old world keeps the `native` policy without a change.
+  virtual void activate(std::uint64_t /*id*/) {}
   virtual void place(std::uint64_t id, std::uint64_t sector, const Pose& pose) = 0;
   // Name, owner-independent attributes the game needs a script for: label, minimum hull percent, known + radar.
   virtual void dress(std::uint64_t id, std::string_view label, int min_hull_percent) = 0;
@@ -138,6 +141,9 @@ struct GhostConfig {
   std::int64_t parked_set_interval_us = 250'000;     // unchanged pose: re-assert this often (puts a pushed ghost back)
   std::int64_t inert_interval_us = 5'000'000;        // ActivateObject(false) again (m3-plan 4.2)
   bool inert_once = false;                           // M3-28 diag.avatars_inert_once: ActivateObject(false) only right after the spawn, never re-asserted
+  // M4-29 diag.ghost_attention_activate: the attention-policy A/B. false = `native` (the ghost stays as make_inert left it), true =
+  // `activate` (ActivateObject(true) right after make_inert, so the engine's attention runs on the streamed ship).
+  bool activate_streamed = false;
   std::int64_t validity_interval_us = 500'000;       // IsValidComponent / wrecked check
   std::int64_t dress_check_delay_us = 2'000'000;     // after a spawn / rename: is the name there? else dress again
   std::int64_t dress_check_interval_us = 5'000'000;

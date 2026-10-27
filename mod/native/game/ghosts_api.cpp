@@ -51,6 +51,9 @@ bool GhostsApi::make_inert(UniverseId id) const {
   return a || r;
 }
 
+// M4-29: the A/B's other half. Only reachable through diag.ghost_attention_activate.
+bool GhostsApi::activate(UniverseId id) const { return api_.activate_object(id, true); }
+
 bool GhostsApi::place(UniverseId id, UniverseId sector, const GhostPose& pose) const {
   return api_.set_object_sector_pos(id, sector, to_pos_rot(pose));
 }

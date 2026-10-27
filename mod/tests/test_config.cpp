@@ -388,6 +388,24 @@ TEST_CASE("diag switches (M3-34): hints_off, hints_all_speeds and engine_guard_o
   CHECK(describe(*cfg).find("diag.hints_off=false") != std::string::npos);
 }
 
+TEST_CASE("diag switch (M4-29): ghost_attention_activate, nested and flat; the default is `native`", "[config][diag][m429]") {
+  std::string errors;
+  auto cfg = parse_json(R"({})", &errors);
+  REQUIRE(cfg);
+  CHECK_FALSE(cfg->diag.ghost_attention_activate);  // `native` unless asked otherwise
+  CHECK_FALSE(cfg->diag.any());
+  cfg = parse_json(R"({"diag":{"ghost_attention_activate":true}})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.ghost_attention_activate);
+  CHECK(cfg->diag.any());
+  CHECK(describe(*cfg).find("diag.ghost_attention_activate=true") != std::string::npos);
+  cfg = parse_json(R"({"diag.ghost_attention_activate":true})", &errors);  // the flat key is accepted too
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->diag.ghost_attention_activate);
+}
+
 TEST_CASE("diag switches (M3-23): the user file layer reads them and an unknown inner key only warns", "[config][diag]") {
   TempDir dir;
   LoadOptions o;

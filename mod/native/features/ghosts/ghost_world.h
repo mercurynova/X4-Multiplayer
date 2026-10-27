@@ -28,6 +28,7 @@ class GameGhostWorld final : public IGhostWorld {
   }
   std::uint64_t spawn(std::string_view macro, std::uint64_t sector, const Pose& pose, std::string_view owner) override;
   void make_inert(std::uint64_t id) override { api_.make_inert(id); }
+  void activate(std::uint64_t id) override { api_.activate(id); }  // M4-29 diag.ghost_attention_activate
   void place(std::uint64_t id, std::uint64_t sector, const Pose& pose) override;
   void dress(std::uint64_t id, std::string_view label, int min_hull_percent) override;
   // M3-28 diag.dress_no_radar_no_known: the MD dress skips set_object_forced_radar_visible and set_known.

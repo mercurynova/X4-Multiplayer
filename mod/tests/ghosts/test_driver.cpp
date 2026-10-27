@@ -57,6 +57,29 @@ TEST_CASE("M3-28 inert_once: ActivateObject(false) runs once at the spawn, never
   }
 }
 
+TEST_CASE("M4-29 attention A/B: `activate` pairs ActivateObject(true) with every make_inert, `native` never calls it", "[ghosts][driver][m429]") {
+  {
+    // The default policy is `native`: the ghost is left as make_inert put it, so the engine's attention never runs on a streamed ship.
+    Rig r;
+    r.add(11, circle_track(1000, 150), Rig::info(11, 2, "Pax", 2));
+    r.run(20.0);
+    CHECK(r.world.inert_calls >= 3);  // spawn + the 5 s re-asserts
+    CHECK(r.world.activate_calls == 0);
+    CHECK(r.world.objs.begin()->second.inert);
+  }
+  {
+    // `activate`: the same frames, but every make_inert is followed by ActivateObject(true) - the A/B's other arm.
+    GhostConfig cfg;
+    cfg.activate_streamed = true;
+    Rig r(cfg);
+    r.add(11, circle_track(1000, 150), Rig::info(11, 2, "Pax", 2));
+    r.run(20.0);
+    CHECK(r.world.activate_calls == r.world.inert_calls);  // one activate per inert, at the spawn and at every re-assert
+    CHECK(r.world.activate_calls >= 3);
+    CHECK_FALSE(r.world.objs.begin()->second.inert);  // the engine's attention has the ship again
+  }
+}
+
 TEST_CASE("the ghost follows the analytic track (path error well under 2 m)", "[ghosts][driver]") {
   for (const auto& [name, track, bound] : {std::tuple{"circle", circle_track(1500, 250), 0.5}, std::tuple{"line", line_track(300), 0.5},
                                            std::tuple{"accel", accel_track(20, 450), 0.5}}) {

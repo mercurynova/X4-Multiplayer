@@ -81,6 +81,7 @@ void GhostFeature::on_init(host::HostContext& ctx) {
   host::HostLog* log = &ctx.log;
   ghosts::GhostConfig gcfg{};
   gcfg.inert_once = ctx.config.diag.avatars_inert_once;
+  gcfg.activate_streamed = ctx.config.diag.ghost_attention_activate;  // M4-29 attention A/B (`activate`; default `native`)
   gcfg.hints_off = ctx.config.diag.hints_off;                  // M3-34
   gcfg.hints_all_speeds = ctx.config.diag.hints_all_speeds;
   gcfg.engine_guard = !ctx.config.diag.engine_guard_off;
@@ -93,6 +94,11 @@ void GhostFeature::on_init(host::HostContext& ctx) {
   world_->set_dress_skip_radar_known(ctx.config.diag.dress_no_radar_no_known);
   if (ctx.config.diag.avatars_inert_once) {
     X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag.avatars_inert_once is set: ActivateObject(false) runs once per ghost spawn, never re-asserted (M3-28 experiment)");
+  }
+  if (ctx.config.diag.ghost_attention_activate) {
+    X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn,
+              "ghosts: diag.ghost_attention_activate is set: the attention policy is `activate` (ActivateObject(true) right after make_inert); "
+              "the default is `native` (M4-29 A/B)");
   }
   if (ctx.config.diag.hints_off || ctx.config.diag.hints_all_speeds || ctx.config.diag.engine_guard_off) {
     X4MP_CLOG(ctx.log, Cat::Ghost, Level::Warn, "ghosts: diag switches set (M3-34 experiment): hints_off={} hints_all_speeds={} engine_guard_off={}", ctx.config.diag.hints_off,

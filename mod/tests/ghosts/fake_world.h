@@ -45,6 +45,7 @@ class FakeWorld final : public IGhostWorld {
 
   // call log
   int spawn_calls = 0, place_calls = 0, remove_calls = 0, dress_calls = 0, hint_calls = 0, hints_total = 0, inert_calls = 0, owner_calls = 0;
+  int activate_calls = 0;  // M4-29: ActivateObject(true) calls (0 under the default `native` policy)
   std::vector<std::vector<VelocityHint>> hint_log;
   std::vector<std::uint64_t> removed_ids;
   std::uint64_t idcode_counter = 100;
@@ -77,6 +78,11 @@ class FakeWorld final : public IGhostWorld {
   void make_inert(std::uint64_t id) override {
     ++inert_calls;
     if (auto it = objs.find(id); it != objs.end()) it->second.inert = true;
+  }
+  // M4-29 (diag.ghost_attention_activate): the `activate` half of the attention A/B.
+  void activate(std::uint64_t id) override {
+    ++activate_calls;
+    if (auto it = objs.find(id); it != objs.end()) it->second.inert = false;
   }
   void place(std::uint64_t id, std::uint64_t sector, const Pose& pose) override {
     ++place_calls;

@@ -93,7 +93,8 @@ void apply_diag(DiagConfig& d, const Json& doc, std::string_view source, Diags& 
                                       {"takeover_keep_own_ship", &DiagConfig::takeover_keep_own_ship},
                                       {"hints_off", &DiagConfig::hints_off},
                                       {"hints_all_speeds", &DiagConfig::hints_all_speeds},
-                                      {"engine_guard_off", &DiagConfig::engine_guard_off}};
+                                      {"engine_guard_off", &DiagConfig::engine_guard_off},
+                                      {"ghost_attention_activate", &DiagConfig::ghost_attention_activate}};
   if (const auto it = doc.find("diag"); it != doc.end()) {
     if (!it->is_object()) {
       bad(diags, source, "diag", "must be an object of switch name to true or false");
@@ -155,7 +156,8 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   apply_diag(cfg.diag, doc, source, diags);
   warn_unknown(doc,
                {"diag", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "diag.team_self_relation_100", "diag.team_move_respawn", "diag.avatars_inert_once",
-                "diag.dress_no_radar_no_known", "diag.no_set_faction_known", "diag.takeover_mode_reown", "diag.takeover_keep_own_ship", "diag.hints_off", "diag.hints_all_speeds", "diag.engine_guard_off", "server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
+                "diag.dress_no_radar_no_known", "diag.no_set_faction_known", "diag.takeover_mode_reown", "diag.takeover_keep_own_ship", "diag.hints_off", "diag.hints_all_speeds", "diag.engine_guard_off",
+                "diag.ghost_attention_activate", "server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
                 "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest", "last_address", "last_name",  // last_*: remembered Join fields (M3-07)
                 "avatar_race", "avatar_preset"},  // ADR-051 appearance
                source, diags);
@@ -324,6 +326,7 @@ std::string describe(const Config& c) {
     out += std::string("diag.hints_off=") + (c.diag.hints_off ? "true" : "false") + "\n";
     out += std::string("diag.hints_all_speeds=") + (c.diag.hints_all_speeds ? "true" : "false") + "\n";
     out += std::string("diag.engine_guard_off=") + (c.diag.engine_guard_off ? "true" : "false") + "\n";
+    out += std::string("diag.ghost_attention_activate=") + (c.diag.ghost_attention_activate ? "true" : "false") + "\n";
   }
   out += std::string("launch_active=") + (c.launch.active ? "true" : "false") + "\n";
   return out;

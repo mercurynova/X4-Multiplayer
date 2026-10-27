@@ -48,6 +48,8 @@ class GhostsApi {
   [[nodiscard]] UniverseId spawn(std::string_view macro, UniverseId sector, const GhostPose& pose, std::string_view owner) const;
   // ActivateObject(false) + forced radar visibility (the MD dress also sets radar; the native call is the one that never waits a frame).
   bool make_inert(UniverseId id) const;
+  // M4-29 (diag.ghost_attention_activate): ActivateObject(true) - the `activate` half of the attention A/B. Never called by default.
+  bool activate(UniverseId id) const;
   // One SetObjectSectorPos: sector id + sector-local pose. The only call per frame and ghost.
   bool place(UniverseId id, UniverseId sector, const GhostPose& pose) const;
   [[nodiscard]] std::optional<GhostPose> pose(UniverseId id) const;

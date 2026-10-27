@@ -53,9 +53,15 @@ struct DiagConfig {
   bool hints_off = false;           // no MD velocity hint at all (ghosts and avatars are only ever placed; the target info shows 0 m/s)
   bool hints_all_speeds = false;    // the OLD behaviour: a hint at any speed (default: above 1000 m/s the hint is zero)
   bool engine_guard_off = false;    // no read-back of our ghosts / avatars (the check that puts an object back that the engine moved)
+  // M4-29 (docs/m4-plan.md Q7): the attention-policy A/B. `native` (default) leaves a streamed ship as we place it - inert and radar
+  // visible. `activate` gives it back to the engine's attention with ActivateObject(true) right after make_inert, so the same client and
+  // the same sector can be measured twice for FPS. The default stays `native` unless the measurement shows a client FPS cost that
+  // outweighs the behavioural risk.
+  bool ghost_attention_activate = false;
   [[nodiscard]] bool any() const {
     return takeover_keep_original || takeover_off || ghosts_off || janitor_off || team_self_relation_100 || team_move_respawn || avatars_inert_once ||
-           dress_no_radar_no_known || no_set_faction_known || takeover_mode_reown || takeover_keep_own_ship || hints_off || hints_all_speeds || engine_guard_off;
+           dress_no_radar_no_known || no_set_faction_known || takeover_mode_reown || takeover_keep_own_ship || hints_off || hints_all_speeds ||
+           engine_guard_off || ghost_attention_activate;
   }
   bool operator==(const DiagConfig&) const = default;
 };
