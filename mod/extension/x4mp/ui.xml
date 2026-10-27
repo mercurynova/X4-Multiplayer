@@ -12,6 +12,8 @@
      M3b added x4mp_onfoot.lua (the room report MD pushes to native; native does the rest).
      M3-23 added x4mp_diag.lua (the knowledge probe, Finding 4).
      M4-03 added x4mp_capture.lua (the authority's sector scan: MD lists the ship ids of a sector, native indexes them).
+     M4-18 added x4mp_statics.lua (the client's station scan: MD lists a sector's stations with their positions, native matches them to
+     the checkpoint manifest).
      Later tasks must not edit this file.
      __X4MP_USER (userdata storage, not in the save): { version, lastAddress, lastName }; never the password. -->
 <addon name="x4mp">
@@ -23,6 +25,7 @@
     <file name="ui/x4mp_saves.lua" />
     <file name="ui/x4mp_authority.lua" />
     <file name="ui/x4mp_capture.lua" />
+    <file name="ui/x4mp_statics.lua" />
     <file name="ui/x4mp_optionsmenu_adapter.lua" />
     <file name="ui/x4mp_hud.lua" />
     <file name="ui/x4mp_join_mods.lua" />

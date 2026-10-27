@@ -23,6 +23,7 @@
 #include "features/join/join_messages.h"
 #include "features/join/join_requests.h"
 #include "features/selfship/selfship_hub.h"
+#include "features/statics/statics_hub.h"
 #include "features/join/join_mods_json.h"
 #include "host/build_check.h"
 #include "host/extension_roots.h"
@@ -970,6 +971,12 @@ void JoinFeature::finish_ready(host::HostContext& ctx) {
   // The server only accepts NodeReady in Matching/CatchingUp/InGame and learns the phase from the LoadStatus asynchronously: a NodeReady
   // sent in the same frame as the Matching report can overtake it (PhaseDenied). Wait for the roster to show us in Matching (max 3 s).
   if (my_phase_ < 5 && Clock::now() - matching_sent_at_ < std::chrono::seconds(3)) return;
+  // M4-21: give the station matching a bounded moment to close its pass set, so the report carries real numbers instead of the M2
+  // count-only stub. Only a loaded manifest index waits; a session without one, or without MD answering, sends the stub as before.
+  if (has_manifest_ && statics::statics_hub().ready() && !statics::statics_hub().matching_done() &&
+      Clock::now() - matching_sent_at_ < std::chrono::milliseconds(1500)) {
+    return;
+  }
   ready_pending_ = false;
   const std::uint64_t epoch = pending_epoch_;
   // M2-09: remember which save this game runs (the authority's next fresh join tells the server in ClientHello).
@@ -982,15 +989,39 @@ void JoinFeature::finish_ready(host::HostContext& ctx) {
       stash_->put(auth::kStashKey, st.to_json());
     }
   }
-  if (has_manifest_) send_control(join::msg_manifest_report(), join::encode_manifest_report_counts(checkpoint_, 0, 0, manifest_ms_));
+  const bool real_report = has_manifest_ && statics::statics_hub().matching_done();
+  if (real_report) {
+    // M4-21: the numbers the matching pass measured (protocol.md 8.4). The per-sector lines and the mismatch keys were already sent as
+    // LogForward when the pass set closed, so the server log holds both halves of the report.
+    const statics::MatchReport& rep = statics::statics_hub().report();
+    join::ManifestReportNumbers numbers;
+    numbers.total = rep.stations;
+    numbers.matched = rep.matched;
+    numbers.tiebreak_owner = rep.tiebreak_owner;
+    numbers.tiebreak_idcode = rep.tiebreak_idcode;
+    numbers.unmatched = rep.unmatched;
+    numbers.ambiguous = rep.ambiguous;
+    numbers.universe_id_equal = rep.universe_id_equal;
+    numbers.duration_ms = rep.duration_ms != 0 ? rep.duration_ms : manifest_ms_;
+    send_control(join::msg_manifest_report(), join::encode_manifest_report(checkpoint_, numbers));
+  } else if (has_manifest_) {
+    send_control(join::msg_manifest_report(), join::encode_manifest_report_counts(checkpoint_, 0, 0, manifest_ms_));
+  }
   send_control(join::msg_node_ready(), join::encode_node_ready(epoch, save_sha_));
   session_->mark_in_session();
   stage_ = Stage::InGame;
   epoch_ = epoch;                         // M2-07
   fingerprint_ = resume::Fingerprint{};  // sampled again on the next frames
   persist_state("ingame");
-  X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready: NodeReady sent (epoch {:016x}, manifest report {})", epoch,
-            has_manifest_ ? "counts only" : "skipped");
+  if (real_report) {
+    const statics::MatchReport& rep = statics::statics_hub().report();
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info,
+              "universe ready: NodeReady sent (epoch {:016x}, manifest report {} matched of {} stations, {} unmatched, {} ambiguous)",
+              epoch, rep.matched, rep.stations, rep.unmatched, rep.ambiguous);
+  } else {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready: NodeReady sent (epoch {:016x}, manifest report {})", epoch,
+              has_manifest_ ? "counts only" : "skipped");
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

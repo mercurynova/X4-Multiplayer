@@ -33,6 +33,15 @@ Payload encode_manifest_report_counts(const session::Id128& checkpoint, std::uin
   return take(fbb);
 }
 
+Payload encode_manifest_report(const session::Id128& checkpoint, const ManifestReportNumbers& numbers) {
+  flatbuffers::FlatBufferBuilder fbb(256);
+  const P::Id128 cp(checkpoint.lo, checkpoint.hi);
+  fbb.Finish(P::CreateManifestReportDirect(fbb, &cp, numbers.total, numbers.matched, numbers.tiebreak_owner, numbers.tiebreak_idcode,
+                                           numbers.unmatched, numbers.ambiguous, numbers.universe_id_equal, &numbers.sample,
+                                           numbers.duration_ms));
+  return take(fbb);
+}
+
 Payload encode_node_ready(std::uint64_t universe_epoch, const std::vector<std::uint8_t>& loaded_save_sha256) {
   flatbuffers::FlatBufferBuilder fbb(128);
   fbb.Finish(P::CreateNodeReadyDirect(fbb, universe_epoch, &loaded_save_sha256));

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP station scan for the client's manifest matching, MD side (M4-18). Lua side: ui/x4mp_statics.lua; consumer: native
+  features/statics (statics_feature.cpp).
+
+  Why a second scan pair next to md/x4mp_capture.xml: the authority's capture scan must stay ships-only (it feeds the universe index
+  and the world stream), while the client needs the STATIONS of a sector with their positions to find their manifest rows. Same reason
+  MD owns it: native cannot enumerate the objects of a sector (x4_game_func_list.inc has no "objects of a sector"), MD can
+  (find_object class="class.station" space="$Sector").
+
+    native -> Lua  x4mp.statics_request {"v":1,"sector":"<sector macro id>"}
+    Lua -> MD      AddUITriggeredEvent("X4MP_Statics", "scan", { <sector macro id> })
+    MD -> Lua      raise_lua_event "x4mp.statics_scan" "S;<sector macro>;<component>|<station macro>|<x>|<y>|<z>;..."
+                   raise_lua_event "x4mp.statics_scan" "E;<sector macro>;<count>"
+    Lua -> native  verb x4mp.statics_scan {"v":1,"data":"<the same string>"}
+
+  The position is SECTOR-SPACE in metres, exactly what md/x4mp_onfoot.xml already sends for a station container ($Cont.position), so
+  native can build the very same onfoot::station_match_key(sector macro, station macro, x, y, z) that the on-foot flow uses. The key is
+  what finds the manifest row (protocol/schema/manifest.fbs: sector macro + macro + position rounded to 50 m).
+
+  One 'S;' message carries at most kChunk rows and the 'E;' message closes the pass with the total, so native knows the sector was
+  fully listed and can report its matched/missed counts.
+-->
+<mdscript name="X4MP_Statics" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Statics_Scan" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Statics'" control="'scan'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Macro" exact="event.param3.{1}"/>
+        <set_value name="$Sec" exact="null"/>
+        <do_if value="$Macro">
+          <find_sector name="$Sectors" multiple="true"/>
+          <do_for_each name="$S" in="$Sectors">
+            <do_if value="not $Sec and $S.macro.id == $Macro">
+              <set_value name="$Sec" exact="$S"/>
+            </do_if>
+          </do_for_each>
+        </do_if>
+        <do_if value="$Sec">
+          <find_object name="$Stations" class="class.station" space="$Sec" multiple="true"/>
+          <set_value name="$Chunk" exact="''"/>
+          <set_value name="$InChunk" exact="0"/>
+          <set_value name="$Total" exact="0"/>
+          <do_for_each name="$St" in="$Stations">
+            <do_if value="$St.exists and $St.macro.id and $St.position">
+              <set_value name="$Pos" exact="$St.position"/>
+              <do_if value="$Chunk != ''">
+                <set_value name="$Chunk" exact="$Chunk + ';'"/>
+              </do_if>
+              <set_value name="$Chunk" exact="$Chunk + '' + $St + '|' + $St.macro.id + '|' + ($Pos.x / 1m) + '|' + ($Pos.y / 1m) + '|' + ($Pos.z / 1m)"/>
+              <set_value name="$InChunk" exact="$InChunk + 1"/>
+              <set_value name="$Total" exact="$Total + 1"/>
+              <do_if value="$InChunk ge 40">
+                <raise_lua_event name="'x4mp.statics_scan'" param="'S;' + $Macro + ';' + $Chunk"/>
+                <set_value name="$Chunk" exact="''"/>
+                <set_value name="$InChunk" exact="0"/>
+              </do_if>
+            </do_if>
+          </do_for_each>
+          <do_if value="$Chunk != ''">
+            <raise_lua_event name="'x4mp.statics_scan'" param="'S;' + $Macro + ';' + $Chunk"/>
+          </do_if>
+          <raise_lua_event name="'x4mp.statics_scan'" param="'E;' + $Macro + ';' + $Total"/>
+        </do_if>
+        <do_else>
+          <!-- The sector macro is not in this universe: an empty pass, so native stops waiting instead of retrying forever. -->
+          <do_if value="$Macro">
+            <raise_lua_event name="'x4mp.statics_scan'" param="'E;' + $Macro + ';0'"/>
+          </do_if>
+        </do_else>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

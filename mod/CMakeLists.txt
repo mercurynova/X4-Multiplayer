@@ -127,7 +127,8 @@ if(X4MP_TESTS)
     tests/test_host_redact.cpp
     tests/test_host_modhost.cpp
     tests/test_host_paths.cpp
-    tests/test_game_api.cpp)
+    tests/test_game_api.cpp
+    tests/test_statics.cpp)
   target_link_libraries(x4mp_host_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
   x4mp_set_warnings(x4mp_host_tests)
   catch_discover_tests(x4mp_host_tests TEST_PREFIX "host." PROPERTIES TIMEOUT 60)

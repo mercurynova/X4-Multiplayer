@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "features/statics/statics_hub.h"
+
 namespace x4mp::features::onfoot {
 
 namespace {
@@ -76,6 +78,16 @@ std::uint32_t matched_container_id(std::string_view key) noexcept {
   return 0x80000000u | hash;
 }
 
+namespace {
+// M4-19: the id a station container is known by. When the checkpoint manifest is loaded and names this station, its net id is the
+// answer - the same id the authority knows, so the relay needs no lookup. Without a manifest row (no manifest, a station added since
+// the checkpoint, a session without a save) the client hash stays as the fallback, which is what M3 shipped.
+std::uint32_t container_id_for(std::string_view key) {
+  const std::uint32_t net_id = statics::statics_hub().net_id_for(key);
+  return net_id != 0 ? net_id : matched_container_id(key);
+}
+}  // namespace
+
 std::string station_match_key(std::string_view sector_macro, std::string_view station_macro, double x, double y, double z) {
   const auto bucket = [](double metres) {
     // 50 m buckets, integer output: no locale, no trailing ".0", identical on both clients.
@@ -120,7 +132,7 @@ std::optional<RoomContext> parse_room_context(std::string_view kv, std::string* 
   // Station identity: the matched id comes from the ADR-009 key (sector macro, station macro, position rounded to 50 m). MD has no
   // round(), so it sends the parts and the rounding happens here.
   if (get_field(kv, "skey", v)) {
-    ctx.container_net_id = matched_container_id(trim(v));
+    ctx.container_net_id = container_id_for(trim(v));
   } else {
     std::string_view sector, smacro, sx, sy, sz;
     if (!get_field(kv, "sector", sector)) return fail("sector");
@@ -132,7 +144,7 @@ std::optional<RoomContext> parse_room_context(std::string_view kv, std::string* 
     sector = trim(sector);
     smacro = trim(smacro);
     if (sector.empty() || smacro.empty()) return fail("smacro");
-    ctx.container_net_id = matched_container_id(station_match_key(sector, smacro, px, py, pz));
+    ctx.container_net_id = container_id_for(station_match_key(sector, smacro, px, py, pz));
   }
   if (ctx.container_net_id == 0) return fail("smacro");
   if (get_field(kv, "oskey", v)) ctx.outer_net_id = matched_container_id(trim(v));

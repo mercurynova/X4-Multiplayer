@@ -22,6 +22,21 @@ enum class JoinPhase : std::uint8_t { SyncingSave = 2, Verifying = 3, Loading = 
 [[nodiscard]] Payload encode_manifest_report_counts(const session::Id128& checkpoint, std::uint32_t total, std::uint32_t matched,
                                                     std::uint32_t duration_ms);
 
+// M4-21: the real report (protocol/schema/session.fbs ManifestReport), built from the matching pass StaticsFeature ran. `sample` is
+// the diagnostic net-id list (<= 256); the mismatch KEYS travel as LogForward lines, because the table has no field for them.
+struct ManifestReportNumbers {
+  std::uint32_t total = 0;                  // station rows the scans reported
+  std::uint32_t matched = 0;
+  std::uint32_t tiebreak_owner = 0;
+  std::uint32_t tiebreak_idcode = 0;
+  std::uint32_t unmatched = 0;
+  std::uint32_t ambiguous = 0;
+  std::uint32_t universe_id_equal = 0;
+  std::uint32_t duration_ms = 0;
+  std::vector<std::uint32_t> sample;
+};
+[[nodiscard]] Payload encode_manifest_report(const session::Id128& checkpoint, const ManifestReportNumbers& numbers);
+
 [[nodiscard]] Payload encode_node_ready(std::uint64_t universe_epoch, const std::vector<std::uint8_t>& loaded_save_sha256);
 
 // Wire message type numbers (X4MP.Proto.MsgType).
