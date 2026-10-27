@@ -175,6 +175,9 @@ struct DriverCounters {
   std::uint64_t spawn_failed = 0, faction_missing = 0, invalid_dropped = 0, blocked_removals = 0, remove_failed = 0;
   std::uint64_t places = 0, sector_changes = 0, hints_sent = 0, redressed = 0, unmapped_frames = 0, deferred_clearance = 0;
   std::uint64_t guard_reads = 0, engine_moved = 0, engine_sector = 0, engine_highway = 0;  // M3-34 engine guard
+  // M4-23: a spawn that landed inside the player's 5 km bubble. Zero is the acceptance criterion on a highway transit; a non-zero value
+  // names the sector and the net id in the log line that counted it.
+  std::uint64_t spawn_near = 0;
 };
 
 struct FrameStats {

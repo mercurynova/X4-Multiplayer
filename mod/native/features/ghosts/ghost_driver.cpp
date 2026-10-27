@@ -14,6 +14,8 @@ constexpr std::string_view kMetaKey = "ghost.meta";
 // /reloadui across the upgrade adopts the old ghosts instead of respawning them.
 constexpr std::string_view kMetaHeader = "x4gm 2";
 constexpr std::string_view kMetaHeaderV1 = "x4gm 1";
+// M4-23: the camera bubble the acceptance criterion talks about ("[SYNC] spawn-near-player", docs/m4-plan.md W5).
+constexpr double kSpawnNearMetres = 5000.0;
 
 ghost::InterpolatorConfig interp_config(const GhostConfig& c) {
   ghost::InterpolatorConfig i;
@@ -124,6 +126,15 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
     dirty_ = true;
     log(kInfo, std::format("ghost record: net={} player={} controller={} team={} macro={} owner={} label='{}'{}", info.net_id, info.player_id,
                            info.controller, info.team, info.macro, info.owner, label, info.npc ? " (npc)" : ""));
+    // M4-23: a record that appears inside the camera's 5 km bubble is a pop the player sees. player_distance() is 0 when the world cannot
+    // say (no pose, or the ghost is in another sector), so an unknown distance never counts as near.
+    if (state && world_ != nullptr) {
+      const double near_m = world_->player_distance(world_->sector_id(state->sector), state->pos);
+      if (near_m > 0.0 && near_m <= kSpawnNearMetres) {
+        ++counters_.spawn_near;
+        log(kInfo, std::format("spawn-near-player: net={} sector={} distance={:.0f} m macro={}", info.net_id, state->sector, near_m, info.macro));
+      }
+    }
   } else {
     // A refresh (the server re-sends every spawn after a resume). Keep the object; update what may have changed.
     const bool relabel = !info.npc && g->label != label;

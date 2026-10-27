@@ -104,4 +104,15 @@ bool GameGhostWorld::local_ship_within(std::uint64_t sector, const Vec3& pos, do
   return std::sqrt(dx * dx + dy * dy + dz * dz) <= radius;
 }
 
+double GameGhostWorld::player_distance(std::uint64_t sector, const Vec3& pos) {
+  // M4-23: the ghost driver counts a spawn as a pop only when this returns a positive distance inside the bubble. 0 means "cannot say":
+  // the player has no ship yet, the ghost is in another sector, or the pose is unreadable. Never guess a distance.
+  const std::uint64_t ship = api_.local_ship();
+  if (ship == 0 || api_.sector_of(ship) != sector) return 0.0;
+  const auto p = api_.pose(ship);
+  if (!p) return 0.0;
+  const double dx = p->x - pos.x, dy = p->y - pos.y, dz = p->z - pos.z;
+  return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 }  // namespace x4mp::features::ghosts

@@ -262,10 +262,10 @@ void GhostFeature::report(host::HostContext& ctx, std::int64_t) {
   // one line (the log cuts lines at ~240 characters, so the fields that matter come first; sync-report.ps1 reads this exact order)
   ctx.log.raw(Cat::Ghost, Level::Info,
               std::format("[sync] ghosts tracked={} visible={} spawned={} respawned={} hidden={} removed={} adopted={} hints={} rep_msgs={} rep_entries={} frame_p95_us={:.0f} "
-                          "frame_max_us={:.0f} clk_ms={} bias_ms={} rep_bad={} spawn_failed={} unmapped={} unresolved={}",
+                          "frame_max_us={:.0f} clk_ms={} bias_ms={} rep_bad={} spawn_failed={} unmapped={} unresolved={} spawn_near={}",
                           c.driver.size(), last_visible_, k.spawned, k.respawned, k.hidden, k.removed, k.adopted, k.hints_sent, c.counters.replication,
                           c.counters.replication_entries, frame_cost_us_.percentile(0.95), frame_cost_max_us_, c.clock_offset_us / 1000, c.stream_clock.bias_us() / 1000,
-                          c.counters.replication_bad, k.spawn_failed, k.unmapped_frames, c.counters.spawn_unresolved));
+                          c.counters.replication_bad, k.spawn_failed, k.unmapped_frames, c.counters.spawn_unresolved, k.spawn_near));
   // M4-13: the suppression pass, one line, only when it has done something.
   if (suppression_) {
     const ghosts::LocalSuppression::Stats& s = suppression_->stats();

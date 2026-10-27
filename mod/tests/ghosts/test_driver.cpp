@@ -787,3 +787,24 @@ TEST_CASE("M3-34: a re-hosted authority's ghost spawns without any sample, shows
   CHECK(worst < 0.05);
   CHECK(r.world.only()->places <= 60 * 120 / 15 + 8);  // parked: re-asserted every 250 ms at most, never moved around
 }
+
+TEST_CASE("a spawn inside the camera bubble is counted as spawn-near-player", "[ghosts][driver][m423]") {
+  // M4-23: the wave's acceptance criterion is zero of these on a highway transit, so the counter has to see the difference between a pop in
+  // front of the player and a spawn somewhere else. player_distance() answers 0 when the world cannot say, and 0 must never count as near.
+  Rig r;
+  const x4mp::features::ghosts::InitialState at{2, 0, Vec3{0, 0, 0}, Vec3{}, Euler{}};
+
+  r.world.distance_from_player = true;
+  r.world.player_pos = Vec3{3000, 4000, 0};  // exactly 5 km from the spawn point: the edge still counts
+  CHECK(r.driver->on_spawn(Rig::info(21, 2, "Near", 2), r.now, at));
+  CHECK(r.driver->counters().spawn_near == 1);
+  CHECK(std::any_of(r.all_logs.begin(), r.all_logs.end(), [](const std::string& s) { return s.find("spawn-near-player: net=21 sector=2") != std::string::npos; }));
+
+  r.world.player_pos = Vec3{0, 6000, 0};  // 6 km: a spawn the player does not see appear
+  CHECK(r.driver->on_spawn(Rig::info(22, 2, "Far", 2), r.now, at));
+  CHECK(r.driver->counters().spawn_near == 1);
+
+  r.world.distance_from_player = false;  // the world does not know the player pose: unknown, not near
+  CHECK(r.driver->on_spawn(Rig::info(23, 2, "Unknown", 2), r.now, at));
+  CHECK(r.driver->counters().spawn_near == 1);
+}

@@ -43,6 +43,8 @@ class GameGhostWorld final : public IGhostWorld {
   std::optional<std::uint64_t> find_ghost_by_idcode(std::string_view idcode) override;
   FactionPresence faction(std::string_view faction) override;
   bool local_ship_within(std::uint64_t sector, const Vec3& pos, double radius) override;
+  // M4-23: the distance from the player's ship to a point, or 0 when the world cannot say (no ship, another sector, no pose).
+  double player_distance(std::uint64_t sector, const Vec3& pos) override;
 
   [[nodiscard]] static game::GhostPose to_game(const Pose& p) noexcept;
 
