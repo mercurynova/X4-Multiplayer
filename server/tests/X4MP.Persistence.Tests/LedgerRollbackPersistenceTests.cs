@@ -180,7 +180,7 @@ public sealed partial class LedgerRollbackPersistenceTests : IDisposable
         {
             var factory = new SqliteConnectionFactory(new PersistenceOptions { DataDir = dir });
             var all = EmbeddedMigrations();
-            Assert.Equal(9, all.Count);
+            Assert.Equal(10, all.Count);
             new MigrationRunner(factory, all.Where(m => m.Version <= 8)).Migrate();
             using (var db = factory.Open())
             {
@@ -188,7 +188,7 @@ public sealed partial class LedgerRollbackPersistenceTests : IDisposable
                 db.Execute("INSERT INTO checkpoints (session_id, save_sha256, journal_seq, ghosts_cleaned, created_at, checkpoint_id) VALUES (1, 'x', 1, 1, '2026-10-01T12:00:00Z', '00000000000000020000000000000001')");
             }
 
-            Assert.Equal(9, new MigrationRunner(factory, all).Migrate());
+            Assert.Equal(10, new MigrationRunner(factory, all).Migrate());
 
             using var after = factory.Open();
             Assert.Null(after.ExecuteScalar<long?>("SELECT ledger_seq FROM checkpoints"));
@@ -208,6 +208,98 @@ public sealed partial class LedgerRollbackPersistenceTests : IDisposable
                 // best effort
             }
         }
+    }
+
+    [Fact]
+    public void MigrationTenBackfillsSeqFromTheRowidSoStoredMarksStayValidAndNewRowsContinueAfterThem()
+    {
+        // A database as it was at schema version 9: ledger rows (one reversed: the append-only trigger must not stop the backfill) and a stored mark that WAS a rowid.
+        string dir = Path.Combine(Path.GetTempPath(), "x4mp-mig10-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var factory = new SqliteConnectionFactory(new PersistenceOptions { DataDir = dir });
+            var all = EmbeddedMigrations();
+            new MigrationRunner(factory, all.Where(m => m.Version <= 9)).Migrate();
+            using (var db = factory.Open())
+            {
+                db.Execute("INSERT INTO sessions (id, name, state, settings_json, created_at) VALUES (1, 's', 'Idle', '{}', '2026-10-01T12:00:00Z')");
+                foreach (var id in new[] { "tx1", "tx2", "tx3" })
+                {
+                    db.Execute("INSERT INTO ledger_tx (id, session_id, ts, kind, actor) VALUES (@id, 1, '2026-10-01T12:00:00Z', 'GameIncome', 'authority')", new { id });
+                }
+
+                db.Execute("INSERT INTO ledger_tx (id, session_id, ts, kind, actor, reverses_tx) VALUES ('tx4', 1, '2026-10-01T12:00:00Z', 'Reversal', 'authority', 'tx1')");
+                db.Execute("UPDATE ledger_tx SET reversed_by_tx = 'tx4' WHERE id = 'tx1'");
+                db.Execute("INSERT INTO checkpoints (session_id, save_sha256, journal_seq, ghosts_cleaned, created_at, checkpoint_id, ledger_seq) VALUES (1, 'x', 1, 1, '2026-10-01T12:00:00Z', '00000000000000020000000000000001', 2)");
+            }
+
+            Assert.Equal(10, new MigrationRunner(factory, all).Migrate());
+
+            using (var after = factory.Open())
+            {
+                Assert.Equal(new long[] { 1, 2, 3, 4 }, after.Query<long>("SELECT seq FROM ledger_tx ORDER BY rowid").ToArray());
+                Assert.Equal(2L, after.ExecuteScalar<long>("SELECT ledger_seq FROM checkpoints")); // the mark is untouched ...
+                Assert.Equal("tx2", after.ExecuteScalar<string>("SELECT id FROM ledger_tx WHERE seq = 2")); // ... and still selects the same transaction
+                Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => after.Execute("UPDATE ledger_tx SET seq = 99 WHERE id = 'tx2'")); // frozen like the rest
+            }
+
+            using var store = new SqliteEconomyStore(factory, fullSync: false);
+            Assert.Equal(4, store.HighWaterSeq(1));
+            Assert.Equal(["tx3", "tx4"], store.TransactionsAfter(1, 2).Select(t => t.Id).ToArray());
+        }
+        finally
+        {
+            X4MP.Persistence.SqliteConnectionFactory.ClearPool(dir);
+            try
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+            catch (IOException)
+            {
+                // best effort
+            }
+        }
+    }
+
+    [Fact]
+    public void AVacuumDoesNotChangeWhatAMarkSelects()
+    {
+        using (var db = _factory.Open())
+        {
+            // Rows that will leave a gap among the rowids once removed (the append-only trigger is lifted for the test only).
+            foreach (var id in new[] { "filler1", "filler2", "filler3" })
+            {
+                db.Execute("INSERT INTO ledger_tx (id, session_id, ts, kind, actor, seq) VALUES (@id, 1, '2026-10-01T12:00:00Z', 'GameIncome', 'x', (SELECT COALESCE(MAX(seq), 0) + 1 FROM ledger_tx))", new { id });
+            }
+        }
+
+        long mark;
+        string[] expectedAfter;
+        long balanceAtMark;
+        using (var node = Start())
+        {
+            Delta(node, 1, 100);
+            Delta(node, 1, 200);
+            mark = node.Store.HighWaterSeq(Session);
+            Delta(node, 1, 300);
+            Delta(node, 1, 400);
+            expectedAfter = [.. node.Store.TransactionsAfter(Session, mark).Select(t => t.Id)];
+            balanceAtMark = node.Store.BalancesAt(Session, mark)[WalletId.Player(1)];
+            Assert.Equal(2, expectedAfter.Length);
+            Assert.Equal(300, balanceAtMark);
+        }
+
+        using (var db = _factory.Open())
+        {
+            db.Execute("DROP TRIGGER ledger_tx_no_delete");
+            db.Execute("DELETE FROM ledger_tx WHERE id LIKE 'filler%'");
+            db.Execute("VACUUM");
+        }
+
+        using var again = Start();
+        Assert.Equal(expectedAfter, again.Store.TransactionsAfter(Session, mark).Select(t => t.Id).ToArray());
+        Assert.Equal(balanceAtMark, again.Store.BalancesAt(Session, mark)[WalletId.Player(1)]);
+        Assert.Equal(mark + 2, again.Store.HighWaterSeq(Session));
     }
 
     private static List<Migration> EmbeddedMigrations()

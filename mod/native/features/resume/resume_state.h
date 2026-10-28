@@ -70,6 +70,11 @@ struct Decision {
 // on_game_loaded / on_universe_ready / ui_ready{startmenu:false} disarm it. Pure state, no clock of its own (tests pass the time).
 inline constexpr std::int64_t kMenuLeaveConfirmMs = 30000;
 
+// F1c: the "this game runs save X" memory (AuthorityState::loaded_sha, sent as ClientHello.loaded_save_sha256 by the next fresh join) is void while
+// the Lua state is the start menu: no universe is loaded, whatever save was running before the player exited to the main menu. A load in progress
+// (stage Loading) is excluded: the loaded sha is set when that load reports ready.
+[[nodiscard]] constexpr bool start_menu_voids_loaded_save(bool startmenu, bool loading_session_save) noexcept { return startmenu && !loading_session_save; }
+
 class MenuExitWatch {
  public:
   explicit MenuExitWatch(std::int64_t confirm_ms = kMenuLeaveConfirmMs) noexcept : confirm_ms_(confirm_ms) {}
@@ -85,7 +90,10 @@ class MenuExitWatch {
       armed_ = false;
     }
   }
-  void note_game_loaded() noexcept { armed_ = false; }  // also on_universe_ready, a stage change, a leave
+  void note_game_loaded() noexcept { armed_ = false; }  // also on_universe_ready, a stage change
+  // F1b: any leave (manual Disconnect, a new Join, the F1 leave itself) ends the session this watch was armed for: a later Join is a new
+  // session the player started on purpose and must never be cut by a watch that armed before it.
+  void disarm() noexcept { armed_ = false; }
   [[nodiscard]] bool armed() const noexcept { return armed_; }
   [[nodiscard]] bool due(std::int64_t now_ms) const noexcept { return armed_ && now_ms - since_ms_ >= confirm_ms_; }
 

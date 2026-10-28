@@ -155,8 +155,8 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
             var at = Iso(commit.At);
             if (commit.Transaction is { } tx)
             {
-                using (var cmd = Command(db, "INSERT INTO ledger_tx (id, session_id, ts, kind, actor, request_id, ref_type, ref_id, reverses_tx, note) " +
-                    "VALUES ($id, $s, $ts, $kind, $actor, $req, $rt, $rid, $rev, $note)", commit.SessionId))
+                using (var cmd = Command(db, "INSERT INTO ledger_tx (id, session_id, ts, kind, actor, request_id, ref_type, ref_id, reverses_tx, note, seq) " +
+                    "VALUES ($id, $s, $ts, $kind, $actor, $req, $rt, $rid, $rev, $note, (SELECT COALESCE(MAX(seq), 0) + 1 FROM ledger_tx))", commit.SessionId))
                 {
                     cmd.Transaction = transaction;
                     cmd.Parameters.AddWithValue("$id", tx.Id);
@@ -423,14 +423,15 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
 
     public long HighWaterSeq(long sessionId)
     {
-        // rowid of ledger_tx: assigned in commit order, never reused (rows are never deleted: the append-only trigger), independent of any clock.
-        using var cmd = Command(Db, "SELECT COALESCE(MAX(rowid), 0) FROM ledger_tx WHERE session_id = $s", sessionId);
+        // ledger_tx.seq (migration 0010): MAX+1 in the commit transaction, so commit order, never reused (rows are never deleted: the append-only trigger),
+        // independent of any clock and, unlike the implicit rowid, stable across VACUUM.
+        using var cmd = Command(Db, "SELECT COALESCE(MAX(seq), 0) FROM ledger_tx WHERE session_id = $s", sessionId);
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     public IReadOnlyList<LedgerTransaction> TransactionsAfter(long sessionId, long seq)
     {
-        using var cmd = Command(Db, TxSelect + " WHERE t.session_id = $s AND t.rowid > $seq ORDER BY t.rowid ASC", sessionId);
+        using var cmd = Command(Db, TxSelect + " WHERE t.session_id = $s AND t.seq > $seq ORDER BY t.seq ASC", sessionId);
         cmd.Parameters.AddWithValue("$seq", seq);
         return ReadTransactions(cmd);
     }
@@ -440,7 +441,7 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
         var sums = new Dictionary<WalletId, long>();
         using var cmd = Command(Db,
             "SELECT e.wallet_kind, e.wallet_owner_id, SUM(e.amount) FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id " +
-            "WHERE t.session_id = $s AND t.rowid <= $seq GROUP BY e.wallet_kind, e.wallet_owner_id", sessionId);
+            "WHERE t.session_id = $s AND t.seq <= $seq GROUP BY e.wallet_kind, e.wallet_owner_id", sessionId);
         cmd.Parameters.AddWithValue("$seq", seq);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -452,7 +453,7 @@ public sealed class SqliteEconomyStore(SqliteConnectionFactory factory, bool ful
     }
 
     private const string TxSelect =
-        "SELECT t.id, t.ts, t.kind, t.actor, t.request_id, t.ref_type, t.ref_id, t.reverses_tx, t.reversed_by_tx, t.note, t.rowid FROM ledger_tx t";
+        "SELECT t.id, t.ts, t.kind, t.actor, t.request_id, t.ref_type, t.ref_id, t.reverses_tx, t.reversed_by_tx, t.note, t.seq FROM ledger_tx t";
 
     private List<LedgerTransaction> ReadTransactions(SqliteCommand cmd)
     {

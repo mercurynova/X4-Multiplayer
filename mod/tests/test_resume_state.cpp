@@ -124,3 +124,23 @@ TEST_CASE("MenuExitWatch: re-arming keeps the first time; the delay is settable"
   CHECK(w.due(2100));
   CHECK(kMenuLeaveConfirmMs > 16000);  // longer than the observed save-load gap before on_game_loaded
 }
+
+// ---- F1b: the watch must not survive a leave ----
+TEST_CASE("MenuExitWatch: disarm() (a manual Disconnect or a new Join) cancels a pending leave", "[resume][menu]") {
+  MenuExitWatch w(30000);
+  w.note_ui_ready(true, true, 1000);
+  REQUIRE(w.armed());
+  w.disarm();  // the player pressed Disconnect 5 s later
+  CHECK_FALSE(w.armed());
+  CHECK_FALSE(w.due(1000 + 90000));  // a Join the player starts 70 s later is never cut by the old watch
+  w.note_ui_ready(true, true, 90000);  // a new arm starts from its own time, not the old one
+  CHECK_FALSE(w.due(90000 + 29999));
+  CHECK(w.due(90000 + 30000));
+}
+
+// ---- F1c: no loaded-save claim at the start menu ----
+TEST_CASE("start_menu_voids_loaded_save: the start menu voids it except while the session save loads", "[resume][menu]") {
+  CHECK(start_menu_voids_loaded_save(true, false));
+  CHECK_FALSE(start_menu_voids_loaded_save(true, true));
+  CHECK_FALSE(start_menu_voids_loaded_save(false, false));
+}
