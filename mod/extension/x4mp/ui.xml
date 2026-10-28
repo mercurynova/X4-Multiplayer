@@ -14,6 +14,7 @@
      M4-03 added x4mp_capture.lua (the authority's sector scan: MD lists the ship ids of a sector, native indexes them).
      M4-18 added x4mp_statics.lua (the client's station scan: MD lists a sector's stations with their positions, native matches them to
      the checkpoint manifest).
+     M5-01 added x4mp_events.lua (the Lua half of the event capture ring: one line per occurrence from md/x4mp_events.xml to native).
      Later tasks must not edit this file.
      __X4MP_USER (userdata storage, not in the save): { version, lastAddress, lastName }; never the password. -->
 <addon name="x4mp">
@@ -36,6 +37,7 @@
     <file name="ui/x4mp_ghosts.lua" />
     <file name="ui/x4mp_onfoot.lua" />
     <file name="ui/x4mp_diag.lua" />
+    <file name="ui/x4mp_events.lua" />
     <dependency name="ego_detailmonitorHelper" />
     <savedvariable name="__X4MP_USER" storage="userdata" />
   </environment>

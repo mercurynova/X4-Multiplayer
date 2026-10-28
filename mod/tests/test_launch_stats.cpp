@@ -392,4 +392,9 @@ TEST_CASE("M4-30: the budget line names every acceptance field in a fixed order"
   CHECK(stats::format_budget(idle).find("per_client=0B/s udp=off") != std::string::npos);
   idle.udp_state = nullptr;  // defensive: a null literal must not produce "udp="
   CHECK(stats::format_budget(idle).find("udp=off") != std::string::npos);
+  // M5-03: the `hooks=` block is the last field, and an unset one still says the MD half is dead rather than printing nothing
+  CHECK(line.find("udp=active hooks=") != std::string::npos);
+  CHECK(stats::format_budget(idle).find("hooks=dead md=0 fired=0 age=none fb=0 dup=0 queued=0") != std::string::npos);
+  idle.hooks = "hooks=alive md=9 fired=41 age=1.2s fb=2 dup=0 queued=0";
+  CHECK(stats::format_budget(idle).find("hooks=alive md=9 fired=41") != std::string::npos);
 }

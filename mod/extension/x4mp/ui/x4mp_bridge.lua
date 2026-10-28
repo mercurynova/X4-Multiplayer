@@ -483,3 +483,10 @@ RegisterEvent("gfx_ok", function() B.retry("gfx_ok") end)
 RegisterEvent("show", function() B.retry("show") end)
 B.retry("load")
 log("bridge loaded (api present: " .. tostring(B.getApi() ~= nil) .. ")")
+
+------------------------------------------------------------------------------
+-- M5 event capture (W1). Lua -> native x4mp.event {"v":1,"data":"<line>"} - one compact line per occurrence from
+-- md/x4mp_events.xml, parsed by native features/events (docs/m5-plan.md W1). Not queueable: an event that happens at the
+-- start menu belongs to no game.
+------------------------------------------------------------------------------
+B.VERBS.event = true

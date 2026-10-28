@@ -565,6 +565,17 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_teams.cpp)
 endif()
 # END M3-08 team factions in game
+# =============================================================================================
+# BEGIN M5 W1 event capture (docs/m5-plan.md W1, M5-01..M5-05). Appended by M5 W1.
+#   features/events/*.cpp is picked up by the M2-04 features glob; the rest of the wave is header-only on purpose
+#   (event_types/event_bus/hook_state/events_hub/event_wire), so a test can link it without a feature host.
+#   x4mp_host_tests += tests/test_events.cpp (MD line format, dedupe window, queue bounds, md_hook block, intent bodies)
+#   The MD half (md/x4mp_events.xml) is checked by tools/validate-x4-xml.py, the Lua half by tests/lua/test_events.lua.
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_events.cpp)
+endif()
+# END M5 W1 event capture
 # BEGIN M3-09 own-ship tracker (features/selfship/*.cpp is picked up by the M2-04 features glob; the SDK-free game adapter is added to
 # x4mp_game here). Appended by M3-09.
 #   x4mp_game        += game/selfship_api.cpp (per-frame reads of the player's ship: seat, sector, highway, dock, pose)

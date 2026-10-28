@@ -4,6 +4,7 @@
 
 #include "features/chat/chat_json.h"
 #include "features/diag/diag_hub.h"
+#include "features/events/events_hub.h"
 #include "features/ghosts/ghost_hub.h"
 #include "features/stats/budget_line.h"
 #include "features/stats/frame_timing.h"
@@ -101,6 +102,8 @@ void StatsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
     s.tx_bytes_per_s = last_tx_;
     s.per_client_bytes_per_s = stats::per_client_rate(last_tx_, s.clients);
     s.udp_state = net.udp_state != nullptr ? net.udp_state : "off";
+    // M5-03: the md_hook block. `events_hub()` is written by EventsFeature::on_frame, which runs before this feature.
+    s.hooks = events::format_hooks(events::events_hub().state());
     s.window_s = w.window_s;
     X4MP_CLOG(ctx.log, Cat::Perf, Level::Info, "{}", stats::format_budget(s));
   }

@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP event capture ring, MD side (M5-01). Lua side: ui/x4mp_events.lua; consumer: native features/events (verb x4mp.event).
+
+  Why MD: the native side has no event stream of its own (x4_game_func_list.inc has no "something happened" call), so the game
+  tells us. This file is deliberately a thin, read-only observer: it never creates, moves, damages or removes anything. It reads
+  an event's parameters, formats ONE line, and hands it to Lua:
+
+    MD   -> Lua     raise_lua_event "x4mp.event" "<line>"
+    Lua  -> native  verb x4mp.event {"v":1,"data":"<line>"}
+
+  The line grammar is positional and is parsed by features/events/event_types.h (parse_event_line). One line per occurrence,
+  never per frame; the native bus dedupes, bounds and counts:
+
+    H;<n>                                        hook hello: this file armed <n> cues
+    K;<victim>;<macro>;<owner>;<killer>          a player-owned ship was killed by something
+    X;<component>                                a player-owned object was destroyed with no killer
+    P;                                           the player's own ship died
+    T;<station>;<ware>;<signed amount>;<price>   a trade completed
+    B;<station>;<macro>;<sector>                 a build finished (sector empty in W1)
+    M;<credits>                                  the player's money changed
+    S;<component>                                a boarding operation started on that ship
+    E;<component>                                a boarding operation ended on that ship
+
+  What is deliberately NOT here: capture/ownership. event_object_changed_owner needs an object or group source (common.xsd
+  objecteventsource: "object is required if group is not supplied"), and a player's captures happen on ships the mod does not
+  enumerate. M5-20 detects captures through the native EntityChangedOwner typed hook (type 175) instead. See docs/m5-plan.md W5.
+
+  Every cue uses instantiate="true": it is created when its condition fires and completes after the actions, which is the
+  standard pure-MD listener pattern (see the vanilla examples named per cue below).
+
+  [VERIFY] on the first in-game session:
+    - event_player_owned_killed_object fires for a player kill AND for a player-owned ship killed by an NPC (vanilla
+      md/rml_destroy_rarelyonsight.xml relies on exactly this; the schema documents param = killer, param2 = killed).
+    - $Trade.ware concatenates to a ware macro (W4 consumes it; until then it is informational).
+    - event.param.buildanchor on event_player_build_finished (taken from md/fleet_reconstitution.xml, which uses the
+      _components variant; this file uses the simpler non-components event).
+-->
+<mdscript name="X4MP_Events" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+    <!-- The hello. A newly added non-root cue misses event_game_loaded on the first load (common.xsd warning), so the universe
+         cue carries the usual case and the loaded cue covers a save that was already running when the mod was installed. A
+         repeated hello is harmless: the feature only logs it once and keeps the hook count. -->
+    <cue name="X4MP_Events_HelloUniverse" instantiate="true">
+      <conditions>
+        <event_universe_generated/>
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4mp.event'" param="'H;7'"/>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Events_HelloLoaded" instantiate="true">
+      <conditions>
+        <event_game_loaded/>
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4mp.event'" param="'H;7'"/>
+      </actions>
+    </cue>
+
+    <!-- Kills. param = killer, param2 = killed (vanilla md/rml_destroy_rarelyonsight.xml). An owner id may be null on a
+         bailing/abandoned ship, so it is guarded exactly like md/x4mp_capture.xml guards a sector owner. -->
+    <cue name="X4MP_Events_Kill" instantiate="true">
+      <conditions>
+        <event_player_owned_killed_object/>
+      </conditions>
+      <actions>
+        <set_value name="$Killed" exact="event.param2"/>
+        <set_value name="$Killer" exact="event.param"/>
+        <do_if value="@$Killed.exists">
+          <set_value name="$Owner" exact="@$Killed.owner.id"/>
+          <do_if value="$Owner == null">
+            <set_value name="$Owner" exact="''"/>
+          </do_if>
+          <raise_lua_event name="'x4mp.event'" param="'K;' + $Killed + ';' + $Killed.macro.id + ';' + $Owner + ';' + $Killer"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- Death and plain destruction. param = killed, param2 = killer, param3 = method (vanilla md/notifications.xml). The
+         player's own ship is reported as P; so the native side can tell a death from a lost asset without re-reading the
+         object. The comparison is false (not an error) while the player is on foot. -->
+    <cue name="X4MP_Events_Destroyed" instantiate="true">
+      <conditions>
+        <event_player_owned_destroyed/>
+      </conditions>
+      <actions>
+        <set_value name="$Killed" exact="event.param"/>
+        <do_if value="$Killed == player.occupiedship">
+          <raise_lua_event name="'x4mp.event'" param="'P;'"/>
+        </do_if>
+        <do_else>
+          <raise_lua_event name="'x4mp.event'" param="'X;' + $Killed"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- Trades. param = the trade offer (vanilla md/notifications.xml, cue PlayerFactionTradeCompleted). A player-bought ware
+         raises the station's stock, so the sign is +1 when the buyer is ours; a sale is -1. The station is the other side. -->
+    <cue name="X4MP_Events_Trade" instantiate="true">
+      <conditions>
+        <event_player_trade_completed/>
+      </conditions>
+      <actions>
+        <set_value name="$Trade" exact="event.param"/>
+        <do_if value="@$Trade.exists">
+          <do_if value="@$Trade.buyer.isplayerowned">
+            <set_value name="$Station" exact="$Trade.seller"/>
+            <set_value name="$Sign" exact="1"/>
+          </do_if>
+          <do_else>
+            <set_value name="$Station" exact="$Trade.buyer"/>
+            <set_value name="$Sign" exact="-1"/>
+          </do_else>
+          <raise_lua_event name="'x4mp.event'" param="'T;' + $Station + ';' + $Trade.ware + ';' + ($Sign * $Trade.transferredamount) + ';' + $Trade.unitprice"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- Builds. The built object is event.param.buildanchor (vanilla md/fleet_reconstitution.xml checks exactly that object as a
+         station). W1 sends the sector as an empty field; W5 resolves it before the authority needs it. -->
+    <cue name="X4MP_Events_Build" instantiate="true">
+      <conditions>
+        <event_player_build_finished/>
+      </conditions>
+      <actions>
+        <set_value name="$Anchor" exact="event.param.buildanchor"/>
+        <do_if value="@$Anchor.exists">
+          <raise_lua_event name="'x4mp.event'" param="'B;' + $Anchor + ';' + $Anchor.macro.id + ';'"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <!-- Money. param2 = new amount, and the value carries the Cr unit, so it is divided before printing a plain integer
+         (vanilla md/notifications.xml does the same). The native side treats this as a wake-up and a reason hint; the value
+         source of record is still the server ledger (docs/mod-design.md 12.2). -->
+    <cue name="X4MP_Events_Money" instantiate="true">
+      <conditions>
+        <event_player_money_updated/>
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4mp.event'" param="'M;' + (event.param2 / 1Cr)"/>
+      </actions>
+    </cue>
+
+    <!-- Boarding. The ship being boarded is $Operation.boardee (vanilla md/boarding.xml). A removed operation may already have
+         lost its boardee, so both cues guard it. M5-20 uses these to re-activate a ghost for the local boarding run. -->
+    <cue name="X4MP_Events_BoardingStart" instantiate="true">
+      <conditions>
+        <event_boarding_operation_started operation="$Operation"/>
+      </conditions>
+      <actions>
+        <do_if value="@$Operation.boardee.exists">
+          <raise_lua_event name="'x4mp.event'" param="'S;' + $Operation.boardee"/>
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Events_BoardingEnd" instantiate="true">
+      <conditions>
+        <event_boarding_operation_removed operation="$Operation"/>
+      </conditions>
+      <actions>
+        <do_if value="@$Operation.boardee.exists">
+          <raise_lua_event name="'x4mp.event'" param="'E;' + $Operation.boardee"/>
+        </do_if>
+      </actions>
+    </cue>
+  </cues>
+</mdscript>

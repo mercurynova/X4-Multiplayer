@@ -30,6 +30,7 @@
 #include "features/statics/statics_feature.h"
 #include "features/onfoot/onfoot_feature.h"
 #include "features/appearance/appearance_feature.h"
+#include "features/events/events_feature.h"
 
 namespace x4mp::host {
 
@@ -49,6 +50,7 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::StaticsFeature>());  // after avatars (the manifest path) and ghosts (the interest sectors); before onfoot, which reads the station ids it binds (M4-18)
   registry.add(std::make_unique<x4mp::features::OnFootFeature>());  // after ghosts and selfship: it sends on-foot samples through join's realtime link and reads the sector map the selfship feature keeps (M3b)
   registry.add(std::make_unique<x4mp::features::AppearanceFeature>());  // after join: it sends PlayerAppearance on the control lane of the link join installed this frame (M3b, ADR-051)
+  registry.add(std::make_unique<x4mp::features::EventsFeature>());  // M5: drains the MD capture ring into the bus and publishes the md_hook state; before stats, which reads it (M5-01..M5-04)
   registry.add(std::make_unique<x4mp::features::StatsFeature>());  // last: its frame cost sample covers the earlier features
 }
 
