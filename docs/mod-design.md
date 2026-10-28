@@ -865,7 +865,7 @@ What is real after M3 (M3-02, M3-09 .. M3-14; per-task details in [m3-plan.md](m
 universe keeps running unsynced next to the shared player ships.
 
 - **Own ship** (`features/selfship`): native per-frame sampling of the player's ship (`GetObjectPositionInSector` + sector context, angles in radians, sector-local metres),
-  `PlayerState` 20 Hz moving / 5 Hz idle / 1 Hz hidden / immediately on a sector change or teleport, `Hidden` while docked, in a highway or standing up; the sector index is the rank
+  `PlayerState` 20 Hz moving / 5 Hz idle / 1 Hz hidden / immediately on a sector change or teleport, `Hidden` while docked, in a SUPERHIGHWAY (MD signal / sector not in the map) or standing up (F21b: a local highway is `InHighway` only, the true pose keeps flowing at the moving rate); the sector index is the rank
   of the macro in the ordinally sorted macro list (the same rule on every node, no table on the wire); SETA is blocked at the MD event and switched off by a safety net within 1 s.
 - **Takeover** (`features/avatars/avatar_takeover.*`): standing in the host's ship after the load -> `PlayerShip` (every 10 s until answered) -> locate the avatar in the loaded save
   (idcode + name among the `x4mp_team_*` ships) or spawn a `player`-owned copy at the `EntitySpawn`'s pose -> `CanTeleportPlayerTo` must answer `"granted"` ->

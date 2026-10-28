@@ -696,7 +696,7 @@ What is built (all frame-thread; the per-frame path allocates nothing, Catch2 `s
 - **`features/selfship/own_ship_tracker.*`** (pure): `Observation` in, `Tick{edge, seated, ship, StateOut, blocked}` out. Seat edges `SatDown / StoodUp / ShipChanged`
   from `GetPlayerOccupiedShipID` (S13.5); the ship is known while standing (container is a ship). **Rates:** 20 Hz moving, 5 Hz idle (< 1 m/s and < 0.05 rad/s over a 250 ms
   window), 1 Hz while Hidden; IMMEDIATE on a sector change, teleport, ship change, the first state after sit-down, a change of Hidden/Docked/InHighway. The schedule catches up
-  (exact average rate at 20..144 fps) and never bursts after a gap. **Flags:** `PlayerControlled` always, `Docked`, `InHighway`, `Hidden` = Docked or InHighway, `Teleport` on
+  (exact average rate at 20..144 fps) and never bursts after a gap. **Flags:** `PlayerControlled` always, `Docked`, `InHighway`, `Hidden` = Docked or a superhighway (F21b changed this from "or InHighway": a local highway stays visible), `Teleport` on
   sector change / ship change / sit-down / link up (`force_resend`) / a position jump > 2 km + 15 km/s x frame time. **Standing up sends ONE Hidden state and then nothing**
   (no OnFootState before M3b; the plan's "1 Hz while hidden" applies to docked / highway only). Angles go out exactly as the game gives them (reads are radians, S13.4; writes to the game are degrees, see M3-15); positions are
   sector-local metres; quantised with `x4mp::wire::quantize_*`.
@@ -727,7 +727,7 @@ What is built (all frame-thread; the per-frame path allocates nothing, Catch2 `s
 - **What M3-10/11/12 consume:** `selfship_hub().status()` (`seated`, `ship` = the own ship's local UniverseID, `sector` index, `seat_edges`, `sit_downs`, `map_ready`) and
   `selfship_hub().set_own_net_id(id)` (M3-12: the avatar's net id for PlayerState). A *sit-down* is the trigger M3-12 can use for its "I am in the avatar" check; the hub status is
   updated before the join feature runs in the same frame (SelfShipFeature is registered before JoinFeature). Highway: local and super highways both set `InHighway` AND `Hidden`
-  (they cannot be told apart natively); docked inside vs on a pad likewise sets `Hidden`. M3-10 may choose to render `InHighway` ghosts if it finds a way to tell local ones.
+  (they cannot be told apart natively); docked inside vs on a pad likewise sets `Hidden`. M3-10 may choose to render `InHighway` ghosts if it finds a way to tell local ones. **F21b (2026-10-28) superseded this:** the local highway is told by the ship's sector being in the sector map with no MD superhighway signal; it keeps `InHighway` but is no longer `Hidden`.
 - **hostsim changes:** fake paths now write **radians** into the fake world (reads are radians, S13.4; the game's *write* exports take degrees, M3-15), `highway on|off` command, `world_ship.hostsim` expectations updated.
   The e2e pair scenario got the M3-09 block (map, 20 Hz, idle 5 Hz, gate teleport, dock Hidden, highway Hidden, SETA switch-off + notification, stand-up silence).
 

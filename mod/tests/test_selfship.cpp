@@ -235,7 +235,7 @@ TEST_CASE("tracker: a position jump inside one sector is a teleport; a fast but 
   CHECK((t.out.flags & gh::kTeleport) != 0);
 }
 
-TEST_CASE("tracker: docked and highway set Hidden, are sent at once, then 1 Hz", "[selfship][tracker]") {
+TEST_CASE("tracker: docked sets Hidden, is sent at once, then 1 Hz", "[selfship][tracker]") {
   Sim s;
   s.run(1.0, 60, [&](double ts) { s.o.pos = {100 + 200 * ts, 0, 0}; });
   s.sends.clear();
@@ -256,13 +256,66 @@ TEST_CASE("tracker: docked and highway set Hidden, are sent at once, then 1 Hz",
   t = s.step();
   REQUIRE(t.out.send);
   CHECK((t.out.flags & gh::kHidden) == 0);
-  // highway
+}
+
+// F21b (session 2026-10-28): a LOCAL highway (the engine's highway context, but the ship's sector is in the sector map and the game signalled no
+// superhighway) used to be sent Hidden at 1 Hz: the other side held the avatar at the entry, the map icon froze for the whole ride and jumped at the
+// exit. Now the true pose goes out at the normal moving rate with InHighway set and no Hidden flag.
+TEST_CASE("tracker: a local highway keeps the true pose at the moving rate, InHighway without Hidden (F21b)", "[selfship][tracker][f21b]") {
+  Sim s;
+  s.run(1.0, 60, [&](double ts) { s.o.pos = {100 + 200 * ts, 0, 0}; });
+  s.sends.clear();
+  s.o.in_highway = true;  // the engine's highway context; sector 1001 stays in the map, no superhighway signal
+  auto t = s.step();
+  REQUIRE(t.out.send);
+  CHECK(t.out.immediate);  // the InHighway flag changed
+  CHECK((t.out.flags & gh::kInHighway) != 0);
+  CHECK((t.out.flags & gh::kHidden) == 0);
+  CHECK((t.out.flags & gh::kDocked) == 0);
+  CHECK((t.out.flags & gh::kTeleport) == 0);
+  s.sends.clear();
+  const std::int64_t from = s.now;
+  s.run(5.0, 60, [&](double ts) { s.o.pos = {1000 + 3000 * ts, 0, 0}; });  // a fast ride inside the sector
+  const double hz = static_cast<double>(s.sends_between(from, from + 5'000'000)) / 5.0;
+  CHECK(hz >= 18.0);
+  CHECK(hz <= 22.0);
+  for (const auto& [tm, tick] : s.sends) {
+    CHECK((tick.out.flags & gh::kHidden) == 0);
+    CHECK((tick.out.flags & gh::kInHighway) != 0);
+    CHECK((tick.out.flags & gh::kTeleport) == 0);
+  }
+  // the exit: InHighway clears at once, still visible, no teleport
+  s.o.in_highway = false;
+  t = s.step();
+  REQUIRE(t.out.send);
+  CHECK((t.out.flags & gh::kInHighway) == 0);
+  CHECK((t.out.flags & gh::kHidden) == 0);
+  // docked inside a local highway context is still Hidden (docking is its own flag)
   s.o.in_highway = true;
+  s.o.docked = true;
   t = s.step();
   REQUIRE(t.out.send);
   CHECK((t.out.flags & gh::kHidden) != 0);
+  CHECK((t.out.flags & gh::kDocked) != 0);
+}
+
+TEST_CASE("tracker: with the superhighway signal the highway context stays Hidden + InHighway at 1 Hz (F21b keeps M3-33)", "[selfship][tracker][f21b]") {
+  Sim s;
+  s.run(1.0, 60, [&](double ts) { s.o.pos = {100 + 200 * ts, 0, 0}; });
+  s.sends.clear();
+  s.o.in_highway = true;
+  s.o.sh_entered = true;  // the game's own superhighway signal
+  auto t = s.step();
+  s.o.sh_entered = false;
+  REQUIRE(t.out.send);
+  CHECK((t.out.flags & gh::kHidden) != 0);
   CHECK((t.out.flags & gh::kInHighway) != 0);
-  CHECK((t.out.flags & gh::kDocked) == 0);
+  s.sends.clear();
+  const std::int64_t from = s.now;
+  s.run(5.0, 60, [&](double ts) { s.o.pos = {1000 + 3000 * ts, 0, 0}; });
+  const double hz = static_cast<double>(s.sends_between(from, from + 5'000'000)) / 5.0;
+  CHECK(hz >= 0.8);
+  CHECK(hz <= 1.2);
 }
 
 TEST_CASE("tracker: standing up sends ONE Hidden state and then nothing, for minutes; sitting down again is a new edge", "[selfship][tracker]") {

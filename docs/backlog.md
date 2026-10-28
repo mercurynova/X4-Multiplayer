@@ -35,7 +35,7 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | ID | Item | Evidence | Target | Status |
 |---|---|---|---|---|
 | F21 | Markers flash around a superhighway transit | R28, plan M3-32/33 | M3 exit | fix in (M3-33), in-game check pending |
-| F21b | Local-highway ride: the avatar's map icon freezes at the entry (hidden + hold at 1 Hz) and jumps at the exit; fix: in-sector highway keeps the true pose, hide/hold for superhighways only | R1028 | M3 exit | open (cosmetic; lead decides whether it blocks) |
+| F21b | Local-highway ride: the avatar's map icon freezes at the entry (hidden + hold at 1 Hz) and jumps at the exit; fix: in-sector highway keeps the true pose, hide/hold for superhighways only | R1028 | M3 exit | fix in (tracker: `Hidden` only for docked and the superhighway signal, a local highway keeps the true pose at the moving rate with `InHighway`), in-game check pending ("M3-34 check" step 4b in in-game-session-4.md) |
 | F23 | Map icon bounces along the travel line in fast in-sector flight; engine moves our inert objects (286 km) | RI, R1028 | M3 exit | fast flight smooth in game 2026-10-28 (M3-34 hint cap + guard work); the remaining case is F23c |
 | F23b | Target info shows 0 m/s for a remote ship above 1000 m/s (M3-34 velocity-hint cap) | plan M3-34, R1028 | M3 exit | decision needed: `diag.hints_off` removed the brake jumps (F23c); proposal is hints off as the default and accepting 0 m/s |
 | X1 | 30-min flight over >= 5 sectors incl. a highway (M3 criterion; sittings reached ~25 min) | S3 | M3 exit | open |

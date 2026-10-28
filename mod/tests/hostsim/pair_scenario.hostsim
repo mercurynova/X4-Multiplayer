@@ -142,12 +142,12 @@ expect-lua x4mp.selfship 3000 json $.hidden == true
 expect-lua x4mp.selfship 3000 json $.rate_hz < 2
 undock
 frame 60Hz 90
-# a highway: Hidden too
+# a LOCAL highway (F21b): InHighway but NOT hidden, the true pose keeps flowing at the moving rate (a superhighway is hidden by the MD signal, see m3_client.hostsim)
 highway on
 frame 60Hz 30
 drop-lua x4mp.selfship
 frame 60Hz 90
-expect-lua x4mp.selfship 3000 json $.hidden == true
+expect-lua x4mp.selfship 3000 json $.hidden == false
 highway off
 frame 60Hz 90
 # SETA: switched off within 1 s of being detected, with the notification
