@@ -309,6 +309,7 @@ void JoinFeature::on_ui_ready(host::HostContext& ctx, const std::string& payload
   if (doc.is_object()) {
     if (const auto it = doc.find("startmenu"); it != doc.end() && it->is_boolean()) startmenu = it->get<bool>();
   }
+  if (authority_) authority_->note_start_menu(startmenu);  // F1d
   const bool awaiting = session_ && undecided_.has_value() && (stage_ == Stage::InGame || stage_ == Stage::Rejoining);
   // F1c: the start menu means no universe is loaded: the remembered "this game runs save X" is stale (a fresh join would claim it and the
   // server would then never send the save).

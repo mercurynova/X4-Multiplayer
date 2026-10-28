@@ -144,3 +144,10 @@ TEST_CASE("start_menu_voids_loaded_save: the start menu voids it except while th
   CHECK_FALSE(start_menu_voids_loaded_save(true, true));
   CHECK_FALSE(start_menu_voids_loaded_save(false, false));
 }
+
+TEST_CASE("world_clock_may_run: the authority's keepalive needs a universe and no start menu (F1d)", "[resume][menu]") {
+  CHECK(world_clock_may_run(true, false));
+  CHECK_FALSE(world_clock_may_run(false, false));  // reload resume with the start menu up: the gate never opened
+  CHECK_FALSE(world_clock_may_run(true, true));    // exited to the main menu in the same process: the gate is still open
+  CHECK_FALSE(world_clock_may_run(false, true));
+}

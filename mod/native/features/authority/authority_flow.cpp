@@ -15,6 +15,7 @@
 #include "session_generated.h"
 #include "world_generated.h"
 #include "features/janitor/janitor_feature.h"
+#include "features/resume/resume_state.h"
 #include "common_generated.h"
 #include "message_ids_generated.h"
 
@@ -289,6 +290,10 @@ void AuthorityFlow::step(host::HostContext& ctx) {
 // clock: a WorldUpdate with no states, 20 Hz (the server's tick), on the Realtime lane like PlayerState. Starts once a checkpoint exists (the session runs).
 void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   if (state_.checkpoints == 0 && stored_total_ == 0) return;
+  if (!resume::world_clock_may_run(ctx.gates.universe_ready, start_menu_)) {  // F1d: no universe (main menu): no clock; log the restart when it comes back
+    wu_logged_ = false;
+    return;
+  }
   const auto now = Clock::now();
   if (now < next_wu_) return;
   auto& hub = selfship::selfship_hub();

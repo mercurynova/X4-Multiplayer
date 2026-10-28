@@ -74,6 +74,7 @@ class AuthorityFlow {
   // The player's seat state, every frame (from the selfship feature through its hub). `edges` counts sit-downs, stand-ups and ship changes:
   // a change resets the back-off so the next frame asks MD at once.
   void note_seat(bool seated, std::uint32_t edges) noexcept;
+  void note_start_menu(bool startmenu) noexcept { start_menu_ = startmenu; }  // F1d: from x4mp.ui_ready
   [[nodiscard]] std::uint64_t checkpoints_stored() const noexcept { return stored_total_; }
 
   // Services for the avatars (M3-11, registered with avatar_hub() while this flow lives): the ONE net id counter and the ONE string table of the
@@ -166,6 +167,7 @@ class AuthorityFlow {
   Clock::time_point next_wu_{};
   std::uint64_t wu_sent_ = 0, wu_failed_ = 0;
   bool wu_logged_ = false;
+  bool start_menu_ = false;  // F1d: the last x4mp.ui_ready said the Lua state is the start menu
 };
 
 }  // namespace x4mp::features::auth
