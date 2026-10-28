@@ -120,6 +120,12 @@ class AuthorityFlow {
                    std::uint64_t component, const std::string& ware, std::int32_t amount, std::int32_t unit_price);
   void retry_trades(host::HostContext& ctx);
   void send_station_cargo(host::HostContext& ctx, std::uint32_t station, std::uint64_t component);
+  // M5-19: a finished client build. The station is spawned here, owned by the requesting player's team faction, and announced
+  // with one EntitySpawn (origin PlayerBuilt) so every node knows the same net id.
+  void on_station_build(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload);
+  // M5-21: a client captured an entity. The authority sets the owner to the capturer's team faction (node-relative) and
+  // broadcasts the owner change, so every node agrees without ever guessing.
+  void on_capture_report(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload);
   void begin_request(host::HostContext& ctx, std::uint32_t request_id);
   void step_collecting(host::HostContext& ctx);
   void request_save(host::HostContext& ctx);
@@ -240,6 +246,12 @@ class AuthorityFlow {
   std::uint32_t trades_unknown_ = 0;
   std::uint32_t stock_ops_ = 0;
   std::uint32_t snapshots_sent_ = 0;
+  // M5-19
+  std::uint32_t stations_spawned_ = 0;
+  std::uint32_t stations_rejected_ = 0;
+  // M5-21
+  std::uint32_t captures_applied_ = 0;
+  std::uint32_t captures_rejected_ = 0;
 };
 
 }  // namespace x4mp::features::auth

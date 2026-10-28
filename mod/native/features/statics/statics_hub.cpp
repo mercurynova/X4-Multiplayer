@@ -74,11 +74,17 @@ std::size_t StaticsHub::prune_sector(std::uint16_t sector, const std::unordered_
   return dropped;
 }
 
-void StaticsHub::note_station(std::uint16_t sector, std::uint64_t component, std::uint32_t net_id) {
+void StaticsHub::note_station(std::uint16_t sector, std::uint64_t component, std::uint32_t net_id, std::string sector_macro,
+                              bool pinned) {
   if (component == 0 || net_id == 0) return;
   const auto old = station_by_component_.find(component);
   if (old != station_by_component_.end()) {
-    if (old->second.net_id == net_id && old->second.sector == sector) return;  // the same answer as last pass
+    if (old->second.pinned && !pinned) return;  // M5-19: the authority's id wins over the local hash for good
+    if (old->second.net_id == net_id && old->second.sector == sector) {
+      if (sector_macro.empty()) return;  // the same answer as last pass, and nothing new to learn
+      old->second.sector_macro = std::move(sector_macro);
+      return;
+    }
     component_by_station_.erase(old->second.net_id);
     if (old->second.sector != sector) {
       const auto prev = stations_by_sector_.find(old->second.sector);
@@ -91,7 +97,12 @@ void StaticsHub::note_station(std::uint16_t sector, std::uint64_t component, std
   // One net id names one station on this node: a second component claiming it takes it over (a station was rebuilt at the same spot).
   const auto other = component_by_station_.find(net_id);
   if (other != component_by_station_.end() && other->second != component) station_by_component_.erase(other->second);
-  station_by_component_[component] = LocalStation{net_id, sector};
+  LocalStation row;
+  row.net_id = net_id;
+  row.sector = sector;
+  row.sector_macro = std::move(sector_macro);
+  row.pinned = pinned;
+  station_by_component_[component] = std::move(row);
   component_by_station_[net_id] = component;
   stations_by_sector_[sector].insert(component);
 }
@@ -104,6 +115,11 @@ std::uint32_t StaticsHub::station_net_id(std::uint64_t component) const {
 std::uint64_t StaticsHub::station_component(std::uint32_t net_id) const {
   const auto it = component_by_station_.find(net_id);
   return it == component_by_station_.end() ? 0 : it->second;
+}
+
+std::string StaticsHub::sector_macro_of(std::uint64_t component) const {
+  const auto it = station_by_component_.find(component);
+  return it == station_by_component_.end() ? std::string() : it->second.sector_macro;
 }
 
 std::size_t StaticsHub::prune_stations(std::uint16_t sector, const std::unordered_set<std::uint64_t>& present) {

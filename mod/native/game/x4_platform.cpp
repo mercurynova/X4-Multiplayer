@@ -7,6 +7,7 @@
 #include <x4n_events.h>
 #include <x4n_log.h>
 #include <x4n_stash.h>
+#include <x4_md_events.h>
 
 namespace x4mp::game {
 
@@ -93,10 +94,50 @@ bool X4Platform::raise_lua(const char* name, std::string_view text) {
   return ::x4n::raise_lua(name, owned.c_str()) == 0;
 }
 
+// ---- typed MD hook (M5-20) ----
+// The typed helper takes a plain function pointer, so the callback lives in one static slot. There is one platform per
+// process (ModHost owns it) and the destructor clears the slot before unsubscribing.
+namespace {
+std::vector<std::unique_ptr<host::IPlatform::MdOwnerFn>>& owner_fns() {
+  static std::vector<std::unique_ptr<host::IPlatform::MdOwnerFn>> v;
+  return v;
+}
+host::IPlatform::MdOwnerFn*& owner_slot() {
+  static host::IPlatform::MdOwnerFn* fn = nullptr;
+  return fn;
+}
+void owner_trampoline(const ::x4n::md::EntityChangedOwnerData& event) {
+  auto* fn = owner_slot();
+  if (!fn || !*fn) return;
+  try {
+    (*fn)(host::IPlatform::MdOwnerChange{event.entity_changing_ownership, event.timestamp});
+  } catch (...) {
+    // never throw into X4Native
+  }
+}
+}  // namespace
+
+bool X4Platform::subscribe_owner_change(MdOwnerFn fn) {
+  if (!api_ok() || !fn || !::x4n::detail::g_api->md_subscribe_after || owner_subscription_ != 0) return false;
+  auto owned = std::make_unique<MdOwnerFn>(std::move(fn));
+  owner_slot() = owned.get();
+  const int id = ::x4n::md::on_entity_changed_owner_after(&owner_trampoline);
+  if (id <= 0) {
+    owner_slot() = nullptr;
+    return false;
+  }
+  owner_subscription_ = id;
+  owner_fns().push_back(std::move(owned));
+  return true;
+}
+
 X4Platform::~X4Platform() {
   if (api_ok() && ::x4n::detail::g_api->unsubscribe) {
     for (const int id : event_subscriptions_) ::x4n::off(id);
+    if (owner_subscription_ > 0) ::x4n::off(owner_subscription_);
   }
+  owner_slot() = nullptr;
+  owner_fns().clear();
   event_subscriptions_.clear();
   event_fns().clear();
 }

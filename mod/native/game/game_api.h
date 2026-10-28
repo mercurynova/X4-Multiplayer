@@ -57,6 +57,14 @@ struct WareInfoPod {
   std::int32_t amount = 0;
 };
 
+// Binary-compatible with the SDK's FactionDetails {const char* factionID; const char* factionName; const char* factionIcon;}
+// (M5-20). The strings belong to the game; copy the id before the next call.
+struct OwnerFactionPod {
+  const char* faction_id = nullptr;
+  const char* faction_name = nullptr;
+  const char* faction_icon = nullptr;
+};
+
 // One cargo line copied out of the game, so callers can hold it after the export returned.
 struct CargoPod {
   std::string ware;  // the ware id the game uses in cargo commands ("energycells"), NOT a macro ref
@@ -106,10 +114,17 @@ struct GameFns {
   // container and for a failed read, which is exactly why M5-13 accepts only non-empty reads.
   std::uint32_t (*GetNumCargo)(UniverseId containerid, const char* tags) = nullptr;
   std::uint32_t (*GetCargo)(WareInfoPod* result, std::uint32_t resultlen, UniverseId containerid, const char* tags) = nullptr;
+  // M5 (builds): spawn a STATION with a construction plan id. Unlike SpawnObjectAtPos2 this one takes the plan, which is what
+  // makes the station come up complete (M5-19). An empty plan id ("") is the macro-plus-modules path the plan settled on (M5 Q7).
+  UniverseId (*SpawnStationAtPos)(const char* macroname, UniverseId sectorid, PosRotPod offset, const char* constructionplanid,
+                                  const char* ownerid) = nullptr;
+  // M5-20: the owner faction of a component as a string ("player", "xenon", ...). The typed MD hook EntityChangedOwner
+  // gives a faction id the mod cannot compare against anything, so the capture detector asks the game for the name.
+  OwnerFactionPod (*GetOwnerDetails)(UniverseId componentid) = nullptr;
 };
 
 // Number of exports in GameFns (keep in step with resolve_game_fns / missing_exports; the self-test reports resolved/total).
-inline constexpr std::size_t kGameFnCount = 32;
+inline constexpr std::size_t kGameFnCount = 34;
 
 // Upper bound on the cargo lines one read copies (far above any real hold; keeps a bad export from allocating forever).
 inline constexpr std::uint32_t kMaxCargoLines = 4096;
@@ -164,6 +179,9 @@ class GameApi {
   // ---- M3 exports (M3-04). All null-safe: a missing export or a failed main-thread check gives the stated default. ----
   // 0 = missing / refused / the game returned 0. The owner is a faction id ("x4mp_team_1", "player").
   [[nodiscard]] UniverseId spawn_object(const char* macro, UniverseId sector, const PosRotPod& pos, const char* owner) const noexcept;
+  // M5-19: spawn a station at a sector-local pose. 0 = missing / refused / the game returned 0. `plan` "" = macro plus modules.
+  [[nodiscard]] UniverseId spawn_station(const char* macro, UniverseId sector, const PosRotPod& pos, const char* plan,
+                                         const char* owner) const noexcept;
   bool activate_object(UniverseId id, bool active) const noexcept;                                      // true when the call was made
   bool set_object_sector_pos(UniverseId id, UniverseId sector, const PosRotPod& pos) const noexcept;    // true when the call was made
   [[nodiscard]] std::optional<PosRotPod> object_position(UniverseId id) const noexcept;                 // nullopt: missing / id 0
@@ -187,6 +205,11 @@ class GameApi {
   // The container's cargo, copied out of the game. Empty when the export is missing, the id is 0, the main-thread check
   // fails, or the game reports no lines at all (an empty read is not evidence of an empty hold: M5-13).
   [[nodiscard]] std::vector<CargoPod> cargo(UniverseId container) const;
+
+  // ---- M5 (capture) ----
+  // The owner faction of a component as the game names it ("player", "xenon", ...); empty when the export is missing, the
+  // id is 0, the main-thread check fails or the game returns nothing. M5-20 compares this with "player".
+  [[nodiscard]] std::string owner_faction(UniverseId component) const noexcept;
 
  private:
   GameFns fns_{};

@@ -20,6 +20,8 @@ constexpr std::uint16_t T(X4MP::Proto::MsgType t) { return static_cast<std::uint
 constexpr std::uint16_t kFlagVelCoarse = 1u << 0;
 constexpr std::uint16_t kFlagKeyframe = 1u << 6;
 constexpr std::uint16_t kChangeOwner = 1u << 0;
+constexpr std::uint16_t kChangeOwnerTeam = 1u << 1;
+constexpr std::uint16_t kChangeOwnerPlayer = 1u << 2;
 constexpr std::uint16_t kChangeMacro = 1u << 5;
 
 }  // namespace
@@ -88,12 +90,17 @@ void EntityStream::on_player_left(std::uint32_t net_id) {
   despawn_now_.push_back(DespawnSample{net_id, 0, static_cast<std::uint8_t>(DespawnCause::PlayerLeft)});
 }
 
-void EntityStream::on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref) {
+void EntityStream::on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref, std::uint16_t owner_team,
+                             std::uint16_t owner_player) {
   ChangeSample c;
   c.net_id = net_id;
   c.owner_ref = owner_ref;
   c.macro_ref = macro_ref;
+  c.owner_team = owner_team;
+  c.owner_player = owner_player;
   if (owner_ref != 0) c.fields |= kChangeOwner;
+  if (owner_team != 0) c.fields |= kChangeOwnerTeam;
+  if (owner_player != 0) c.fields |= kChangeOwnerPlayer;
   if (macro_ref != 0) c.fields |= kChangeMacro;
   if (c.fields == 0) return;
   change_now_.push_back(c);

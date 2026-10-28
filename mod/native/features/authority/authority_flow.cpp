@@ -25,6 +25,9 @@
 #include "features/economy/economy_hub.h"
 #include "features/statics/statics_feature.h"
 #include "features/statics/statics_hub.h"
+#include "features/teams/team_hub.h"
+#include "features/onfoot/onfoot_types.h"
+#include "x4mp/wire.h"
 #include "game/safe_remove.h"
 
 namespace x4mp::features::auth {
@@ -58,6 +61,16 @@ std::string json_string(const std::string& text, const char* key) {
   if (!doc.is_object()) return {};
   const auto it = doc.find(key);
   return (it != doc.end() && it->is_string()) ? it->get<std::string>() : std::string{};
+}
+
+// M5-21: the team a player belongs to, as the session's own TeamTable lists it (0 = unknown). The mod never asks a client
+// which team it is on: a capture or a build must not be able to claim another team's faction.
+std::uint16_t team_of_player(std::uint16_t player_id) {
+  if (player_id == 0) return 0;
+  for (const auto& [id, entry] : teams::team_hub().model().teams()) {
+    if (std::find(entry.members.begin(), entry.members.end(), player_id) != entry.members.end()) return id;
+  }
+  return 0;
 }
 }  // namespace
 
@@ -254,6 +267,14 @@ void AuthorityFlow::on_intent(host::HostContext& ctx, std::span<const std::uint8
     on_trade_report(ctx, intent, payload);
     return;
   }
+  if (intent.type == P::IntentBody::StationBuildRequest) {
+    on_station_build(ctx, intent, payload);
+    return;
+  }
+  if (intent.type == P::IntentBody::CaptureReport) {
+    on_capture_report(ctx, intent, payload);
+    return;
+  }
   if (intent.type != P::IntentBody::KillClaim) {
     ++intent_unsupported_;
     reject(P::RejectReason::Unsupported, "the authority does not apply this intent", 0);
@@ -372,6 +393,225 @@ void AuthorityFlow::on_trade_report(host::HostContext& ctx, const events::Intent
   const std::int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
   pending_trades_.push_back(PendingTrade{intent.request, station, ship, ware, amount, report->unit_price(), now_us});
   X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: trade at net {} deferred, the station scan has not bound it yet", station);
+}
+
+// M5-19: a client finished a station. The authority spawns it with SpawnStationAtPos under the player's team faction, gives it the
+// same net id every node computes from (sector, macro, 50 m) and announces it with one EntitySpawn, so the builder's local station and
+// the authority's copy are the same station everywhere (docs/protocol.md 1195, ADR-009).
+void AuthorityFlow::on_station_build(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload) {
+  const auto reject = [&](P::RejectReason reason, const char* detail) {
+    ++stations_rejected_;
+    const std::vector<std::uint8_t> reply = events::encode_intent_result(intent.request, P::IntentStatus::Rejected, reason, detail, 0);
+    (void)send_frame(T(P::MsgType::IntentResult), reply);
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: build request rejected: {}", detail);
+  };
+
+  const P::StationBuildRequest* build = events::station_build_of(payload);
+  if (build == nullptr) {
+    ++intent_bad_;
+    reject(P::RejectReason::InvalidParameters, "the build request has no body");
+    return;
+  }
+  const std::string macro = build->macro() != nullptr ? build->macro()->str() : std::string();
+  const std::string plan = build->construction_plan() != nullptr ? build->construction_plan()->str() : std::string();
+  if (macro.empty() || build->sector() == 0) {
+    ++intent_failed_;
+    reject(P::RejectReason::InvalidParameters, "the build request is incomplete");
+    return;
+  }
+
+  // The sender's ship tells us which sector the build happened in: the client's sector index is the wire index, and the ship's own
+  // component is in that sector, so GetContextByClass gives the UniverseID SpawnStationAtPos wants.
+  const std::uint32_t ship = avatars::avatar_hub().net_id_of_player(intent.request.player_id);
+  const IndexEntry* ship_row = ship != 0 ? index_.find(ship) : nullptr;
+  if (ship_row == nullptr || ship_row->component == 0) {
+    ++intent_failed_;
+    reject(P::RejectReason::NotInInterest, "the reporting ship is not in an interest sector");
+    return;
+  }
+  const game::UniverseId sector_id = ctx.game.context_by_class(ship_row->component, "sector", false);
+  if (sector_id == 0) {
+    ++intent_failed_;
+    reject(P::RejectReason::Conflict, "the reporting ship has no sector");
+    return;
+  }
+  const std::uint16_t builder_team = team_of_player(intent.request.player_id);
+  const std::uint16_t owner_team = builder_team != 0 ? builder_team : session_.welcome().team_id;
+  const std::string owner = teams::team_hub().faction_of_team(owner_team);
+  if (owner.empty()) {
+    ++intent_failed_;
+    reject(P::RejectReason::AuthorityUnavailable, "the team faction is not ready");
+    return;
+  }
+
+  const P::Vec3f* position = build->position();
+  const P::Rot3f* rotation = build->rotation();
+  game::PosRotPod pose;
+  if (position != nullptr) {
+    pose.x = position->x();
+    pose.y = position->y();
+    pose.z = position->z();
+  }
+  if (rotation != nullptr) {
+    pose.yaw = rotation->yaw();
+    pose.pitch = rotation->pitch();
+    pose.roll = rotation->roll();
+  }
+  const game::UniverseId component = ctx.game.spawn_station(macro.c_str(), sector_id, pose, plan.c_str(), owner.c_str());
+  if (component == 0) {
+    ++intent_failed_;
+    reject(P::RejectReason::Conflict, "SpawnStationAtPos refused the station");
+    return;
+  }
+
+  // The id every node computes for this station: the M3 container hash over (sector macro, macro, 50 m bucket) - the same fallback the
+  // statics scan uses while the manifest has no station rows (W4 notes). The builder is told the id in the IntentResult.
+  const auto* map = selfship::selfship_hub().map();
+  const std::string sector_macro = map != nullptr ? std::string(map->macro_of(build->sector())) : std::string();
+  std::uint32_t net_id = onfoot::matched_container_id(onfoot::station_match_key(sector_macro, macro, pose.x, pose.y, pose.z));
+  if (net_id == 0 || net_id == 0xFFFFFFFFu) net_id = allocate_net_id();
+  statics::statics_hub().pin_station(build->sector(), component, net_id, sector_macro);
+  index_.upsert(net_id, build->sector(), string_ref(static_cast<std::uint8_t>(P::StringKind::Macro), macro),
+                string_ref(static_cast<std::uint8_t>(P::StringKind::Faction), owner), static_cast<std::uint8_t>(P::EntityKind::Station),
+                0, component,
+                std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count());
+  ++stations_spawned_;
+
+  const std::vector<std::uint8_t> accepted =
+      events::encode_intent_result(intent.request, P::IntentStatus::Accepted, P::RejectReason::None, "", net_id);
+  (void)send_frame(T(P::MsgType::IntentResult), accepted);
+
+  // The announcement. game_time is the spawn time and is never 0 (the builder refuses it); the state is the station's own pose.
+  double spawn_time = intent.request.game_time;
+  if (!x4mp::authority::EntitySpawnBuilder::is_valid_game_time(spawn_time)) {
+    const auto now_gt = ctx.game.game_time();
+    spawn_time = now_gt && x4mp::authority::EntitySpawnBuilder::is_valid_game_time(*now_gt) ? *now_gt : 0.0;
+  }
+  x4mp::authority::EntitySpawnBuilder builder(spawn_time);
+  x4mp::authority::SpawnEntity entity;
+  entity.net_id = net_id;
+  entity.kind = x4mp::authority::SpawnKind::Station;
+  entity.origin = x4mp::authority::SpawnOrigin::PlayerBuilt;
+  entity.macro_ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Macro), macro);
+  entity.owner_ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Faction), owner);
+  entity.owner_team = owner_team;
+  entity.owner_player = intent.request.player_id;
+  entity.sector = build->sector();
+  const auto qx = wire::quantize_position(pose.x), qy = wire::quantize_position(pose.y), qz = wire::quantize_position(pose.z);
+  const auto ry = wire::quantize_rotation(pose.yaw), rp = wire::quantize_rotation(pose.pitch), rr = wire::quantize_rotation(pose.roll);
+  if (qx && qy && qz && ry && rp && rr) {
+    entity.px = *qx;
+    entity.py = *qy;
+    entity.pz = *qz;
+    entity.yaw = *ry;
+    entity.pitch = *rp;
+    entity.roll = *rr;
+  }
+  (void)builder.add(std::move(entity));
+  const auto spawn = builder.build();
+  if (!spawn) {
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Warn, "authority: station net {} spawned but its EntitySpawn was refused: {}", net_id,
+              x4mp::authority::to_string(spawn.error()));
+  } else {
+    (void)send_control(T(P::MsgType::EntitySpawn), *spawn);
+  }
+
+  X4MP_CLOG(ctx.log, Cat::Auth, Level::Info,
+            "authority: station '{}' spawned at net {} (component {}, sector {}, owner {}) for player {} (spawned={} rejected={})", macro,
+            net_id, component, sector_macro, owner, static_cast<int>(intent.request.player_id), stations_spawned_, stations_rejected_);
+}
+
+// M5-21: a client captured an entity. The owner change belongs to the authority: the game gets SetComponentOwner with the
+// capturer's team faction (node-relative), the index learns the new owner, and one EntityChange carries the team to every
+// node. A ghost is never destroyed or removed here.
+void AuthorityFlow::on_capture_report(host::HostContext& ctx, const events::IntentView& intent,
+                                      std::span<const std::uint8_t> payload) {
+  const auto reject = [&](P::RejectReason reason, std::string_view detail, std::uint32_t net_id) {
+    ++captures_rejected_;
+    const std::vector<std::uint8_t> reply =
+        events::encode_intent_result(intent.request, P::IntentStatus::Rejected, reason, std::string(detail), net_id);
+    (void)send_frame(T(P::MsgType::IntentResult), reply);
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: capture of net {} rejected: {} (rejected={})", net_id, detail,
+              captures_rejected_);
+  };
+
+  const P::CaptureReport* report = events::capture_report_of(payload);
+  if (report == nullptr) {
+    ++intent_bad_;
+    reject(P::RejectReason::InvalidParameters, "the capture report has no body", 0);
+    return;
+  }
+  const std::uint32_t target = report->target();
+
+  IndexEntry* row = index_.find(target);
+  if (row == nullptr) {
+    ++intent_unknown_;
+    reject(P::RejectReason::UnknownEntity, "unknown net id", target);
+    return;
+  }
+  if (row->component == 0) {
+    ++intent_failed_;
+    reject(P::RejectReason::InvalidParameters, "the row has no component", target);
+    return;
+  }
+  if (!capture_.contains(row->sector)) {
+    ++intent_out_of_interest_;
+    reject(P::RejectReason::NotInInterest, "the sector is not in the capture set", target);
+    return;
+  }
+
+  const std::uint64_t component = row->component;
+  const std::uint16_t sector = row->sector;
+  const std::uint32_t macro_ref = row->macro_ref;
+  const std::uint32_t old_owner_ref = row->owner_ref;
+  const std::uint8_t kind = row->kind;
+  const auto flags = row->flags;
+
+  if (game::is_player_guarded(component)) {
+    ++intent_player_;
+    reject(P::RejectReason::NotPermitted, "the target is player-guarded", target);
+    return;
+  }
+
+  const std::uint16_t team = team_of_player(intent.request.player_id);
+  if (team == 0) {
+    ++intent_failed_;
+    reject(P::RejectReason::AuthorityUnavailable, "the reporting player has no team in this session", target);
+    return;
+  }
+  const std::string faction = teams::team_hub().faction_of_team(team);
+  if (faction.empty()) {
+    ++intent_failed_;
+    reject(P::RejectReason::AuthorityUnavailable, "the team has no faction slot", target);
+    return;
+  }
+  if (!ctx.game.set_component_owner(component, faction.c_str())) {
+    ++intent_failed_;
+    reject(P::RejectReason::Conflict, "the game refused the owner change", target);
+    return;
+  }
+
+  const std::uint32_t owner_ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Faction), faction);
+  const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+  index_.upsert(target, sector, macro_ref, owner_ref != 0 ? owner_ref : old_owner_ref, kind, flags, component,
+                static_cast<std::uint64_t>(now_us));
+  ++captures_applied_;
+
+  const std::vector<std::uint8_t> accepted =
+      events::encode_intent_result(intent.request, P::IntentStatus::Accepted, P::RejectReason::None, "", target);
+  (void)send_frame(T(P::MsgType::IntentResult), accepted);
+
+  // The team is what every other node needs: it maps the team index to its own faction string (11.2).
+  stream_.on_change(target, owner_ref, 0, team, intent.request.player_id);
+
+  const std::vector<std::uint8_t> event =
+      events::encode_capture_event(target, old_owner_ref, 0, team, intent.request.player_id, 0, 0, intent.request.game_time, sector);
+  (void)send_frame(T(P::MsgType::GameEvent), event);
+
+  X4MP_CLOG(ctx.log, Cat::Auth, Level::Info,
+            "authority: net {} captured by player {} (component {}, sector {}, team {}, faction '{}') (applied={} rejected={})",
+            target, static_cast<int>(intent.request.player_id), component, sector, team, faction, captures_applied_,
+            captures_rejected_);
 }
 
 void AuthorityFlow::apply_trade(host::HostContext& ctx, const events::IntentRequest& request, std::uint32_t station, std::uint32_t ship,

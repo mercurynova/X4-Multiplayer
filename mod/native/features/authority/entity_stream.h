@@ -129,9 +129,11 @@ class EntityStream {
   // M5-11: the player died or left. Same one-shot despawn as a kill, but the reason is PlayerLeft so a client knows the ship did not
   // explode and the slot is coming back when that player rejoins.
   void on_player_left(std::uint32_t net_id);
-  // An attribute changed on an entity (M4-11). Only the owner and the macro exist in the index today; the other bits
-  // wait for the manifest (W4). Ignored for an entity that is not on the wire yet (its spawn carries the new value).
-  void on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref);
+  // An attribute changed on an entity (M4-11). Only the owner, the team, the player and the macro are carried today; the
+  // other bits wait for the manifest (W4). Ignored for an entity that is not on the wire yet (its spawn carries the value).
+  // M5-21 fills owner_team/owner_player so a capture reaches every node in one message.
+  void on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref, std::uint16_t owner_team = 0,
+                 std::uint16_t owner_player = 0);
 
   // A hull/shield sample (M4-11). 255 means unknown; a sample is only ever sent if it differs or the keepalive is due.
   void note_status(std::uint32_t net_id, std::uint8_t hull, std::uint8_t shield);

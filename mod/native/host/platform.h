@@ -45,6 +45,19 @@ class IPlatform {
     (void)text;
     return false;
   }
+
+  // Typed MD hook EntityChangedOwner (type 175, M5-20). The MD event ring cannot see an owner change, so the client
+  // subscribes to the game's own typed event instead (docs/mod-design.md 336-350, docs/m5-plan.md 137-139).
+  // `fn` runs on the game thread and must only copy the fields into a ring; the feature drains it in on_frame.
+  struct MdOwnerChange {
+    std::uint64_t component = 0;  // the entity whose owner changed
+    double timestamp = 0.0;       // game time
+  };
+  using MdOwnerFn = std::function<void(const MdOwnerChange&)>;
+  virtual bool subscribe_owner_change(MdOwnerFn fn) {
+    (void)fn;
+    return false;
+  }
 };
 
 }  // namespace x4mp::host

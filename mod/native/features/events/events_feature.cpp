@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "features/economy/economy_hub.h"
+#include "features/builds/builds_feature.h"
 #include "features/events/events_hub.h"
 #include "features/events/hook_state.h"
 #include "features/ghosts/ghost_hub.h"
@@ -116,6 +117,8 @@ void EventsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   if (event.kind == events::EventKind::PlayerDeath && death_) (void)death_->on_event(event);
     // M5-13/14: a completed trade goes up as Intent{TradeReport} (the economy feature owns the reporter and the dedupe).
     if (event.kind == events::EventKind::Trade) (void)economy::economy_hub().on_event(event);
+    // M5-18: a finished build goes up as Intent{StationBuildRequest} (the builds feature owns the reporter and the dedupe).
+    if (event.kind == events::EventKind::Build) (void)builds::builds_hub().on_event(event);
     if (sink_) sink_(event);
   }
 

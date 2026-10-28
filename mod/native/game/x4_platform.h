@@ -21,11 +21,14 @@ class X4Platform final : public host::IPlatform {
   [[nodiscard]] const void* stash_get(const char* key, std::uint32_t* size) override;
   bool stash_remove(const char* key) override;
   bool subscribe_event(const char* name, EventFn fn) override;
+  // Typed MD hook EntityChangedOwner (M5-20): the MD ring cannot see an owner change, this one does.
+  bool subscribe_owner_change(MdOwnerFn fn) override;
   bool raise_lua(const char* name, std::string_view text) override;
   ~X4Platform() override;  // unsubscribes the bridge events
 
  private:
   std::vector<int> event_subscriptions_;
+  int owner_subscription_ = 0;  // typed MD hook id, 0 when not subscribed
   std::mutex log_mutex_;  // native_log is called from the logger's writer thread and from the main thread
 };
 

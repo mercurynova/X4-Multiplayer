@@ -217,6 +217,19 @@ inline std::vector<std::uint8_t> finish_intent(const IntentRequest& request, P::
   return detail::take_buffer(fbb);
 }
 
+// The feed event of a capture (M5-21). Zeros for event_seq/server_time_us: the server stamps both.
+[[nodiscard]] inline std::vector<std::uint8_t> encode_capture_event(std::uint32_t target, std::uint32_t old_owner_ref,
+                                                                   std::uint16_t old_team, std::uint16_t new_team,
+                                                                   std::uint16_t player_id, std::uint64_t event_seq,
+                                                                   std::uint64_t server_time_us, double game_time,
+                                                                   std::uint16_t sector) {
+  flatbuffers::FlatBufferBuilder fbb(192);
+  const auto body = P::CreateCaptureEvent(fbb, target, old_owner_ref, old_team, new_team, player_id);
+  const auto event = P::CreateGameEvent(fbb, event_seq, server_time_us, game_time, sector, P::GameEventBody::CaptureEvent, body.Union());
+  fbb.Finish(event);
+  return detail::take_buffer(fbb);
+}
+
 // ---- cargo (M5-14..16; EntityCargo lives in world.fbs) ----
 
 // A full cargo snapshot of one container: A->S for a station (M5-16), C->S for the sender's own ship (M5-14). An empty
@@ -268,6 +281,26 @@ struct IntentView {
   const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
   if (intent == nullptr || intent->body_type() != P::IntentBody::TradeReport) return nullptr;
   return intent->body_as_TradeReport();
+}
+
+// M5-18/M5-19: the build request a client sends, as the authority reads it.
+[[nodiscard]] inline const P::StationBuildRequest* station_build_of(std::span<const std::uint8_t> bytes) {
+  if (bytes.size() < 4) return nullptr;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::Intent>(nullptr)) return nullptr;
+  const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
+  if (intent == nullptr || intent->body_type() != P::IntentBody::StationBuildRequest) return nullptr;
+  return intent->body_as_StationBuildRequest();
+}
+
+// M5-21: the capture report a client sends, as the authority reads it.
+[[nodiscard]] inline const P::CaptureReport* capture_report_of(std::span<const std::uint8_t> bytes) {
+  if (bytes.size() < 4) return nullptr;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::Intent>(nullptr)) return nullptr;
+  const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
+  if (intent == nullptr || intent->body_type() != P::IntentBody::CaptureReport) return nullptr;
+  return intent->body_as_CaptureReport();
 }
 
 [[nodiscard]] inline bool decode_intent(std::span<const std::uint8_t> bytes, IntentView& out) {

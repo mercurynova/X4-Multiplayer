@@ -45,6 +45,8 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "SetPositionalOffset", f.SetPositionalOffset);
   bind(get, "GetNumCargo", f.GetNumCargo);
   bind(get, "GetCargo", f.GetCargo);
+  bind(get, "SpawnStationAtPos", f.SpawnStationAtPos);
+  bind(get, "GetOwnerDetails", f.GetOwnerDetails);
   return f;
 }
 
@@ -85,6 +87,8 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.SetPositionalOffset), "SetPositionalOffset");
   check(reinterpret_cast<const void*>(f.GetNumCargo), "GetNumCargo");
   check(reinterpret_cast<const void*>(f.GetCargo), "GetCargo");
+  check(reinterpret_cast<const void*>(f.SpawnStationAtPos), "SpawnStationAtPos");
+  check(reinterpret_cast<const void*>(f.GetOwnerDetails), "GetOwnerDetails");
   return out;
 }
 
@@ -168,6 +172,12 @@ UniverseId GameApi::spawn_object(const char* macro, UniverseId sector, const Pos
   if (!fns_.SpawnObjectAtPos2 || !macro || !*macro || sector == 0 || !assert_main_thread("SpawnObjectAtPos2")) return 0;
   return fns_.SpawnObjectAtPos2(macro, sector, pos_rot_to_game_write(pos), owner ? owner : "");  // pos: radians in, degrees out
 }
+// M5-19: a station, not a ship. Same unit rule as spawn_object; the plan id is passed through verbatim ("" = macro + modules).
+UniverseId GameApi::spawn_station(const char* macro, UniverseId sector, const PosRotPod& pos, const char* plan,
+                                  const char* owner) const noexcept {
+  if (!fns_.SpawnStationAtPos || !macro || !*macro || sector == 0 || !assert_main_thread("SpawnStationAtPos")) return 0;
+  return fns_.SpawnStationAtPos(macro, sector, pos_rot_to_game_write(pos), plan ? plan : "", owner ? owner : "");
+}
 bool GameApi::activate_object(UniverseId id, bool active) const noexcept {
   if (id == 0 || !fns_.ActivateObject || !assert_main_thread("ActivateObject")) return false;
   fns_.ActivateObject(id, active);
@@ -244,6 +254,13 @@ std::vector<CargoPod> GameApi::cargo(UniverseId container) const {
     out.push_back(CargoPod{std::string(w.ware), w.amount});
   }
   return out;
+}
+
+std::string GameApi::owner_faction(UniverseId component) const noexcept {
+  if (component == 0 || !fns_.GetOwnerDetails || !assert_main_thread("GetOwnerDetails")) return {};
+  const OwnerFactionPod details = fns_.GetOwnerDetails(component);
+  if (!details.faction_id || !*details.faction_id) return {};
+  return std::string(details.faction_id);
 }
 
 }  // namespace x4mp::game

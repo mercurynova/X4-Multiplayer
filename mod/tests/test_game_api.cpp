@@ -120,6 +120,28 @@ std::uint32_t fk_cargo(WareInfoPod* out, std::uint32_t len, UniverseId id, const
   return n;
 }
 
+// M5-19: the station spawn fake records what the wrapper passed (macro, sector, plan, owner) and what it returned.
+UniverseId g_station_result = 0xABCDEF;
+std::string g_station_macro, g_station_plan, g_station_owner;
+UniverseId g_station_sector = 0;
+PosRotPod g_station_pos{};
+UniverseId fk_spawn_station(const char* macro, UniverseId sector, PosRotPod pos, const char* plan, const char* owner) {
+  g_station_macro = macro ? macro : "<null>";
+  g_station_sector = sector;
+  g_station_pos = pos;
+  g_station_plan = plan ? plan : "<null>";
+  g_station_owner = owner ? owner : "<null>";
+  return g_station_result;
+}
+
+// M5-20: the owner-details fake answers with the faction id the mod compares against "player".
+std::string g_owner_faction = "player";
+UniverseId g_owner_component = 0;
+OwnerFactionPod fk_owner_details(UniverseId id) {
+  g_owner_component = id;
+  return OwnerFactionPod{g_owner_faction.c_str(), "Fake Faction", "icon"};
+}
+
 void* lookup_all(const char* name) {
   const std::string n = name;
   if (n == "GetCurrentGameTime") return reinterpret_cast<void*>(&fk_time);
@@ -154,6 +176,8 @@ void* lookup_all(const char* name) {
   if (n == "SetPositionalOffset") return reinterpret_cast<void*>(&fk_setposoffset);
   if (n == "GetNumCargo") return reinterpret_cast<void*>(&fk_numcargo);
   if (n == "GetCargo") return reinterpret_cast<void*>(&fk_cargo);
+  if (n == "SpawnStationAtPos") return reinterpret_cast<void*>(&fk_spawn_station);
+  if (n == "GetOwnerDetails") return reinterpret_cast<void*>(&fk_owner_details);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -196,7 +220,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 32);
+  CHECK(missing_exports(api.fns()).size() == 34);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -213,7 +237,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 32);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 34);
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -259,7 +283,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 31);
+  CHECK(missing_exports(api.fns()).size() == 33);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {
@@ -365,6 +389,37 @@ TEST_CASE("GameApi::cargo copies the game's cargo lines and refuses an empty rea
   bool refused = false;
   std::thread([&] { refused = api.cargo(7001).empty(); }).join();
   CHECK(refused);  // off the main thread the wrapper refuses
+}
+
+TEST_CASE("GameApi::spawn_station passes the plan and owner and refuses a bad call", "[game][api][m5][spawn]") {
+  ResetMainThread guard;
+  GameApi api(resolve_game_fns(lookup_all), GameInfo{});
+  g_station_result = 0xABCDEF;
+  g_station_macro.clear();
+  g_station_plan = "unset";
+  g_station_owner.clear();
+  g_station_sector = 0;
+  PosRotPod pos{};
+  pos.x = 100.0f;
+  pos.y = 0.5f;
+  pos.z = -2.0f;
+  pos.yaw = 1.0f;
+  CHECK(api.spawn_station("station_arg_defence_01_macro", 8101, pos, "", "x4mp_team_1") == 0xABCDEF);
+  CHECK(g_station_macro == "station_arg_defence_01_macro");
+  CHECK(g_station_sector == 8101);
+  CHECK(g_station_plan.empty());  // "" is the macro-plus-modules path, not a nullptr
+  CHECK(g_station_owner == "x4mp_team_1");
+  CHECK(g_station_pos.x == Catch::Approx(100.0f).margin(0.01));       // positions untouched
+  CHECK(g_station_pos.z == Catch::Approx(-2.0f).margin(0.01));
+  CHECK(g_station_pos.yaw == Catch::Approx(57.29578f).margin(0.01));  // radians in, degrees out
+  CHECK(api.spawn_station("", 8101, pos, "", "x4mp_team_1") == 0);  // no macro: refused before the call
+  CHECK(api.spawn_station("station_arg_defence_01_macro", 0, pos, "", "x4mp_team_1") == 0);  // no sector
+  GameApi none(resolve_game_fns(lookup_none), GameInfo{});
+  CHECK(none.spawn_station("station_arg_defence_01_macro", 8101, pos, "", "x4mp_team_1") == 0);
+  main_thread().capture_frame();
+  UniverseId off_thread = 1;
+  std::thread([&] { off_thread = api.spawn_station("station_arg_defence_01_macro", 8101, pos, "", "x4mp_team_1"); }).join();
+  CHECK(off_thread == 0);  // off the main thread the wrapper refuses
 }
 
 TEST_CASE("assert_main_thread: the first frame thread becomes main", "[game][thread]") {
@@ -518,4 +573,28 @@ TEST_CASE("install_game_backend resolves by name and is null-safe", "[game][safe
   CHECK(safe_remove(9) == RemoveResult::Removed);
   CHECK(removed == 9);
   set_remove_backend(nullptr);
+}
+
+TEST_CASE("GameApi::owner_faction names the owner and refuses a bad read", "[game][api][m5][owner]") {
+  ResetMainThread guard;
+  GameApi api(resolve_game_fns(lookup_all), GameInfo{"9.00", "9.0.0", 900});
+
+  g_owner_faction = "player";
+  g_owner_component = 0;
+  CHECK(api.owner_faction(0x77) == "player");
+  CHECK(g_owner_component == 0x77);
+
+  g_owner_faction = "";  // the game has no faction for the component
+  CHECK(api.owner_faction(0x77).empty());
+  CHECK(api.owner_faction(0).empty());  // id 0 never reaches the game
+  CHECK(g_owner_component == 0x77);
+
+  g_owner_faction = "player";
+  GameApi none(resolve_game_fns(lookup_none), GameInfo{"9.00", "9.0.0", 900});
+  CHECK(none.owner_faction(0x77).empty());  // export missing
+
+  main_thread().capture_frame();  // off the game thread every wrapper refuses
+  std::string off_thread = "x";
+  std::thread([&] { off_thread = api.owner_faction(0x77); }).join();
+  CHECK(off_thread.empty());
 }

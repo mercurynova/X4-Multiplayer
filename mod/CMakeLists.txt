@@ -696,3 +696,24 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_economy.cpp)
 endif()
 # END M5 W4 trade and station stock
+
+# BEGIN M5 W5 builds (docs/m5-plan.md W5, M5-18/M5-19). Appended by M5 W5.
+#   features/builds/build_report.cpp is testable without a feature host (BuildReporter + the statics hub's pinned ids).
+#   x4mp_host_tests += tests/test_builds.cpp (one request per build, dedupe, the 10 s pending window, the pinned id)
+#   The spawn (SpawnStationAtPos) is pinned by tests/test_game_api.cpp [spawn]; the MD B line and the spawn itself are session 8.
+# ============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_builds.cpp)
+endif()
+# END M5 W5 builds
+
+# ============================================================================================
+# BEGIN M5 W20 capture (docs/m5-plan.md W5, M5-20). Appended by M5 W5.
+#   features/capture/capture_report.cpp is testable without a feature host (CaptureReporter + the fake deps).
+#   x4mp_host_tests += tests/test_capture.cpp (one report per capture, the 30 s dedupe, every refusal counted)
+#   The typed EntityChangedOwner hook and GetOwnerDetails are pinned by tests/test_game_api.cpp [owner]; the real hook is session 8.
+# ============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_capture.cpp)
+endif()
+# END M5 W20 capture

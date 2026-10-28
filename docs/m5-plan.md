@@ -298,6 +298,99 @@ ship — and `transfer_money` to an NPC faction, which M5-17 needs.
 
 **AC (wave).** AC items 5 and 6.
 
+**Status:** W5 done for M5-18, M5-19, M5-20 and M5-21 (code + tests). The only piece of the wave that is
+not implemented is boarding re-activation inside M5-20 (see Not done).
+
+**Built.**
+- **M5-18, the client half** — `features/builds/build_report.{h,cpp}`: a `B` line from `md/x4mp_events.xml`
+  (`event_player_build_finished`, `component` = the build anchor, `macro` = the station macro) becomes one
+  `Intent{StationBuildRequest}`. The sector index and the pose come from the game, not from the line:
+  `GameApi::object_position(anchor)` plus `context_by_class(anchor, "sector")` and
+  `GalaxyMap::index_of(sector)`, so nothing is guessed. A build whose sector the map cannot name yet is
+  held in a pending list and retried for 10 s (`kRetryMs`), then dropped and counted, never sent with a
+  zero sector. Dedupe is by build anchor (512-entry ring). A refused send is **not** retried: a retry
+  would spawn the station twice, so it is counted as `failed` and the next `B` line is the only way back.
+  The construction plan stays empty (`M5 Q7`: macro plus modules first).
+- **M5-19, the authority half** — `AuthorityFlow::on_station_build` (`authority_flow.cpp`): the reporting
+  player's avatar net id resolves to the `UniverseIndex` row, the row's component gives the sector
+  `UniverseID`, the owner is the reporting player's team faction (`team_hub().faction_of_team`), and
+  `GameApi::spawn_station` calls `SpawnStationAtPos` with an empty plan id. The net id is
+  `onfoot::matched_container_id(station_match_key(sector macro, macro, x, y, z))` — the same key the
+  statics scan already uses — so every node that scans the new station computes the same id; a hash that
+  lands on 0 or `0xFFFFFFFF` falls back to `allocate_net_id()`. The station is then pinned in the hub
+  (`pin_station`, so a later scan cannot overwrite the authority's id with a hash), upserted into the
+  index as `EntityKind::Station`, answered with `IntentResult{Accepted, result_net_id}` and announced as
+  `EntitySpawn{PlayerBuilt, owner_team, owner_player}` through the one `EntitySpawnBuilder`. Every
+  failure path answers with a reject reason instead of a silent drop.
+- **`GameApi::spawn_station`** wraps the SDK export `SpawnStationAtPos`
+  (`x4_game_func_list.inc:2014`, `kGameFnCount` now 33), converts the pose to degrees on the write side
+  like every other spawn, and refuses an empty macro, a zero sector, a missing export or a call off the
+  main thread.
+- **`StaticsHub`** now carries the sector macro and a pin per station component
+  (`sector_macro_of`, `pin_station`, `note_station(..., sector_macro, pinned)`), because M5-16's stock
+  apply and M5-19's spawn both need to name a station by component.
+
+- **M5-21, the authority half** — `AuthorityFlow::on_capture_report` (`authority_flow.cpp`): the target
+  net id must be a live `UniverseIndex` row with a component, inside the current capture set and not the
+  player's own guarded ship; the new owner is the reporting player's team faction, resolved from the
+  session's own `TeamModel` (`teams::team_hub().model().teams()`, members list) — **never from a value
+  the client sends**, because `CaptureReport` carries no team and a client must not be able to hand a
+  ship to another team. `SetComponentOwner` runs on the main thread, the index row is updated to the new
+  owner, `EntityChange{owner, owner_team, owner_player}` is queued (`entity_stream` learned the
+  `kChangeOwnerTeam`/`kChangeOwnerPlayer` bits), `IntentResult{Accepted, result_net_id}` is sent, and
+  `GameEvent{CaptureEvent}` carries the old owner, the old team, the new team and the player. The same
+  helper fixes M5-19, which had been stamping the *host's* team on every builder's station.
+- **Wire** — `capture_report_of` (decoder) and `encode_capture_event` (`event_wire.h`), pinned by the
+  `[events]` case: a capture report decodes, a foreign buffer is refused, and every `CaptureEvent` field
+  survives the wire.
+
+- **M5-20, the client half** — `features/capture/`: a `CaptureReporter` that turns one owner change into one
+  `Intent{CaptureReport{target, new_owner_ref}}`, and a `CaptureFeature` that owns the typed hook. The
+  detection path is the one the plan named (`docs/m5-plan.md:137-139`): the MD ring cannot see an owner
+  change, so the platform grew `IPlatform::subscribe_owner_change`
+  (`mod/native/host/platform.h`), implemented in `X4Platform` on top of the generated typed subscription
+  `x4n::md::on_entity_changed_owner_after` (event type 175, `x4_md_events.h:2291-2310`) with a static
+  trampoline slot and an `x4n::off()` in the destructor. The callback carries only the component, so the
+  faction is read back through the new `GameApi::owner_faction` (`GetOwnerDetails`,
+  `x4_game_func_list.inc:956`, `kGameFnCount` now 34) and compared against `"player"`: a capture is a ghost
+  (`GhostHub::net_id_of_local` non-zero) whose new owner is the local player, nothing else. A change that is
+  not a capture is counted (`not_ghost`, `not_player`, `unknown_owner`, `bad`), never reported; a refused
+  send is counted and **not** remembered, so the next owner change of the same ship can still report. The
+  same capture is reported at most once in a 30 s window (`kDedupeMs`), because the hook can fire more than
+  once for one hand-over. The game-thread callback pushes the component into a 256-entry ring, the frame
+  drains at most 64, so a burst cannot turn into work inside the game callback.
+
+**Verified.** `mod\build.ps1 -Config relwithdebinfo` → `100% tests passed, 0 tests failed out of 650`
+registered tests, 4 skipped (the real-server smoke and live cases), with the wave's cases present in the
+generated list: four in `tests/test_builds.cpp`, three in `tests/test_capture.cpp`, and one each for
+`spawn_station` and `owner_faction` in `tests/test_game_api.cpp`. `x4mp_host_tests.exe "[builds]"` → 53
+assertions in 4 test cases; `x4mp_host_tests.exe "[capture],[game]"` → 206 assertions in 18 test cases;
+M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
+`python mod\tests\lua\run_lupa.py` → 263 passed, 0 failed (no Lua changed this wave).
+
+**Not done.**
+- **Boarding re-activation is not implemented.** M5-20 asks for the ghost to be re-activated while a local
+  boarding operation runs, and the typed `BoardingOperationStarted` event cannot support it: its payload
+  (`x4_md_events.h:298-310`) carries only a `boarding_operation` id and no ship, so the mod cannot tell
+  which ghost to re-activate. Until that is solved (a different event, or a scan of the boarded ship) the
+  captured ghost stays inert for the whole operation, and only the owner change at the end is reported.
+- **`StationBuiltEvent` is not emitted**; only `EntitySpawn` and the `IntentResult` are sent.
+- The construction plan id is empty (Q7), so a built station comes back as its macro plus modules.
+
+**[VERIFY] for session 8.**
+- The `B` line's `$buildanchor` really is the finished station (or the build anchor) and its component id
+  survives the MD-to-native trip.
+- `SpawnStationAtPos` with an empty construction plan id spawns the station the plan previewed, and the
+  owner faction string the authority passes is accepted by the game.
+- The authority's `EntitySpawn` position (quantised) and the builder's own local station agree inside the
+  50 m key, so the builder binds its station to the authority's net id and no duplicate appears.
+- `pin_station` survives a statics rescan on both the builder and a third node.
+- `SetComponentOwner` accepts an `x4mp_team_<slot>` faction for a ship the authority does not own, and the
+  captured ship survives an authority save/load under that faction.
+- The typed `EntityChangedOwner` hook really fires for a captured ghost on the client, `GetOwnerDetails`
+  returns `"player"` for the ship the local player just took, and the 30 s dedupe is not so long that a
+  second capture of the same hull in the same minute goes unreported.
+
 ### W6 — Wallets (M5-22..M5-26)
 
 | Task | Work | AC |

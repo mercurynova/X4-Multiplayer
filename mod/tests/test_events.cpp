@@ -259,6 +259,31 @@ TEST_CASE("M5-05: every intent body the mod sends survives a round trip", "[even
     REQUIRE(decode_intent(bytes, view));
     CHECK(view.type == X4MP::Proto::IntentBody::CaptureReport);
     CHECK(flatbuffers::GetRoot<X4MP::Proto::Intent>(bytes.data())->body_as_CaptureReport()->target() == 55);
+    // M5-21: the authority reads the same body the client wrote, and refuses anything else.
+    const X4MP::Proto::CaptureReport* read = capture_report_of(bytes);
+    REQUIRE(read != nullptr);
+    CHECK(read->target() == 55);
+    CHECK(read->new_owner_ref() == 3);
+    CHECK(capture_report_of(encode_hit_report(request, std::span<const HitEntryData>())) == nullptr);
+    CHECK(capture_report_of(std::span<const std::uint8_t>()) == nullptr);
+  }
+
+  SECTION("CaptureEvent") {
+    // M5-21: the feed event a capture produces. The server stamps event_seq/server_time_us, so both stay 0 here.
+    const std::vector<std::uint8_t> bytes = encode_capture_event(55, 7, 2, 3, 9, 0, 0, 12.5, 4);
+    const X4MP::Proto::GameEvent* event = flatbuffers::GetRoot<X4MP::Proto::GameEvent>(bytes.data());
+    REQUIRE(event != nullptr);
+    CHECK(event->body_type() == X4MP::Proto::GameEventBody::CaptureEvent);
+    CHECK(event->event_seq() == 0);
+    CHECK(event->server_time_us() == 0);
+    CHECK(event->sector() == 4);
+    const auto* body = event->body_as_CaptureEvent();
+    REQUIRE(body != nullptr);
+    CHECK(body->target() == 55);
+    CHECK(body->old_owner_ref() == 7);
+    CHECK(body->old_team() == 2);
+    CHECK(body->new_team() == 3);
+    CHECK(body->player_id() == 9);
   }
 
   SECTION("HitReport") {
