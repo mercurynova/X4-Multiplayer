@@ -95,4 +95,112 @@ public sealed class PlayerSampleClockTests
         Sample(mirror, 4, 0);
         Assert.Equal(GameBase + 0.05, ship.SampleGameTime, 9);
     }
+
+    private static void WorldUpdateExplicit(WorldMirror mirror, uint tick, double captureSeconds, double gameTime) =>
+        mirror.IngestWorldUpdate(MessageEncoder.EncodePayload(
+            b => WorldUpdate.Pack(b, new WorldUpdateT { AuthorityTick = tick, CaptureTimeUs = (ulong)(captureSeconds * 1e6), GameTime = gameTime, States = [] }),
+            256));
+
+    private const double StallBound = 0.5 + 0.1; // MaxAheadSeconds + MaxOvershootSeconds
+
+    [Fact]
+    public void AStalledGameClockNeverDuplicatesNorOvershootsAndDropsTheExcessSamples()
+    {
+        // Review 2026-10-28 (2): a paused authority keeps the game time still while the players' samples (20 Hz) go on. The nudge clamped to the
+        // ceiling gave duplicate stamps; an unbounded nudge left the stamps seconds ahead after a long pause. Now: strictly increasing, never more
+        // than MaxAhead + MaxOvershoot ahead of game time, and the rest of the samples are dropped (counted).
+        var mirror = NewMirror();
+        Assert.True(mirror.TryGet(50, out var ship));
+        WorldUpdateAt(mirror, 1, 0);
+        double last = double.NegativeInfinity;
+        const int samples = 12_000; // 10 minutes at 20 Hz
+        for (uint n = 0; n < samples; n++)
+        {
+            Sample(mirror, n + 1, (ulong)((ClockBase + (n * 0.05) + 0.01) * 1e6));
+            if (n > 0)
+            {
+                Assert.True(ship.SampleGameTime >= last, $"sample {n} went back");
+            }
+
+            Assert.True(ship.SampleGameTime <= GameBase + StallBound + 1e-9, $"sample {n} stamp {ship.SampleGameTime} is past the bound");
+            last = ship.SampleGameTime;
+        }
+
+        Assert.True(mirror.DroppedPlayerSamples > samples - 200, $"dropped {mirror.DroppedPlayerSamples}");
+    }
+
+    [Fact]
+    public void AfterALongStallSamplesApplyAgainAtOnceAndTrackGameTime()
+    {
+        var mirror = NewMirror();
+        Assert.True(mirror.TryGet(50, out var ship));
+        WorldUpdateAt(mirror, 1, 0);
+        for (uint n = 0; n < 6_000; n++)
+        {
+            Sample(mirror, n + 1, (ulong)((ClockBase + (n * 0.05) + 0.01) * 1e6));
+        }
+
+        long droppedBefore = mirror.DroppedPlayerSamples;
+        Assert.True(droppedBefore > 0);
+        double lastStamp = ship.SampleGameTime;
+
+        // game time runs again: from here the world clock and the server clock advance together
+        double t0 = 6_000 * 0.05;
+        uint applied = 0;
+        for (uint n = 0; n < 40; n++)
+        {
+            double t = t0 + (n * 0.05);
+            WorldUpdateExplicit(mirror, 10 + n, ClockBase + t, GameBase + 1.0 + (n * 0.05));
+            Sample(mirror, 6_001 + n, (ulong)((ClockBase + t + 0.01) * 1e6));
+            double game = GameBase + 1.0 + (n * 0.05);
+            if (n < 2)
+            {
+                Assert.Equal(droppedBefore, mirror.DroppedPlayerSamples); // applied within a sample or two: no new drops
+            }
+
+            Assert.True(ship.SampleGameTime >= lastStamp, "stamp went back");
+            Assert.True(ship.SampleGameTime <= game + StallBound + 1e-9, $"stamp {ship.SampleGameTime} is ahead of game {game}");
+            if (ship.SampleGameTime > lastStamp)
+            {
+                applied++;
+            }
+
+            lastStamp = ship.SampleGameTime;
+        }
+
+        Assert.True(applied >= 35, $"only {applied} of 40 samples applied after the stall");
+    }
+
+    [Fact]
+    public void StampsFollowTheAuthoritysGameTimeBackAfterARollback()
+    {
+        // Review 2026-10-28 (1, 6): the authority reloads an older checkpoint (game time 160 -> 80) while the player stays connected: the stamps must
+        // follow the new axis at once, not stay pinned at the old maximum until game time catches up.
+        var mirror = NewMirror();
+        Assert.True(mirror.TryGet(50, out var ship));
+        uint tick = 1;
+        for (uint n = 0; n < 40; n++)
+        {
+            double t = 60.0 + (n * 0.05);
+            WorldUpdateExplicit(mirror, tick++, ClockBase + t, GameBase + t);
+            Sample(mirror, n + 1, (ulong)((ClockBase + t + 0.01) * 1e6));
+        }
+
+        Assert.True(ship.SampleGameTime > GameBase + 60);
+        double last = double.NegativeInfinity;
+        for (uint n = 0; n < 40; n++)
+        {
+            double t = 62.0 + (n * 0.05); // the server clock goes on; the game time restarts at 80
+            double game = 80.0 + (n * 0.05);
+            WorldUpdateExplicit(mirror, tick++, ClockBase + t, game);
+            Sample(mirror, 100 + n, (ulong)((ClockBase + t + 0.01) * 1e6));
+            Assert.InRange(ship.SampleGameTime, game - 1.0, game + 0.5);
+            if (n > 0)
+            {
+                Assert.True(ship.SampleGameTime > last, $"sample {n} does not increase");
+            }
+
+            last = ship.SampleGameTime;
+        }
+    }
 }

@@ -76,6 +76,15 @@ frame 60Hz 720
 expect-file extension/logs/x4mp.log SaveStarted sent (game_time 4300.000
 expect-no-log self-spawn sent net_id=2
 
+# F1d: the authority's Lua state reports the start menu (it exited to the main menu inside the process): the 20 Hz world clock stops (no universe behind it)
+# and starts again, logged once each way, when the game is back.
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+frame 60Hz 60
+expect-file extension/logs/x4mp.log keepalive WorldUpdate stopped after
+lua-raw x4mp.ui_ready {"v":1,"startmenu":false}
+frame 60Hz 60
+expect-file-order extension/logs/x4mp.log keepalive WorldUpdate at 20 Hz started >> keepalive WorldUpdate stopped after >> keepalive WorldUpdate at 20 Hz started
+
 # F24 (ADR-054): the authority's Disconnect in game is a PLANNED leave: a checkpoint (RequestSave{Leave}) is taken first, the Disconnect follows once it is stored
 lua-raw x4mp.disconnect {"v":1}
 frame 60Hz 30

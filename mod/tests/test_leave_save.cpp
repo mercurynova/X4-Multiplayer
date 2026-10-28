@@ -90,9 +90,21 @@ TEST_CASE("PlannedLeave: a lost session ends the wait; reset forgets it", "[leav
   CHECK(d.why == LeaveWhy::SessionLost);
 
   (void)l.request(LeaveKind::Disconnect, true, 0, 60000);
-  l.reset();
+  CHECK(l.reset());
   CHECK_FALSE(l.waiting());
   CHECK(l.tick(1000000).action == A::None);
+}
+
+// Review 2026-10-28 (3): stop_session raises x4mp.leave_go exactly when reset() reports a leave that was still waiting (Lua holds the real call).
+TEST_CASE("PlannedLeave: reset reports whether a held leave must be released", "[leave]") {
+  PlannedLeave l;
+  CHECK_FALSE(l.reset());  // nothing waiting: nothing to release
+  (void)l.request(LeaveKind::ExitMenu, true, 0, 60000);
+  CHECK(l.reset());  // the session ended by another path while the checkpoint was awaited
+  CHECK_FALSE(l.reset());
+  (void)l.request(LeaveKind::Disconnect, true, 0, 60000);
+  (void)l.on_result(true);  // already answered (LeaveNow was issued, which raises leave_go itself)
+  CHECK_FALSE(l.reset());
 }
 
 TEST_CASE("LeaveSaveRequest / LeaveSaveResult wire", "[leave][wire]") {

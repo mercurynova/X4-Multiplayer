@@ -291,6 +291,9 @@ void AuthorityFlow::step(host::HostContext& ctx) {
 void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   if (state_.checkpoints == 0 && stored_total_ == 0) return;
   if (!resume::world_clock_may_run(ctx.gates.universe_ready, start_menu_)) {  // F1d: no universe (main menu): no clock; log the restart when it comes back
+    if (wu_logged_) {
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: world clock: keepalive WorldUpdate stopped after {} sent (no universe or the start menu is up)", wu_sent_);
+    }
     wu_logged_ = false;
     return;
   }

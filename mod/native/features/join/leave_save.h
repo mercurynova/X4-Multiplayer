@@ -73,8 +73,13 @@ class PlannedLeave {
     return finish(LeaveWhy::SessionLost, close_);
   }
 
-  // The leave is over without a LeaveNow (a stop_session of another path ended the session): forget it.
-  void reset() noexcept { waiting_ = false; }
+  // The leave is over without a LeaveNow (a stop_session of another path ended the session): forget it. Returns true when a leave was still
+  // waiting: Lua then still holds the real QuitModule / QuitGame call, and the caller must release it (x4mp.leave_go), or Esc > Exit does nothing.
+  [[nodiscard]] bool reset() noexcept {
+    const bool was_waiting = waiting_;
+    waiting_ = false;
+    return was_waiting;
+  }
 
  private:
   LeaveDecision finish(LeaveWhy why, bool close_session) noexcept {

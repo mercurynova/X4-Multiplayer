@@ -394,7 +394,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
             LogRequestTimedOut(pending.RequestId, pending.Reason);
             _inFlight = null;
             _lastRequestFailedAt = timestamp;
-            OnLeaveRequestFinished(false, "the checkpoint request timed out");
+            OnLeaveRequestFinished(pending.RequestId, false, "the checkpoint request timed out");
             if (_stopPending)
             {
                 CompleteStop("final save request timed out");

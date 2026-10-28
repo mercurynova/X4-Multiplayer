@@ -104,6 +104,8 @@ public sealed partial class WorldMirror : ISessionModule
 
     private bool _clockGuardArmed;
 
+    private bool _epochPending;
+
     /// <summary><c>WorldUpdate</c>s dropped because both their tick and their game time were older than the latest ingested one (UDP reordering).</summary>
     public long StaleWorldUpdates { get; private set; }
 
@@ -118,6 +120,9 @@ public sealed partial class WorldMirror : ISessionModule
     /// without reconnecting, and the mirror cannot tell that from an authority sending a menu clock (F1d, fixed in the mod). Counted so it shows in the log.
     /// </summary>
     public long BackwardClockJumps { get; private set; }
+
+    /// <summary><c>PlayerState</c> samples dropped because game time was frozen and a strictly increasing stamp would have run past the overshoot cap (<see cref="PlayerSampleClock.MaxOvershootSeconds"/>).</summary>
+    public long DroppedPlayerSamples { get; private set; }
 
     /// <summary>
     /// The <c>capture_time_us</c> of the latest <c>WorldUpdate</c>: the authority's estimate of the server clock at the time
@@ -329,7 +334,39 @@ public sealed partial class WorldMirror : ISessionModule
     }
 
     /// <summary>Lets the next <c>WorldUpdate</c> through whatever its tick and game time (the guard is re-armed by it).</summary>
-    public void ResetClockGuard() => _clockGuardArmed = false;
+    public void ResetClockGuard()
+    {
+        _clockGuardArmed = false;
+        _epochPending = true;
+        ResetPlayerClocks();
+    }
+
+    /// <summary>
+    /// Review 2026-10-28 (6): the authority's game-time axis restarted (guard reset by a reattached authority, or a big backward jump while the datagram
+    /// sequence continued). Everything stamped on the old axis is wrong on the new one, so every player's sample clock starts over
+    /// (<see cref="PlayerSampleClock"/> would otherwise pin the stamps at the old maximum until game time caught up) and entity sample times beyond
+    /// the new game time are pulled back to it. Replication frames carry only per-frame time offsets to the frame's reference time and the
+    /// stored send timestamps are wall-clock, so nothing else is keyed on game time.
+    /// </summary>
+    private void ResetPlayerClocks()
+    {
+        foreach (var ship in _players.Values)
+        {
+            ship.ClockValid = false;
+            ship.LastStamp = double.NegativeInfinity;
+        }
+    }
+
+    private void RebaseEntityTimes(double newGameTime)
+    {
+        foreach (var entity in _entities.Values)
+        {
+            if (entity.SampleGameTime > newGameTime)
+            {
+                entity.SampleGameTime = newGameTime;
+            }
+        }
+    }
 
     public void OnNodeLeft(SessionNode node, string reason)
     {
@@ -739,7 +776,16 @@ public sealed partial class WorldMirror : ISessionModule
             return new IngestResult(0, 0, 0, false);
         }
 
-        if (_clockGuardArmed && HasWorldUpdate && gameTime < AuthorityGameTime - BackwardJumpSeconds)
+        bool backwardJump = _clockGuardArmed && HasWorldUpdate && gameTime < AuthorityGameTime - BackwardJumpSeconds;
+        if (backwardJump || _epochPending)
+        {
+            // Epoch change (review 2026-10-28, 6): the time axis moved back or the authority reattached; rebase what was stamped on the old axis.
+            ResetPlayerClocks();
+            RebaseEntityTimes(gameTime);
+            _epochPending = false;
+        }
+
+        if (backwardJump)
         {
             BackwardClockJumps++;
             long stamp = _time.GetTimestamp();
@@ -941,7 +987,14 @@ public sealed partial class WorldMirror : ISessionModule
         ship.AcceptAnySeq = false;
 
         long now = _time.GetTimestamp();
-        double stamp = PlayerSampleClock.Stamp(ship, state.SampleTimeUs, HasWorldUpdate, AuthorityGameTime, AuthorityCaptureTimeUs);
+        if (!PlayerSampleClock.TryStamp(ship, state.SampleTimeUs, HasWorldUpdate, AuthorityGameTime, AuthorityCaptureTimeUs, out double stamp))
+        {
+            // Game time is frozen and the stamp would pass the overshoot cap (review 2026-10-28, 2): nothing is written, so the previous sample stays
+            // the newest. Seq is NOT advanced: a dropped sample is not "seen", and the next one (any newer seq) is accepted as usual once game time runs.
+            DroppedPlayerSamples++;
+            return;
+        }
+
         ship.Seq = state.Seq;
         ship.SampleTimeUs = state.SampleTimeUs;
         ship.NetId = state.NetId;

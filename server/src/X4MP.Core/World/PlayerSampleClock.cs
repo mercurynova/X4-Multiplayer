@@ -10,6 +10,12 @@ namespace X4MP.Core.World;
 /// when it moves by more than <see cref="ResnapSeconds"/> (a game pause, a clock-estimate jump). When the two clocks disagree by more than
 /// <see cref="MaxDomainGapSeconds"/> (not the same clock, or garbage) the arrival-based offset (<c>game_time - sample_time</c>) is used instead.
 /// </para>
+/// <para>
+/// Invariant (review 2026-10-28, 2): the stamps of one ship are strictly increasing AND never exceed <c>game time + MaxAheadSeconds + MaxOvershootSeconds</c>.
+/// While game time is frozen (pause, a leave with a pausing menu) the natural stamp sits at the ceiling; the stamp may then creep past it by
+/// <see cref="NudgeSeconds"/> per sample, but only up to the overshoot cap. Beyond that the sample is DROPPED (<see cref="TryStamp"/> returns false):
+/// a duplicate stamp gives viewers zero dt, and an unbounded creep leaves stamps seconds ahead of game time after a long pause (the F1d symptom class).
+/// </para>
 /// </summary>
 internal static class PlayerSampleClock
 {
@@ -30,16 +36,21 @@ internal static class PlayerSampleClock
     /// <summary>Minimum step when a stamp would not increase (duplicate or reordered sample time).</summary>
     internal const double NudgeSeconds = 0.001;
 
+    /// <summary>How far past the ceiling (game time + <see cref="MaxAheadSeconds"/>) the nudge may take a stamp while game time is frozen; further samples are dropped.</summary>
+    internal const double MaxOvershootSeconds = 0.1;
+
     /// <summary>
-    /// Returns the game time to stamp the sample with and updates the player's clock state. A zero <c>sampleTimeUs</c> or no WorldUpdate yet
-    /// returns <paramref name="authorityGameTime"/> (the pre-F9b behaviour) and drops the mapping.
+    /// Computes the game time to stamp the sample with and updates the player's clock state. A zero <c>sampleTimeUs</c> or no WorldUpdate yet
+    /// stamps <paramref name="authorityGameTime"/> (the pre-F9b behaviour) and drops the mapping. Returns false (no stamp) when a strictly
+    /// increasing stamp would exceed the overshoot cap, i.e. game time is frozen: the caller drops the sample.
     /// </summary>
-    internal static double Stamp(PlayerShipState ship, ulong sampleTimeUs, bool hasWorldUpdate, double authorityGameTime, ulong captureTimeUs)
+    internal static bool TryStamp(PlayerShipState ship, ulong sampleTimeUs, bool hasWorldUpdate, double authorityGameTime, ulong captureTimeUs, out double stamp)
     {
         if (sampleTimeUs == 0 || !hasWorldUpdate)
         {
             ship.ClockValid = false;
-            return authorityGameTime;
+            stamp = authorityGameTime;
+            return true;
         }
 
         double sample = sampleTimeUs * 1e-6;
@@ -75,13 +86,21 @@ internal static class PlayerSampleClock
 
         ship.ClockSampleUs = sampleTimeUs;
         double ceiling = authorityGameTime + MaxAheadSeconds;
-        double stamp = Math.Clamp(sample + ship.ClockOffset, authorityGameTime - MaxBehindSeconds, ceiling);
+        stamp = Math.Clamp(sample + ship.ClockOffset, authorityGameTime - MaxBehindSeconds, ceiling);
         if (stamp <= ship.LastStamp)
         {
-            stamp = Math.Min(ship.LastStamp + NudgeSeconds, Math.Max(ceiling, ship.LastStamp));
+            // Strictly increasing wins over the ceiling: while game time stalls (pause, a leave with a pausing menu) the natural stamp stays at the
+            // ceiling, and clamping the nudge to it too gave every sample the SAME stamp (zero dt for viewers, review 2026-10-28 finding 2).
+            // The stamp may therefore run ahead of game time by NudgeSeconds per sample (20 ms per second at 20 Hz); the clamp takes over again
+            // once game time has caught up. A jump of the authority's time axis is handled by the mirror (it resets this state).
+            stamp = ship.LastStamp + NudgeSeconds;
+            if (stamp > ceiling + MaxOvershootSeconds)
+            {
+                return false; // game time is frozen: keep LastStamp, the sample is dropped
+            }
         }
 
         ship.LastStamp = stamp;
-        return stamp;
+        return true;
     }
 }

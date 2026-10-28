@@ -195,11 +195,14 @@ public sealed partial class SaveService
     /// <summary>The request that produced <paramref name="cp"/> is over, successfully or not.</summary>
     private void FinishRequest(Checkpoint cp)
     {
-        if (_inFlight is { } pending && (cp.RequestId == pending.RequestId || cp.RequestId == 0))
+        // Review 2026-10-28 (4): the request of a waiting leave only ends with ITS checkpoint (or its timeout / the authority going away). An unrelated
+        // checkpoint (request id 0, no marker) used to clear it and answer the leave with that checkpoint's IsCurrent.
+        bool leaveRequestInFlight = _leaveStarted && _inFlight is { } leaveRequest && leaveRequest.RequestId == _leaveRequestId;
+        if (_inFlight is { } pending && cp.RequestId == pending.RequestId)
         {
             _inFlight = null;
         }
-        else if (_inFlight is not null && cp.Marker is null)
+        else if (_inFlight is not null && !leaveRequestInFlight && (cp.RequestId == 0 || cp.Marker is null))
         {
             _inFlight = null;
         }
@@ -213,7 +216,7 @@ public sealed partial class SaveService
 
         if (_inFlight is null)
         {
-            OnLeaveRequestFinished(cp.IsCurrent, cp.Failed ? "the checkpoint upload failed" : "the checkpoint was stored but not made current");
+            OnLeaveRequestFinished(cp.RequestId, cp.IsCurrent, cp.Failed ? "the checkpoint upload failed" : "the checkpoint was stored but not made current");
         }
 
         if (_stopPending)

@@ -153,6 +153,33 @@ public sealed class WorldMirrorTests
     }
 
     [Fact]
+    public void ABackwardJumpOrAReattachRebasesEntitySampleTimes()
+    {
+        // Review 2026-10-28 (6): an epoch change of the authority's time axis rebases what was stamped on the old axis.
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(7, EntityKind.ShipL, 9));
+        mirror.IngestWorldUpdate(UpdatePayload(100, 900.0, [State(7, 9, 1000)]));
+        Assert.True(mirror.TryGet(7, out var idle));
+        Assert.Equal(900.0, idle.SampleGameTime);
+
+        // rollback in place (tick continuing): the idle entity must not keep a sample time from the future of the new axis
+        mirror.IngestWorldUpdate(UpdatePayload(101, 700.0, []));
+        Assert.Equal(1, mirror.BackwardClockJumps);
+        Assert.Equal(700.0, idle.SampleGameTime);
+
+        // a small wobble does not rebase
+        mirror.IngestWorldUpdate(UpdatePayload(102, 703.0, [State(7, 9, 1001)]));
+        mirror.IngestWorldUpdate(UpdatePayload(103, 701.0, []));
+        Assert.Equal(703.0, idle.SampleGameTime);
+
+        // a reattached authority restarting low (guard reset) rebases as well, without counting a jump
+        mirror.ResetClockGuard();
+        mirror.IngestWorldUpdate(UpdatePayload(1, 5.0, []));
+        Assert.Equal(1, mirror.BackwardClockJumps);
+        Assert.Equal(5.0, idle.SampleGameTime);
+    }
+
+    [Fact]
     public void AReorderedOlderWorldUpdateCannotRollTheClockBack()
     {
         var mirror = new WorldMirror();

@@ -89,6 +89,8 @@ try {
     Wait-Until 'the authority checkpoint' { (Test-Path $fakeLog) -and (Select-String -Path $fakeLog -Pattern 'checkpoint stored' -Quiet) } 90
 
     Run-Scenario 'join_flow' 'work-alice' @()
+    # F25: no node message was refused for its phase (an in-session load used to send a ManifestReport the server answered with PhaseDenied)
+    if (Select-String -Path (Join-Path $tmp 'server.out.txt') -Pattern 'policy violation .*PhaseDenied' -Quiet) { throw 'F25: the server log has a PhaseDenied policy violation' }
 
     # ban Alice (the player key stays in work-alice), then she tries again with the same key
     $players = Invoke-RestMethod -Uri "$url/api/v1/players" -Headers $h -WebSession $s2
