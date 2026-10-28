@@ -425,7 +425,8 @@ X4MP/
 │   └─ installer/                Install / Check Install / Collect Logs / Uninstall (M6)
 ├─ docs/  architecture.md (this) · decisions.md · roadmap.md · protocol.md · server-design.md
 │         · mod-design.md · x4-api-notes.md · requirements.md
-├─ reference/                    read-only clone (git-ignored; never copied from)
+├─ references/                   read-only reference material (git-ignored; never copied from)
+│   ├─ old-mod/ · analyzer/ · shiprooms/ · tatertrader/
 └─ x4-unpacked/                  extracted game files for research (git-ignored)
 ```
 

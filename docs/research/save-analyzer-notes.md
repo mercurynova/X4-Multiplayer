@@ -1,9 +1,9 @@
 # Notes from the user's X4 save analyzer (reference only)
 
-Source: `reference-analyzer/` (the user's Python save analyzer, GPL-3.0, ~8.8k lines; local-only
+Source: `references/analyzer/` (the user's Python save analyzer, GPL-3.0, ~8.8k lines; local-only
 reference). **Never copy its code and never ship its `src/x4analyzer/data/*.csv`** (extracted Egosoft
 data). This doc records *facts and lessons in our own words*. Paths below are relative to
-`reference-analyzer/`; `sp` = `src/x4analyzer/saveparser.py`, `fr` = `frames.py`, `gd` = `gamedata.py`.
+`references/analyzer/`; `sp` = `src/x4analyzer/saveparser.py`, `fr` = `frames.py`, `gd` = `gamedata.py`.
 The analyzer targets game 9.00 (same line as our pinned build 611726); its test save is `modified="1"`.
 
 Where I could, I cross-checked a claim against the user's real save

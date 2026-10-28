@@ -48,8 +48,8 @@ Terms used throughout:
 
 ## 0. What we keep from the reference, and what we change
 
-Evidence comes from `reference/STATE.md`, `reference/from_LLM_to_LLM.md`,
-`reference/FOLLOWUP.md`, `reference/FEATURES.csv` and the Windows smoke test of
+Evidence comes from `references/old-mod/STATE.md`, `references/old-mod/from_LLM_to_LLM.md`,
+`references/old-mod/FOLLOWUP.md`, `references/old-mod/FEATURES.csv` and the Windows smoke test of
 2026-09-18.
 
 | Reference behavior | Our design |
@@ -1195,7 +1195,7 @@ All UI code follows the vanilla patterns in
 
 - Handle: `_G.__X4NATIVE_API`, set by `extensions/x4native/ui/x4native.lua`.
   Our files may load first, so they use a retry-on-`gfx_ok`/`show` pattern, the
-  same one used in `reference/.../x4mp_menu.lua`.
+  same one used in `references/old-mod/.../x4mp_menu.lua`.
 - **Lua → native:** `api.raise_event("x4mp.<verb>", jsonString)`. Each verb is
   subscribed natively with `x4n::on("x4mp.<verb>", cb(const char*))`. Verbs:
   `join`, `disconnect`, `chat_send`, `ui_ready`, `request_status`,
@@ -1923,7 +1923,7 @@ later. The model is **teams**: each team maps to exactly one faction, and a
   DLCs can be enabled on existing saves, which is the strongest evidence that
   library-added factions are instantiated for loaded saves too. The reference's
   "Failed to retrieve owner faction x4mp_client_N" is unexplained: its diff
-  (`reference/extensions/x4mp/libraries/factions.xml`) may simply never have
+  (`references/old-mod/extensions/x4mp/libraries/factions.xml`) may simply never have
   been applied or tested.
 - Factions can ship **inactive** and be switched on at runtime: `trinity` is
   defined with `active="0"` (factions.xml:647) and activated by MD
