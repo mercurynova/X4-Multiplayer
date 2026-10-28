@@ -361,6 +361,49 @@ public sealed class EconomyRollbackTests
     }
 
     [Fact]
+    public void ARefusalMidwayFinishesTheRestAsOneNetTransactionSoNothingIsLeftHalfUndone()
+    {
+        var kit = Kit();
+        Earn(kit, 1, 1_000);
+        var mark = kit.Service.CaptureMark();
+        Spend(kit, 1, 100);
+        Spend(kit, 1, 200);
+        Spend(kit, 1, 300);
+        kit.Store.FailCommitsAfter(1, failures: 1); // the first compensation is posted, the second is refused once
+
+        var result = kit.Service.RollBackToMark(mark, "cp1", "test");
+
+        Assert.True(result.Performed, result.Skipped);
+        Assert.Null(result.Skipped);
+        Assert.True(result.Aggregated);
+        Assert.Equal(2, result.Reversed); // one per-transaction compensation, one net transaction for the other two
+        Assert.Equal(1_000, kit.Balance(WalletId.Player(1)));
+        Assert.Empty(result.Drift);
+        AssertSound(kit);
+    }
+
+    [Fact]
+    public void ARefusalMidwayThatCannotBeWorkedAroundReportsThePartialRollbackSoTheNodesLearnTheChangedBalances()
+    {
+        var kit = Kit();
+        Earn(kit, 1, 1_000);
+        var mark = kit.Service.CaptureMark();
+        Spend(kit, 1, 100);
+        Spend(kit, 1, 200);
+        Spend(kit, 1, 300);
+        kit.Store.FailCommitsAfter(1); // the first compensation is posted, everything after is refused
+
+        var result = kit.Service.RollBackToMark(mark, "cp1", "test");
+
+        Assert.True(result.Performed); // the ledger did change: the module must push the balances
+        Assert.NotNull(result.Skipped);
+        Assert.Equal(1, result.Reversed);
+        Assert.Null(result.NewMark);
+        Assert.Equal(1_000 - 100 - 200, kit.Balance(WalletId.Player(1))); // the newest spend (300) was undone first
+        Assert.Contains(kit.Events.OfType<AlertRaised>(), a => a.Code == "economy_rollback_failed" && a.Severity == AlertSeverity.Critical);
+    }
+
+    [Fact]
     public void TheMarkIsASequenceNumberSoPostingsInTheSameInstantAreOrderedCorrectly()
     {
         var kit = Kit();

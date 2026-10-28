@@ -853,6 +853,11 @@ presence) and ADR-049 (team origins).
   from before the mark, the starting credits of a player who first joined after the mark (the player stays registered, so a rejoin is not credited
   again) and the save-money seed. Kept means "excluded from the reversal", which gives the same balances as reverse-and-reapply without the noise.
 - **Unknown mark** (checkpoint from before this change): never guess. Nothing is reversed, a warning alert and log line say so.
+- **Mark lookup and refusals (review fixes):** the mark is the in-memory current checkpoint's, or, when nothing is in memory (server restart), the one the
+  catalog stores for the start save (`FindCheckpointBySave`); it applies only when that checkpoint belongs to the current session's ledger, and a
+  checkpoint of ours without a mark raises the unknown-mark alert. If a compensation is refused midway the rest is posted as one net transaction;
+  if that is refused too the result is a partial rollback (`Performed` with `Skipped` set): critical alert, the nodes still get the changed balances,
+  the mark is not moved. Nodes that were loading are sent both the balances and the notice again when they reach the game.
 - **Not rolled back on purpose:** `CreditDelta` sequences (the node must not resend booked deltas) and request idempotency records (a replay
   answers with its old result and moves no money). Ownership changes of traded ships come back with the loaded save.
 - **Not covered:** a session start from a start save that is not a checkpoint of ours (no mark; the first checkpoint is requested right after the

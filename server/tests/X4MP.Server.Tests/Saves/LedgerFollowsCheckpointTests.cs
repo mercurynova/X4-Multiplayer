@@ -1,6 +1,11 @@
 using System.Globalization;
 using System.Net;
+using System.Reflection;
+using Dapper;
 using X4MP.Core.Economy;
+using X4MP.Core.Events;
+using X4MP.Core.Saves;
+using X4MP.Persistence;
 using X4MP.Core.Session;
 using X4MP.FakeNode;
 using X4MP.Proto;
@@ -118,6 +123,82 @@ public sealed class LedgerFollowsCheckpointTests
         await second.WaitForCheckpointStoredAsync();
         Assert.Equal(expected, await BalanceAsync(server, player));
         await Admin.Api.WaitForAuditAsync(server, "economy.rollback");
+    }
+
+    // The server restarted: SaveService has nothing in memory (no current checkpoint) and the admin starts the session from the checkpoint's save.
+    private static async Task ForgetCheckpointsInMemoryAsync(SaveServer server)
+    {
+        var current = typeof(SaveService).GetField("_current", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var previous = typeof(SaveService).GetField("_previous", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await server.Actor.CallAsync(() =>
+        {
+            current.SetValue(server.Saves, null);
+            previous.SetValue(server.Saves, null);
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task AfterAServerRestartTheMarkStoredInTheCatalogRestoresTheCreditsSpentAfterTheCheckpoint()
+    {
+        await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0");
+        var first = await AuthorityRig.StartAsync(server, Options(server, "auth-1"));
+        await server.WaitForAsync(s => s.Phase == SessionPhase.Running, 60_000, "first checkpoint");
+        await first.WaitForCheckpointStoredAsync();
+        int player = first.Client.Welcome.PlayerId;
+        string sha = server.Saves.Status.CurrentSha256!;
+        await SaveServer.WaitUntilAsync(() => server.Saves.Catalog.FindCheckpointBySave(sha)?.Mark is not null, 15_000, "the mark in the catalog");
+        long atCheckpoint = await BalanceAsync(server, player);
+        Assert.True(await BookAsync(server, player, -TenMillion));
+
+        await first.DropAsync();
+        await server.WaitForAsync(s => s.Phase == SessionPhase.AuthorityLost, 30_000, "authority lost");
+        await ForgetCheckpointsInMemoryAsync(server);
+        Assert.True(await server.Saves.SetStartSaveAsync(sha));
+
+        await using var second = await AuthorityRig.StartAsync(server, Options(server, "auth-2"), ready: false);
+        await server.WaitForAsync(s => s.Phase == SessionPhase.AuthorityLoading, 30_000, "authority loading");
+        await SaveServer.WaitUntilAsync(() => NoticeFor(second) is not null, 15_000, "the rollback notice");
+
+        Assert.Equal(atCheckpoint, await BalanceAsync(server, player));
+        Assert.Equal(0, await TotalAsync(server));
+        Assert.Equal(atCheckpoint, LastBalanceSent(second, player));
+        await first.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AfterAServerRestartACheckpointWithoutAMarkRaisesTheUnknownMarkAlertAndDoesNotSilentlySkip()
+    {
+        await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0");
+        var alerts = new List<AlertRaised>();
+        await using var subscription = server.Service<IEventBus>().Subscribe<AlertRaised>("test-alerts", (a, _) =>
+        {
+            lock (alerts)
+            {
+                alerts.Add(a);
+            }
+
+            return ValueTask.CompletedTask;
+        });
+        var first = await AuthorityRig.StartAsync(server, Options(server, "auth-1"));
+        await server.WaitForAsync(s => s.Phase == SessionPhase.Running, 60_000, "first checkpoint");
+        await first.WaitForCheckpointStoredAsync();
+        string sha = server.Saves.Status.CurrentSha256!;
+        await SaveServer.WaitUntilAsync(() => server.Saves.Catalog.FindCheckpointBySave(sha)?.Mark is not null, 15_000, "the mark in the catalog");
+        using (var db = server.Service<SqliteConnectionFactory>().Open())
+        {
+            db.Execute("UPDATE checkpoints SET ledger_seq = NULL, ledger_snapshot = NULL"); // as stored before ADR-053
+        }
+
+        await first.DropAsync();
+        await server.WaitForAsync(s => s.Phase == SessionPhase.AuthorityLost, 30_000, "authority lost");
+        await ForgetCheckpointsInMemoryAsync(server);
+        Assert.True(await server.Saves.SetStartSaveAsync(sha));
+
+        await using var second = await AuthorityRig.StartAsync(server, Options(server, "auth-2"), ready: false);
+        await server.WaitForAsync(s => s.Phase == SessionPhase.AuthorityLoading, 30_000, "authority loading");
+        await SaveServer.WaitUntilAsync(() => { lock (alerts) { return alerts.Any(a => a.Code == "economy_rollback_unknown_mark"); } }, 15_000, "the unknown-mark alert");
+        await first.DisposeAsync();
     }
 
     private static ServerNoticeT? NoticeFor(AuthorityRig rig)

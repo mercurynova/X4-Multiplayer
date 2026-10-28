@@ -804,8 +804,29 @@ public static partial class LiveRunner
         using var bareCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var bare = PingLoopAsync(link, stats, run, lines, plan.Name, print, bareCts.Token);
         var announced = link.SessionAnnouncedAsync(ct);
-        var first = await Task.WhenAny(bare, announced).ConfigureAwait(false);
-        if (first == bare || !await announced.ConfigureAwait(false))
+        bool joinSession;
+        try
+        {
+            var first = await Task.WhenAny(bare, announced).ConfigureAwait(false);
+            joinSession = first != bare && await announced.ConfigureAwait(false);
+        }
+        catch
+        {
+            // ct was cancelled (or the wait failed): the ping loop must still be stopped and awaited before bareCts is disposed.
+            await bareCts.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await bare.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // observed; the exception that ended the wait is the one that propagates
+            }
+
+            throw;
+        }
+
+        if (!joinSession)
         {
             await bare.ConfigureAwait(false); // the heartbeat failed, or the connection ended (the ping loop reports it)
             return;

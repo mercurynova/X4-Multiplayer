@@ -148,6 +148,30 @@ public sealed partial class LedgerRollbackPersistenceTests : IDisposable
     }
 
     [Fact]
+    public async Task ACheckpointIsFoundBySaveWithItsSessionAndMarkSoARestartedServerCanRollBack()
+    {
+        await using var writer = new PersistenceWriter(_factory, new PersistenceOptions { DataDir = _dir });
+        var catalog = new SqliteSaveCatalog(_factory, writer);
+        string sha = new('a', 64);
+        var at = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        catalog.AddSave(new SaveRecord(sha, 10, "n", "authority", "A", at, SaveMeta.Empty, true));
+        var older = new CheckpointId(1, 2);
+        var newer = new CheckpointId(3, 4);
+        catalog.AddCheckpoint(Session, new CheckpointRecord(older, sha, new string('c', 64), 5, 1, 0, 0, true, at, new LedgerMark(1, "{}")));
+        catalog.AddCheckpoint(Session, new CheckpointRecord(newer, sha, new string('c', 64), 5, 2, 0, 0, true, at.AddMinutes(5), new LedgerMark(42, "{\"loans\":[]}")));
+        await writer.FlushAsync();
+
+        var found = catalog.FindCheckpointBySave(sha);
+
+        Assert.NotNull(found);
+        Assert.Equal(newer, found.Id);
+        Assert.Equal(Session, found.SessionId);
+        Assert.Equal(at.AddMinutes(5), found.At);
+        Assert.Equal(new LedgerMark(42, "{\"loans\":[]}"), found.Mark);
+        Assert.Null(catalog.FindCheckpointBySave(new string('b', 64)));
+    }
+
+    [Fact]
     public void MigrationNineAddsTheColumnsAndLeavesExistingCheckpointRowsWithoutAMark()
     {
         // A database as it was at schema version 8, with one stored checkpoint.
