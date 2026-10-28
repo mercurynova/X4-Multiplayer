@@ -554,7 +554,13 @@ void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
   // F1b: every leave ends the F1 main-menu watch and the open reload decision; a Join the player starts afterwards is not that session.
   menu_watch_.disarm();
   undecided_.reset();
-  leave_.reset();  // F24
+  // F24: a leave still waiting for its checkpoint while the session ends by another path (server Disconnect, admin stop, shutdown, a join elsewhere):
+  // Lua holds the real QuitModule / QuitGame call until x4mp.leave_go, so release it here (review 2026-10-28). Not via apply_leave: that would
+  // come back into stop_session.
+  if (leave_.reset()) {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "planned leave: the session ended ({}), releasing the held menu action", why);
+    raise_lua(ctx, "x4mp.leave_go", R"({"v":1})");
+  }
   if (session_) {
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "leaving the session ({})", why);
     session_->stop();  // Disconnect(ClientQuit), intent cleared
