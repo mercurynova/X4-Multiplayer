@@ -83,6 +83,12 @@ history rewrite. A quick look at `.claude/worktrees` size is part of the wave-en
 `-D` without the user's OK), then `git worktree prune`. The Claude desktop app's worktree clean-up tool may be used for the
 same set. Report the freed space in one line.
 
+**Remote branches (standing OK from the user, 2026-10-28):** right after the lead merges a PR, it deletes that PR's branch on
+GitHub (`git push origin --delete <branch>`) without asking again, after checking it is merged
+(`git merge-base --is-ancestor origin/<branch> origin/main`). This covers merged PR branches only: an unmerged branch, a
+`-D` local delete or any other destructive git action still needs the user's OK. Dependabot branches go away by
+themselves when their PR is merged or closed.
+
 ### 3.2 After each major step: code review and a fresh session (user request, 2026-10-20)
 
 A **major step** is a merged wave of fixes, a milestone task group, a milestone exit, or a dependency/toolchain change.
