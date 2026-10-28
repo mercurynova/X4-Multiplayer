@@ -665,3 +665,56 @@ TEST_CASE("M3-34: a re-hosted authority's ghost spawns without any sample, shows
   CHECK(worst < 0.05);
   CHECK(r.world.only()->places <= 60 * 120 / 15 + 8);  // parked: re-asserted every 250 ms at most, never moved around
 }
+
+namespace {
+// Cruises at `v0` for `cruise_s`, then decelerates at `decel` m/s^2 to a stop.
+Track brake_track(double v0, double cruise_s, double decel) {
+  return [=](double t) {
+    TrackPoint p;
+    const Vec3 dir{0.6, 0.0, 0.8};
+    double s, v;
+    if (t < cruise_s) {
+      s = v0 * t;
+      v = v0;
+    } else {
+      const double tb = std::min(t - cruise_s, v0 / decel);
+      s = v0 * cruise_s + v0 * tb - 0.5 * decel * tb * tb;
+      v = v0 - decel * tb;
+    }
+    p.pos = dir * s;
+    p.vel = dir * v;
+    p.rot = {0.6435, 0.0, 0.0};
+    return p;
+  };
+}
+}  // namespace
+
+TEST_CASE("F23c: a hard brake zeroes the velocity hint (the map extrapolates from it); a gentle slow-down keeps it", "[ghosts][driver][f23c]") {
+  // 300 m/s -> 0 in 2 s (150 m/s^2): every hint is at least one hint period stale, so the map icon would overshoot
+  Rig hard;
+  hard.add(11, brake_track(300, 3.0, 150), Rig::info(11, 2, "Pax", 2));
+  hard.run(3.0);
+  REQUIRE(hard.world.only() != nullptr);
+  CHECK(ghost::length(hard.world.only()->velocity) > 250.0);  // cruising: the hint carries the speed
+  hard.run(1.0);                                              // half-way through the brake
+  CHECK(ghost::length(hard.world.only()->velocity) == 0.0);
+  for (int i = 0; i < 20; ++i) {                              // and it stays zero for the whole brake, whatever the phase of the 5 Hz hint
+    hard.run(0.05);
+    CHECK(ghost::length(hard.world.only()->velocity) == 0.0);
+  }
+
+  // a gentle slow-down (5 m/s^2) keeps the hint
+  Rig gentle;
+  gentle.add(11, brake_track(300, 3.0, 5), Rig::info(11, 2, "Pax", 2));
+  gentle.run(4.0);
+  REQUIRE(gentle.world.only() != nullptr);
+  CHECK(ghost::length(gentle.world.only()->velocity) > 280.0);
+
+  // the threshold is the config knob: with it raised the hard brake keeps its (stale) hint
+  GhostConfig lax;
+  lax.hint_max_decel_mps2 = 1.0e9;
+  Rig old(lax);
+  old.add(11, brake_track(300, 3.0, 150), Rig::info(11, 2, "Pax", 2));
+  old.run(4.0);
+  CHECK(ghost::length(old.world.only()->velocity) > 100.0);
+}

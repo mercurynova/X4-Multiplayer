@@ -142,6 +142,12 @@ struct GhostConfig {
   // M3-34 (Finding 23): the velocity hint is for the target info's speed, but the ENGINE flies the inert ship with it between our per-frame placements and
   // can capture it into a highway. Above this speed the hint is zero (the placements alone carry the ghost; the target info shows 0 m/s at travel speed).
   double hint_max_mps = 1000.0;
+  // F23c: the hint is up to hint_interval_us old when the engine extrapolates from it (the map icon). While the rendered path decelerates harder than
+  // hint_max_decel_mps2 the stale hint overshoots by decel x age (30 m/s^2 x 0.2 s = 6 m/s, about 1.2 m of map drift per hint period; a gentle slow-down
+  // stays below it and keeps its hint): the hint is zero then, exactly like a hold, and the per-frame placements alone carry the ghost.
+  // Deceleration is measured over hint_decel_window_us (one hint period) so per-frame noise in the derivative never trips it.
+  double hint_max_decel_mps2 = 30.0;
+  std::int64_t hint_decel_window_us = 200'000;
   bool hints_off = false;                            // diag.hints_off: no velocity hint at all (the ghost is only ever placed)
   bool hints_all_speeds = false;                     // diag.hints_all_speeds: the old behaviour, a hint at any speed
   // M3-34 engine guard: every guard_interval_us the game's own idea of the object is read; when it differs from what we placed by more than
@@ -256,6 +262,9 @@ class GhostDriver {
     int dress_retries = 0;
     bool dressed_ok = false;
     bool hint_was_zero = false;
+    bool braking = false;                // F23c: the rendered speed fell faster than hint_max_decel_mps2 over the last window
+    double decel_ref_mps = 0;            // speed at the start of that window
+    std::int64_t decel_ref_us = 0;       // 0 = no window open
     std::int64_t last_guard_us = 0, guard_hot_until_us = 0, last_guard_log_us = 0;  // M3-34 engine guard
     bool force_place = false;
     bool have_prev = false;

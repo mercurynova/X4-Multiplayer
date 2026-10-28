@@ -477,11 +477,27 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
         have_v = true;
       }
     }
+    if (!have_v) {
+      g.decel_ref_us = 0;  // a placement jump (gate, snap): the speed history across it means nothing
+      g.braking = false;
+    } else {
+      // F23c: strong deceleration over one window -> the (up to one hint period old) hint would overshoot: zero it, like a hold
+      const double sp_now = ghost::length(v);
+      if (g.decel_ref_us == 0) {
+        g.decel_ref_us = now_us;
+        g.decel_ref_mps = sp_now;
+      } else if (now_us - g.decel_ref_us >= cfg_.hint_decel_window_us) {
+        const double window_s = static_cast<double>(now_us - g.decel_ref_us) / 1e6;
+        g.braking = (g.decel_ref_mps - sp_now) / window_s > cfg_.hint_max_decel_mps2;
+        g.decel_ref_mps = sp_now;
+        g.decel_ref_us = now_us;
+      }
+    }
     if (!cfg_.hints_off && now_us - g.last_hint_us >= cfg_.hint_interval_us && have_v) {
       const double sp = ghost::length(v);
       // M3-34: at travel speed the engine would fly the inert ship by the hint between our placements (and may capture it into a highway): zero then.
       const bool too_fast = !cfg_.hints_all_speeds && sp > cfg_.hint_max_mps;
-      if (sp > 0.05 && !too_fast) {
+      if (sp > 0.05 && !too_fast && !g.braking) {
         hint_batch_.push_back({g.local_id, v.x, v.y, v.z});
         g.hint_was_zero = false;
         g.last_hint_us = now_us;
