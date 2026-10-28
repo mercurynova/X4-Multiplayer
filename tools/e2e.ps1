@@ -200,7 +200,12 @@ $script:modBuilt = $false
 function Ensure-ModBuild {
   $tree = Join-Path $repo 'mod/build/msvc-x64-relwithdebinfo'
   if (-not $SkipModBuild -and -not $script:modBuilt) {
-    Invoke-Native 'mod build' { & $psHost -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest }
+    # E14: only what the steps run (a full build also compiles ~540 unit tests no shard runs; the `mod` CI job still builds and
+    # ctests everything). x4mp = the DLL; x4mp-hostsim, x4mp-headless, x4mp_authority_live = the exes found by the steps/*_run.ps1.
+    # Same configure and warnings-as-errors policy as a full build. A new exe a step needs must be added here.
+    $buildClock = [Diagnostics.Stopwatch]::StartNew()
+    Invoke-Native 'mod build' { & $psHost -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest -Targets 'x4mp,x4mp-hostsim,x4mp-headless,x4mp_authority_live' }
+    Write-Host "mod build took $([math]::Round($buildClock.Elapsed.TotalSeconds)) s"
     $script:modBuilt = $true
   }
   return $tree

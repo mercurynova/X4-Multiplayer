@@ -229,7 +229,7 @@ ref cancel older runs. Test results and logs upload only on failure. Caches: NuG
 **End-to-end run (M1-C1) and how to reproduce it locally.** `tools/e2e.ps1` is the one script CI and developers run
 (PowerShell 5.1 or 7; `pwsh tools/e2e.ps1` on Linux). Steps `Publish` (single-file server for this OS, Release,
 `-p:SkipWebBuild=true`, plus FakeNode into `out/fakenode`), `Swarm`, `Playwright` and, on Windows, `Headless` (builds the
-mod with `mod/build.ps1 -NoTest` unless `-SkipModBuild`). Default: all that this OS can run. Every step runs even if an
+mod with `mod/build.ps1 -NoTest -Targets x4mp,x4mp-hostsim,x4mp-headless,x4mp_authority_live`, i.e. without the unit-test executables, unless `-SkipModBuild`; E14. Set `X4MP_COMPILER_LAUNCHER=sccache` to put a compiler cache in front of cl, as CI does). Default: all that this OS can run. Every step runs even if an
 earlier one failed; the exit code is non-zero if any failed, and a timing table is printed (and added to the GitHub job
 summary). Useful switches: `-Steps Swarm -SkipPublish` (reuse `out/`), `-SwarmSeconds`, `-Clients`, `-PlaywrightArgs economy`
 (one spec), `-PlaywrightRetries` (CI uses 1: the economy specs are timing sensitive), `-SkipNpmInstall`, `-PortBase`
