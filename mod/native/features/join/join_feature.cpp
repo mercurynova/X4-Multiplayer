@@ -310,6 +310,9 @@ void JoinFeature::on_ui_ready(host::HostContext& ctx, const std::string& payload
     if (const auto it = doc.find("startmenu"); it != doc.end() && it->is_boolean()) startmenu = it->get<bool>();
   }
   const bool awaiting = session_ && undecided_.has_value() && (stage_ == Stage::InGame || stage_ == Stage::Rejoining);
+  // F1c: the start menu means no universe is loaded: the remembered "this game runs save X" is stale (a fresh join would claim it and the
+  // server would then never send the save).
+  if (stash_ && resume::start_menu_voids_loaded_save(startmenu, stage_ == Stage::Loading)) auth::AuthorityFlow::forget_loaded_sha(*stash_);
   const bool was_armed = menu_watch_.armed();
   menu_watch_.set_confirm_ms(ctx.config.menu_leave_confirm_ms);
   menu_watch_.note_ui_ready(startmenu, awaiting, Clock::now().time_since_epoch() / milliseconds(1));
@@ -322,6 +325,7 @@ void JoinFeature::on_ui_ready(host::HostContext& ctx, const std::string& payload
 }
 
 void JoinFeature::leave_for_main_menu(host::HostContext& ctx) {
+  if (stash_) auth::AuthorityFlow::forget_loaded_sha(*stash_);  // F1c: the game runs no save any more
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "main menu: the player exited to the main menu; leaving the session (F1)");
   stop_session(ctx, "main menu");  // Disconnect(ClientQuit): the server parks the avatar and marks the player not in game (the authority: its grace applies)
   stage_ = Stage::Idle;

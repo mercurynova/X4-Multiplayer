@@ -137,3 +137,10 @@ TEST_CASE("MenuExitWatch: disarm() (a manual Disconnect or a new Join) cancels a
   CHECK_FALSE(w.due(90000 + 29999));
   CHECK(w.due(90000 + 30000));
 }
+
+// ---- F1c: no loaded-save claim at the start menu ----
+TEST_CASE("start_menu_voids_loaded_save: the start menu voids it except while the session save loads", "[resume][menu]") {
+  CHECK(start_menu_voids_loaded_save(true, false));
+  CHECK_FALSE(start_menu_voids_loaded_save(true, true));
+  CHECK_FALSE(start_menu_voids_loaded_save(false, false));
+}

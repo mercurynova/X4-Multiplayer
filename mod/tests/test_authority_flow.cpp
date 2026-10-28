@@ -6,7 +6,9 @@
 #include <fstream>
 
 #include "core/crypto/crypto.h"
+#include "core/session/session.h"
 #include "features/authority/authority_data.h"
+#include "features/authority/authority_flow.h"
 #include "features/join/join_json.h"
 
 using namespace x4mp::features::auth;
@@ -237,4 +239,16 @@ TEST_CASE("the join payload carries the authority role, the admin password and t
   REQUIRE(plain);
   CHECK_FALSE(plain->want_authority);
   CHECK(plain->loaded_save_sha256.empty());
+}
+
+TEST_CASE("F1c: forget_loaded_sha leaves no loaded-save claim for the next fresh join", "[authority][f1c]") {
+  x4mp::session::MemoryStash stash;
+  AuthorityState s;
+  s.next_net_id = 9;
+  s.loaded_sha.assign(32, 0xCD);
+  stash.put(kStashKey, s.to_json());
+  REQUIRE(AuthorityFlow::stored_loaded_sha(stash).size() == 32);  // what a join from the start menu used to send as loaded_save_sha256
+  AuthorityFlow::forget_loaded_sha(stash);
+  CHECK(AuthorityFlow::stored_loaded_sha(stash).empty());
+  CHECK(AuthorityState::from_json(stash.get(kStashKey).value_or("")).next_net_id == 9);  // the rest of the authority state is kept
 }

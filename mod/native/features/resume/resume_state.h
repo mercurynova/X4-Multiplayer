@@ -70,6 +70,11 @@ struct Decision {
 // on_game_loaded / on_universe_ready / ui_ready{startmenu:false} disarm it. Pure state, no clock of its own (tests pass the time).
 inline constexpr std::int64_t kMenuLeaveConfirmMs = 30000;
 
+// F1c: the "this game runs save X" memory (AuthorityState::loaded_sha, sent as ClientHello.loaded_save_sha256 by the next fresh join) is void while
+// the Lua state is the start menu: no universe is loaded, whatever save was running before the player exited to the main menu. A load in progress
+// (stage Loading) is excluded: the loaded sha is set when that load reports ready.
+[[nodiscard]] constexpr bool start_menu_voids_loaded_save(bool startmenu, bool loading_session_save) noexcept { return startmenu && !loading_session_save; }
+
 class MenuExitWatch {
  public:
   explicit MenuExitWatch(std::int64_t confirm_ms = kMenuLeaveConfirmMs) noexcept : confirm_ms_(confirm_ms) {}
