@@ -78,7 +78,11 @@ internal static class PlayerSampleClock
         double stamp = Math.Clamp(sample + ship.ClockOffset, authorityGameTime - MaxBehindSeconds, ceiling);
         if (stamp <= ship.LastStamp)
         {
-            stamp = Math.Min(ship.LastStamp + NudgeSeconds, Math.Max(ceiling, ship.LastStamp));
+            // Strictly increasing wins over the ceiling: while game time stalls (pause, a leave with a pausing menu) the natural stamp stays at the
+            // ceiling, and clamping the nudge to it too gave every sample the SAME stamp (zero dt for viewers, review 2026-10-28 finding 2).
+            // The stamp may therefore run ahead of game time by NudgeSeconds per sample (20 ms per second at 20 Hz); the clamp takes over again
+            // once game time has caught up. A jump of the authority's time axis is handled by the mirror (it resets this state).
+            stamp = ship.LastStamp + NudgeSeconds;
         }
 
         ship.LastStamp = stamp;
