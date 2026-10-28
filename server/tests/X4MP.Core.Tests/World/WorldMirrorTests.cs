@@ -133,6 +133,26 @@ public sealed class WorldMirrorTests
     }
 
     [Fact]
+    public void ABigBackwardGameTimeJumpWithAContinuingTickIsCountedButStillApplied()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(7, EntityKind.ShipL, 9));
+        mirror.IngestWorldUpdate(UpdatePayload(100, 180.0, [State(7, 9, 1000)]));
+        Assert.Equal(0, mirror.BackwardClockJumps);
+        // a small step back (a pause/resume wobble) is not a jump
+        mirror.IngestWorldUpdate(UpdatePayload(101, 177.0, []));
+        Assert.Equal(0, mirror.BackwardClockJumps);
+        // an in-place save load: 177 -> 2.1 with the tick continuing is applied (legitimate) and counted
+        Assert.Equal(1, mirror.IngestWorldUpdate(UpdatePayload(102, 2.136, [State(7, 9, 1001)])).Applied);
+        Assert.Equal(1, mirror.BackwardClockJumps);
+        Assert.Equal(2.136, mirror.AuthorityGameTime);
+        // a reattached authority (guard reset) restarting low is not counted
+        mirror.ResetClockGuard();
+        mirror.IngestWorldUpdate(UpdatePayload(1, 1.0, []));
+        Assert.Equal(1, mirror.BackwardClockJumps);
+    }
+
+    [Fact]
     public void AReorderedOlderWorldUpdateCannotRollTheClockBack()
     {
         var mirror = new WorldMirror();

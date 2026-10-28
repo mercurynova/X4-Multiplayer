@@ -75,6 +75,18 @@ inline constexpr std::int64_t kMenuLeaveConfirmMs = 30000;
 // (stage Loading) is excluded: the loaded sha is set when that load reports ready.
 [[nodiscard]] constexpr bool start_menu_voids_loaded_save(bool startmenu, bool loading_session_save) noexcept { return startmenu && !loading_session_save; }
 
+// F25: NodePhase as the roster publishes it (common.fbs): Matching 5, CatchingUp 6, InGame 7. The server's node machine never moves InGame backwards by a
+// LoadStatus (NodeTransitions.Apply), so a node that reloads a save while the roster still shows it InGame stays InGame there, and MessagePolicy allows a
+// ManifestReport only in Matching/CatchingUp: the count-only report would be a PhaseDenied violation. It has no job there either (the report starts the
+// catch-up a node does at its first join; an InGame node already has it).
+inline constexpr int kRosterPhaseInGame = 7;
+[[nodiscard]] constexpr bool manifest_report_denied_in_phase(int roster_phase) noexcept { return roster_phase == kRosterPhaseInGame; }
+
+// F1d: the authority's world-clock keepalive (WorldUpdate game_time, the reference every player sample is stamped with) runs only while a universe exists:
+// the gate is open and the Lua state is not the start menu. At the main menu game_time() still answers (a fresh ~2 s clock) and sent into the session it
+// shifted every ghost's sample stamps by tens of seconds.
+[[nodiscard]] constexpr bool world_clock_may_run(bool universe_ready, bool startmenu) noexcept { return universe_ready && !startmenu; }
+
 class MenuExitWatch {
  public:
   explicit MenuExitWatch(std::int64_t confirm_ms = kMenuLeaveConfirmMs) noexcept : confirm_ms_(confirm_ms) {}

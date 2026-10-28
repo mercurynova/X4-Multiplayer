@@ -107,6 +107,18 @@ public sealed partial class WorldMirror : ISessionModule
     /// <summary><c>WorldUpdate</c>s dropped because both their tick and their game time were older than the latest ingested one (UDP reordering).</summary>
     public long StaleWorldUpdates { get; private set; }
 
+    /// <summary>A jump back in game time bigger than this, with the datagram sequence continuing, is counted and logged (F1d).</summary>
+    internal const double BackwardJumpSeconds = 5.0;
+
+    private long _lastBackwardLog;
+
+    /// <summary>
+    /// Accepted <c>WorldUpdate</c>s whose game time went back by more than <see cref="BackwardJumpSeconds"/> while the tick kept counting up. They are
+    /// applied, not dropped: an authority that loads a save in place (F13 rollback, AuthorityLoading to Running) legitimately restarts its clock lower
+    /// without reconnecting, and the mirror cannot tell that from an authority sending a menu clock (F1d, fixed in the mod). Counted so it shows in the log.
+    /// </summary>
+    public long BackwardClockJumps { get; private set; }
+
     /// <summary>
     /// The <c>capture_time_us</c> of the latest <c>WorldUpdate</c>: the authority's estimate of the server clock at the time
     /// <see cref="AuthorityGameTime"/> was sampled. The pair is the reference of every <c>Replication</c> frame.
@@ -727,6 +739,17 @@ public sealed partial class WorldMirror : ISessionModule
             return new IngestResult(0, 0, 0, false);
         }
 
+        if (_clockGuardArmed && HasWorldUpdate && gameTime < AuthorityGameTime - BackwardJumpSeconds)
+        {
+            BackwardClockJumps++;
+            long stamp = _time.GetTimestamp();
+            if (_lastBackwardLog == 0 || _time.GetElapsedTime(_lastBackwardLog, stamp) >= TimeSpan.FromSeconds(30))
+            {
+                _lastBackwardLog = stamp;
+                LogBackwardClock(AuthorityGameTime, gameTime, BackwardClockJumps);
+            }
+        }
+
         _clockGuardArmed = true;
         AuthorityTick = tick;
         AuthorityCaptureTimeUs = table.GetUInt64(1);
@@ -1119,6 +1142,9 @@ public sealed partial class WorldMirror : ISessionModule
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "world: EntitySpawn of {Count} entities, first net_id {NetId}, game_time {GameTime:F3}")]
     private partial void LogSmallSpawn(int count, uint netId, double gameTime);
+
+    [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "world: the authority's game time went back from {From:F3} to {To:F3} ({Count} jump(s) so far); accepted as a save load, check that the authority has a universe (F1d)")]
+    private partial void LogBackwardClock(double from, double to, long count);
 
     [LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "world mirror: GalaxyMetadata rejected: {Reason}")]
     private partial void LogGalaxyRejected(string reason);

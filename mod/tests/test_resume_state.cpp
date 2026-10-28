@@ -144,3 +144,18 @@ TEST_CASE("start_menu_voids_loaded_save: the start menu voids it except while th
   CHECK_FALSE(start_menu_voids_loaded_save(true, true));
   CHECK_FALSE(start_menu_voids_loaded_save(false, false));
 }
+
+TEST_CASE("world_clock_may_run: the authority's keepalive needs a universe and no start menu (F1d)", "[resume][menu]") {
+  CHECK(world_clock_may_run(true, false));
+  CHECK_FALSE(world_clock_may_run(false, false));  // reload resume with the start menu up: the gate never opened
+  CHECK_FALSE(world_clock_may_run(true, true));    // exited to the main menu in the same process: the gate is still open
+  CHECK_FALSE(world_clock_may_run(false, true));
+}
+
+TEST_CASE("manifest_report_denied_in_phase: only a node the roster shows InGame must not report (F25)", "[resume]") {
+  CHECK(manifest_report_denied_in_phase(7));  // fast-return / in-session Load: the old InGame phase
+  CHECK_FALSE(manifest_report_denied_in_phase(5));  // Matching
+  CHECK_FALSE(manifest_report_denied_in_phase(6));  // CatchingUp
+  CHECK_FALSE(manifest_report_denied_in_phase(4));  // Loading: wait, or time out and send as before
+  CHECK_FALSE(manifest_report_denied_in_phase(-1));  // roster not seen yet
+}
