@@ -35,7 +35,7 @@ below. The repo is the only memory that follows you between computers.
 | [research/starter-ships.md](research/starter-ships.md) | What the vanilla game starts give per race / story (ship macro + equipment macro ids): the source of the avatar starter ship + early-game loadout table (M3-11, ADR-049/051) |
 | [research/library-mods.md](research/library-mods.md) | SirNukes Mod Support APIs and kuertee UI Extensions: licenses, internals, coexistence (ADR-043) |
 | `../x4-unpacked/` (local only) | Extracted game Lua/MD/libraries; search for `ffi.cdef` signatures and MD usage |
-| `../reference/` (local only) | Old mod clone: lessons only, never copy code |
+| `../references/old-mod/` (local only) | Old mod clone: lessons only, never copy code |
 
 ## Doing the work
 | Doc | Use it for |

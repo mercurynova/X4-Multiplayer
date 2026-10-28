@@ -7,7 +7,8 @@ file at the end of every major step (docs/execution-plan.md §3.2) and walks it 
 - **Status:** `open`, `fix in, in-game check pending`, `decision needed`, `deferred`, `done <date>` (done items move to the log at the bottom).
 - Evidence docs: S1 = [sitting 1](spikes/session-4-sitting-1-results.md), S2 = [sitting 2](spikes/session-4-sitting-2-results.md),
   S3 = [sitting 3](spikes/session-4-sitting-3-results.md), R28 = [M3-28 + two-PC runs](spikes/session-4-m3-28-run-results.md),
-  RI = [internet run](spikes/session-4-internet-run-results.md), plan = [m3-plan.md §8](m3-plan.md).
+  RI = [internet run](spikes/session-4-internet-run-results.md), R1028 = [2026-10-28 M3-34 + F1 run](spikes/session-4-2026-10-28-results.md),
+  plan = [m3-plan.md §8](m3-plan.md).
 
 ## Reminders for the user (the lead brings these up)
 
@@ -34,22 +35,23 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | ID | Item | Evidence | Target | Status |
 |---|---|---|---|---|
 | F21 | Markers flash around a superhighway transit | R28, plan M3-32/33 | M3 exit | fix in (M3-33), in-game check pending |
-| F22 | Ghost alternates between two spots after an authority re-host | RI, plan M3-34 | M3 exit | fix in (M3-34), in-game check pending |
-| F23 | Map icon bounces along the travel line in fast in-sector flight; engine moves our inert objects (286 km) | RI, plan M3-34 | M3 exit | mitigated (M3-34: hint cap, engine guard, diag switches), in-game check pending |
-| F23b | Target info shows 0 m/s for a remote ship above 1000 m/s (M3-34 velocity-hint cap) | plan M3-34 | M3 exit | decision needed after the M3-34 check (`diag.hints_off` result) |
-| F20b | Re-provision path (checkpoint predates the online player) never exercised in game | RI | M3 exit | open (hostsim covers it) |
+| F21b | Local-highway ride: the avatar's map icon freezes at the entry (hidden + hold at 1 Hz) and jumps at the exit; fix: in-sector highway keeps the true pose, hide/hold for superhighways only | R1028 | M3 exit | open (cosmetic; lead decides whether it blocks) |
+| F23 | Map icon bounces along the travel line in fast in-sector flight; engine moves our inert objects (286 km) | RI, R1028 | M3 exit | fast flight smooth in game 2026-10-28 (M3-34 hint cap + guard work); the remaining case is F23c |
+| F23b | Target info shows 0 m/s for a remote ship above 1000 m/s (M3-34 velocity-hint cap) | plan M3-34, R1028 | M3 exit | decision needed: `diag.hints_off` removed the brake jumps (F23c); proposal is hints off as the default and accepting 0 m/s |
+| F23c | **Map icon jumps while the remote ship brakes hard from travel speed (3D ghost steady).** Engine guard: 206 hits on Bob's ghost of Alice in one braking window (90 km displacements), 347 on Alice's avatar of Bob (66-177 km); `hints_off`: 0 hits, smooth. Mechanism of the km-scale displacement unknown; fix: hints off by default or no hint while the speed changes fast, extend the guard line (sector position / edge distance) | R1028 | M3 exit | **fix in (PR #38), in-game check pending** (no hint while decelerating > 30 m/s^2 or right after an engine-guard hit; in-game-session-4.md M3-34 step 2b) |
 | X1 | 30-min flight over >= 5 sectors incl. a highway (M3 criterion; sittings reached ~25 min) | S3 | M3 exit | open |
 | X2 | M3 exit report | roadmap | M3 exit | open (after the checks above) |
-| F1 | Exit to the main menu keeps the session "in game" | S1 | M3 exit | decided (ADR-052): counts as leaving; **fix in (PR #24: mod `MenuExitWatch`, 30 s confirm, server unchanged), in-game check pending ("F1 main-menu leave" in in-game-session-4.md)** |
-| F1b | The main-menu leave watch survives a manual Disconnect and cancels the next Join (session 4, 2026-10-28: first Join click did nothing) | in-game session 2026-10-28 | M3 exit | fix in (`stop_session` disarms `MenuExitWatch` and clears the open reload decision), in-game check pending ("F1 main-menu leave" in in-game-session-4.md) |
-| F1c | An authority joining fresh from the start menu after an exit to the main menu is never sent the save (the mod still claimed the stale loaded save in `ClientHello.loaded_save_sha256`; X4 restart was the workaround) | in-game session 2026-10-28 | M3 exit | fix in (mod: the start menu voids the stashed loaded-save claim; server unchanged), in-game check pending ("F1 main-menu leave" in in-game-session-4.md) |
-| F23c | Map icon of a remote ship jumps while it brakes hard from travel speed (3D ghost steady; `diag.hints_off` was smooth) | in-game session 2026-10-28 | M3 exit | fix in (ghost config `hint_max_decel_mps2` = 30: the stale 5 Hz velocity hint is zeroed while the rendered speed drops faster), in-game check pending ("M3-34 check" in in-game-session-4.md) |
-| E13 | Ledger mark sequence was the implicit rowid of `ledger_tx` (PR #28 review) | PR #28 code review | - | fix in (migration 0010: explicit `seq` column, backfilled from rowid so stored marks stay valid, unique, frozen by the append-only trigger, assigned MAX+1 at commit; VACUUM + migration tests) |
-| F9 | Ghost display delay sits at the 250 ms cap (latency p95 > 200 ms target) | S1, S3 | M3 exit | decided (ADR-052): measure in the next session; at the cap -> accept for M3, < 200 ms becomes M4 |
+| F1 | Exit to the main menu keeps the session "in game" | S1, R1028 | M3 exit | decided (ADR-052), fix in (PR #24). **Client side PASS in game 2026-10-28** (30.0 s, parked avatar, normal rejoin, fast return / `/reloadui` / in-session Load never leave); the **authority path is untested** (blocked by F1b/F1c) |
+| F1b | The menu-exit watch survives a manual Disconnect and cancels the next Join click (`JoinFeature::stop_session` does not disarm `menu_watch_` / clear `undecided_`) | R1028 | M3 exit | **fix in (PR #38), in-game check pending** (in-game-session-4.md F1 step 1b) |
+| F1c | **An authority that rejoins from the main menu is never sent the start save and sticks at "checking the session save"**: the stash still claims the old save as loaded (`stored_loaded_sha`), the server trusts it (`SendStartSaveInfo`), the mod's own fallback needs a universe. Needed an X4 restart | R1028 | M3 exit | **fix in (PR #38), in-game check pending** (mod: the start menu voids the stashed loaded-save claim; in-game-session-4.md F1 step 1c) |
+| F1d | The authority at the main menu starts the world-clock keepalive with `game_time 2.136`; Bob's ghost stamps were ~50 s off for 40 s | R1028 | M3 exit | open, low |
+| F9 | Ghost display delay sits at the 250 ms cap (latency p95 > 200 ms target) | S1, S3, R1028 | M4 | **measured 2026-10-28: still at the cap** (moving-ghost lat p95 median 250 ms, delay at 250 in 38 of 84 windows, rtt 13 ms) -> accepted for M3 (ADR-052); < 200 ms is an M4 item, expected to follow F9b |
 | F9b | **Player-ship samples get the wrong time stamp:** `WorldMirror.ApplyPlayerState` stamps a player sample with the latest WorldUpdate's game time, not the sample's own time (20 Hz samples come out 4-400 ms apart, ~1.4% duplicates). The ghost gets the right speed on a jagged time axis: ~5-10 m path error, and the delay controller reads the noise as jitter (likely the cause of F9). Fix: map the sender's `SampleTimeUs` (server-clock estimate) into game time; FakeNode bots must send a server-clock estimate too; regression test for even, monotonic stamps. Experiment (arrival-time stamps) halved the error | HostSimM3 A/B 2026-10-21 (14 runs, not an M3-35/36 regression) | M3 exit | **queued: start after the next in-game session** (user 2026-10-21; that session is the baseline) |
 | F6 | Mod main-thread p95 0.27 ms with 8 ghosts (target < 0.2 ms) | S1 | M4 | open (perf pass) |
 | F8 | FPS 100 -> 70 with 8 ghosts nearby | S1 | M4 | open |
 | F13 | `AuthorityGraceSeconds` default 120 s ends a session before a real X4 restart is back; an Ended session cannot be resumed | S2 | M3 exit | decided (ADR-052): default ~600 s (GUI setting) + admin resume of an Ended session from its last checkpoint; fix in (PR #25), in-game check pending (in-game-session-4.md "F13 authority grace + resume") |
+| F24 | **No checkpoint for 14 min around the re-host**: autosave is 15 min after the last checkpoint (`AutosaveMinutes`), nothing checkpoints when the authority leaves; Alice lost 8.5 min of play. Options: lower the default (5 min?), GUI "last checkpoint N min ago", "Request save now" before a planned re-host | R1028 | M3 exit | decision needed (user) |
+| F25 | `ManifestReport` sent in a denied phase after a save-load resume (server WRN `PhaseDenied`, `JoinFeature::finish_ready` waits only while `my_phase_ < 5`) | R1028 | M4 | open, low |
 | F13b | A rollback to a checkpoint (F13 resume, M3-21 authority reload) did not roll the server-owned ledger back: spend after the checkpoint lost ships and credits, income survived | user 2026-10-21 | M3 exit | decided (ADR-053), fix in (PR #28): ledger sequence mark per checkpoint, compensating entries, loans/trades/layout restored, admin actions kept, notice to players; in-game check pending (in-game-session-4.md "F13 authority grace + resume" step 9) |
 | F14 | A GUI setting change did not survive a server restart (not reproduced in S3) | S2, S3 | later | open, watch |
 | F19 | Vanilla `md.PlayerReputation` errors / "Prized Investor" notification on team factions | S3 | M5 | open, minor |
@@ -64,9 +66,11 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 
 | ID | Item | Evidence | Target | Status |
 |---|---|---|---|---|
-| K1 | `sync-report.ps1` judges the whole mod log, should judge one run | S2 | M4 | open |
+| K1 | `sync-report.ps1` judges the whole mod log, should judge one run (2026-10-28: the "worst" 37081 ms / 868 m / 1221 m came from 2026-10-07 lines still in the log; the one "pop" was a respawn after an in-session Load) | S2, R1028 | M4 | open |
 | K2 | Kit / publish should rebuild (or check) the web GUI build | S1 | M4 | open |
 | K3 | GUI "Total playtime 0s" | S3, RI | later | open |
+| K5 | GUI shows the player offline for ~1 s on every reload / save load (`ClientReload` detach + resume ~0.3 s) | R1028 | later | open, cosmetic |
+| K6 | Script text: M3-34 step 2 expects `newest_age_ms` < 1 s, but a standing ship is replicated about once per 5 s (age 2-4 s, `lat_p95` 4.4 s, not a fault); the report counts a ghost respawn after a save load as a "pop" | R1028 | M3 exit | open (script text) |
 | K4 | Firewall disable test: disabling the allow rule does not cut a live UDP flow; script 3.5 should use a block rule | RI | M3 exit | open (script text) |
 
 ### Engineering
@@ -80,6 +84,7 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | E9 | `RelayModule.Chat` (line ~201) sends to nodes gated only on `IsAttached`, not `Announced`: a chat frame could reach a node before its Welcome | PR #21 review | M4 | open |
 | E5 | Leftovers: worktrees `gracious-dubinsky…`, `charming-hodgkin…` (side sessions, need the user's OK); local branch `fix/net-disconnect-flake` (patch is in main via PR #30, needs `-D`); the merged remote branches on GitHub (deleting them needs the user's OK). All agent worktrees and merged local branches were removed 2026-10-22 | this file | now | open |
 | E12 | Pair runners copy the mod log twice on failure, and the sync-report copy line has no test (code review 2026-10-21, findings 6/7) | code review | later | open |
+| E13 | Ledger mark sequence was the implicit rowid of `ledger_tx` (PR #28 review) | PR #28 code review | - | fix in (migration 0010: explicit `seq` column, backfilled from rowid so stored marks stay valid, unique, frozen by the append-only trigger, assigned MAX+1 at commit; VACUUM + migration tests) |
 
 ## Flaky tests
 
@@ -100,6 +105,7 @@ Rule (execution-plan §3.4): a fail-then-pass is logged here with its run id; a 
 
 | Date | Item |
 |---|---|
+| 2026-10-28 | R1028 (two PCs): **F22 data path PASS** (no flash, `snaps=0`, no sawtooth), **F20b PASS in game** (re-provision after a rollback, Bob kept his ship), M3-34 step 4 PASS (no 286 km repair on a local-highway entry), F1 client side PASS. New: F23c, F21b, F1b, F1c, F1d, F24, F25, K5, K6; F9 measured |
 | 2026-10-22 | E7 (PR #26): e2e-headless as 4 parallel shards, ~20 min wall instead of ~35. F13b (PR #28) merged. HostSimM3 stuck-bot join fixed in FakeNode (PR #32) |
 | 2026-10-21 | E3: CI is the merge gate (PR #19, `ci-ok`), branch protection on main (required `ci-ok`, no force push / deletion, user OK). E4: Dependabot #12, #15, #18 closed, replaced by PR #22 / #23. M3-36 (PR #20), mod-report order (PR #21), F1 (PR #24), F13 (PR #25), red main fixed (PR #30) |
 | 2026-10-20 | E1 + E2 (PR #17, `1e11a85`): .NET 10.0.13 / SDK 10.0.402 (CVE-2026-70159), M3-35 ghost heading fix, HostSimPair race fix, pair mod logs kept in the CI artifact; PR #14 closed as superseded |

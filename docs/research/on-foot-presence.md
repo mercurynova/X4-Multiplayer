@@ -304,7 +304,7 @@ show in the name tag.
 
 ---
 
-### 2.x Reference: "More Ship Rooms" mod (local `reference-shiprooms/`, reference only)
+### 2.x Reference: "More Ship Rooms" mod (local `references/shiprooms/`, reference only)
 
 Added 2026-10-02 from a mod archive the user supplied. It is purely XML: one `<diff>` per ship macro
 (`assets/units/size_l|size_xl/ship_*.xml`, plus copies under `extensions/ego_dlc_split`, `ego_dlc_terran` and a
@@ -715,7 +715,7 @@ S10.11, S10.12, S10.14, S10.7, S10.8, then the rest.
 - NPC template actor problems: https://forum.egosoft.com/viewtopic.php?t=434607
 - kuertee Extended Conversation Menu: https://www.nexusmods.com/x4foundations/mods/382
 - Prior multiplayer work, none of which syncs on-foot players:
-  our `reference/` (a previous X4 multiplayer mod), https://github.com/carrascodev/x4-mods
+  our `references/old-mod/` (a previous X4 multiplayer mod), https://github.com/carrascodev/x4-mods
 - Ventures was asynchronous, with no live presence:
   https://www.pcgamer.com/x4-foundations-goes-online-but-dont-expect-multiplayer/
 - X4Native RE notes (walkable interiors, player entity API): see the source list at the top.
