@@ -994,7 +994,11 @@ void JoinFeature::finish_ready(host::HostContext& ctx) {
       stash_->put(auth::kStashKey, st.to_json());
     }
   }
-  if (has_manifest_) send_control(join::msg_manifest_report(), join::encode_manifest_report_counts(checkpoint_, 0, 0, manifest_ms_));
+  const bool report_manifest = has_manifest_ && !resume::manifest_report_denied_in_phase(my_phase_);  // F25
+  if (has_manifest_ && !report_manifest) {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready: the server keeps this node InGame (a reload does not move it back); no ManifestReport (F25)");
+  }
+  if (report_manifest) send_control(join::msg_manifest_report(), join::encode_manifest_report_counts(checkpoint_, 0, 0, manifest_ms_));
   send_control(join::msg_node_ready(), join::encode_node_ready(epoch, save_sha_));
   session_->mark_in_session();
   stage_ = Stage::InGame;
@@ -1002,7 +1006,7 @@ void JoinFeature::finish_ready(host::HostContext& ctx) {
   fingerprint_ = resume::Fingerprint{};  // sampled again on the next frames
   persist_state("ingame");
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "universe ready: NodeReady sent (epoch {:016x}, manifest report {})", epoch,
-            has_manifest_ ? "counts only" : "skipped");
+            report_manifest ? "counts only" : "skipped");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
