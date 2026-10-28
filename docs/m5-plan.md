@@ -106,6 +106,46 @@ time, and a wallet converges within 30 s even after a forced local edit.
 
 **AC (wave).** AC item 1: the MD capture ring plus fallbacks exist and the `md_hook` state is reported.
 
+**Status 2026-10-28: W1 done (code + tests), commit `5f89931`.**
+
+**Built.**
+
+- `md/x4mp_events.xml`: nine `instantiate="true"` cues, all read-only. Two hellos (`event_universe_generated`,
+  `event_game_loaded`) raise `H;7`; then one cue each for a player-owned kill (`K;victim;macro;owner;killer`), a
+  player-owned destruction (`P;` when the victim is `player.occupiedship`, else `X;component`), a completed trade
+  (`T;station;ware;signed_amount;unit_price`), a finished build (`B;station;macro;`), a money change (`M;value`), and
+  boarding start/end (`S;component`, `E;component`). Every line goes out as `raise_lua_event "'x4mp.event'"`.
+- `ui/x4mp_events.lua`: forwards each line to native through the new `event` bridge verb and counts
+  `received / sends / skipped / bad` in the global `X4MPEvents`.
+- `ui/x4mp_bridge.lua`: `B.VERBS.event = true` — the whitelist rejects unknown verbs, so without this line every event
+  would be dropped with `unknown_verb`.
+- `ui.xml`: `ui/x4mp_events.lua` registered (MD files are auto-discovered from `md/`).
+- `features/events/`: `event_types.h` (the line grammar and `parse_id`, hex or decimal), `event_bus.h` (dedupe over
+  kind/subject/amount/second, 256 slots; queue cap 1024; 32 per frame; ring of 64 for inspection), `hook_state.h` (the
+  `hooks=` block), `events_hub.h`, `events_feature.{h,cpp}` (bridge subscription, bounded inbox, one 30 s
+  "no MD hello" warning, optional sink, `submit()` for fallbacks), `event_wire.h` (six intent encoders plus
+  `IntentResult`/`GameEvent` decoders).
+- The 30 s budget line gained a trailing `hooks=` field: `hooks=alive md=7 fired=41 age=1.2s fb=2 dup=0 queued=0`, and
+  `hooks=dead md=0 fired=0 age=none fb=0 dup=0 queued=0` when nothing has ever arrived.
+
+**Verified:** `game_build` exit 0, ctest **642/642** (7 new `host.M5-*` cases), Lua **257/257** (5 new). The MD file is
+well-formed and every event element name was checked against the game's own `libraries/common.xsd`. The wave's own
+numbers are in session 8: `hooks=alive md=7` in the budget line, and one line per occurrence.
+
+**Not done, deliberately.**
+
+- **Capture is not in the MD ring.** `event_object_changed_owner` requires an `object` or `group` source, and a global
+  listener is the one shape the API notes call unverified. M5-20 detects captures through the native
+  `EntityChangedOwner` typed hook (type 175), which sees every owner change without a source.
+- **M5-04's detectors are not in this wave.** The dedupe they rely on is built and tested, but each detector lands with
+  the wave that consumes its event: the kill fallback in W2, the cargo diff in W4, the station diff in W5. Writing them
+  now would mean writing three detectors with no consumer and no way to test them against a real game.
+- **XSD validation was not run.** Compiling the game's 1.7 MB `common.xsd` with `lxml` hangs for over two minutes on
+  this machine, in the project validator and in a direct `XMLSchema` call alike. Well-formedness plus the structural Lua
+  test stand in; the semantics of three attributes (`$Trade.ware` concatenation, `event.param.buildanchor` on the plain
+  build event, and whether `event_player_owned_killed_object` also fires for NPC-on-NPC kills) are marked `[VERIFY]` in
+  the MD header and are checked in session 8.
+
 ### W2 — Kills (M5-06..M5-09)
 
 | Task | Work | AC |
