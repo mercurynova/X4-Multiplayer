@@ -857,6 +857,9 @@ public static partial class LiveRunner
             {
                 lastTick = tick;
                 var state = motion.NextSample(tick);
+                // The mod sends its estimate of the server clock as sample time (F9b); the tick-based time of the motion model is only the fallback.
+                if (link.Client.ServerNowUs is var serverNow and not 0)
+                    state.SampleTimeUs = serverNow;
                 session.SetOwnPose(motion.Sector, motion.Position);
                 await link.SendRealtimeAsync(MsgType.PlayerState, MessageEncoder.EncodePayload(b => PlayerState.Pack(b, state), 128), ct).ConfigureAwait(false);
             }

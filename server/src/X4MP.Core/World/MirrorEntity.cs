@@ -181,6 +181,15 @@ public sealed class PlayerShipState
 
     public ulong SampleTimeUs { get; internal set; }
 
+    // Sample-time to game-time mapping (PlayerSampleClock, F9b).
+    internal bool ClockValid { get; set; }
+
+    internal double ClockOffset { get; set; }
+
+    internal ulong ClockSampleUs { get; set; }
+
+    internal double LastStamp { get; set; }
+
     public ushort Sector { get; internal set; }
 
     public ushort Flags { get; internal set; }
