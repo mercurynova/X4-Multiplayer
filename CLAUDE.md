@@ -35,8 +35,8 @@ run `gh auth switch -u mercurynova`.
 
 ## Hard rules
 - The repo is **GPL-3.0** (`LICENSE`, 2026-10-02) and is being prepared to go public: never commit personal data (Steam ids, local user paths, emails), secrets, Egosoft game data, or the names/URLs of the owner's private reference repos.
-- `reference/` is a previous X4 multiplayer mod (private clone; the owner has the URL): **unlicensed, binary-only.
-  Read for lessons, never copy code.**
+- `references/old-mod/` is a previous X4 multiplayer mod (private clone; the owner has the URL): **unlicensed, binary-only.
+  Read for lessons, never copy code.** Every folder under `references/` (git-ignored) is read-only reference material, never copied from.
 - Never modify the X4 install. `x4-unpacked/` is extracted game data, read-only reference.
 - Pinned game build: **X4 9.00 build 611726**, X4Native **v9.0.0-611726**.
 - Mod config comes from files, never env vars (Steam relaunch drops them).
