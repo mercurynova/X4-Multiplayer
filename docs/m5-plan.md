@@ -157,6 +157,25 @@ numbers are in session 8: `hooks=alive md=7` in the budget line, and one line pe
 
 **AC (wave).** AC item 2.
 
+**Status 2026-10-28: W2 done (code + tests), commit `663da9f`.**
+
+**Built.** The client half is `features/events/kill_report.h`: a `KillReporter` that takes one `MdEvent`, resolves the victim's component through `GhostHub::net_id_of_local` (the netmap lookup the kill line needs), and sends exactly one `Intent{KillClaim{target, killer, weapon_macro_ref}}` with `request_key = Id128{lo = monotonic counter, hi = self player id}`. The killer is `selfship_hub().own_net_id()` — the player's own ship is not bound in the netmap (`NetKind::Self` is unused in the codebase), so it comes from the self-ship hub and is 0 when unknown. The `hooks=` block in the 30 s budget line gained `claims=` and `unmapped=`, so a tester sees a claim that never went out and why.
+
+The authority half is `AuthorityFlow::on_intent`, reached from a new `MsgType::Intent` branch in `on_frame` before the checkpoint uploader. It decodes with the verified `kill_claim_of`, and answers exactly one `IntentResult`: `Unsupported` for a body the authority does not apply, `InvalidParameters` for a claim with no component, `UnknownEntity` for an id the index does not hold, `NotInInterest` when the row's sector is not in the `CaptureSet`, `NotPermitted` when `safe_remove` returns `BlockedPlayerGuard`, and `Conflict` for the other blocked outcomes. On success it calls `game::safe_remove`, `UniverseIndex::erase` (new: without it the row lingers until the next scan pass and `step()` keeps polling a dead component), `EntityStream::on_killed` (new: the same despawn as `on_row_removed(.., true)` but carrying `killer_net_id`), and sends a `GameEvent{KillEvent}` with zeroed `event_seq`/`server_time_us` because the server stamps both (`RelayModule.Events.cs`). Five counters — `intent_bad_`, `intent_unsupported_`, `intent_unknown_`, `intent_out_of_interest_`, `intent_player_`, `intent_failed_`, `kills_applied_` — are logged with every rejection.
+
+M5-09 needed no new code: a tracked entity that becomes invalid is already detected at scan close (`end_scan` names the dropped rows, `is_valid_component` classifies them, `on_row_removed(net_id, true)` despawns once).
+
+**Verified:** `game_build` exit 0, no compiler errors, 107206 ms (log `.game-loop/logs/build-1793164727126.log`); ctest **645/645 passed** (the 642 of W1 plus `host.M5-06`, `host.index (M5-07)`, `host.stream (M5-07)`); Lua **257/257** unchanged.
+
+**Not done, deliberately.**
+
+- **No mod-side explosion.** The design's `SafeDestroy` (SelfDestructComponent) does not exist in this mod, and `game/ghosts_api.h` says so explicitly: the only removal path is `safe_remove`. The authority removes the object and sends `Despawn{reason=Destroyed, killer}`; the explosion is played by each client from that reason. The 20 km / on-screen distinction therefore lives on the client, where the camera is, not on the authority.
+- **The kill fallback (M5-04) is not here.** `Killed` is an X4Native typed hook, not an MD event; the MD ring uses `event_player_owned_killed_object`, which the schema documents as also firing when the player kills something. A pure-MD global listener for every kill is the `[UNVERIFIED]` item from `x4-api-notes.md` §4, so W2 ships the hook path and the W2 `[VERIFY]` note below covers it.
+- **`weapon_macro_ref` is 0.** The MD kill line does not carry a weapon macro yet; the field is in the wire and a later wave can fill it without a protocol change.
+- **`IntentResult` is not consumed on the client.** W2 logs the authority's answer server-side; the client's optimistic removal is the despawn that arrives on the same lane. Reconciling a rejected claim on the originating client is W3's rejoin path.
+
+**`[VERIFY]` for session 8:** whether `event_player_owned_killed_object` fires for a player killing a *ghost* (a locally spawned object owned by another faction), and whether the kill line's component prints as the same hex id the ghost registry bound. If the hook does not fire for ghosts, the fallback is a native poll of the victim's validity, which is the M5-04 detector.
+
 ### W3 — Death, rejoin, damage (M5-10..M5-12)
 
 | Task | Work | AC |
