@@ -910,9 +910,15 @@ public sealed partial class WorldMirror : ISessionModule
             return; // reordered or duplicate (UDP): keep the newer one
         }
 
+        if (ship.AcceptAnySeq)
+        {
+            ship.ClockValid = false; // resumed node: its clock estimate may have restarted
+        }
+
         ship.AcceptAnySeq = false;
 
         long now = _time.GetTimestamp();
+        double stamp = PlayerSampleClock.Stamp(ship, state.SampleTimeUs, HasWorldUpdate, AuthorityGameTime, AuthorityCaptureTimeUs);
         ship.Seq = state.Seq;
         ship.SampleTimeUs = state.SampleTimeUs;
         ship.NetId = state.NetId;
@@ -931,13 +937,13 @@ public sealed partial class WorldMirror : ISessionModule
 
         if (state.NetId != 0 && _entities.TryGetValue(state.NetId, out var entity) && entity.ControllerPlayer == playerId)
         {
-            ApplyState(entity, state.Sector, state.Flags, state.Px, state.Py, state.Pz, state.Yaw, state.Pitch, state.Roll, 0, 0, 0, applyVelocity: false, now, AuthorityGameTime);
+            ApplyState(entity, state.Sector, state.Flags, state.Px, state.Py, state.Pz, state.Yaw, state.Pitch, state.Roll, 0, 0, 0, applyVelocity: false, now, stamp);
             // M3-34 (Finding 22): a ship at rest changes nothing, so its sample time stayed at the moment it stopped. Every PlayerState is a fresh
             // sample of that rest pose: keyframes (which carry the time as a 16-bit millisecond offset, +-32.7 s) must say "now", not "a minute ago"
             // (they said "32.7 s ago" for ever, a bogus, ever-moving timestamp on an identical pose). No version bump: nothing on the wire changed.
-            if (AuthorityGameTime > entity.SampleGameTime)
+            if (stamp > entity.SampleGameTime)
             {
-                entity.SampleGameTime = AuthorityGameTime;
+                entity.SampleGameTime = stamp;
             }
 
             if (state.Hull != entity.Hull || state.Shield != entity.Shield)

@@ -72,6 +72,32 @@ public sealed class TcpNodeClient : IAsyncDisposable
     /// <summary>Local monotonic clock in microseconds (what Ping/Pong carry).</summary>
     public ulong NowUs => (ulong)(_clock.Elapsed.TotalMilliseconds * 1000.0);
 
+    private readonly long[] _serverOffsets = new long[8];
+    private int _serverOffsetCount;
+    private int _serverOffsetNext;
+    private long _serverOffsetUs;
+
+    /// <summary>
+    /// Estimate of the server clock now, in microseconds (what <c>PlayerState.sample_time_us</c> carries). Built from the server time in the
+    /// Welcome and every server Ping (server clock minus local clock at arrival, which lags by the one-way delay, so the largest of the last
+    /// few is kept). 0 until the server sent a time.
+    /// </summary>
+    public ulong ServerNowUs => _serverOffsetCount == 0 ? 0 : (ulong)Math.Max(1, (long)NowUs + Volatile.Read(ref _serverOffsetUs));
+
+    private void NoteServerClock(long serverUs, ulong localUs)
+    {
+        lock (_serverOffsets)
+        {
+            _serverOffsets[_serverOffsetNext] = serverUs - (long)localUs;
+            _serverOffsetNext = (_serverOffsetNext + 1) % _serverOffsets.Length;
+            _serverOffsetCount = Math.Min(_serverOffsetCount + 1, _serverOffsets.Length);
+            long best = long.MinValue;
+            for (int i = 0; i < _serverOffsetCount; i++)
+                best = Math.Max(best, _serverOffsets[i]);
+            Volatile.Write(ref _serverOffsetUs, best);
+        }
+    }
+
     /// <summary>Options for reconnecting as the same node: same key, the previous resume token.</summary>
     public NodeClientOptions ForResume(ulong lastJournalSeq = 0) =>
         _options with { PlayerKey = PlayerKey, ResumeToken = Welcome.ResumeToken, LastJournalSeq = lastJournalSeq };
@@ -139,6 +165,8 @@ public sealed class TcpNodeClient : IAsyncDisposable
             if (reply.Type != MsgType.Welcome)
                 throw new ProtocolViolation(ViolationCode.MalformedPayload, $"expected Welcome, got {reply.Type}");
             Welcome = MessageRegistry.Default.Decode<Welcome>(reply).UnPack();
+            if (Welcome.ServerTimeUs != 0)
+                NoteServerClock((long)Welcome.ServerTimeUs, NowUs);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -252,6 +280,7 @@ public sealed class TcpNodeClient : IAsyncDisposable
     {
         ulong recv = NowUs;
         var ping = MessageRegistry.Default.Decode<Ping>(f).UnPack();
+        NoteServerClock((long)ping.SendTimeUs, recv);
         var pong = new PongT { Seq = ping.Seq, EchoSendTimeUs = ping.SendTimeUs, RecvTimeUs = recv, ReplyTimeUs = NowUs };
         await SendAsync(MsgType.Pong, b => Pong.Pack(b, pong), ct).ConfigureAwait(false);
     }
