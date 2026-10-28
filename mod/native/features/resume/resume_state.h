@@ -85,7 +85,10 @@ class MenuExitWatch {
       armed_ = false;
     }
   }
-  void note_game_loaded() noexcept { armed_ = false; }  // also on_universe_ready, a stage change, a leave
+  void note_game_loaded() noexcept { armed_ = false; }  // also on_universe_ready, a stage change
+  // F1b: any leave (manual Disconnect, a new Join, the F1 leave itself) ends the session this watch was armed for: a later Join is a new
+  // session the player started on purpose and must never be cut by a watch that armed before it.
+  void disarm() noexcept { armed_ = false; }
   [[nodiscard]] bool armed() const noexcept { return armed_; }
   [[nodiscard]] bool due(std::int64_t now_ms) const noexcept { return armed_ && now_ms - since_ms_ >= confirm_ms_; }
 
