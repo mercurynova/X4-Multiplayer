@@ -225,8 +225,21 @@ jobs:
       - name: Create vcpkg cache dir
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+      # E14: sccache (GitHub Actions cache backend) in front of cl for our own code. mod/build.ps1 reads X4MP_COMPILER_LAUNCHER and then
+      # also switches /Zi to /Z7 (embedded debug info; a shared .pdb is not cacheable). Warnings stay errors; a failing compile is never cached.
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Use sccache for the mod build
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_ENV -Value 'SCCACHE_GHA_ENABLED=true'
+          Add-Content -Path $env:GITHUB_ENV -Value 'X4MP_COMPILER_LAUNCHER=sccache'
       # Builds x4mp.dll, runs the Catch2 tests, the raw-remove guard and the packaging check (all via ctest).
       - run: powershell -NoProfile -File mod/build.ps1
+      - name: sccache statistics
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
       - name: Upload CTest logs
         if: failure()
         uses: actions/upload-artifact@v7
@@ -387,11 +400,24 @@ jobs:
       - name: Create vcpkg cache dir
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+      # E14: sccache (GitHub Actions cache backend) in front of cl for our own code. mod/build.ps1 reads X4MP_COMPILER_LAUNCHER and then
+      # also switches /Zi to /Z7 (embedded debug info; a shared .pdb is not cacheable). Warnings stay errors; a failing compile is never cached.
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Use sccache for the mod build
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_ENV -Value 'SCCACHE_GHA_ENABLED=true'
+          Add-Content -Path $env:GITHUB_ENV -Value 'X4MP_COMPILER_LAUNCHER=sccache'
       # M3-14: HostSimAvatars (real authority + bots), HostSimM3 (two real DLLs: authority + client, 6 bots; perf / bandwidth / log rate through
       # tools/session4/sync-report.ps1), UdpLane (UDP lane forced / loss / blocked / fallback) and Session4Kit (every session-4 kit script).
       - name: E2E (${{ matrix.steps }})
         shell: pwsh
         run: ./tools/e2e.ps1 -Steps ${{ matrix.steps }}
+      - name: sccache statistics
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
       - name: Upload E2E logs
         if: failure()
         uses: actions/upload-artifact@v7
