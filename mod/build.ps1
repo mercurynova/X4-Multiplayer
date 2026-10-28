@@ -18,6 +18,11 @@
   Configure and build only.
 .PARAMETER Filter
   Passed to ctest -R.
+.PARAMETER Targets
+  Build only these CMake targets (cmake --build --target ...) instead of everything. Configure, the warning policy (warnings
+  are errors) and the flags are identical to a full build; only the unit-test executables that were not asked for are skipped.
+  Used by tools/e2e.ps1 (E14), which needs just the DLL and the three exes. Combine with -NoTest: ctest would otherwise run
+  tests whose executables were not built. Default (not given): build everything, exactly as before.
 .PARAMETER Spikes
   Also build the throwaway in-game probe (x4mp_probe.dll + its tests, CMake option X4MP_SPIKES). Without the switch
   the option is forced OFF, so a plain build is identical whether or not an earlier -Spikes build used the same directory.
@@ -32,6 +37,7 @@ param(
   [switch]$Clean,
   [switch]$NoTest,
   [string]$Filter,
+  [string[]]$Targets,
   [switch]$Spikes
 )
 
@@ -39,6 +45,8 @@ $ErrorActionPreference = 'Stop'
 $cppDir = $PSScriptRoot   # the mod directory (holds CMakeLists.txt / CMakePresets.json / vcpkg.json)
 $repoRoot = (Resolve-Path (Join-Path $cppDir '..')).Path
 $preset = "msvc-x64-$Config"
+# powershell -File passes "-Targets a,b" as ONE string; accept both that and a real array.
+if ($Targets) { $Targets = @($Targets | ForEach-Object { $_ -split ',' } | Where-Object { $_ }) }
 
 function Invoke-Checked([string]$what, [scriptblock]$cmd) {
   & $cmd
@@ -104,8 +112,21 @@ Push-Location $cppDir
 try {
   if ($Clean) { Remove-Item -Recurse -Force (Join-Path $cppDir "build/$preset") -ErrorAction SilentlyContinue }
   $spikesFlag = if ($Spikes) { '-DX4MP_SPIKES=ON' } else { '-DX4MP_SPIKES=OFF' }
-  Invoke-Checked 'cmake configure' { cmake --preset $preset $spikesFlag }
-  Invoke-Checked 'cmake build' { cmake --build --preset $preset }
+  # E14 (CI only): X4MP_COMPILER_LAUNCHER=sccache (or a path) puts a compiler cache in front of cl. MSVC's default /Zi debug info
+  # (a shared .pdb written by mspdbsrv) is not cacheable, so the cached configuration embeds the debug info in the objects (/Z7,
+  # CMP0141 + CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded). Same flags otherwise, warnings stay errors. Unset = unchanged local build.
+  $cacheFlags = @()
+  if ($env:X4MP_COMPILER_LAUNCHER) {
+    Write-Host "Compiler cache: $($env:X4MP_COMPILER_LAUNCHER)"
+    $cacheFlags = @("-DCMAKE_C_COMPILER_LAUNCHER=$($env:X4MP_COMPILER_LAUNCHER)", "-DCMAKE_CXX_COMPILER_LAUNCHER=$($env:X4MP_COMPILER_LAUNCHER)",
+      '-DCMAKE_POLICY_DEFAULT_CMP0141=NEW', '-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded')
+  }
+  Invoke-Checked 'cmake configure' { cmake --preset $preset $spikesFlag @cacheFlags }
+  if ($Targets) {
+    if (-not $NoTest) { throw '-Targets builds only part of the tree, so ctest would fail on the missing test executables: pass -NoTest as well.' }
+    Invoke-Checked 'cmake build' { cmake --build --preset $preset --target $Targets }
+  }
+  else { Invoke-Checked 'cmake build' { cmake --build --preset $preset } }
   if ($Spikes) {
     $probe = Get-ChildItem (Join-Path $cppDir "build/$preset") -Recurse -Filter x4mp_probe.dll | Select-Object -First 1
     if ($probe) { Write-Host "x4mp_probe.dll: $($probe.FullName)" }
