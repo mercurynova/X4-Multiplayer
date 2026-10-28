@@ -497,7 +497,9 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       const double sp = ghost::length(v);
       // M3-34: at travel speed the engine would fly the inert ship by the hint between our placements (and may capture it into a highway): zero then.
       const bool too_fast = !cfg_.hints_all_speeds && sp > cfg_.hint_max_mps;
-      if (sp > 0.05 && !too_fast && !g.braking) {
+      // the engine guard fired lately (guard_hot_us): the engine just threw this object away from its placed pose, so no hint for it (F23c, 2026-10-28 evidence)
+      const bool guard_hot = now_us < g.guard_hot_until_us;
+      if (sp > 0.05 && !too_fast && !g.braking && !guard_hot) {
         hint_batch_.push_back({g.local_id, v.x, v.y, v.z});
         g.hint_was_zero = false;
         g.last_hint_us = now_us;
