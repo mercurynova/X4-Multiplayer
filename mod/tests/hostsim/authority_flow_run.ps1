@@ -107,11 +107,12 @@ try {
     $dummy = Join-Path $tmp 'start_save.xml.gz';   $sha = New-GzSave $dummy 7
     $ckpt1 = Join-Path $tmp 'ckpt1.xml.gz';        $null = New-GzSave $ckpt1 11
     $ckpt2 = Join-Path $tmp 'ckpt2.xml.gz';        $null = New-GzSave $ckpt2 12
+    $ckpt3 = Join-Path $tmp 'ckpt3.xml.gz';        $null = New-GzSave $ckpt3 13
 
     # ---- scenario 1 ----
     $srv = Start-FreshServer 'a'
     Publish-SessionFromUpload $srv.Session $dummy $sha
-    Run-Scenario 'authority_flow' 'work-host' @('--var', "ckpt_src=$ckpt1", '--var', "ckpt_src2=$ckpt2")
+    Run-Scenario 'authority_flow' 'work-host' @('--var', "ckpt_src=$ckpt1", '--var', "ckpt_src2=$ckpt2", '--var', "ckpt_src3=$ckpt3")
     $swarm = Get-Content (Join-Path $tmp 'swarm.txt') -Raw
     $joined = ([regex]::Matches($swarm, 'joined with the save after')).Count
     Write-Host ($swarm -split "`n" | Select-Object -Last 6 | Out-String)
@@ -119,6 +120,11 @@ try {
     if ($swarm -match 'errors=[1-9]') { throw 'FakeNode reported errors' }
     Write-Host "  3 FakeNode clients joined and verified the checkpoint" -ForegroundColor Green
     Assert-SpawnGameTime $srv.Log 4000
+    # F24: the planned leave asked for a checkpoint with reason Leave and the server answered saved=true before the authority left
+    $serverText = Get-Content $srv.Log -Raw
+    if ($serverText -notmatch 'save request \d+ \(Leave\) sent as slot') { throw 'F24: the server log has no save request with reason Leave' }
+    if ($serverText -notmatch 'leave checkpoint answered saved=True') { throw 'F24: the server log has no "leave checkpoint answered saved=True"' }
+    Write-Host '  F24: planned leave took a Leave checkpoint before the authority disconnected' -ForegroundColor Green
     Stop-All
 
     # ---- scenario 2 ----

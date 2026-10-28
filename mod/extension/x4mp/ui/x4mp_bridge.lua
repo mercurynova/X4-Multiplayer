@@ -10,7 +10,7 @@
 --                       address is normalised and always carries a port (default 47780; IPv6 as "[::1]:47780").
 --                       team is "auto" (placeholder until the server pre-query exists). The password is present ONLY here,
 --                       is never logged, persisted or kept after the call. May be "" (open session).
---   x4mp.disconnect     {"v":1}
+--   x4mp.disconnect     {"v":1}   (an authority in game takes a checkpoint first, F24; see x4mp_saves.lua x4mp.leave_request / x4mp.leave_go / x4mp.leave_wait)
 --   x4mp.ui_ready       {"v":1,"startmenu":true|false}   sent once per Lua state as soon as __X4NATIVE_API exists
 --   x4mp.request_status {"v":1}                          native answers with topic x4mp.status
 --   x4mp.load_session   {"v":1}                          the player agrees to load the session save that differs from the running

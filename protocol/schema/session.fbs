@@ -41,7 +41,8 @@ table RosterUpdate {
 
 // ---------------- checkpoints ----------------
 
-enum SaveReason : ubyte { SessionStart = 0, Autosave, JoinRequested, Migration, Admin, Shutdown }
+// Leave (appended, F24 / ADR-054): a checkpoint taken because the authority is about to leave on purpose.
+enum SaveReason : ubyte { SessionStart = 0, Autosave, JoinRequested, Migration, Admin, Shutdown, Leave }
 
 /// S->A. The authority must, in ONE frame: hide/remove tagged ghosts, call SaveGame(slot),
 /// build the manifest, send SaveStarted, restore ghosts. Then upload save + manifest in-band
@@ -50,6 +51,19 @@ table RequestSave {
   request_id:uint;
   reason:SaveReason;
   slot_name:string;              // e.g. "x4mp_checkpoint" (no extension)
+}
+
+/// A->S (F24 / ADR-054). The authority is about to leave ON PURPOSE with its universe still loaded: take a checkpoint
+/// first. The server answers with exactly one LeaveSaveResult, then the node sends its Disconnect(ClientQuit).
+table LeaveSaveRequest {
+  kind:ubyte;                    // 0 = Multiplayer screen Disconnect, 1 = Esc > Exit to main menu, 2 = Esc > Quit (log only)
+}
+
+/// S->A. The answer to LeaveSaveRequest: saved = a checkpoint taken after the request is stored and current.
+/// saved = false means the leave may proceed anyway (no checkpoint was possible); detail says why (log / notice text).
+table LeaveSaveResult {
+  saved:bool;
+  detail:string;
 }
 
 /// A->S. Journal ordering marker on the Control lane: every world mutation sent before this

@@ -34,6 +34,7 @@
 #include "core/session/session.h"
 #include "features/authority/authority_flow.h"
 #include "features/join/join_json.h"
+#include "features/join/leave_save.h"
 #include "features/join/platform_stash.h"
 #include "features/resume/resume_state.h"
 #include "host/feature.h"
@@ -103,6 +104,11 @@ class JoinFeature final : public host::IFeature {
   void sample_fingerprint(host::HostContext& ctx, const host::FrameInfo& info);  // M2-07
   void on_ui_ready(host::HostContext& ctx, const std::string& payload);  // F1
   void leave_for_main_menu(host::HostContext& ctx);                       // F1
+  // F24 (ADR-054): a planned authority leave takes a checkpoint first. on_leave_action is the Multiplayer screen's Disconnect and the Esc-menu
+  // Exit / Quit (Lua wrappers hold the real QuitModule / QuitGame until x4mp.leave_go); apply_leave acts on the state machine's decision.
+  void on_leave_action(host::HostContext& ctx, join::LeaveKind kind);
+  void apply_leave(host::HostContext& ctx, const join::LeaveDecision& decision);
+  void finish_disconnect(host::HostContext& ctx, const char* why);  // stop_session + back to Idle (the Disconnect verb's body)
   void decide_after_reload(host::HostContext& ctx);  // M2-07: universe ready seen by a resumed in-game incarnation
   [[nodiscard]] session::ClientIdentity make_identity(host::HostContext& ctx) const;
   [[nodiscard]] bool load_player_key(host::HostContext& ctx, std::array<std::uint8_t, 32>& key);
@@ -166,6 +172,7 @@ class JoinFeature final : public host::IFeature {
   resume::Fingerprint fingerprint_;
   std::uint32_t fingerprint_frame_ = 0;
   std::optional<resume::State> undecided_;
+  join::PlannedLeave leave_;          // F24: the planned leave (waiting for its checkpoint)
   resume::MenuExitWatch menu_watch_;  // F1: exit to the main menu = leave (armed by ui_ready startmenu=true while undecided_)
 
   // status throttle (x4mp.status at most 2 Hz)

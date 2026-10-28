@@ -201,6 +201,32 @@
       "fields": {"Policy":{"Enforcement":1,"Entries":[{"ContentHash":"010203","Enabled":true,"Id":"ws_1234567890","ModClass":2,"Name":"Warehouse Fleets","NexusUrl":"https://www.nexusmods.com/x4foundations/mods/1234","Notes":"needs SirNukes too","Rule":0,"Version":"1.4","VersionRule":1,"WorkshopId":1234567890},{"ContentHash":"","Enabled":true,"Id":"cheat_menu","ModClass":0,"Name":"Cheat Menu","Rule":2,"VersionRule":2,"WorkshopId":0}],"SourceMode":1,"UnknownDefault":1,"Version":7}}
     },
     {
+      "file": "0x0118_LeaveSaveRequest.bin",
+      "kind": "frame",
+      "size": 28,
+      "sha256": "6ce517b62820898f5514b14a8758e31e188a0d6f00b20fcb71b90363383d8ce8",
+      "msgType": 280,
+      "msgName": "LeaveSaveRequest",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 20,
+      "fields": {"Kind":1}
+    },
+    {
+      "file": "0x0119_LeaveSaveResult.bin",
+      "kind": "frame",
+      "size": 64,
+      "sha256": "f9c56b71161569d4fc6d515c80a519dc18095c3e8eb757d7f1333df5f5c60fc9",
+      "msgType": 281,
+      "msgName": "LeaveSaveResult",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 56,
+      "fields": {"Detail":"checkpoint 12 is current","Saved":true}
+    },
+    {
       "file": "0x0103_RequestSave.bin",
       "kind": "frame",
       "size": 60,

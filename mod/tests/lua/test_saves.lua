@@ -283,3 +283,100 @@ test("the tooltip text exists on page 92000 and has no X4 comment brackets", fun
 	truthy(text and text ~= "")
 	falsy(text:find("[%(%){}]"))
 end)
+
+------------------------------------------------------------------------------
+-- F24 (ADR-054): Esc > Exit to main menu / Quit are held while the authority is in game
+------------------------------------------------------------------------------
+local quits
+
+local function freshLeave()
+	fresh()
+	quits = {}
+	_G.QuitModule = function(...) quits[#quits + 1] = { "exit", ... } end
+	_G.QuitGame = function(...) quits[#quits + 1] = { "quit", ... } end
+	load()
+end
+
+local function status(state, role) env.fire("x4mp.status", string.format('{"v":1,"state":"%s","role":"%s"}', state, role)) end
+
+local function leaveRequests() return env.raisedNamed("x4mp.leave_request") end
+
+test("leave: not the authority in game, QuitModule and QuitGame are pure pass-throughs", function()
+	freshLeave()
+	QuitModule()
+	QuitGame()
+	eq(#quits, 2, "both ran at once")
+	eq(#leaveRequests(), 0)
+	status("ingame", "client")
+	QuitModule()
+	eq(#quits, 3, "a client leaves as before (F1 owns that path)")
+	status("connecting", "authority")
+	QuitGame()
+	eq(#quits, 4)
+	eq(#leaveRequests(), 0)
+end)
+
+test("leave: the authority in game holds Exit back and native is asked; go releases it with its arguments", function()
+	freshLeave()
+	status("ingame", "authority")
+	QuitModule("a", "b")
+	eq(#quits, 0, "held")
+	eq(#leaveRequests(), 1)
+	eq(X4MPBridge.json.decode(leaveRequests()[1]).kind, 1)
+	env.fire("x4mp.leave_go", '{"v":1}')
+	eq(#quits, 1)
+	eq(quits[1][1], "exit")
+	eq(quits[1][2], "a")
+	eq(quits[1][3], "b")
+	env.fire("x4mp.leave_go", '{"v":1}')
+	eq(#quits, 1, "a second go has nothing to release")
+end)
+
+test("leave: Quit is held the same way and asks with kind 2", function()
+	freshLeave()
+	status("ingame", "authority")
+	QuitGame()
+	eq(#quits, 0)
+	eq(X4MPBridge.json.decode(leaveRequests()[1]).kind, 2)
+	env.fire("x4mp.leave_go", '{"v":1}')
+	eq(quits[1][1], "quit")
+end)
+
+test("leave: choosing it again while held runs it at once and tells native", function()
+	freshLeave()
+	status("ingame", "authority")
+	QuitModule()
+	QuitModule()
+	eq(#quits, 1, "ran once, at once")
+	eq(#leaveRequests(), 2, "native was told the second time too (it closes the session)")
+	env.fire("x4mp.leave_go", '{"v":1}')
+	eq(#quits, 1, "the late go does not run it twice")
+end)
+
+test("leave: without a reachable native nothing is held back", function()
+	freshLeave()
+	status("ingame", "authority")
+	_G.__X4NATIVE_API = nil
+	QuitModule()
+	eq(#quits, 1, "ran at once")
+end)
+
+test("leave: the wait notification reaches the HUD cue", function()
+	freshLeave()
+	env.fire("x4mp.leave_wait", '{"v":1,"text":"Saving the universe before leaving."}')
+	local last = lastMd()
+	eq(last[1], "X4MP")
+	eq(last[2], "notify")
+	truthy(last[3]:find("Saving"))
+end)
+
+test("leave: uninstall drops the hold and leaves the wrappers as pass-throughs", function()
+	freshLeave()
+	status("ingame", "authority")
+	QuitModule()
+	X4MPSaves.uninstall()
+	env.fire("x4mp.leave_go", '{"v":1}')
+	eq(#quits, 0, "the held call was dropped with the uninstall")
+	QuitGame()
+	eq(#quits, 1, "and nothing is held any more")
+end)

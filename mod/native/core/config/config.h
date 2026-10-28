@@ -71,6 +71,7 @@ struct Config {
   std::size_t outbox_byte_cap = 8u * 1024u * 1024u;  // reliable outbox cap in bytes (64 KiB..1 GiB)
   int frame_budget_us = 1500;                 // main-thread budget per frame in microseconds (100..50000), M2-04
   int menu_leave_confirm_ms = 30000;          // F1: how long the start menu must be seen without a game load before it counts as leaving (1000..120000)
+  int leave_save_timeout_ms = 60000;          // F24: how long a planned authority leave waits for its checkpoint before it leaves anyway (5000..300000)
   bool selftest = false;                      // run the in-game self-test at on_universe_ready (M2-10)
   // Per-category log levels ("net": "debug"); categories not listed use log_level. Names are validated by the host
   // (known list in host/host_log.h), not here. Last occurrence wins; order is the JSON key order.

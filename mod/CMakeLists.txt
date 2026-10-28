@@ -467,6 +467,10 @@ if(X4MP_TESTS)
     COMMAND x4mp-hostsim --dll "$<TARGET_FILE:x4mp>" --script "${CMAKE_CURRENT_SOURCE_DIR}/tests/hostsim/resume_stash_fallback.hostsim")
   set_tests_properties(hostsim.resume_stash_fallback PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION "HOSTSIM OK")
 endif()
+# F24 (ADR-054): planned authority leave with a checkpoint first (features/join/leave_save.h: state machine, join_messages: wire).
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_leave_save.cpp)
+endif()
 # =============================================================================================
 # END M2-07 reload survival
 # =============================================================================================
