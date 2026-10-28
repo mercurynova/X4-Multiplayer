@@ -355,7 +355,9 @@ jobs:
     # E7: the 15 steps (~34 min serial) are split into 4 shards that run in parallel, balanced by measured step time (CI run
     # 39603793368). Step seconds below EXCLUDE the mod build: the old "Headless 468 s" was the ~7 min cold mod build (the client itself
     # runs ~10 s), tools/e2e.ps1 attributes the build to the first mod step of a run. Every shard pays Publish (~100 s) plus its own mod
-    # build (warm vcpkg cache: ~1-2 min), then its steps, so a shard is about 8-13 min wall (the old job: 34 min).
+    # build, then its steps. MEASURED (E14, CI): the old full mod build (all ~540 unit tests too) took ~13 min on the 4-core runner, so a
+    # shard was 19-21 min wall. Now only x4mp, x4mp-hostsim, x4mp-headless and x4mp_authority_live are built (tools/e2e.ps1) behind sccache:
+    # first (cold cache) run 13.5-16 min per shard; the warm-cache figure is in docs/backlog.md E14.
     # Each shard is self-sufficient: tools/e2e.ps1 runs Publish first and builds the mod itself (Ensure-ModBuild). The steps use their own
     # port ranges and every shard is its own machine, so nothing is shared between shards. ReloadSurvival is deliberately NOT in the
     # shard with HostSimM3 (known flaky interaction, docs/backlog.md Flaky tests).
