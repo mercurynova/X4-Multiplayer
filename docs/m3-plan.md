@@ -311,7 +311,7 @@ Wave-2 briefs are written after the verdicts (criterion 16), naming the chosen p
 
 Conventions as M2: `M3-001..` = throwaway/test kit, `M3-01..` = product. Sizes: S <= 1 day, M 2-3, L 4-6 developer
 days; time-box = agent wall clock. **At most 4 agents at a time.** Every brief carries the execution-plan §6.1 rules
-(no sleep-polling, foreground or background runs, state the cost of retry loops) and the hard rules (no `reference/`
+(no sleep-polling, foreground or background runs, state the cost of retry loops) and the hard rules (no `references/old-mod/`
 code, no X4 install writes, config from files, never log passwords, no personal data).
 
 **Shared-file rules for M3**

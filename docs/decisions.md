@@ -389,7 +389,7 @@ PROTO §20 is the canonical catalog. Old names map as follows:
   The C# runtime (`FrameCodec`, `ReplicationCodec`, `Quantize`) lives in
   `server/src/X4MP.Protocol` and runs `flatc --csharp` as an MSBuild step; C++ runs
   `flatc --cpp` as a CMake custom command. Generated code is never committed.
-  `reference/` and `x4-unpacked/` stay out of version control (or are git-ignored).
+  `references/` and `x4-unpacked/` stay out of version control (or are git-ignored).
 
 ### ADR-030 Test tooling
 - **Decision:** FakeNode is C# (`tools/X4MP.FakeNode`, SRV §6) and is the M1 workhorse
