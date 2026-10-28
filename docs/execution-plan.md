@@ -16,7 +16,7 @@ what, in what order, and how work is checked**.
 Rules for implementers (put in every brief):
 1. Stay inside the brief's file scope. Do not edit `docs/` except where the brief says to
    (e.g. a protocol catalog table); report design problems instead of redesigning.
-2. Never copy code from `reference/` (unlicensed). Never modify the X4 install or `x4-unpacked/`.
+2. Never copy code from `references/old-mod/` (unlicensed). Never modify the X4 install or `x4-unpacked/`.
 3. Every acceptance criterion needs a test or a reproducible command. "Done" means
    `dotnet build`/`dotnet test`/`npm test`/`ctest` pass with zero warnings.
 4. Don't add dependencies that aren't in `Directory.Packages.props` / vcpkg manifest without
@@ -191,7 +191,7 @@ Report back (≤ 250 words): what was built, files touched, test results (counts
 1. Branch builds clean and all tests pass locally (rerun, don't trust the report).
 2. Each acceptance criterion maps to a passing test or verified command.
 3. No edits outside the brief's scope, no new dependencies left unreported, no
-   `reference/` code.
+   `references/old-mod/` code.
 4. Contracts match `architecture.md` / `protocol.md` (names, ids, ports, lanes).
 5. Run the `code-review` skill on the diff for correctness. Send fixes back to the same
    implementer (SendMessage) rather than fixing in the Opus session.

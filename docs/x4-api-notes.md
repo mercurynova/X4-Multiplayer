@@ -14,7 +14,7 @@ Primary sources used (in order of trust):
 | `[xsd]` | `x4-unpacked\libraries\common.xsd`, `md.xsd`, `scriptproperties.xml` |
 | `[md]` | `x4-unpacked\md\*.xml` (223 vanilla MD scripts) |
 | `[x4n]` | eg3r/X4Native upstream: https://github.com/eg3r/X4Native |
-| `[ref]` | The reference repo (`reference/`), its docs and shipped `version_db`. Lessons only; no code copied. |
+| `[ref]` | The reference repo (`references/old-mod/`), its docs and shipped `version_db`. Lessons only; no code copied. |
 
 ---
 
@@ -500,7 +500,7 @@ event type.
 
 ## 5. Prior art and alternatives
 
-### 5.1 The previous multiplayer mod (our `reference/`)
+### 5.1 The previous multiplayer mod (our `references/old-mod/`)
 Binary-only, no license, so don't copy.
 What it teaches is already in PLAN.md. Extra API-level findings from this research:
 - Their "no credits", "1 unit AddTradeWare" and "targeted orders need internals" blockers come

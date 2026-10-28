@@ -1,6 +1,6 @@
 # TaterTrader / DeadTater: algorithm notes (reference study)
 
-Source: `reference-tatertrader/` (Nexus mod "TaterTrade", content.xml v705, 2024-10-30; authors Ludsoe, DeadAir;
+Source: `references/tatertrader/` (Nexus mod "TaterTrade", content.xml v705, 2024-10-30; authors Ludsoe, DeadAir;
 author retired 2025-09-23, GPL-3.0 per LICENSE). **Reference only. X4MP must not copy code.** Everything below is
 paraphrased. Line refs are `file:line` inside that clone (`aiscripts/deadtater.xml` = `dt`, `aiscripts/tatertrade.xml` = `tt`,
 `aiscripts/order.assist.xml` = `as`, `md/tater_central_queue.xml` = `q`, `md/setup_tater_mod_changes.xml` = `st`).
