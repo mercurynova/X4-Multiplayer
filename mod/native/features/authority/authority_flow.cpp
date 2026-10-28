@@ -22,6 +22,9 @@
 #include "message_ids_generated.h"
 #include "events_generated.h"
 #include "features/events/event_wire.h"
+#include "features/economy/economy_hub.h"
+#include "features/statics/statics_feature.h"
+#include "features/statics/statics_hub.h"
 #include "game/safe_remove.h"
 
 namespace x4mp::features::auth {
@@ -247,6 +250,10 @@ void AuthorityFlow::on_intent(host::HostContext& ctx, std::span<const std::uint8
               killer_net, net_id);
     return;
   }
+  if (intent.type == P::IntentBody::TradeReport) {
+    on_trade_report(ctx, intent, payload);
+    return;
+  }
   if (intent.type != P::IntentBody::KillClaim) {
     ++intent_unsupported_;
     reject(P::RejectReason::Unsupported, "the authority does not apply this intent", 0);
@@ -321,7 +328,146 @@ void AuthorityFlow::on_intent(host::HostContext& ctx, std::span<const std::uint8
             static_cast<int>(intent.request.player_id), killer);
 }
 
+// M5-14/M5-15: the client saw a trade at a station. The station's stock is the authority's to change; the report names the station by
+// the id the client matched, which this node resolves through its own statics scan (statics_hub().station_component).
+void AuthorityFlow::on_trade_report(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload) {
+  const auto reject = [&](P::RejectReason reason, const char* detail, std::uint32_t target) {
+    const std::vector<std::uint8_t> reply =
+        events::encode_intent_result(intent.request, P::IntentStatus::Rejected, reason, detail, 0);
+    (void)send_frame(T(P::MsgType::IntentResult), reply);
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: trade for net {} rejected: {}", target, detail);
+  };
+
+  const P::TradeReport* report = events::trade_report_of(payload);
+  if (report == nullptr) {
+    ++intent_bad_;
+    reject(P::RejectReason::InvalidParameters, "the trade report has no body", 0);
+    return;
+  }
+  const std::uint32_t station = report->station();
+  const std::uint32_t ship = report->ship();
+  const std::int32_t amount = report->amount();
+  const std::string ware = report->ware() != nullptr ? report->ware()->str() : std::string();
+  if (station == 0 || amount == 0 || ware.empty()) {
+    ++intent_failed_;
+    reject(P::RejectReason::InvalidParameters, "the trade report is incomplete", station);
+    return;
+  }
+
+  const std::uint64_t component = statics::statics_hub().station_component(station);
+  if (component != 0) {
+    apply_trade(ctx, intent.request, station, ship, component, ware, amount, report->unit_price());
+    return;
+  }
+
+  // The station scan has not bound this id yet. Ask for the reporting ship's sector and keep the report for kTradeRetryUs: the client is
+  // owed exactly one IntentResult, so none is sent here.
+  ++trades_deferred_;
+  if (const IndexEntry* row = index_.find(ship); row != nullptr && row->sector != 0) x4mp::features::request_station_scan(row->sector);
+  if (pending_trades_.size() >= kMaxPendingTrades) {
+    ++trades_dropped_;
+    reject(P::RejectReason::Conflict, "too many trades are waiting for a station scan", station);
+    return;
+  }
+  const std::int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
+  pending_trades_.push_back(PendingTrade{intent.request, station, ship, ware, amount, report->unit_price(), now_us});
+  X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: trade at net {} deferred, the station scan has not bound it yet", station);
+}
+
+void AuthorityFlow::apply_trade(host::HostContext& ctx, const events::IntentRequest& request, std::uint32_t station, std::uint32_t ship,
+                               std::uint64_t component, const std::string& ware, std::int32_t amount, std::int32_t unit_price) {
+  // A buy (the client's amount is positive) takes the ware off the station, a sale puts it back. The shim applies it with exact= so the
+  // number that lands is the number the trade moved (docs/spikes/session-1-results.md).
+  economy::CargoOp op;
+  op.component = component;
+  op.ware = ware;
+  op.amount = -amount;
+  economy::economy_hub().queue(op);
+  ++stock_ops_;
+  ++trades_applied_;
+
+  const std::vector<std::uint8_t> accepted =
+      events::encode_intent_result(request, P::IntentStatus::Accepted, P::RejectReason::None, "", station);
+  (void)send_frame(T(P::MsgType::IntentResult), accepted);
+
+  // M5-16: the snapshot is read a frame or two after the shim ran, so every node ends up on the authority's number rather than on its own
+  // optimistic guess.
+  const std::int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
+  snapshot_due_.push_back(SnapshotDue{station, component, now_us + kSnapshotDelayUs});
+
+  // The feed event. Zeros for event_seq and server_time_us: the server stamps them, same rule as the kill event.
+  (void)send_frame(T(P::MsgType::GameEvent),
+                   events::encode_trade_event(station, ship, request.player_id, economy::ware_ref_of(ware), amount, unit_price, 0, 0,
+                                              request.game_time, 0));
+
+  // M5-17 is not wired yet: the station owner's faction is not on this node (the statics scan carries no owner), so the NPC counter-flow
+  // has no addressee. Tracked in docs/m5-plan.md W4.
+  X4MP_CLOG(ctx.log, Cat::Auth, Level::Info,
+            "authority: trade at net {} ware '{}' x{} applied to component {} (applied={} deferred={} dropped={} unknown={} stock ops={} "
+            "snapshots={})",
+            station, ware, amount, component, trades_applied_, trades_deferred_, trades_dropped_, trades_unknown_, stock_ops_,
+            snapshots_sent_);
+}
+
+void AuthorityFlow::send_station_cargo(host::HostContext& ctx, std::uint32_t station, std::uint64_t component) {
+  const std::vector<game::CargoPod> cargo = ctx.game.cargo(component);
+  if (cargo.empty()) {
+    // An empty read is indistinguishable from a failed one (GetNumCargo answers 0 for both), so it never becomes an empty snapshot.
+    ++trades_unknown_;
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Warn, "authority: station net {} gave an empty cargo read; no snapshot sent", station);
+    return;
+  }
+  std::vector<events::CargoLine> lines;
+  lines.reserve(cargo.size());
+  for (const game::CargoPod& line : cargo) {
+    const std::uint32_t ref = string_ref(static_cast<std::uint8_t>(P::StringKind::Ware), line.ware);
+    if (ref == 0) continue;
+    lines.push_back(events::CargoLine{ref, line.amount});
+  }
+  if (lines.empty()) {
+    ++trades_unknown_;
+    return;
+  }
+  if (send_frame(T(P::MsgType::EntityCargo), events::encode_entity_cargo(station, lines))) ++snapshots_sent_;
+}
+
+void AuthorityFlow::retry_trades(host::HostContext& ctx) {
+  if (snapshot_due_.empty() && pending_trades_.empty()) return;
+  const std::int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
+
+  std::vector<SnapshotDue> still_due;
+  for (const SnapshotDue& due : snapshot_due_) {
+    if (due.at_us > now_us) {
+      still_due.push_back(due);
+      continue;
+    }
+    send_station_cargo(ctx, due.station, due.component);
+  }
+  snapshot_due_ = std::move(still_due);
+
+  std::vector<PendingTrade> still_pending;
+  for (PendingTrade& trade : pending_trades_) {
+    const std::uint64_t component = statics::statics_hub().station_component(trade.station);
+    if (component != 0) {
+      apply_trade(ctx, trade.request, trade.station, trade.ship, component, trade.ware, trade.amount, trade.unit_price);
+      continue;
+    }
+    if (now_us - trade.at_us < kTradeRetryUs) {
+      still_pending.push_back(std::move(trade));
+      continue;
+    }
+    ++trades_dropped_;
+    const std::vector<std::uint8_t> reply = events::encode_intent_result(
+        trade.request, P::IntentStatus::Rejected, P::RejectReason::Conflict, "the station scan did not bind the station in time", 0);
+    (void)send_frame(T(P::MsgType::IntentResult), reply);
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Warn, "authority: trade at net {} dropped, the station scan did not bind it in {} ms",
+              trade.station, kTradeRetryUs / 1000);
+  }
+  pending_trades_ = std::move(still_pending);
+}
+
 bool AuthorityFlow::send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload) {
+  return session_.send(wire::Lane::Control, type, std::span<const std::uint8_t>(payload)) == net::SendResult::Ok;
   return session_.send(wire::Lane::Control, type, std::span<const std::uint8_t>(payload)) == net::SendResult::Ok;
 }
 
@@ -545,6 +691,7 @@ void AuthorityFlow::step(host::HostContext& ctx) {
   // authority costs the frame. The stats feature takes the slot every 30 s (stats::timing_hub()).
   const Clock::time_point started = Clock::now();
   drain_inbox(ctx);
+  retry_trades(ctx);
   switch (step_) {
     case Step::Collecting: step_collecting(ctx); break;
     case Step::WaitSaveReply:

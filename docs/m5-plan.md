@@ -229,6 +229,64 @@ M5-09 needed no new code: a tracked entity that becomes invalid is already detec
 
 **AC (wave).** AC item 4.
 
+**Status 2026-10-28: W4 done for M5-13..M5-16 (code + tests); M5-17 blocked on station ownership, which the statics scan does
+not carry.**
+
+**Built.**
+
+- **Station identity, on both nodes.** The checkpoint manifest still holds avatar rows only
+  (`mod/native/core/authority/checkpoint_messages.h:58`), so no station has a manifest net id today and the M4 matcher binds
+  nothing. W4 therefore uses the deterministic fallback the on-foot container hash already documented
+  (`mod/native/features/onfoot/onfoot_types.cpp:85`): `onfoot::matched_container_id(station_match_key(sector, macro, x, y, z))`,
+  a 50 m bucket. `StaticsFeature` now runs on the authority as well; with no manifest it binds no M4 rows but still records
+  every scanned station through `StaticsHub::note_station` (`features/statics/statics_hub.h:81`), which is the component ⇄ net
+  id map the authority apply and the client apply both read (`station_component` / `station_net_id`, `:82-83`). The authority
+  scans its own player's sector plus any sector a trade names (`request_station_scan`, `features/statics/statics_feature.h:35`).
+  Follow-up: when M4 AC item 1 lands (station rows in the manifest) the authority needs the manifest file too, or the two sides
+  disagree on a station id exactly once, when the manifest arrives.
+- **Cargo read (M5-13), native and not a Lua round trip.** `GetNumCargo` / `GetCargo` with `tags=""` (`game/game_api.h:108`),
+  wrapped as `GameApi::cargo` (`:189`) returning `CargoPod{ware, amount}`, capped at `kMaxCargoLines` 4096. `GetNumCargo == 0`
+  cannot be told apart from a failed read, so an empty result means "no change" everywhere; the plan's "only non-empty reads
+  count" is implemented as that rule instead of as a second probe.
+- **Detection (M5-13/M5-14).** `TradeReporter` (`features/economy/trade_report.h:48`) turns the existing MD `T;` line into
+  `Intent{TradeReport{station, ship, ware_ref, amount, unit_price, ware}}`: the station component is resolved to the scanned net
+  id, the ware is sent both as an FNV ref and as the macro the client knows (part 1's wire change), and a ring of 8 dedupes on
+  `(station, ware, second)`. The 2 s docked cargo diff is a detector of *lost* reports, not a second source: without the hook
+  there is no station to name, so a change with no trade sent is counted `diff_missed` and logged, never sent.
+- **Own ship cargo (M5-14).** `EntityCargo` on the own net id at most 1 Hz and only when the cargo signature changes
+  (`EconomyFeature::report_own_cargo`, `features/economy/economy_feature.cpp:149`).
+- **Authority (M5-15).** `AuthorityFlow::on_trade_report` (`authority_flow.cpp:333`) validates, resolves the station, and either
+  applies at once or defers: an unknown net id asks for a scan of the reporting ship's sector and holds the trade for 5 s
+  (`kTradeRetryUs`), one `IntentResult` arriving later either way. `apply_trade` (`:377`) queues a `CargoOp` (a buy removes
+  station stock), schedules a full `EntityCargo` 30 ms later (`send_station_cargo`, `:412`, wares named through the session
+  string table so clients can resolve `ware_ref`), and sends `GameEvent{TradeEvent}` (`encode_trade_event`,
+  `features/events/event_wire.h:209`) for the server to stamp. `retry_trades` (`:434`) runs from `step` and also drops the
+  snapshots and retries that came due.
+- **Shim (M5-15/M5-16).** New `ui/x4mp_actions.lua` + `md/x4mp_actions.xml`: one `AddUITriggeredEvent` per verb per frame,
+  `add_cargo` / `remove_cargo` with `exact=`, `transfer_money`; the queue folds per `(component, ware)` and the frame budget is
+  64 wares and 8 money ops, over-budget work staying queued. ADR-034 holds: no `AddTradeWare`, no `DropCargo`.
+- **Client apply (M5-16).** `EconomyFeature::apply_snapshots` (`economy_feature.cpp:111`) reads the local stock with the same
+  `GameApi::cargo`, computes the difference with `cargo_delta` (`features/economy/stock_apply.h:28`), and queues only the
+  differing wares. A net id the statics scan does not know is skipped and counted `cargo_skipped`; a station whose cargo cannot
+  be read is `cargo_bad` and left alone. Nothing is guessed.
+
+**Verified:** build green; ctest **656/656** (4 skipped, the same network smokes as W3); new host cases `[economy]` — 6 test
+cases, 63 assertions; Lua **263/263**, including the new `mod/tests/lua/test_actions.lua`.
+
+**Not done, deliberately.**
+
+- **M5-17 (NPC counter-flow) is not implemented.** The station scan line carries `component|macro|x|y|z|idcode` and no owner,
+  so the authority cannot name the station's faction and has no `transfer_money` addressee. Picking a faction would be the one
+  guess this wave is built to avoid. The fix is small and known: add the owner to `md/x4mp_statics.xml`, carry it through
+  `StationRow` / `parse_station_batch`, and queue a `MoneyOp` from `apply_trade`.
+- **A station id is the M3 hash, not a manifest id** (see the first bullet). This is why the authority can apply a trade at all
+  in W4, and it is also the reason the two sides must switch to manifest ids together, in one commit, when M4 AC item 1 lands.
+
+**`[VERIFY]` for session 8:** whether a nested list survives `AddUITriggeredEvent` into `event.param3` and `do_for_each`; whether
+MD coerces a component id out of a Lua number (the scan path already prints hex text, the actions path sends numbers); whether
+`add_cargo` on a station the authority's player does not own applies at all — the V13 spike only proved it on the player's own
+ship — and `transfer_money` to an NPC faction, which M5-17 needs.
+
 ### W5 — Builds and capture (M5-18..M5-21)
 
 | Task | Work | AC |

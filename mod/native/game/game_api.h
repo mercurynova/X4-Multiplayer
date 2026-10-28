@@ -49,6 +49,20 @@ inline constexpr float kRadToDeg = 180.0f / 3.14159265358979f;  // same factor a
   return o;
 }
 
+// Binary-compatible with the SDK's UIWareInfo {const char* ware; const char* macro; int amount;} (M5-13). Only used as
+// the output buffer of GetCargo: the strings belong to the game and stay valid until the next call.
+struct WareInfoPod {
+  const char* ware = nullptr;
+  const char* macro = nullptr;
+  std::int32_t amount = 0;
+};
+
+// One cargo line copied out of the game, so callers can hold it after the export returned.
+struct CargoPod {
+  std::string ware;  // the ware id the game uses in cargo commands ("energycells"), NOT a macro ref
+  std::int32_t amount = 0;
+};
+
 // Raw exports. Names match the X4 exports exactly (they are looked up by these strings).
 struct GameFns {
   // M2 exports
@@ -88,10 +102,17 @@ struct GameFns {
   // the spike wrote GetPositionalOffset's own radians and the avatar faced the right way), so do NOT pass it through
   // pos_rot_to_game_write.
   void (*SetPositionalOffset)(UniverseId positionalid, PosRotPod offset) = nullptr;
+  // M5 (trade): read a container's cargo. `tags` must be "" (never nullptr). GetNumCargo answers 0 both for an empty
+  // container and for a failed read, which is exactly why M5-13 accepts only non-empty reads.
+  std::uint32_t (*GetNumCargo)(UniverseId containerid, const char* tags) = nullptr;
+  std::uint32_t (*GetCargo)(WareInfoPod* result, std::uint32_t resultlen, UniverseId containerid, const char* tags) = nullptr;
 };
 
 // Number of exports in GameFns (keep in step with resolve_game_fns / missing_exports; the self-test reports resolved/total).
-inline constexpr std::size_t kGameFnCount = 30;
+inline constexpr std::size_t kGameFnCount = 32;
+
+// Upper bound on the cargo lines one read copies (far above any real hold; keeps a bad export from allocating forever).
+inline constexpr std::uint32_t kMaxCargoLines = 4096;
 
 using GetFunctionFn =std::function<void*(const char* name)>;  // X4NativeAPI::get_game_function or a fake
 
@@ -161,6 +182,11 @@ class GameApi {
   [[nodiscard]] std::optional<PosRotPod> positional_offset(UniverseId id, UniverseId space) const noexcept;
   // M3b: write `id`'s offset inside `space`. `pos` is in RADIANS (see GameFns::SetPositionalOffset). True when the call was made.
   bool set_positional_offset(UniverseId id, const PosRotPod& pos) const noexcept;
+
+  // ---- M5 (trade) ----
+  // The container's cargo, copied out of the game. Empty when the export is missing, the id is 0, the main-thread check
+  // fails, or the game reports no lines at all (an empty read is not evidence of an empty hold: M5-13).
+  [[nodiscard]] std::vector<CargoPod> cargo(UniverseId container) const;
 
  private:
   GameFns fns_{};

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X4MP economy actions shim, MD side (M5-15). Lua side: ui/x4mp_actions.lua; caller: native features/economy (economy_feature.cpp).
+
+  Native cannot change cargo or money, MD can, so every stock and money change the mod makes goes through here. The native side batches:
+  one AddUITriggeredEvent per frame carrying the whole list, never one call per ware.
+
+    native -> Lua  x4mp.actions {"v":1,"cargo":[[component,ware,amount],...],"money":[[from,to,amount],...]}
+    Lua -> MD      AddUITriggeredEvent("X4MP_Actions", "apply", <cargo list>)
+                   AddUITriggeredEvent("X4MP_Actions", "money", <money list>)
+
+  Why exact= and not amount=: exact= is the bulk form verified in the session-1 spike (docs/spikes/session-1-results.md, V13): add_cargo
+  exact=37 lands exactly 37, remove_cargo exact=12 removes exactly 12. Adding over capacity caps at capacity and removing more than is
+  present removes what is there, so the caller re-reads the hold instead of assuming the number landed. The reference mod's AddTradeWare
+  changes a station's traded-wares list rather than its cargo, and DropCargo ejects crates into space, so neither is used (ADR-034).
+
+  A component id arrives as a plain number; MD coerces it to the object the same way the capture scan does. Nested lists in
+  event.param3 are [VERIFY] in game (session 8 checks the [economy] cargo ops counter against a real trade).
+-->
+<mdscript name="X4MP_Actions" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+
+    <cue name="X4MP_Actions_Cargo" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Actions'" control="'apply'"/>
+      </conditions>
+      <actions>
+        <do_if value="event.param3">
+          <do_for_each name="$Op" in="event.param3">
+            <!-- Positive adds stock (a player sale), negative takes it (a player purchase). -->
+            <do_if value="$Op.{3} gt 0">
+              <add_cargo object="$Op.{1}" ware="$Op.{2}" exact="$Op.{3}"/>
+            </do_if>
+            <do_elseif value="$Op.{3} lt 0">
+              <remove_cargo object="$Op.{1}" ware="$Op.{2}" exact="0 - $Op.{3}"/>
+            </do_elseif>
+          </do_for_each>
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Actions_Money" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Actions'" control="'money'"/>
+      </conditions>
+      <actions>
+        <do_if value="event.param3">
+          <do_for_each name="$Op" in="event.param3">
+            <do_if value="$Op.{1} and $Op.{2} and $Op.{3} gt 0">
+              <transfer_money from="$Op.{1}" to="$Op.{2}" amount="$Op.{3}"/>
+            </do_if>
+          </do_for_each>
+        </do_if>
+      </actions>
+    </cue>
+
+  </cues>
+</mdscript>

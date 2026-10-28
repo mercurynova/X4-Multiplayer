@@ -40,6 +40,7 @@
 #include "features/authority/entity_stream.h"
 #include "features/authority/universe_index.h"
 #include "features/avatars/avatar_plan.h"
+#include "features/events/event_wire.h"
 #include "host/feature.h"
 
 namespace x4mp::features::auth {
@@ -112,6 +113,13 @@ class AuthorityFlow {
   void on_capture_set(host::HostContext& ctx, std::span<const std::uint8_t> payload);
   // M5-07: an Intent forwarded by the server (a client's kill claim). Validates, applies and answers with exactly one IntentResult.
   void on_intent(host::HostContext& ctx, std::span<const std::uint8_t> payload);
+  // M5-15/16: a trade report from a client. Applies the stock change to the authority's own copy of the station, answers with one
+  // IntentResult, sends the station's EntityCargo and the TradeEvent, and moves the NPC side's money (M5-17).
+  void on_trade_report(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload);
+  void apply_trade(host::HostContext& ctx, const events::IntentRequest& request, std::uint32_t station, std::uint32_t ship,
+                   std::uint64_t component, const std::string& ware, std::int32_t amount, std::int32_t unit_price);
+  void retry_trades(host::HostContext& ctx);
+  void send_station_cargo(host::HostContext& ctx, std::uint32_t station, std::uint64_t component);
   void begin_request(host::HostContext& ctx, std::uint32_t request_id);
   void step_collecting(host::HostContext& ctx);
   void request_save(host::HostContext& ctx);
@@ -203,6 +211,35 @@ class AuthorityFlow {
   static constexpr std::int64_t kScanRetryUs = 10'000'000;
   std::unordered_map<std::uint16_t, std::int64_t> scan_asked_;
   std::uint32_t scan_request_failed_ = 0;
+  // M5-15: a trade report whose station this node cannot resolve yet. It is retried for kTradeRetryUs while the statics scan
+  // catches up; after that the client gets one Rejected and the report is dropped (never applied to a guessed station).
+  struct PendingTrade {
+    events::IntentRequest request;
+    std::uint32_t station = 0;
+    std::uint32_t ship = 0;
+    std::string ware;
+    std::int32_t amount = 0;
+    std::int32_t unit_price = 0;
+    std::int64_t at_us = 0;
+  };
+  static constexpr std::int64_t kTradeRetryUs = 5'000'000;
+  static constexpr std::size_t kMaxPendingTrades = 64;
+  std::vector<PendingTrade> pending_trades_;
+  // M5-16: a station whose stock just changed. The snapshot is read a frame or two after the shim ran, so a client that applies the
+  // delta and then reads the same station sees the same number, not the pre-trade hold.
+  struct SnapshotDue {
+    std::uint32_t station = 0;
+    std::uint64_t component = 0;
+    std::int64_t at_us = 0;
+  };
+  static constexpr std::int64_t kSnapshotDelayUs = 30'000;
+  std::vector<SnapshotDue> snapshot_due_;
+  std::uint32_t trades_applied_ = 0;
+  std::uint32_t trades_deferred_ = 0;
+  std::uint32_t trades_dropped_ = 0;
+  std::uint32_t trades_unknown_ = 0;
+  std::uint32_t stock_ops_ = 0;
+  std::uint32_t snapshots_sent_ = 0;
 };
 
 }  // namespace x4mp::features::auth

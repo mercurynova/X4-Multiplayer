@@ -409,3 +409,72 @@ TEST_CASE("M5-10: a player's own death becomes exactly one PlayerDeath intent, a
   CHECK(reporter.stats().send_failed == 1);
   CHECK(reporter.stats().sent == 1);
 }
+
+TEST_CASE("M5-14: a trade report and a cargo snapshot survive the wire", "[events][m514]") {
+  IntentRequest request;
+  request.key_lo = 7;
+  request.key_hi = 3;
+  request.request_id = 7;
+  request.player_id = 2;
+  request.game_time = 42.5;
+
+  TradeReportData trade;
+  trade.station = 0x1234;
+  trade.ship = 0x5678;
+  trade.ware_ref = 0x99;
+  trade.ware = "energycells";
+  trade.amount = 500;
+  trade.unit_price = 21;
+  const std::vector<std::uint8_t> intent = encode_trade_report(request, trade);
+  const auto* body = trade_report_of(intent);
+  REQUIRE(body != nullptr);
+  CHECK(body->station() == 0x1234);
+  CHECK(body->ship() == 0x5678);
+  CHECK(body->ware_ref() == 0x99);
+  CHECK(body->ware() != nullptr);
+  CHECK(std::string(body->ware()->c_str()) == "energycells");
+  CHECK(body->amount() == 500);
+  CHECK(body->unit_price() == 21);
+
+  // A buffer that is not a trade report is refused, not half-read.
+  CHECK(trade_report_of(encode_player_death(request, PlayerDeathData{1})) == nullptr);
+  CHECK(trade_report_of(std::span<const std::uint8_t>()) == nullptr);
+
+  // EntityCargo: a station's whole hold, in and out.
+  const std::vector<CargoLine> lines{{0x11, 500}, {0x22, 0}, {0x33, -12}};
+  const std::vector<std::uint8_t> cargo_bytes = encode_entity_cargo(0x1234, lines, 99);
+  CargoView view;
+  REQUIRE(decode_entity_cargo(cargo_bytes, view));
+  CHECK(view.net_id == 0x1234);
+  CHECK(view.journal_seq == 99);
+  REQUIRE(view.wares.size() == 3);
+  CHECK(view.wares[0].ware_ref == 0x11);
+  CHECK(view.wares[0].amount == 500);
+  CHECK(view.wares[1].amount == 0);  // an empty line is carried as-is: the snapshot is the authority's, not ours
+  CHECK(view.wares[2].amount == -12);
+
+  // An empty snapshot decodes as an empty hold (M5-16), and a foreign buffer is refused.
+  REQUIRE(decode_entity_cargo(encode_entity_cargo(0x1234, {}), view));
+  CHECK(view.net_id == 0x1234);
+  CHECK(view.wares.empty());
+  CHECK_FALSE(decode_entity_cargo(intent, view));
+  CHECK(view.wares.empty());
+
+  // TradeEvent: the authority's fan-out of a trade it applied (M5-15). The server stamps seq and time, so they go as zero.
+  const std::vector<std::uint8_t> trade_event = encode_trade_event(0x1234, 0x5678, 2, 0x99, 500, 21, 0, 0, 42.5, 7);
+  const auto* game_event = flatbuffers::GetRoot<X4MP::Proto::GameEvent>(trade_event.data());
+  REQUIRE(game_event != nullptr);
+  CHECK(game_event->body_type() == X4MP::Proto::GameEventBody::TradeEvent);
+  CHECK(game_event->event_seq() == 0);
+  CHECK(game_event->server_time_us() == 0);
+  CHECK(game_event->sector() == 7);
+  CHECK(game_event->game_time() == 42.5f);
+  const auto* traded = game_event->body_as_TradeEvent();
+  REQUIRE(traded != nullptr);
+  CHECK(traded->station() == 0x1234);
+  CHECK(traded->ship() == 0x5678);
+  CHECK(traded->player_id() == 2);
+  CHECK(traded->ware_ref() == 0x99);
+  CHECK(traded->amount() == 500);
+  CHECK(traded->unit_price() == 21);
+}

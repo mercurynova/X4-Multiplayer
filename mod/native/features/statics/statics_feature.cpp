@@ -5,6 +5,8 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <mutex>
+#include <unordered_set>
 #include <utility>
 
 #include "features/avatars/avatar_hub.h"
@@ -37,7 +39,24 @@ constexpr std::size_t kMaxScanBytes = 512 * 1024;
 std::int64_t steady_us() {
   return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
+
+// M5-16: sectors the authority asked for between two frames. A handful is plenty; a flood is capped so a bad caller cannot grow it.
+std::mutex g_request_mutex;
+std::unordered_set<std::uint16_t> g_requested;
+
+std::vector<std::uint16_t> take_requested() {
+  const std::lock_guard lock(g_request_mutex);
+  std::vector<std::uint16_t> out(g_requested.begin(), g_requested.end());
+  g_requested.clear();
+  return out;
+}
 }  // namespace
+
+void request_station_scan(std::uint16_t sector) {
+  if (sector == 0) return;
+  const std::lock_guard lock(g_request_mutex);
+  if (g_requested.size() < 64) g_requested.insert(sector);
+}
 
 void StaticsInbox::push(std::string text) {
   const std::lock_guard lock(mutex);
@@ -77,11 +96,12 @@ void StaticsFeature::on_game_loaded(host::HostContext& ctx) {
 void StaticsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) {
   if (!inbox_) return;
   on_authority_ = diag_hub().role() == NodeRole::Authority;
-  if (on_authority_) return;  // the authority owns the world; only a client needs net ids for its own copies
   if (!info.universe_ready) return;
 
   const std::int64_t now = steady_us();
-  load_manifest(ctx, now);
+  // The authority has no manifest file (it writes one, it never reads one): its station ids are the shared match-key hash. It still needs
+  // the scan, because a trade names a station by net id and only the scan turns that back into a local component (M5-16).
+  if (!on_authority_) load_manifest(ctx, now);
   pump(ctx, now);
 }
 
@@ -147,23 +167,37 @@ void StaticsFeature::pump(host::HostContext& ctx, std::int64_t now_us) {
     on_batch(ctx, sector, *batch);
   }
 
-  if (!statics::statics_hub().ready()) return;  // nothing to match against yet, so asking MD would only burn requests
-
-  // Which sectors to match: the client's interest (InterestUpdate, W3/W5). Until the server sends one, the sector the player is in is
-  // the honest fallback, so a single-sector session still matches its stations.
-  std::vector<std::uint16_t> wanted;
-  const ghosts::GhostCore* core = ghosts::ghost_hub().core();
-  if (core != nullptr) wanted = core->interest_sectors();
-  if (wanted.empty() && map != nullptr && api_) {
+  // Which sectors to scan: a client matches its interest (InterestUpdate, W3/W5); the authority scans what a trade asked for plus the
+  // sector its own player is in. Until the server sends an interest update, the player's sector is the honest fallback, so a
+  // single-sector session still matches its stations.
+  const auto own_sector = [&]() -> std::uint16_t {
+    if (map == nullptr || !api_) return 0;
     const auto ship = api_->local_ship();
     const auto universe = ship != 0 ? api_->sector_of(ship) : 0;
-    const std::uint16_t sector = universe != 0 ? map->index_of(universe) : std::uint16_t{0};
-    if (sector != 0) {
-      if (!warned_no_interest_) {
-        warned_no_interest_ = true;
-        X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: no InterestUpdate yet: matching the sector the player is in (index {})", sector);
+    return universe != 0 ? map->index_of(universe) : std::uint16_t{0};
+  };
+
+  std::vector<std::uint16_t> wanted;
+  if (on_authority_) {
+    wanted = take_requested();
+    for (const std::uint16_t sector : wanted) {
+      // An explicitly requested sector is scanned again, unless the last pass is still fresh (kAskRetryUs).
+      SectorState& state = sectors_[sector];
+      if (state.asked_us == 0 || now_us - state.asked_us >= kAskRetryUs) state.complete = false;
+    }
+    if (const std::uint16_t own = own_sector(); own != 0) wanted.push_back(own);
+  } else {
+    const ghosts::GhostCore* core = ghosts::ghost_hub().core();
+    if (core != nullptr) wanted = core->interest_sectors();
+    if (wanted.empty()) {
+      const std::uint16_t sector = own_sector();
+      if (sector != 0) {
+        if (!warned_no_interest_) {
+          warned_no_interest_ = true;
+          X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: no InterestUpdate yet: matching the sector the player is in (index {})", sector);
+        }
+        wanted.push_back(sector);
       }
-      wanted.push_back(sector);
     }
   }
   wanted_ = wanted;
@@ -186,7 +220,7 @@ void StaticsFeature::pump(host::HostContext& ctx, std::int64_t now_us) {
     state.misses_logged = 0;
     state.asked_us = now_us;
     ++asks_;
-    if (!report_pending_) {
+    if (!on_authority_ && !report_pending_) {
       report_pending_ = true;  // M4-21: this pass set owes a report; it is published once every sector of it closed
       first_ask_us_ = now_us;
     }
@@ -201,9 +235,13 @@ void StaticsFeature::on_batch(host::HostContext& ctx, std::uint16_t sector, cons
   for (const statics::StationRow& row : batch.rows) {
     // The very key the on-foot flow uses (onfoot::station_match_key): sector macro, station macro, position rounded to 50 m.
     const std::string key = onfoot::station_match_key(batch.sector_macro, row.macro, row.x, row.y, row.z);
-    const statics::StaticRow* hit = index.lookup(key, row.idcode);
-    ++match.stations;
+    const statics::StaticRow* hit = index.loaded() ? index.lookup(key, row.idcode) : nullptr;
+    // M5-16: every station gets an id this node can name on the wire, matched or not: the manifest row's id, else the M3 hash of the
+    // same key (the fallback the on-foot flow uses). Without a manifest (the authority) it is always the hash.
+    statics::statics_hub().note_station(sector, row.component, hit != nullptr ? hit->net_id : onfoot::matched_container_id(key));
     state.seen.insert(row.component);
+    if (!index.loaded()) continue;  // no manifest on this node: there is nothing to match, only ids to note
+    ++match.stations;
     if (hit == nullptr) {
       ++match.missed;
       // M4-21: the keys of the report, bounded over the whole pass set, and the first few of them also logged per sector.
@@ -231,11 +269,17 @@ void StaticsFeature::on_batch(host::HostContext& ctx, std::uint16_t sector, cons
   state.count = batch.count;
   // M4-20: a station of this sector the pass no longer lists is gone from the world, so its binding goes too.
   pruned_ += statics::statics_hub().prune_sector(sector, state.seen);
+  const std::size_t dropped_ids = statics::statics_hub().prune_stations(sector, state.seen);
   state.seen.clear();
-  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: {} closed: {} stations, {} matched, {} missed, {} bound in total", batch.sector_macro,
-            match.stations, match.matched, match.missed, statics::statics_hub().bound());
+  if (index.loaded()) {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: {} closed: {} stations, {} matched, {} missed, {} bound in total", batch.sector_macro,
+              match.stations, match.matched, match.missed, statics::statics_hub().bound());
+  } else {
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: {} closed: {} stations, {} ids known ({} dropped), no manifest on this node",
+              batch.sector_macro, batch.count, statics::statics_hub().stations_known(), dropped_ids);
+  }
   // M4-21: the report of a pass set goes out once every sector of it closed, so its counters are complete.
-  if (report_pending_ && all_complete()) {
+  if (index.loaded() && report_pending_ && all_complete()) {
     report_pending_ = false;
     publish_report(ctx);
   }
@@ -303,8 +347,8 @@ void StaticsFeature::publish_report(host::HostContext& ctx) {
 
 void StaticsFeature::on_shutdown(host::HostContext& ctx) {
   const statics::StaticsHub& hub = statics::statics_hub();
-  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: shutdown (manifest {} rows, {} stations bound, {} matched, {} missed, {} asks, {} bad)",
-            hub.index().size(), hub.bound(), hub.total_matched(), hub.total_missed(), asks_, bad_);
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: shutdown (manifest {} rows, {} stations bound, {} ids known, {} matched, {} missed, {} asks, {} bad)",
+            hub.index().size(), hub.bound(), hub.stations_known(), hub.total_matched(), hub.total_missed(), asks_, bad_);
 }
 
 }  // namespace x4mp::features

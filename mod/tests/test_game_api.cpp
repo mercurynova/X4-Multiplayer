@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -89,6 +90,36 @@ void fk_setposoffset(UniverseId id, PosRotPod p) {
   g_written_offset = p;
 }
 
+// M5-13: cargo fakes. g_cargo is what the game reports; g_cargo_tags records the tags argument (must be "", never
+// nullptr) and g_cargo_id the container the export was asked about.
+struct FakeWare {
+  const char* ware;
+  const char* macro;
+  int amount;
+};
+std::vector<FakeWare> g_cargo;
+std::string g_cargo_tags = "unset";
+UniverseId g_cargo_id = 0;
+std::uint32_t fk_numcargo(UniverseId id, const char* tags) {
+  g_cargo_tags = tags ? tags : "<null>";
+  g_cargo_id = id;
+  return static_cast<std::uint32_t>(g_cargo.size());
+}
+std::uint32_t fk_cargo(WareInfoPod* out, std::uint32_t len, UniverseId id, const char* tags) {
+  g_cargo_tags = tags ? tags : "<null>";
+  g_cargo_id = id;
+  if (!out) return 0;
+  std::uint32_t n = 0;
+  for (const auto& w : g_cargo) {
+    if (n >= len) break;
+    out[n].ware = w.ware;
+    out[n].macro = w.macro;
+    out[n].amount = w.amount;
+    ++n;
+  }
+  return n;
+}
+
 void* lookup_all(const char* name) {
   const std::string n = name;
   if (n == "GetCurrentGameTime") return reinterpret_cast<void*>(&fk_time);
@@ -121,6 +152,8 @@ void* lookup_all(const char* name) {
   if (n == "IsPlayerOccupiedShipDocked") return reinterpret_cast<void*>(&fk_docked);
   if (n == "GetPositionalOffset") return reinterpret_cast<void*>(&fk_posoffset);
   if (n == "SetPositionalOffset") return reinterpret_cast<void*>(&fk_setposoffset);
+  if (n == "GetNumCargo") return reinterpret_cast<void*>(&fk_numcargo);
+  if (n == "GetCargo") return reinterpret_cast<void*>(&fk_cargo);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -163,7 +196,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 30);
+  CHECK(missing_exports(api.fns()).size() == 32);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -180,7 +213,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 30);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 32);
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -226,7 +259,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 29);
+  CHECK(missing_exports(api.fns()).size() == 31);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {
@@ -300,6 +333,38 @@ TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][
   bool refused = false;
   std::thread([&] { refused = api.spawn_object("m", 1, p, "o") == 0 && !api.activate_object(1, true) && !api.object_position(1); }).join();
   CHECK(refused);
+}
+
+TEST_CASE("GameApi::cargo copies the game's cargo lines and refuses an empty read", "[game][api][m5][cargo]") {
+  ResetMainThread guard;
+  GameApi api(resolve_game_fns(lookup_all), GameInfo{});
+  g_cargo = {{"energycells", "energycells", 500}, {"water", "water", 0}, {"", "ore", 3}, {"ore", "ore", 12}};
+  g_cargo_tags = "unset";
+  g_cargo_id = 0;
+  const auto got = api.cargo(7001);
+  CHECK(g_cargo_id == 7001);
+  CHECK(g_cargo_tags.empty());  // the export takes "", never nullptr
+  REQUIRE(got.size() == 2);     // amount 0 and an empty ware are dropped
+  CHECK(got[0].ware == "energycells");
+  CHECK(got[0].amount == 500);
+  CHECK(got[1].ware == "ore");
+  CHECK(got[1].amount == 12);
+
+  g_cargo.clear();  // GetNumCargo == 0: an empty read, not an empty hold (M5-13)
+  CHECK(api.cargo(7001).empty());
+  CHECK(api.cargo(0).empty());  // no id: refused before the call
+  g_cargo = {{"energycells", "energycells", 500}};
+  g_cargo_id = 0;
+  CHECK(api.cargo(0).empty());
+  CHECK(g_cargo_id == 0);  // the id-0 read never reached the game
+
+  GameApi none(resolve_game_fns(lookup_none), GameInfo{});
+  CHECK(none.cargo(7001).empty());
+
+  main_thread().capture_frame();
+  bool refused = false;
+  std::thread([&] { refused = api.cargo(7001).empty(); }).join();
+  CHECK(refused);  // off the main thread the wrapper refuses
 }
 
 TEST_CASE("assert_main_thread: the first frame thread becomes main", "[game][thread]") {

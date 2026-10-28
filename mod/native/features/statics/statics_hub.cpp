@@ -19,6 +19,7 @@ void StaticsHub::clear() {
   components_.clear();
   by_sector_.clear();
   sectors_.clear();
+  clear_stations();
   clear_report();
 }
 
@@ -45,6 +46,7 @@ void StaticsHub::unbind(std::uint32_t net_id) {
 void StaticsHub::clear_bindings() {
   components_.clear();
   by_sector_.clear();
+  clear_stations();  // the components are gone with the universe, so their ids are too
 }
 
 std::uint64_t StaticsHub::component_of(std::uint32_t net_id) const {
@@ -70,6 +72,65 @@ std::size_t StaticsHub::prune_sector(std::uint16_t sector, const std::unordered_
   }
   if (it->second.empty()) by_sector_.erase(it);
   return dropped;
+}
+
+void StaticsHub::note_station(std::uint16_t sector, std::uint64_t component, std::uint32_t net_id) {
+  if (component == 0 || net_id == 0) return;
+  const auto old = station_by_component_.find(component);
+  if (old != station_by_component_.end()) {
+    if (old->second.net_id == net_id && old->second.sector == sector) return;  // the same answer as last pass
+    component_by_station_.erase(old->second.net_id);
+    if (old->second.sector != sector) {
+      const auto prev = stations_by_sector_.find(old->second.sector);
+      if (prev != stations_by_sector_.end()) {
+        prev->second.erase(component);
+        if (prev->second.empty()) stations_by_sector_.erase(prev);
+      }
+    }
+  }
+  // One net id names one station on this node: a second component claiming it takes it over (a station was rebuilt at the same spot).
+  const auto other = component_by_station_.find(net_id);
+  if (other != component_by_station_.end() && other->second != component) station_by_component_.erase(other->second);
+  station_by_component_[component] = LocalStation{net_id, sector};
+  component_by_station_[net_id] = component;
+  stations_by_sector_[sector].insert(component);
+}
+
+std::uint32_t StaticsHub::station_net_id(std::uint64_t component) const {
+  const auto it = station_by_component_.find(component);
+  return it == station_by_component_.end() ? 0 : it->second.net_id;
+}
+
+std::uint64_t StaticsHub::station_component(std::uint32_t net_id) const {
+  const auto it = component_by_station_.find(net_id);
+  return it == component_by_station_.end() ? 0 : it->second;
+}
+
+std::size_t StaticsHub::prune_stations(std::uint16_t sector, const std::unordered_set<std::uint64_t>& present) {
+  const auto it = stations_by_sector_.find(sector);
+  if (it == stations_by_sector_.end()) return 0;
+  std::size_t dropped = 0;
+  for (auto id = it->second.begin(); id != it->second.end();) {
+    if (present.contains(*id)) {
+      ++id;
+      continue;
+    }
+    const auto row = station_by_component_.find(*id);
+    if (row != station_by_component_.end()) {
+      component_by_station_.erase(row->second.net_id);
+      station_by_component_.erase(row);
+    }
+    id = it->second.erase(id);
+    ++dropped;
+  }
+  if (it->second.empty()) stations_by_sector_.erase(it);
+  return dropped;
+}
+
+void StaticsHub::clear_stations() {
+  station_by_component_.clear();
+  component_by_station_.clear();
+  stations_by_sector_.clear();
 }
 
 std::uint32_t StaticsHub::total_matched() const noexcept {

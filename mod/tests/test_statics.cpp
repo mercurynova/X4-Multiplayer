@@ -329,3 +329,44 @@ TEST_CASE("M4-21: the hub aggregates the per-sector match report", "[statics][m4
   CHECK_FALSE(hub.ready());
   CHECK_FALSE(hub.matching_done());
 }
+
+TEST_CASE("M5-16: station components and net ids map both ways, per sector", "[statics][m516]") {
+  S::StaticsHub& hub = S::statics_hub();
+  hub.clear();
+  CHECK(hub.stations_known() == 0);
+  CHECK(hub.station_net_id(0x111) == 0);
+  CHECK(hub.station_component(0x111) == 0);
+
+  hub.note_station(1, 0x111, 0x111);  // the authority's no-manifest id is the component hash, here a plain value
+  hub.note_station(1, 0x222, 0x222);
+  hub.note_station(2, 0x333, 0x333);
+  CHECK(hub.stations_known() == 3);
+  CHECK(hub.station_net_id(0x111) == 0x111);
+  CHECK(hub.station_component(0x222) == 0x222);
+
+  // A re-note with the same id is not a change and does not grow the map.
+  hub.note_station(1, 0x111, 0x111);
+  CHECK(hub.stations_known() == 3);
+
+  // A new id for the same component replaces the old one: one net id maps to one component.
+  hub.note_station(1, 0x111, 0x444);
+  CHECK(hub.stations_known() == 3);
+  CHECK(hub.station_net_id(0x111) == 0x444);
+  CHECK(hub.station_component(0x111) == 0);
+  CHECK(hub.station_component(0x444) == 0x111);
+
+  // A scan pass prunes the ids it no longer lists, sector by sector.
+  CHECK(hub.prune_stations(1, {0x222}) == 1);
+  CHECK(hub.stations_known() == 2);
+  CHECK(hub.station_net_id(0x222) == 0x222);
+  CHECK(hub.station_net_id(0x111) == 0);
+  CHECK(hub.station_component(0x444) == 0);
+  CHECK(hub.prune_stations(1, {0x222}) == 0);  // idempotent
+  CHECK(hub.prune_stations(9, {}) == 0);       // a sector with no ids is not an error
+
+  // Dropping the bindings (a new checkpoint, a shutdown) drops the ids with them.
+  hub.bind(1, 0x222, 0x222);
+  hub.clear_bindings();
+  CHECK(hub.stations_known() == 0);
+  CHECK(hub.station_component(0x222) == 0);
+}

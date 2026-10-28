@@ -684,3 +684,15 @@ if(X4MP_TESTS)
   target_sources(x4mp_host_tests PRIVATE tests/test_suppression.cpp)
 endif()
 # END M4 wave 3
+# =============================================================================================
+# BEGIN M5 W4 trade and station stock (docs/m5-plan.md W4, M5-13..M5-17). Appended by M5 W4.
+#   features/economy/*.cpp comes with the M2-04 features glob; the testable parts are header-only on purpose
+#   (trade_report/stock_apply/economy_hub), so a test links them without a feature host.
+#   x4mp_host_tests += tests/test_economy.cpp (cargo delta against a snapshot, one trade report per trade with the
+#                       (station, ware, second) dedupe, the EntityCargo inbox, ware ref stability)
+#   The MD half (md/x4mp_actions.xml) is checked by tools/validate-x4-xml.py, the Lua half by tests/lua/test_actions.lua.
+# =============================================================================================
+if(X4MP_TESTS)
+  target_sources(x4mp_host_tests PRIVATE tests/test_economy.cpp)
+endif()
+# END M5 W4 trade and station stock

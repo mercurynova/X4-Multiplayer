@@ -73,6 +73,19 @@ class StaticsHub {
   // M4-20: after a complete pass, a station of `sector` that the pass no longer lists loses its binding (it is gone from the world).
   std::size_t prune_sector(std::uint16_t sector, const std::unordered_set<std::uint64_t>& present);
 
+  // ---- M5-16: the local station id table ----
+  // Every station the scan reported, matched to a manifest row or not, so this node can translate a trade line's local component into
+  // the net id the wire carries and back. The net id is the manifest row's id when there is one; without a row it is the M3 container
+  // hash of the very same match key (onfoot::matched_container_id), which every node computes identically - the fallback the on-foot
+  // flow already uses (statics_hub.h:62). Unlike `bind`, this is not a matching claim: it carries no report counters.
+  void note_station(std::uint16_t sector, std::uint64_t component, std::uint32_t net_id);
+  [[nodiscard]] std::uint32_t station_net_id(std::uint64_t component) const;
+  [[nodiscard]] std::uint64_t station_component(std::uint32_t net_id) const;
+  [[nodiscard]] std::size_t stations_known() const noexcept { return station_by_component_.size(); }
+  // M5-16: a station this pass no longer lists is gone from this universe.
+  std::size_t prune_stations(std::uint16_t sector, const std::unordered_set<std::uint64_t>& present);
+  void clear_stations();
+
   SectorMatch& sector(std::uint16_t sector) { return sectors_[sector]; }
   [[nodiscard]] const std::map<std::uint16_t, SectorMatch>& sectors() const noexcept { return sectors_; }
   [[nodiscard]] std::uint32_t total_matched() const noexcept;
@@ -94,6 +107,16 @@ class StaticsHub {
   std::map<std::uint16_t, SectorMatch> sectors_;
   MatchReport report_;
   bool matching_done_ = false;
+
+  // M5-16: every scanned station, matched or not (see note_station). Kept apart from the bindings above so the M4 report keeps its
+  // meaning: a station without a manifest row is still "missed" in the report, yet its id is known here.
+  struct LocalStation {
+    std::uint32_t net_id = 0;
+    std::uint16_t sector = 0;
+  };
+  std::unordered_map<std::uint64_t, LocalStation> station_by_component_;
+  std::unordered_map<std::uint32_t, std::uint64_t> component_by_station_;
+  std::unordered_map<std::uint16_t, std::unordered_set<std::uint64_t>> stations_by_sector_;
 };
 
 [[nodiscard]] StaticsHub& statics_hub();

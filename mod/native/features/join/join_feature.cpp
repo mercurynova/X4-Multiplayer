@@ -19,6 +19,7 @@
 #include "features/avatars/avatar_hub.h"
 #include "features/diag/diag_hub.h"
 #include "features/events/events_hub.h"
+#include "features/economy/economy_hub.h"
 #include "features/ghosts/ghost_hub.h"
 #include "features/onfoot/onfoot_hub.h"
 #include "features/join/join_messages.h"
@@ -811,6 +812,8 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       ghosts::ghost_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
       // M3b: OnFootState / PresenceRoster / PlayerAppearance / PlayerInteraction go to the on-foot hub; it ignores everything else.
       onfoot::onfoot_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
+      // M5-16: EntityCargo for a station (and for this node's own ship) goes to the economy hub; it ignores everything else.
+      economy::economy_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload));
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);

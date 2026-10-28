@@ -25,6 +25,7 @@
 #include "common_generated.h"
 #include "events_generated.h"
 #include "flatbuffers/flatbuffers.h"
+#include "world_generated.h"
 
 namespace x4mp::features::events {
 
@@ -89,6 +90,20 @@ struct KillEventData {
   std::uint32_t killer = 0;
   std::uint16_t killer_player = 0;
   std::uint16_t killer_team = 0;
+};
+
+// M5-15/16: one line of a cargo snapshot. `WareAmount` on the wire is a struct, so it carries no ware string: `ware_ref`
+// is the session string table's ref for the ware macro (the authority registers it with StringTableAdd before it sends).
+struct CargoLine {
+  std::uint32_t ware_ref = 0;
+  std::int32_t amount = 0;
+};
+
+// A whole cargo snapshot of one container, as EntityCargo carries it (M5-14: own ship, M5-16: a station).
+struct CargoView {
+  std::uint64_t journal_seq = 0;
+  std::uint32_t net_id = 0;
+  std::vector<CargoLine> wares;
 };
 
 namespace detail {
@@ -189,6 +204,35 @@ inline std::vector<std::uint8_t> finish_intent(const IntentRequest& request, P::
   return detail::take_buffer(fbb);
 }
 
+// The feed entry for one player trade (M5-16). The authority applies the stock change and reports it; nothing on the wire applies
+// this event, it is the economy feed's record of what happened (docs/protocol.md 14).
+[[nodiscard]] inline std::vector<std::uint8_t> encode_trade_event(std::uint32_t station, std::uint32_t ship, std::uint16_t player_id,
+                                                                std::uint32_t ware_ref, std::int32_t amount, std::int32_t unit_price,
+                                                                std::uint64_t event_seq, std::uint64_t server_time_us, double game_time,
+                                                                std::uint16_t sector) {
+  flatbuffers::FlatBufferBuilder fbb(192);
+  const auto body = P::CreateTradeEvent(fbb, station, ship, player_id, ware_ref, amount, unit_price);
+  const auto event = P::CreateGameEvent(fbb, event_seq, server_time_us, game_time, sector, P::GameEventBody::TradeEvent, body.Union());
+  fbb.Finish(event);
+  return detail::take_buffer(fbb);
+}
+
+// ---- cargo (M5-14..16; EntityCargo lives in world.fbs) ----
+
+// A full cargo snapshot of one container: A->S for a station (M5-16), C->S for the sender's own ship (M5-14). An empty
+// `wares` is a legitimate "the hold is empty", so senders must not use it for "the read failed".
+[[nodiscard]] inline std::vector<std::uint8_t> encode_entity_cargo(std::uint32_t net_id, std::span<const CargoLine> wares,
+                                                                  std::uint64_t journal_seq = 0) {
+  flatbuffers::FlatBufferBuilder fbb(64 + wares.size() * sizeof(P::WareAmount));
+  std::vector<P::WareAmount> rows;
+  rows.reserve(wares.size());
+  for (const CargoLine& w : wares) rows.emplace_back(w.ware_ref, w.amount);
+  const auto vec = fbb.CreateVectorOfStructs(rows);
+  const auto cargo = P::CreateEntityCargo(fbb, journal_seq, net_id, vec);
+  fbb.Finish(cargo);
+  return detail::take_buffer(fbb);
+}
+
 // ---- decoding (S -> N) ----
 
 struct IntentView {
@@ -214,6 +258,16 @@ struct IntentView {
   const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
   if (intent == nullptr || intent->body_type() != P::IntentBody::PlayerDeath) return nullptr;
   return intent->body_as_PlayerDeath();
+}
+
+// The body of a trade report, or nullptr when the buffer is not one (M5-14). The pointer lives as long as `bytes`.
+[[nodiscard]] inline const P::TradeReport* trade_report_of(std::span<const std::uint8_t> bytes) {
+  if (bytes.size() < 4) return nullptr;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::Intent>(nullptr)) return nullptr;
+  const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
+  if (intent == nullptr || intent->body_type() != P::IntentBody::TradeReport) return nullptr;
+  return intent->body_as_TradeReport();
 }
 
 [[nodiscard]] inline bool decode_intent(std::span<const std::uint8_t> bytes, IntentView& out) {
@@ -274,6 +328,26 @@ struct GameEventView {
   out.event_seq = event->event_seq();
   out.server_time_us = event->server_time_us();
   out.sector = event->sector();
+  return true;
+}
+
+// A full cargo snapshot, or false when the buffer is not an EntityCargo (M5-14/16). `out` is cleared first.
+[[nodiscard]] inline bool decode_entity_cargo(std::span<const std::uint8_t> bytes, CargoView& out) {
+  out = CargoView{};
+  if (bytes.size() < 4) return false;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::EntityCargo>(nullptr)) return false;
+  const P::EntityCargo* cargo = flatbuffers::GetRoot<P::EntityCargo>(bytes.data());
+  if (cargo == nullptr) return false;
+  out.journal_seq = cargo->journal_seq();
+  out.net_id = cargo->net_id();
+  if (const auto* wares = cargo->wares()) {
+    out.wares.reserve(wares->size());
+    for (const P::WareAmount* w : *wares) {
+      if (w == nullptr) continue;
+      out.wares.push_back(CargoLine{w->ware_ref(), w->amount()});
+    }
+  }
   return true;
 }
 

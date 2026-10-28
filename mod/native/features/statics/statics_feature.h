@@ -12,8 +12,9 @@
 //                   -> StaticsInbox -> this feature -> StaticsHub::bind(net_id, component)
 //   consumers       the on-foot flow (M4-19: a station container's net id is the manifest row's id) and the ManifestReport (M4-21)
 //
-// Nothing here touches the game: the scan is MD's, the manifest is a file, the index and the matching are pure C++. Does nothing on the
-// authority node (it owns the world; only clients need net ids for its own copies) and before the universe is ready.
+// Nothing here touches the game: the scan is MD's, the manifest is a file, the index and the matching are pure C++. A client does nothing
+// before the universe is ready. The authority has no manifest (it writes one), but it runs the same scan for one reason (M5-16): a trade
+// names a station by net id, and the scan is what turns that id back into a local component.
 
 #include <cstdint>
 #include <map>
@@ -28,6 +29,10 @@
 #include "host/feature.h"
 
 namespace x4mp::features {
+
+// M5-16: one more sector to scan. The authority asks when a trade names a station in a sector it has no ids for; a client's interest
+// already drives its own pass set. Any thread may ask; the frame thread drains the queue in pump().
+void request_station_scan(std::uint16_t sector);
 
 // M4-18: the station scan answers (x4mp.statics_scan) arrive on the platform's event thread; the frame thread drains them.
 struct StaticsInbox {

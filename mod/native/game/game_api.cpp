@@ -43,6 +43,8 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "IsPlayerOccupiedShipDocked", f.IsPlayerOccupiedShipDocked);
   bind(get, "GetPositionalOffset", f.GetPositionalOffset);
   bind(get, "SetPositionalOffset", f.SetPositionalOffset);
+  bind(get, "GetNumCargo", f.GetNumCargo);
+  bind(get, "GetCargo", f.GetCargo);
   return f;
 }
 
@@ -81,6 +83,8 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.IsPlayerOccupiedShipDocked), "IsPlayerOccupiedShipDocked");
   check(reinterpret_cast<const void*>(f.GetPositionalOffset), "GetPositionalOffset");
   check(reinterpret_cast<const void*>(f.SetPositionalOffset), "SetPositionalOffset");
+  check(reinterpret_cast<const void*>(f.GetNumCargo), "GetNumCargo");
+  check(reinterpret_cast<const void*>(f.GetCargo), "GetCargo");
   return out;
 }
 
@@ -224,6 +228,22 @@ bool GameApi::component_wrecked(UniverseId id) const noexcept {
 }
 bool GameApi::player_ship_docked() const noexcept {
   return fns_.IsPlayerOccupiedShipDocked && assert_main_thread("IsPlayerOccupiedShipDocked") && fns_.IsPlayerOccupiedShipDocked();
+}
+std::vector<CargoPod> GameApi::cargo(UniverseId container) const {
+  std::vector<CargoPod> out;
+  if (container == 0 || !fns_.GetNumCargo || !fns_.GetCargo || !assert_main_thread("GetCargo")) return out;
+  const std::uint32_t n = fns_.GetNumCargo(container, "");
+  if (n == 0) return out;
+  const std::uint32_t want = n > kMaxCargoLines ? kMaxCargoLines : n;
+  std::vector<WareInfoPod> raw(want);
+  const std::uint32_t got = fns_.GetCargo(raw.data(), want, container, "");
+  out.reserve(got);
+  for (std::uint32_t i = 0; i < got && i < want; ++i) {
+    const WareInfoPod& w = raw[i];
+    if (!w.ware || !*w.ware || w.amount == 0) continue;
+    out.push_back(CargoPod{std::string(w.ware), w.amount});
+  }
+  return out;
 }
 
 }  // namespace x4mp::game
