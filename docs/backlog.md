@@ -26,7 +26,7 @@ is removed when the work starts. **Trigger** = when we pick it up; **ready-to-go
 | # | Upgrade | Was | Why deferred | Trigger | Ready-to-go notes |
 |---|---|---|---|---|---|
 | D1 | **TypeScript 6 -> 7** (`server/web`) | PR #6, CI red | Compiler major; a planned task, not a bump | Next web-GUI work (the player portal ADR-050 or M6 packaging), or when TS 6 stops getting fixes / a dependency needs 7 | Read the TS 7 release notes (breaking changes), run `npm run build` + Playwright e2e, fix type errors; one Sonnet task in `server/web` |
-| D2 | **xunit.runner.visualstudio 3 -> 4** (test projects) | PR #13, CI red | Test-runner major; may need test-project changes | Next .NET tooling pass (with the SDK move follow-ups), or when 3.x stops working with a new SDK / VS | Check the v4 migration notes (xunit v3 runner requirements), update `Directory.Packages.props`, regenerate lock files with a plain restore, full `dotnet test`; one Sonnet task |
+| D2 | **xunit.runner.visualstudio 3 -> 4** (test projects) | fixed (PR pending): 4.0.1; PR #13 was red only from NU1903 (SignalR.Common 10.0.12 advisory) | Test-runner major; may need test-project changes | Next .NET tooling pass (with the SDK move follow-ups), or when 3.x stops working with a new SDK / VS | Check the v4 migration notes (xunit v3 runner requirements), update `Directory.Packages.props`, regenerate lock files with a plain restore, full `dotnet test`; one Sonnet task |
 
 ## Open items
 
