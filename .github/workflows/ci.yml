@@ -121,7 +121,7 @@ jobs:
           cache: true
           cache-dependency-path: "**/packages.lock.json"
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
@@ -160,7 +160,7 @@ jobs:
           test -s "$out/clean.json"
       - name: Upload test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.os }}
           path: TestResults
@@ -178,12 +178,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-protocol-${{ runner.os }}-${{ hashFiles('protocol/cpp/vcpkg.json') }}
@@ -194,7 +194,7 @@ jobs:
       - run: powershell -NoProfile -File protocol/cpp/build.ps1
       - name: Upload CTest logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: protocol-cpp-logs
           path: protocol/cpp/build/**/Testing/Temporary/*.log
@@ -212,12 +212,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
@@ -229,7 +229,7 @@ jobs:
       - run: powershell -NoProfile -File mod/build.ps1
       - name: Upload CTest logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mod-logs
           path: mod/build/**/Testing/Temporary/*.log
@@ -302,7 +302,7 @@ jobs:
           cache: true
           cache-dependency-path: "**/packages.lock.json"
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
@@ -314,7 +314,7 @@ jobs:
           cache-dependency-path: server/web/package-lock.json
       - name: Cache Playwright browsers
         if: matrix.name == 'playwright'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('server/web/package-lock.json') }}
@@ -323,7 +323,7 @@ jobs:
         run: ./tools/e2e.ps1 -Steps ${{ matrix.steps }}
       - name: Upload E2E logs and traces
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-${{ matrix.name }}-logs
           path: |
@@ -373,13 +373,13 @@ jobs:
           cache: true
           cache-dependency-path: "**/packages.lock.json"
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       # Same cache key as the `mod` job, so a warm cache makes the mod build here a few minutes.
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
@@ -394,7 +394,7 @@ jobs:
         run: ./tools/e2e.ps1 -Steps ${{ matrix.steps }}
       - name: Upload E2E logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-headless-logs-${{ matrix.name }}
           path: |

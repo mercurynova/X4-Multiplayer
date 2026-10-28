@@ -54,7 +54,7 @@ jobs:
           $tag = "${{ github.ref_name }}"
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "out/${{ matrix.rid }}/*" -DestinationPath "dist/x4mp-server-$tag-${{ matrix.rid }}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: server-${{ matrix.rid }}
           path: dist/*.zip
@@ -69,12 +69,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Cache flatc
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
       - name: Cache vcpkg binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-archives
           key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
@@ -101,7 +101,7 @@ jobs:
           Copy-Item "$x4n/VERSION" "$n/VERSION"
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "$root/*" -DestinationPath "dist/x4mp-mod-$tag.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mod
           path: dist/*.zip
@@ -115,7 +115,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
