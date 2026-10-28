@@ -598,6 +598,36 @@ TEST_CASE("stream (M5-07): a kill despawns once as Destroyed and carries the kil
   CHECK(recorder.count(T(P::MsgType::EntityDespawn)) == 0);
 }
 
+TEST_CASE("stream (M5-11): a player's death despawns the avatar once as PlayerLeft", "[authority][stream][despawn][m511]") {
+  World world;
+  const auto victim = world.add(12, 4300, TrackPose{0, 0, 0, 0, 0, 0});
+  Recorder recorder;
+  EntityStream stream(world.reader(), recorder.sink());
+  CaptureSet set;
+  REQUIRE(set.apply(1, {{12, 1}}, {}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(12);
+  stream.step(1.0, 0, 0.0, set, world.index);
+  recorder.clear();
+
+  stream.on_player_left(victim);
+  stream.step(1.0, 50000, 0.05, set, world.index);
+  REQUIRE(recorder.count(T(P::MsgType::EntityDespawn)) == 1);
+  const auto* despawn = flatbuffers::GetRoot<P::EntityDespawn>(recorder.first(T(P::MsgType::EntityDespawn)).data());
+  REQUIRE(despawn->entries() != nullptr);
+  REQUIRE(despawn->entries()->size() == 1);
+  const auto* entry = despawn->entries()->Get(0);
+  CHECK(entry->net_id() == victim);
+  CHECK(entry->reason() == P::DespawnReason::PlayerLeft);
+  CHECK(entry->killer_net_id() == 0);
+
+  // Net id 0 is not a player we know: nothing is queued, so a client that never had an avatar sends nothing.
+  recorder.clear();
+  stream.on_player_left(0);
+  stream.step(1.0, 100000, 0.10, set, world.index);
+  CHECK(recorder.count(T(P::MsgType::EntityDespawn)) == 0);
+}
+
 TEST_CASE("stream: an owner change emits one EntityChange, a hull change one status entry", "[authority][stream][change]") {
   World world;
   const auto id = world.add(12, 4200, TrackPose{0, 0, 0, 0, 0, 0});

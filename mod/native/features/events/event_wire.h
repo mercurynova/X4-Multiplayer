@@ -175,6 +175,18 @@ inline std::vector<std::uint8_t> finish_intent(const IntentRequest& request, P::
   return detail::take_buffer(fbb);
 }
 
+// The feed entry for one player death (M5-10). Same rule as the kill event: A->S only, informational, nothing applies it.
+[[nodiscard]] inline std::vector<std::uint8_t> encode_player_died_event(std::uint16_t player_id, std::uint32_t killer,
+                                                                      std::uint16_t killer_player, std::uint64_t event_seq,
+                                                                      std::uint64_t server_time_us, double game_time,
+                                                                      std::uint16_t sector) {
+  flatbuffers::FlatBufferBuilder fbb(192);
+  const auto body = P::CreatePlayerDiedEvent(fbb, player_id, killer, killer_player);
+  const auto event = P::CreateGameEvent(fbb, event_seq, server_time_us, game_time, sector, P::GameEventBody::PlayerDiedEvent, body.Union());
+  fbb.Finish(event);
+  return detail::take_buffer(fbb);
+}
+
 // ---- decoding (S -> N) ----
 
 struct IntentView {
@@ -190,6 +202,16 @@ struct IntentView {
   const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
   if (intent == nullptr || intent->body_type() != P::IntentBody::KillClaim) return nullptr;
   return intent->body_as_KillClaim();
+}
+
+// The body of a player-death intent, or nullptr when the buffer is not one (M5-10).
+[[nodiscard]] inline const P::PlayerDeath* player_death_of(std::span<const std::uint8_t> bytes) {
+  if (bytes.size() < 4) return nullptr;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::Intent>(nullptr)) return nullptr;
+  const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
+  if (intent == nullptr || intent->body_type() != P::IntentBody::PlayerDeath) return nullptr;
+  return intent->body_as_PlayerDeath();
 }
 
 [[nodiscard]] inline bool decode_intent(std::span<const std::uint8_t> bytes, IntentView& out) {

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "events_generated.h"
+#include "features/events/death_report.h"
 #include "features/events/event_bus.h"
 #include "features/events/event_types.h"
 #include "features/events/event_wire.h"
@@ -367,5 +368,44 @@ TEST_CASE("M5-06: a ghost kill becomes exactly one KillClaim, and an unmapped vi
 
   // Anything that is not a kill line is not the reporter's business.
   CHECK_FALSE(reporter.on_event(event_of(EventKind::Trade, 0x1b1d, 8000)));
+  CHECK(reporter.stats().sent == 1);
+}
+
+TEST_CASE("M5-10: a player's own death becomes exactly one PlayerDeath intent, and a kill none", "[events][m510]") {
+  struct Sent {
+    std::uint16_t type = 0;
+    std::vector<std::uint8_t> bytes;
+  };
+  std::vector<Sent> sent;
+  bool send_ok = true;
+  DeathReporter reporter(DeathReportDeps{
+      [&sent, &send_ok](std::uint16_t type, std::span<const std::uint8_t> payload) {
+        sent.push_back(Sent{type, std::vector<std::uint8_t>(payload.begin(), payload.end())});
+        return send_ok;
+      },
+      [] { return static_cast<std::uint16_t>(5); },
+  });
+
+  REQUIRE(reporter.on_event(event_of(EventKind::PlayerDeath, 0, 1000)));
+  REQUIRE(sent.size() == 1);
+  CHECK(sent[0].type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::Intent));
+  const auto* body = player_death_of(sent[0].bytes);
+  REQUIRE(body != nullptr);
+  CHECK(body->killer() == 0);
+  IntentView view;
+  REQUIRE(decode_intent(sent[0].bytes, view));
+  CHECK(view.type == X4MP::Proto::IntentBody::PlayerDeath);
+  CHECK(view.request.player_id == 5);
+  CHECK(view.request.key_lo == 1);
+  CHECK(reporter.stats().sent == 1);
+
+  // A kill is the kill reporter's business, not this one's.
+  CHECK_FALSE(reporter.on_event(event_of(EventKind::Kill, 0x1b1d, 2000)));
+  CHECK(sent.size() == 1);
+
+  // A send that fails is counted, not retried in a loop.
+  send_ok = false;
+  CHECK_FALSE(reporter.on_event(event_of(EventKind::PlayerDeath, 0, 3000)));
+  CHECK(reporter.stats().send_failed == 1);
   CHECK(reporter.stats().sent == 1);
 }

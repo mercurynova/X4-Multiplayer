@@ -58,6 +58,10 @@ void EventsFeature::on_init(host::HostContext& ctx) {
       [] { return events::events_hub().self_player_id(); },
       [] { return selfship::selfship_hub().own_net_id(); },
   });
+  death_ = std::make_unique<events::DeathReporter>(events::DeathReportDeps{
+      [](std::uint16_t type, std::span<const std::uint8_t> payload) { return events::events_hub().send_control(type, payload); },
+      [] { return events::events_hub().self_player_id(); },
+  });
 }
 
 void EventsFeature::on_universe_ready(host::HostContext& ctx) {
@@ -108,6 +112,7 @@ void EventsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   // The send budget. Kills go out as an Intent (M5-06); every event also reaches the optional sink a later wave installs.
   for (const events::MdEvent& event : bus_.take(events::EventBus::kDefaultPerFrame)) {
     if (event.kind == events::EventKind::Kill && reporter_) (void)reporter_->on_event(event);
+  if (event.kind == events::EventKind::PlayerDeath && death_) (void)death_->on_event(event);
     if (sink_) sink_(event);
   }
 

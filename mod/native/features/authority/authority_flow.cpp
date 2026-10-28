@@ -223,6 +223,30 @@ void AuthorityFlow::on_intent(host::HostContext& ctx, std::span<const std::uint8
     X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: intent for net {} rejected: {}", target, detail);
   };
 
+  if (intent.type == P::IntentBody::PlayerDeath) {
+    // M5-11: the client's own ship died. The game owns the death and the ship; the mod despawns the avatar everywhere, drops the
+    // record so a reloaded client cannot resurrect a stale ghost, and answers with exactly one IntentResult.
+    const P::PlayerDeath* death = events::player_death_of(payload);
+    const std::uint32_t killer_net = death != nullptr ? death->killer() : 0;
+    const std::uint16_t player_id = intent.request.player_id;
+    const std::uint32_t net_id = avatars::avatar_hub().net_id_of_player(player_id);
+    if (net_id != 0) {
+      index_.erase(net_id);
+      stream_.on_player_left(net_id);
+      avatars::avatar_hub().forget_player(player_id);
+      ++players_died_;
+    }
+    const std::vector<std::uint8_t> reply =
+        events::encode_intent_result(intent.request, P::IntentStatus::Accepted, P::RejectReason::None, "", net_id);
+    (void)send_frame(T(P::MsgType::IntentResult), reply);
+    const std::vector<std::uint8_t> event =
+        events::encode_player_died_event(player_id, killer_net, player_id, 0, 0, intent.request.game_time, 0);
+    (void)send_frame(T(P::MsgType::GameEvent), event);
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Info,
+              "authority: player {} died (killer net {}); avatar net {} despawned as PlayerLeft, record dropped", static_cast<int>(player_id),
+              killer_net, net_id);
+    return;
+  }
   if (intent.type != P::IntentBody::KillClaim) {
     ++intent_unsupported_;
     reject(P::RejectReason::Unsupported, "the authority does not apply this intent", 0);

@@ -105,6 +105,12 @@ class AvatarHub {
   // The records (current poses) for the checkpoint manifest, taken at SaveGame time. Empty without an avatars feature.
   void set_snapshot_fn(std::function<std::vector<Record>()> fn) { snapshot_fn_ = std::move(fn); }
   [[nodiscard]] std::vector<Record> manifest_records() const { return snapshot_fn_ ? snapshot_fn_() : std::vector<Record>{}; }
+  // M5-11: a player's avatar net id, 0 when this node holds no record for them. Used by the authority's PlayerDeath branch.
+  void set_player_lookup_fn(std::function<std::uint32_t(std::uint16_t)> fn) { player_lookup_fn_ = std::move(fn); }
+  [[nodiscard]] std::uint32_t net_id_of_player(std::uint16_t player_id) const { return player_lookup_fn_ ? player_lookup_fn_(player_id) : 0; }
+  // M5-11: drop a player's avatar record after their death, without touching the ship (the game owns the death and the removal).
+  void set_forget_fn(std::function<void(std::uint16_t)> fn) { forget_fn_ = std::move(fn); }
+  void forget_player(std::uint16_t player_id) { if (forget_fn_) forget_fn_(player_id); }
   void set_max_net_id(std::uint32_t id) noexcept { max_net_id_ = id; }
   [[nodiscard]] std::uint32_t max_net_id() const noexcept { return max_net_id_; }
 
@@ -127,6 +133,8 @@ class AvatarHub {
   AuthorityServices services_;
   bool have_services_ = false;
   std::function<std::vector<Record>()> snapshot_fn_;
+  std::function<std::uint32_t(std::uint16_t)> player_lookup_fn_;
+  std::function<void(std::uint16_t)> forget_fn_;
   std::uint32_t max_net_id_ = 0;
   std::function<AvatarProtect()> protect_fn_;
   TakeoverStatus takeover_;

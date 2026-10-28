@@ -186,6 +186,37 @@ M5-09 needed no new code: a tracked entity that becomes invalid is already detec
 
 **AC (wave).** AC item 3; item 7 only if M5-12 lands.
 
+**Status 2026-10-28: W3 done for M5-10 and M5-11 (code + tests); M5-12 deferred as the stretch item the plan already marked it.**
+
+**Built.**
+
+- **Client (M5-10).** `features/events/death_report.h` — `DeathReporter` with `DeathReportDeps { send_control, self_player_id }` and
+  `DeathReportStats { sent, send_failed }`. `EventsFeature` feeds it every `EventKind::PlayerDeath`, which is the MD `P;` line the
+  capture ring already raises when `$Killed == player.occupiedship`. The reporter sends `Intent{PlayerDeath{killer}}` with a fresh
+  `request_key` and **touches no object**: no removal, no hull change, no name change. The game runs its own death flow.
+- **Wire.** `event_wire.h` gained `encode_player_died_event(...)` (a `GameEvent{PlayerDiedEvent}`) and `player_death_of(...)`, the
+  same shape as the existing `encode_kill_event` / `kill_claim_of` pair.
+- **Authority (M5-11).** `AuthorityFlow::on_intent` now handles `IntentBody::PlayerDeath` *before* the kill-claim path. It resolves
+  the dying player's avatar net id through `AvatarHub::net_id_of_player`, then `UniverseIndex::erase`, `EntityStream::on_player_left`
+  (a one-shot `DespawnEntry{reason=PlayerLeft, killer=0}`), and `AvatarDirector::forget_player` — which drops the record **without
+  removing the ship**, so a reloaded client cannot resurrect a stale ghost from it. Exactly one `IntentResult` goes back and one
+  `GameEvent{PlayerDiedEvent}` goes to the server (which stamps `event_seq` and `server_time_us`). Counter: `players_died_`.
+- **Plumbing.** `AvatarHub` gained `set_player_lookup_fn` / `net_id_of_player` / `set_forget_fn` / `forget_player`, installed and
+  cleared by `AvatarsFeature` next to the snapshot and protect functions; `EntityStream::on_player_left` mirrors `on_killed`.
+
+**Verified:** `game_build` exit 0 (`build-1793165718472.log`); ctest **647/647** including the two new cases
+`host.M5-10` and `host.stream (M5-11)`; Lua **257/257**.
+
+**Not done, deliberately.**
+
+- **M5-12 (damage relay) is not implemented.** The plan marks it a stretch, and the MD action names it would need
+  (`set_object_hull` / `set_object_shield`) are still `[VERIFY]`. AC item 7 stays open and is reported as deferred in the exit
+  report rather than quietly dropped.
+- **A rejected `PlayerDeath` is not reconciled on the client.** The client's death belongs to the game; a rejection only means no
+  despawn was broadcast, which the next roster/state update corrects. Same rule as W2's rejected kill claim.
+- **The reloaded client's own registry restore** is only exercised in session 8; the authority-side stale-record path is covered by
+  `forget_player` and pinned by the `M5-11` stream test.
+
 ### W4 — Trade and station stock (M5-13..M5-17)
 
 | Task | Work | AC |

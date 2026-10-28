@@ -195,6 +195,7 @@ class AuthorityFlow {
   std::uint32_t intent_player_ = 0;
   std::uint32_t intent_failed_ = 0;
   std::uint32_t kills_applied_ = 0;
+  std::uint32_t players_died_ = 0;
   std::uint32_t capture_sets_ = 0, capture_stale_ = 0, capture_bad_ = 0;
   std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0;
   // M4-03: a sector whose scan MD has been asked for, and when. The entry is dropped when the closing count arrives, so a sector that MD

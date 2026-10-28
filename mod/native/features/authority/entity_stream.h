@@ -126,6 +126,9 @@ class EntityStream {
   // M5-07: the authority applied a kill. Same despawn as on_row_removed(.., true) but the message carries the killer, so a client
   // can attribute the explosion. The caller has already erased the row from the index.
   void on_killed(std::uint32_t net_id, std::uint32_t killer_net_id);
+  // M5-11: the player died or left. Same one-shot despawn as a kill, but the reason is PlayerLeft so a client knows the ship did not
+  // explode and the slot is coming back when that player rejoins.
+  void on_player_left(std::uint32_t net_id);
   // An attribute changed on an entity (M4-11). Only the owner and the macro exist in the index today; the other bits
   // wait for the manifest (W4). Ignored for an entity that is not on the wire yet (its spawn carries the new value).
   void on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref);

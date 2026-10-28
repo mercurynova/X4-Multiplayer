@@ -189,6 +189,11 @@ class AvatarDirector {
   [[nodiscard]] std::size_t size() const noexcept { return avatars_.size(); }
   [[nodiscard]] std::size_t live_count() const noexcept;
   [[nodiscard]] std::uint32_t max_net_id() const noexcept;
+  // M5-11: the net id of a player's avatar, or 0 when this node holds no record for that player.
+  [[nodiscard]] std::uint32_t net_id_of_player(std::uint16_t player_id) const noexcept;
+  // M5-11: the player died. Drop the record WITHOUT removing the ship - the game owns the death and the ship's removal; the record must
+  // go so a reloaded client cannot resurrect a stale ghost from it.
+  void forget_player(std::uint16_t player_id);
   [[nodiscard]] const DirectorStats& stats() const noexcept { return stats_; }
   [[nodiscard]] bool rebind_pending() const noexcept { return rebind_pending_; }
 

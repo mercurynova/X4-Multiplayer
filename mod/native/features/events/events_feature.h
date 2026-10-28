@@ -24,6 +24,7 @@
 
 #include "features/events/event_bus.h"
 #include "features/events/event_types.h"
+#include "features/events/death_report.h"
 #include "features/events/kill_report.h"
 #include "host/feature.h"
 
@@ -65,6 +66,7 @@ class EventsFeature final : public host::IFeature {
   std::shared_ptr<Inbox> inbox_;
   events::EventBus bus_;
   std::unique_ptr<events::KillReporter> reporter_;
+  std::unique_ptr<events::DeathReporter> death_;
   std::function<void(const events::MdEvent&)> sink_;
   std::int64_t now_ms_ = 0;
   std::int64_t last_event_ms_ = -1;

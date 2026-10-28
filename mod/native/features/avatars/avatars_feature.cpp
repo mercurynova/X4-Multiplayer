@@ -351,6 +351,14 @@ void AvatarsFeature::on_init(host::HostContext& ctx) {
   s.client->init(ctx, [self = &s]() { return self->team_candidates(); });
   av::avatar_hub().set_max_net_id(s.dir->max_net_id());
   av::avatar_hub().set_snapshot_fn([&s]() { return s.dir->snapshot(); });
+  // M5-11: the authority's PlayerDeath branch needs the avatar net id of a player, and needs to drop the record after a death so a
+  // reloaded client cannot resurrect a stale ghost from it.
+  av::avatar_hub().set_player_lookup_fn([&s](std::uint16_t player_id) -> std::uint32_t {
+    return s.dir ? s.dir->net_id_of_player(player_id) : 0;
+  });
+  av::avatar_hub().set_forget_fn([&s](std::uint16_t player_id) {
+    if (s.dir) s.dir->forget_player(player_id);
+  });
   // M3-13: the janitor and the checkpoint check never remove an avatar: the ids the binder bound and the idcodes of every record
   av::avatar_hub().set_protect_fn([&s]() {
     av::AvatarProtect p;
@@ -382,6 +390,8 @@ void AvatarsFeature::on_shutdown(host::HostContext& ctx) {
   auto& s = *impl_;
   s.ctx = &ctx;
   av::avatar_hub().set_snapshot_fn({});
+  av::avatar_hub().set_player_lookup_fn({});
+  av::avatar_hub().set_forget_fn({});
   av::avatar_hub().set_protect_fn({});
   av::avatar_hub().set_takeover_status({});
   if (s.client) s.client->shutdown(ctx);

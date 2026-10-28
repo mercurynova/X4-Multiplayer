@@ -83,6 +83,11 @@ void EntityStream::on_killed(std::uint32_t net_id, std::uint32_t killer_net_id) 
   despawn_now_.push_back(DespawnSample{net_id, killer_net_id, static_cast<std::uint8_t>(DespawnCause::Destroyed)});
 }
 
+void EntityStream::on_player_left(std::uint32_t net_id) {
+  if (net_id == 0) return;
+  despawn_now_.push_back(DespawnSample{net_id, 0, static_cast<std::uint8_t>(DespawnCause::PlayerLeft)});
+}
+
 void EntityStream::on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref) {
   ChangeSample c;
   c.net_id = net_id;

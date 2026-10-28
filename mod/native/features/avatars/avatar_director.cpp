@@ -450,6 +450,23 @@ void AvatarDirector::on_despawn(const DespawnIn& d) {
   }
 }
 
+std::uint32_t AvatarDirector::net_id_of_player(std::uint16_t player_id) const noexcept {
+  for (const auto& av : avatars_) {
+    if (av->rec.player_id == player_id) return av->rec.net_id;
+  }
+  return 0;
+}
+
+void AvatarDirector::forget_player(std::uint16_t player_id) {
+  const auto before = avatars_.size();
+  avatars_.erase(std::remove_if(avatars_.begin(), avatars_.end(), [player_id](const auto& a) { return a->rec.player_id == player_id; }),
+                 avatars_.end());
+  if (avatars_.size() == before) return;
+  mark_dirty();
+  env_.log(LogLevel::Info,
+           std::format("avatars: the record of player {} is forgotten (death); the ship is the game's to remove, the mod touches nothing", player_id));
+}
+
 void AvatarDirector::on_safepos(std::uint32_t seq, bool ok, const Pose& pos) {
   ++stats_.safepos_replies;
   for (auto& up : avatars_) {
