@@ -54,6 +54,7 @@ struct TradeReportData {
   std::uint32_t station = 0;
   std::uint32_t ship = 0;
   std::uint32_t ware_ref = 0;
+  std::string ware;             // the ware macro as this node knows it (M5-14); ware_ref is the fallback when empty
   std::int32_t amount = 0;      // > 0: the ship bought from the station; < 0: it sold
   std::int32_t unit_price = 0;  // informational only - money moves as CreditDelta (mod-design 12.2)
 };
@@ -120,8 +121,9 @@ inline std::vector<std::uint8_t> finish_intent(const IntentRequest& request, P::
 }
 
 [[nodiscard]] inline std::vector<std::uint8_t> encode_trade_report(const IntentRequest& request, const TradeReportData& trade) {
-  flatbuffers::FlatBufferBuilder fbb(128);
-  const auto body = P::CreateTradeReport(fbb, trade.station, trade.ship, trade.ware_ref, trade.amount, trade.unit_price);
+  flatbuffers::FlatBufferBuilder fbb(192);
+  const auto ware = fbb.CreateString(trade.ware);
+  const auto body = P::CreateTradeReport(fbb, trade.station, trade.ship, trade.ware_ref, trade.amount, trade.unit_price, ware);
   return detail::finish_intent(request, P::IntentBody::TradeReport, body.Union(), fbb);
 }
 

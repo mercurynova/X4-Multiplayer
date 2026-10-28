@@ -41,6 +41,7 @@ table TradeReport {
   ware_ref:uint;
   amount:int;
   unit_price:int;                // credits, informational (credits are not synced)
+  ware:string;                   // the ware macro as the client knows it; ware_ref stays the fallback (M5-14)
 }
 
 /// Player captured (boarded/claimed) a remote entity locally.
