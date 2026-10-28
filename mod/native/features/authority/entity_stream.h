@@ -123,7 +123,9 @@ class EntityStream {
 
   // The index dropped a row (M4-10): the scan no longer sees the ship. `destroyed` picks Destroyed over Removed.
   void on_row_removed(std::uint32_t net_id, bool destroyed);
-
+  // M5-07: the authority applied a kill. Same despawn as on_row_removed(.., true) but the message carries the killer, so a client
+  // can attribute the explosion. The caller has already erased the row from the index.
+  void on_killed(std::uint32_t net_id, std::uint32_t killer_net_id);
   // An attribute changed on an entity (M4-11). Only the owner and the macro exist in the index today; the other bits
   // wait for the manifest (W4). Ignored for an entity that is not on the wire yet (its spawn carries the new value).
   void on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref);

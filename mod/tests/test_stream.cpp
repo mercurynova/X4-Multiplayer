@@ -568,6 +568,36 @@ TEST_CASE("stream: a row the scan no longer sees despawns once, with the right r
   CHECK(recorder.count(T(P::MsgType::EntityDespawn)) == 0);
 }
 
+TEST_CASE("stream (M5-07): a kill despawns once as Destroyed and carries the killer", "[authority][stream][despawn][m507]") {
+  World world;
+  const auto victim = world.add(12, 4300, TrackPose{0, 0, 0, 0, 0, 0});
+  Recorder recorder;
+  EntityStream stream(world.reader(), recorder.sink());
+  CaptureSet set;
+  REQUIRE(set.apply(1, {{12, 1}}, {}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(12);
+  stream.step(1.0, 0, 0.0, set, world.index);
+  recorder.clear();
+
+  stream.on_killed(victim, 777);
+  stream.step(1.0, 50000, 0.05, set, world.index);
+  REQUIRE(recorder.count(T(P::MsgType::EntityDespawn)) == 1);
+  const auto* despawn = flatbuffers::GetRoot<P::EntityDespawn>(recorder.first(T(P::MsgType::EntityDespawn)).data());
+  REQUIRE(despawn->entries() != nullptr);
+  REQUIRE(despawn->entries()->size() == 1);
+  const auto* entry = despawn->entries()->Get(0);
+  CHECK(entry->net_id() == victim);
+  CHECK(entry->reason() == P::DespawnReason::Destroyed);
+  CHECK(entry->killer_net_id() == 777);
+
+  // A kill of net id 0 is a no-op, and the same kill twice is never sent twice by the streamer itself.
+  recorder.clear();
+  stream.on_killed(0, 777);
+  stream.step(1.0, 100000, 0.10, set, world.index);
+  CHECK(recorder.count(T(P::MsgType::EntityDespawn)) == 0);
+}
+
 TEST_CASE("stream: an owner change emits one EntityChange, a hull change one status entry", "[authority][stream][change]") {
   World world;
   const auto id = world.add(12, 4200, TrackPose{0, 0, 0, 0, 0, 0});

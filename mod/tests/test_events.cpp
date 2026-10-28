@@ -15,6 +15,7 @@
 #include "features/events/event_types.h"
 #include "features/events/event_wire.h"
 #include "features/events/hook_state.h"
+#include "features/events/kill_report.h"
 
 using namespace x4mp::features::events;
 
@@ -153,7 +154,7 @@ TEST_CASE("M5-02: the queue is bounded, drained by budget, and keeps a ring for 
 
 TEST_CASE("M5-03: the md_hook block says dead until the MD half says hello", "[events][m503]") {
   HookState state;
-  CHECK(format_hooks(state) == "hooks=dead md=0 fired=0 age=none fb=0 dup=0 queued=0");
+  CHECK(format_hooks(state) == "hooks=dead md=0 fired=0 age=none fb=0 dup=0 queued=0 claims=0 unmapped=0");
 
   state.alive = true;
   state.hooks_armed = 9;
@@ -162,7 +163,7 @@ TEST_CASE("M5-03: the md_hook block says dead until the MD half says hello", "[e
   state.deduped = 1;
   state.queued = 3;
   state.last_age_ms = 1250;
-  CHECK(format_hooks(state) == "hooks=alive md=9 fired=41 age=1.2s fb=2 dup=1 queued=3");
+  CHECK(format_hooks(state) == "hooks=alive md=9 fired=41 age=1.2s fb=2 dup=1 queued=3 claims=0 unmapped=0");
 
   // A dead MD half with a live fallback is the interesting case: fired=0 with fb>0 says the hooks are not running.
   HookState dead;
@@ -310,4 +311,61 @@ TEST_CASE("M5-05: an IntentResult and a GameEvent decode into what the mod acts 
   CHECK(event.event_seq == 99);
   CHECK(event.sector == 7);
   CHECK(flatbuffers::GetRoot<X4MP::Proto::GameEvent>(event_bytes.data())->body_as_KillEvent()->victim() == 42);
+}
+
+TEST_CASE("M5-06: a ghost kill becomes exactly one KillClaim, and an unmapped victim none", "[events][m506]") {
+  struct Sent {
+    std::uint16_t type = 0;
+    std::vector<std::uint8_t> bytes;
+  };
+  std::vector<Sent> sent;
+  bool send_ok = true;
+  KillReporter reporter(KillReportDeps{
+      [](std::uint64_t local_id, std::uint32_t& net_id) {
+        if (local_id != 0x1b1d) return false;
+        net_id = 42;
+        return true;
+      },
+      [&sent, &send_ok](std::uint16_t type, std::span<const std::uint8_t> payload) {
+        sent.push_back(Sent{type, std::vector<std::uint8_t>(payload.begin(), payload.end())});
+        return send_ok;
+      },
+      [] { return static_cast<std::uint16_t>(3); },
+      [] { return static_cast<std::uint32_t>(99); },
+  });
+
+  MdEvent kill = event_of(EventKind::Kill, 0x1b1d, 5000);
+  kill.other = 0x1b20;  // the MD killer field is informational; the claim names our own ship instead
+  CHECK(reporter.on_event(kill));
+  REQUIRE(sent.size() == 1);
+  CHECK(sent[0].type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::Intent));
+
+  const auto* claim = kill_claim_of(sent[0].bytes);
+  REQUIRE(claim != nullptr);
+  CHECK(claim->target() == 42);
+  CHECK(claim->killer() == 99);
+  IntentView view;
+  REQUIRE(decode_intent(sent[0].bytes, view));
+  CHECK(view.type == X4MP::Proto::IntentBody::KillClaim);
+  CHECK(view.request.key_lo == 1);
+  CHECK(view.request.key_hi == 3);       // the player id, so two nodes never mint the same key
+  CHECK(view.request.player_id == 3);
+  CHECK(reporter.stats().sent == 1);
+
+  // A victim this node does not hold is not claimed, and is counted so the budget line can say so.
+  MdEvent stranger = event_of(EventKind::Kill, 0x9999, 6000);
+  CHECK_FALSE(reporter.on_event(stranger));
+  CHECK(reporter.stats().unmapped == 1);
+  CHECK(sent.size() == 1);
+
+  // A send that fails is counted, not retried in a loop; the server never saw it.
+  send_ok = false;
+  MdEvent second = event_of(EventKind::Kill, 0x1b1d, 7000);
+  CHECK_FALSE(reporter.on_event(second));
+  CHECK(reporter.stats().send_failed == 1);
+  CHECK(reporter.stats().sent == 1);
+
+  // Anything that is not a kill line is not the reporter's business.
+  CHECK_FALSE(reporter.on_event(event_of(EventKind::Trade, 0x1b1d, 8000)));
+  CHECK(reporter.stats().sent == 1);
 }

@@ -20,6 +20,9 @@
 #include "features/janitor/janitor_feature.h"
 #include "common_generated.h"
 #include "message_ids_generated.h"
+#include "events_generated.h"
+#include "features/events/event_wire.h"
+#include "game/safe_remove.h"
 
 namespace x4mp::features::auth {
 
@@ -203,6 +206,97 @@ void AuthorityFlow::note_loaded_save(const std::vector<std::uint8_t>& sha) {
   persist();
 }
 
+// M5-07: a kill claim forwarded by the server. The claim names a net id this authority assigned; the authority is the only node
+// allowed to destroy an entity, and it answers with exactly one IntentResult either way.
+void AuthorityFlow::on_intent(host::HostContext& ctx, std::span<const std::uint8_t> payload) {
+  events::IntentView intent;
+  if (!events::decode_intent(payload, intent)) {
+    ++intent_bad_;
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Warn, "authority: an Intent frame did not decode; ignored");
+    return;
+  }
+
+  const auto reject = [&](P::RejectReason reason, const char* detail, std::uint32_t target) {
+    const std::vector<std::uint8_t> reply =
+        events::encode_intent_result(intent.request, P::IntentStatus::Rejected, reason, detail, 0);
+    (void)send_frame(T(P::MsgType::IntentResult), reply);
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: intent for net {} rejected: {}", target, detail);
+  };
+
+  if (intent.type != P::IntentBody::KillClaim) {
+    ++intent_unsupported_;
+    reject(P::RejectReason::Unsupported, "the authority does not apply this intent", 0);
+    return;
+  }
+
+  const P::KillClaim* claim = events::kill_claim_of(payload);
+  if (claim == nullptr) {
+    ++intent_bad_;
+    reject(P::RejectReason::InvalidParameters, "the kill claim has no body", 0);
+    return;
+  }
+
+  const std::uint32_t target = claim->target();
+  const std::uint32_t killer = claim->killer();
+
+  IndexEntry* row = index_.find(target);
+  if (row == nullptr) {
+    ++intent_unknown_;
+    reject(P::RejectReason::UnknownEntity, "unknown net id", target);
+    return;
+  }
+  if (row->component == 0) {
+    ++intent_failed_;
+    reject(P::RejectReason::InvalidParameters, "the row has no component", target);
+    return;
+  }
+  if (!capture_.contains(row->sector)) {
+    ++intent_out_of_interest_;
+    reject(P::RejectReason::NotInInterest, "the sector is not in the capture set", target);
+    return;
+  }
+
+  const std::uint64_t component = row->component;
+  const std::uint16_t sector = row->sector;
+  const std::uint32_t macro_ref = row->macro_ref;
+  const std::uint32_t owner_ref = row->owner_ref;
+  const std::uint8_t kind = row->kind;
+
+  // The only removal path in the mod. The player guard is what keeps a claim from ever destroying a player's own ship.
+  const game::RemoveResult removed = game::safe_remove(component);
+  if (removed == game::RemoveResult::BlockedPlayerGuard) {
+    ++intent_player_;
+    reject(P::RejectReason::NotPermitted, "the target is player-guarded", target);
+    return;
+  }
+  if (removed == game::RemoveResult::BlockedInvalidId || removed == game::RemoveResult::BlockedWrongThread) {
+    ++intent_failed_;
+    reject(P::RejectReason::Conflict, "the target could not be removed", target);
+    return;
+  }
+
+  index_.erase(target);
+  stream_.on_killed(target, killer);
+  ++kills_applied_;
+
+  const std::vector<std::uint8_t> accepted =
+      events::encode_intent_result(intent.request, P::IntentStatus::Accepted, P::RejectReason::None, "", target);
+  (void)send_frame(T(P::MsgType::IntentResult), accepted);
+
+  // The feed event. The server stamps event_seq and server_time_us itself, so zeros here are correct.
+  events::KillEventData event;
+  event.victim = target;
+  event.victim_macro_ref = macro_ref;
+  event.victim_owner_ref = owner_ref;
+  event.victim_kind = static_cast<P::EntityKind>(kind);
+  event.killer = killer;
+  event.killer_player = intent.request.player_id;
+  (void)send_frame(T(P::MsgType::GameEvent), events::encode_kill_event(event, 0, 0, intent.request.game_time, sector));
+
+  X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: net {} killed by player {} (net {}), despawn queued", target,
+            static_cast<int>(intent.request.player_id), killer);
+}
+
 bool AuthorityFlow::send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload) {
   return session_.send(wire::Lane::Control, type, std::span<const std::uint8_t>(payload)) == net::SendResult::Ok;
 }
@@ -234,6 +328,10 @@ bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::sp
       return true;
     }
     begin_request(ctx, req->request_id);
+    return true;
+  }
+  if (type == T(P::MsgType::Intent)) {
+    on_intent(ctx, payload);
     return true;
   }
   return uploader_.on_frame(type, payload);

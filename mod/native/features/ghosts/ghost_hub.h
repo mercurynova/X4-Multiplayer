@@ -27,6 +27,9 @@ class GhostHub {
   void session_ended();
   // True when the local object id is a ghost this node spawned (the janitor and the takeover must skip those).
   [[nodiscard]] bool is_ghost_local(std::uint64_t local_id) const noexcept;
+  // M5-06: the wire id of a ghost this node holds, 0 when it holds none. The MD kill line names the victim by component, and the
+  // claim must name the net id the server knows.
+  [[nodiscard]] std::uint32_t net_id_of_local(std::uint64_t local_id) const noexcept;
   // M3-13: how many ghosts this node's registry holds (0 without a ghost core). The authority's checkpoint check wants 0.
   [[nodiscard]] std::size_t ghost_count() const noexcept { return core_ ? core_->driver.registries().ghosts.size() : 0; }
   // M4-30: the suppression pass's running total, published by the ghost feature on every report so the 30 s budget line can quote it

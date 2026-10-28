@@ -4,6 +4,8 @@
 
 #include "features/events/events_hub.h"
 #include "features/events/hook_state.h"
+#include "features/ghosts/ghost_hub.h"
+#include "features/selfship/selfship_hub.h"
 
 namespace x4mp::features {
 
@@ -43,6 +45,19 @@ void EventsFeature::on_init(host::HostContext& ctx) {
   });
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info,
             "events: capture armed (bridge verb x4mp.event; MD half md/x4mp_events.xml, Lua half ui/x4mp_events.lua)");
+
+  // M5-06: the client half of a kill. The reporter reads the hubs at call time, so it needs no context of its own and can be
+  // tested with four lambdas. `net_of_local` resolves a victim component through the ghost netmap (0 when the victim is not a
+  // ghost this node holds); `self_ship_net_id` is 0 until the avatar is known, which the claim tolerates.
+  reporter_ = std::make_unique<events::KillReporter>(events::KillReportDeps{
+      [](std::uint64_t local_id, std::uint32_t& net_id) {
+        net_id = ghosts::ghost_hub().net_id_of_local(local_id);
+        return net_id != 0;
+      },
+      [](std::uint16_t type, std::span<const std::uint8_t> payload) { return events::events_hub().send_control(type, payload); },
+      [] { return events::events_hub().self_player_id(); },
+      [] { return selfship::selfship_hub().own_net_id(); },
+  });
 }
 
 void EventsFeature::on_universe_ready(host::HostContext& ctx) {
@@ -90,12 +105,10 @@ void EventsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
     }
   }
 
-  // The send budget. A sink is installed by the wave that puts events on the wire; until then the event is counted and kept
-  // in the bus ring, which is what `[events]` inspects, and the queue never grows past one frame's worth.
-  if (sink_) {
-    for (const events::MdEvent& event : bus_.take(events::EventBus::kDefaultPerFrame)) sink_(event);
-  } else {
-    (void)bus_.take(events::EventBus::kDefaultPerFrame);
+  // The send budget. Kills go out as an Intent (M5-06); every event also reaches the optional sink a later wave installs.
+  for (const events::MdEvent& event : bus_.take(events::EventBus::kDefaultPerFrame)) {
+    if (event.kind == events::EventKind::Kill && reporter_) (void)reporter_->on_event(event);
+    if (sink_) sink_(event);
   }
 
   // A dead MD half must be visible, not inferred from an empty log. One warning per universe, not one per frame.
@@ -130,6 +143,8 @@ void EventsFeature::publish() {
   state.deduped = bus_.stats().deduped;
   state.queued = static_cast<std::uint32_t>(bus_.queued());
   state.last_age_ms = last_event_ms_ >= 0 ? now_ms_ - last_event_ms_ : -1;
+  state.claims = reporter_ ? reporter_->stats().sent : 0;
+  state.unmapped = reporter_ ? reporter_->stats().unmapped : 0;
   events::events_hub().publish(state);
 }
 

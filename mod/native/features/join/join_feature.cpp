@@ -18,6 +18,7 @@
 #include "features/teams/team_hub.h"
 #include "features/avatars/avatar_hub.h"
 #include "features/diag/diag_hub.h"
+#include "features/events/events_hub.h"
 #include "features/ghosts/ghost_hub.h"
 #include "features/onfoot/onfoot_hub.h"
 #include "features/join/join_messages.h"
@@ -539,6 +540,20 @@ void JoinFeature::update_diag(host::HostContext&) {
   } else if (!want_ship_link && diag_ship_link_) {
     diag_ship_link_ = false;
     selfship::selfship_hub().clear_link();
+  }
+  // M5-06: the events feature sends Intent (a kill claim) on the Control lane while this node is in game. Same condition as the
+  // own-ship link: a claim names a ghost and the claimant's own ship, and neither exists before the world is loaded.
+  if (want_ship_link && !diag_events_link_) {
+    diag_events_link_ = true;
+    events::Link link;
+    link.send_control = [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
+      return session_ && welcomed() && session_->send(wire::Lane::Control, type, payload) == net::SendResult::Ok;
+    };
+    link.self_player_id = [this]() -> std::uint16_t { return session_ && session_->has_welcome() ? session_->welcome().player_id : 0; };
+    events::events_hub().set_link(std::move(link));
+  } else if (!want_ship_link && diag_events_link_) {
+    diag_events_link_ = false;
+    events::events_hub().clear_link();
   }
   // M3b: the on-foot feature sends OnFootState on the Realtime lane while this node is InGame. It shares the own-ship condition:
   // on foot is only meaningful once the world is there, and both streams are held back by the same takeover rule.

@@ -19,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common_generated.h"
@@ -75,6 +76,18 @@ struct HitEntryData {
   std::uint32_t target = 0;
   float hull_damage = 0.0f;
   float shield_damage = 0.0f;
+};
+
+// M5-07: the feed entry the authority emits after it applied a kill. Informational only - clients act on the despawn.
+struct KillEventData {
+  std::uint32_t victim = 0;
+  std::uint32_t victim_macro_ref = 0;
+  std::uint32_t victim_owner_ref = 0;
+  P::EntityKind victim_kind = P::EntityKind::Unknown;
+  std::uint16_t victim_team = 0;
+  std::uint32_t killer = 0;
+  std::uint16_t killer_player = 0;
+  std::uint16_t killer_team = 0;
 };
 
 namespace detail {
@@ -138,12 +151,46 @@ inline std::vector<std::uint8_t> finish_intent(const IntentRequest& request, P::
   return detail::finish_intent(request, P::IntentBody::HitReport, body.Union(), fbb);
 }
 
+// The authority's answer to one Intent (M5-07). Exactly one per Intent, on the control lane.
+[[nodiscard]] inline std::vector<std::uint8_t> encode_intent_result(const IntentRequest& request, P::IntentStatus status,
+                                                                  P::RejectReason reason, std::string_view message,
+                                                                  std::uint32_t result_net_id) {
+  flatbuffers::FlatBufferBuilder fbb(128 + message.size());
+  const P::Id128 key(request.key_lo, request.key_hi);
+  const auto text = fbb.CreateString(message.data(), message.size());
+  const auto result = P::CreateIntentResult(fbb, &key, request.request_id, request.player_id, status, reason, text, result_net_id);
+  fbb.Finish(result);
+  return detail::take_buffer(fbb);
+}
+
+// The feed entry for one kill (M5-07). A GameEvent is A->S only: the authority sends it, the server fans it out, no node applies it.
+[[nodiscard]] inline std::vector<std::uint8_t> encode_kill_event(const KillEventData& kill, std::uint64_t event_seq,
+                                                                std::uint64_t server_time_us, double game_time,
+                                                                std::uint16_t sector) {
+  flatbuffers::FlatBufferBuilder fbb(256);
+  const auto body = P::CreateKillEvent(fbb, kill.victim, kill.victim_macro_ref, kill.victim_owner_ref, kill.victim_kind,
+                                       kill.victim_team, kill.killer, kill.killer_player, kill.killer_team);
+  const auto event = P::CreateGameEvent(fbb, event_seq, server_time_us, game_time, sector, P::GameEventBody::KillEvent, body.Union());
+  fbb.Finish(event);
+  return detail::take_buffer(fbb);
+}
+
 // ---- decoding (S -> N) ----
 
 struct IntentView {
   IntentRequest request;
   P::IntentBody type = P::IntentBody::NONE;
 };
+
+// The body of a kill claim, or nullptr when the buffer is not one. The pointer lives as long as `bytes`.
+[[nodiscard]] inline const P::KillClaim* kill_claim_of(std::span<const std::uint8_t> bytes) {
+  if (bytes.size() < 4) return nullptr;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::Intent>(nullptr)) return nullptr;
+  const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
+  if (intent == nullptr || intent->body_type() != P::IntentBody::KillClaim) return nullptr;
+  return intent->body_as_KillClaim();
+}
 
 [[nodiscard]] inline bool decode_intent(std::span<const std::uint8_t> bytes, IntentView& out) {
   if (bytes.size() < 4) return false;

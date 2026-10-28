@@ -64,7 +64,7 @@ struct BudgetSample {
       "rx={}B/s tx={}B/s per_client={}B/s udp={} hooks={}",
       s.fps, s.frame_ms_p50, s.frame_ms_p95, s.mod_ms_p50, s.mod_ms_p95, s.mod_ms_max, s.authority_ms_p50, s.authority_ms_p95, s.authority_ms_max,
       s.clients, s.ghosts, s.suppressed, s.rx_bytes_per_s, s.tx_bytes_per_s, s.per_client_bytes_per_s, s.udp_state != nullptr ? s.udp_state : "off",
-      s.hooks.empty() ? "hooks=dead md=0 fired=0 age=none fb=0 dup=0 queued=0" : s.hooks.c_str());
+      s.hooks.empty() ? "hooks=dead md=0 fired=0 age=none fb=0 dup=0 queued=0 claims=0 unmapped=0" : s.hooks.c_str());
 }
 
 }  // namespace x4mp::features::stats

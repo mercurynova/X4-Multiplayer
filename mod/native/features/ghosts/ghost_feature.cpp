@@ -55,6 +55,12 @@ bool GhostHub::is_ghost_local(std::uint64_t local_id) const noexcept {
   return core_ && local_id != 0 && core_->driver.registries().ghosts.contains_local(local_id);
 }
 
+std::uint32_t GhostHub::net_id_of_local(std::uint64_t local_id) const noexcept {
+  if (!core_ || local_id == 0) return 0;
+  const auto* entry = core_->driver.registries().netmap.find_local(local_id);
+  return entry != nullptr ? entry->net_id : 0;
+}
+
 GhostHub& ghost_hub() noexcept {
   static GhostHub hub;
   return hub;

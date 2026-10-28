@@ -78,6 +78,11 @@ void EntityStream::on_row_removed(std::uint32_t net_id, bool destroyed) {
   despawn_now_.push_back(DespawnSample{net_id, 0, static_cast<std::uint8_t>(destroyed ? DespawnCause::Destroyed : DespawnCause::Removed)});
 }
 
+void EntityStream::on_killed(std::uint32_t net_id, std::uint32_t killer_net_id) {
+  if (net_id == 0) return;
+  despawn_now_.push_back(DespawnSample{net_id, killer_net_id, static_cast<std::uint8_t>(DespawnCause::Destroyed)});
+}
+
 void EntityStream::on_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint32_t macro_ref) {
   ChangeSample c;
   c.net_id = net_id;

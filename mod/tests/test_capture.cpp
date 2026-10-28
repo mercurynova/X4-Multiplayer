@@ -133,6 +133,30 @@ TEST_CASE("index: a pass drops the rows of a sector that the scan no longer sees
   CHECK(index.counters().scans == 1);
 }
 
+TEST_CASE("index (M5-07): a killed row is erased at once, not left for the next scan", "[authority][index][m507]") {
+  UniverseIndex index;
+  index.upsert(1001, 12, 5, 6, 19, 0, 0xABC, 1'000);
+  index.upsert(1002, 12, 5, 6, 19, 0, 0xABD, 1'000);
+  index.bind_component(0xABC, 1001);
+  index.bind_component(0xABD, 1002);
+  REQUIRE(index.net_id_of_component(0xABC) == 1001);
+
+  CHECK(index.erase(1001));
+  CHECK(index.find(1001) == nullptr);
+  CHECK(index.net_id_of_component(0xABC) == 0);  // the component binding goes with the row
+  CHECK(index.size() == 1);
+  CHECK(index.counters().removed == 1);
+  const auto* ids = index.ids_of(12);
+  REQUIRE(ids != nullptr);
+  REQUIRE(ids->size() == 1);
+  CHECK((*ids)[0] == 1002);
+
+  // A second erase of the same id, or of an id that never existed, is a no-op rather than a counter bump.
+  CHECK_FALSE(index.erase(1001));
+  CHECK_FALSE(index.erase(9999));
+  CHECK(index.counters().removed == 1);
+}
+
 TEST_CASE("index: a ship that changes sector keeps its net id and moves bucket", "[authority][index]") {
   UniverseIndex index;
   index.upsert(1001, 12, 5, 6, 19, 0, 0xABC, 1'000);

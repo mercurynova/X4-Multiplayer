@@ -125,6 +125,17 @@ std::size_t UniverseIndex::drop_sector(std::uint16_t sector) {
   return dropped;
 }
 
+bool UniverseIndex::erase(std::uint32_t net_id) {
+  const auto it = entries_.find(net_id);
+  if (it == entries_.end()) return false;
+  if (it->second.component != 0) by_component_.erase(it->second.component);
+  const auto bucket = by_sector_.find(it->second.sector);
+  if (bucket != by_sector_.end()) std::erase(bucket->second, net_id);
+  entries_.erase(it);
+  ++counters_.removed;
+  return true;
+}
+
 const IndexEntry* UniverseIndex::find(std::uint32_t net_id) const {
   const auto it = entries_.find(net_id);
   return it == entries_.end() ? nullptr : &it->second;

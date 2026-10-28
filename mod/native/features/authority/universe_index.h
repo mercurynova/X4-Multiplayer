@@ -73,6 +73,10 @@ class UniverseIndex {
   // Drop every row of one sector (it left the CaptureSet). Returns how many.
   std::size_t drop_sector(std::uint16_t sector);
 
+  // Drop ONE row (M5-07: the authority applied a kill). Returns false when the net id is unknown. Without this the row would
+  // linger until the next scan pass and `step()` would keep polling a component that no longer exists.
+  bool erase(std::uint32_t net_id);
+
   // The X4 component id -> net id binding: a scan names components, the wire names net ids. Bound on first sight and kept for the run, so a
   // rescan of the same ship refreshes its row instead of allocating a second id (which a client would see as a despawn + respawn).
   [[nodiscard]] std::uint32_t net_id_of_component(std::uint64_t component) const;

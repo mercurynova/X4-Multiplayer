@@ -110,6 +110,8 @@ class AuthorityFlow {
 
   void drain_inbox(host::HostContext& ctx);
   void on_capture_set(host::HostContext& ctx, std::span<const std::uint8_t> payload);
+  // M5-07: an Intent forwarded by the server (a client's kill claim). Validates, applies and answers with exactly one IntentResult.
+  void on_intent(host::HostContext& ctx, std::span<const std::uint8_t> payload);
   void begin_request(host::HostContext& ctx, std::uint32_t request_id);
   void step_collecting(host::HostContext& ctx);
   void request_save(host::HostContext& ctx);
@@ -185,6 +187,14 @@ class AuthorityFlow {
   // M4-06..11: the world streamer. Reads poses natively (the scan carries ids only), owns the per-entity dead-reckoning state and
   // sends EntitySpawn / WorldUpdate / EntityDespawn / EntityChange / EntityStatusBatch through this flow's lanes.
   EntityStream stream_;
+  // M5-07: what the authority did with the kill claims it received, one counter per verdict, so the 30 s line can explain them.
+  std::uint32_t intent_bad_ = 0;
+  std::uint32_t intent_unsupported_ = 0;
+  std::uint32_t intent_unknown_ = 0;
+  std::uint32_t intent_out_of_interest_ = 0;
+  std::uint32_t intent_player_ = 0;
+  std::uint32_t intent_failed_ = 0;
+  std::uint32_t kills_applied_ = 0;
   std::uint32_t capture_sets_ = 0, capture_stale_ = 0, capture_bad_ = 0;
   std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0;
   // M4-03: a sector whose scan MD has been asked for, and when. The entry is dropped when the closing count arrives, so a sector that MD
