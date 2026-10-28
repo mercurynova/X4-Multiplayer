@@ -179,7 +179,11 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
   if (obs.docked) flags |= ghost::kDocked;
   if (obs.in_highway) flags |= ghost::kInHighway;
   if (sh_signal_) flags |= ghost::kInHighway;
-  if (obs.docked || obs.in_highway || sh_signal_) flags |= ghost::kHidden;
+  // F21b: Hidden only for docked and for the game's superhighway signal. A LOCAL highway (the engine's highway context, but the ship's sector is
+  // in the sector map and the game signalled no superhighway) keeps sending the true pose at the normal rate with InHighway set: hiding it made the
+  // other side hold the avatar at the entry (map icon frozen for the whole ride, then a jump). A superhighway is still hidden: by the MD signal, and
+  // by the unknown-sector branch above (its sector is not in the map).
+  if (obs.docked || sh_signal_) flags |= ghost::kHidden;
 
   // ---- decide ----
   const bool flags_changed = sent_any_ && ((flags ^ sent_flags_) & kFlagMask) != 0;

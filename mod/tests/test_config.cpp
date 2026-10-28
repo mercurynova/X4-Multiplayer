@@ -413,3 +413,20 @@ TEST_CASE("menu_leave_confirm_ms (F1)", "[config]") {
   CHECK(cfg->menu_leave_confirm_ms == 30000);  // out of range: default kept
   CHECK(errors.find("menu_leave_confirm_ms") != std::string::npos);
 }
+
+TEST_CASE("leave_save_timeout_ms (F24)", "[config]") {
+  std::string errors;
+  CHECK(defaults().leave_save_timeout_ms == 60000);
+  auto cfg = parse_json(R"({"leave_save_timeout_ms":20000})", &errors);
+  REQUIRE(cfg);
+  CHECK(errors.empty());
+  CHECK(cfg->leave_save_timeout_ms == 20000);
+  CHECK(describe(*cfg).find("leave_save_timeout_ms=20000") != std::string::npos);
+  for (const char* bad : {R"({"leave_save_timeout_ms":100})", R"({"leave_save_timeout_ms":900000})"}) {
+    errors.clear();
+    cfg = parse_json(bad, &errors);
+    REQUIRE(cfg);
+    CHECK(cfg->leave_save_timeout_ms == 60000);  // out of range: default kept
+    CHECK(errors.find("leave_save_timeout_ms") != std::string::npos);
+  }
+}

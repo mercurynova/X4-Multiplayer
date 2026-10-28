@@ -22,9 +22,12 @@
 -- top of us, our wrapper stays in place but becomes a pure pass-through, so it can never block anything after uninstall.
 -- install() is idempotent (a second load in the same Lua state does not stack a second wrapper).
 --
+-- F24 (ADR-054): the same file wraps QuitModule (Esc > Exit to main menu) and QuitGame (Esc > Quit) so an authority in game takes a checkpoint
+-- before leaving on purpose (section "F24" below; native: features/join/leave_save.h).
+--
 -- Other X4MP code: X4MPSaves.allowSaves(fn) runs fn with the block lifted (the authority's SaveJob, M2-09, uses it).
 --
--- luacheck: globals X4MPSaves X4MPBridge DebugError RegisterEvent SaveGame IsSavingPossible ExecuteDebugCommand
+-- luacheck: globals X4MPSaves X4MPBridge DebugError RegisterEvent SaveGame IsSavingPossible ExecuteDebugCommand QuitModule QuitGame
 -- luacheck: globals AddUITriggeredEvent ReadText Menus
 
 local S = rawget(_G, "X4MPSaves")
@@ -105,14 +108,75 @@ function S.install()
 			return prev(cmd, ...)
 		end
 	end)
+	res.QuitModule = S.installLeaveWrapper("QuitModule", 1)
+	res.QuitGame = S.installLeaveWrapper("QuitGame", 2)
 	S.hookMenu()
 	return res
+end
+
+------------------------------------------------------------------------------
+-- F24 (ADR-054): Esc > Exit to main menu (QuitModule) and Esc > Quit (QuitGame) while this node is the authority in game.
+-- The Esc menu calls the globals QuitModule() / QuitGame() after its own confirmation (gameoptions.lua callbackExit). While the
+-- authority is in game the call is HELD here and native is asked (verb x4mp.leave_request {kind}) to take a checkpoint first; native
+-- answers with x4mp.leave_go when the checkpoint is stored, on its timeout, or when the player chooses the same thing again, and the
+-- held call then runs. Choosing it a second time runs it at once, here, whatever native says (the Lua side can never be stuck).
+-- Outside "authority in game" (status role/state) the wrappers are pure pass-throughs.
+------------------------------------------------------------------------------
+local rawSend -- defined with the state helpers below
+S.leave = S.leave or { held = nil, releasing = false }
+
+local function leaveGuardActive()
+	local B = bridge()
+	local st = B and B.status
+	return type(st) == "table" and st.state == "ingame" and st.role == "authority"
+end
+
+local function runHeld(held)
+	if not held then return end
+	S.leave.releasing = true
+	local ok, err = pcall(held.fn, unpack(held.args, 1, held.args.n))
+	S.leave.releasing = false
+	if not ok then log("held leave call failed: " .. tostring(err)) end
+end
+
+--- Releases a held Esc > Exit / Quit (native said go). No-op when nothing is held.
+function S.leaveGo()
+	local held = S.leave.held
+	S.leave.held = nil
+	runHeld(held)
+end
+
+function S.installLeaveWrapper(name, kind)
+	return installWrapper(name, function(prev, rec)
+		return function(...)
+			if rec.active and not S.leave.releasing then
+				if S.leave.held then -- chosen again while the checkpoint is being taken: leave at once
+					local held = S.leave.held
+					S.leave.held = nil
+					rawSend("leave_request", { kind = kind }) -- native: a second leave action, it closes the session and says go (nothing held then)
+					runHeld(held)
+					return
+				end
+				if leaveGuardActive() then
+					S.leave.held = { fn = prev, args = { n = select("#", ...), ... } }
+					local ok = rawSend("leave_request", { kind = kind })
+					if ok then
+						log("leave held: native takes a checkpoint first (kind " .. tostring(kind) .. ")")
+						return
+					end
+					S.leave.held = nil -- native cannot be reached: do not hold anything back
+				end
+			end
+			return prev(...)
+		end
+	end)
 end
 
 --- Puts the previous functions back where ours is still on top; see the header for the rest.
 function S.uninstall()
 	local res = {}
-	for _, name in ipairs({ "SaveGame", "IsSavingPossible", "ExecuteDebugCommand" }) do
+	S.leave.held = nil
+	for _, name in ipairs({ "SaveGame", "IsSavingPossible", "ExecuteDebugCommand", "QuitModule", "QuitGame" }) do
 		res[name] = uninstallWrapper(name)
 	end
 	return res
@@ -225,7 +289,7 @@ function S.sendMdFlag(on)
 	return ok
 end
 
-local function rawSend(verb, payload)
+rawSend = function(verb, payload)
 	local B = bridge()
 	if not B or not B.getApi then return false, "no_bridge" end
 	local api = B.getApi()
@@ -284,6 +348,10 @@ if not S.eventsRegistered then
 	if B and B.on then
 		B.on("saves", function(p)
 			S.setBlocking(p.block == true)
+		end)
+		B.on("leave_go", function() S.leaveGo() end)
+		B.on("leave_wait", function(p) -- the Esc menu has closed by now: a normal on-screen notification (md/x4mp_hud.xml)
+			if type(p.text) == "string" then pcall(AddUITriggeredEvent, "X4MP", "notify", p.text) end
 		end)
 	end
 	pcall(RegisterEvent, "x4mp.md_game_saved", function(_, param) S.onMdGameSaved(param) end)

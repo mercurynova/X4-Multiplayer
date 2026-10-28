@@ -82,6 +82,9 @@ public sealed class FakeAuthoritySaves
     /// <summary>Checkpoints fully uploaded (both files stored).</summary>
     public int CheckpointsStored { get; private set; }
 
+    /// <summary>The <c>reason</c> of the newest <c>RequestSave</c> this authority received (null before the first).</summary>
+    public SaveReason? LastRequestReason { get; private set; }
+
     /// <summary>Bytes of chunks sent over the node's lifetime (a resumed upload sends only the rest).</summary>
     public long BytesSent { get; private set; }
 
@@ -144,6 +147,7 @@ public sealed class FakeAuthoritySaves
                 return false;
             case MsgType.RequestSave:
                 var request = MessageRegistry.Default.Decode<RequestSave>(frame);
+                LastRequestReason = request.Reason;
                 if (Interlocked.CompareExchange(ref _jobRunning, 1, 0) == 0)
                 {
                     uint id = request.RequestId;

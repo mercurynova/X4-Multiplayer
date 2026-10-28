@@ -3,6 +3,9 @@
 // LoadStatus, ManifestReport (count-only in M2) and NodeReady. SDK-free (core wire types only).
 
 #include <cstdint>
+#include <optional>
+#include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -32,5 +35,15 @@ enum class JoinPhase : std::uint8_t { SyncingSave = 2, Verifying = 3, Loading = 
 [[nodiscard]] std::uint16_t msg_load_status() noexcept;
 [[nodiscard]] std::uint16_t msg_manifest_report() noexcept;
 [[nodiscard]] std::uint16_t msg_node_ready() noexcept;
+
+// F24 (ADR-054): a checkpoint before a planned authority leave. kind: 0 Disconnect, 1 Exit to main menu, 2 Quit.
+[[nodiscard]] Payload encode_leave_save_request(std::uint8_t kind);
+[[nodiscard]] std::uint16_t msg_leave_save_request() noexcept;
+struct LeaveSaveResultInfo {
+  bool saved = false;
+  std::string detail;
+};
+[[nodiscard]] std::optional<LeaveSaveResultInfo> parse_leave_save_result(std::span<const std::uint8_t> payload);
+[[nodiscard]] std::uint16_t msg_leave_save_result() noexcept;
 
 }  // namespace x4mp::features::join

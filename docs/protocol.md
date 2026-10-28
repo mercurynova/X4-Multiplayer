@@ -333,8 +333,8 @@ On the server, a node can also be `Detached` (inside resume grace) or `Failed`.
 ### 6.3 Checkpoints (authority save → session save)
 
 1. S → A: `RequestSave{request_id, reason, slot_name}`. Reasons include `SessionStart`,
-   `Autosave` (every `AutosaveMinutes`), `JoinRequested`, `Migration`, `Admin` and
-   `Shutdown`.
+   `Autosave` (every `AutosaveMinutes`), `JoinRequested`, `Migration`, `Admin`,
+   `Shutdown` and `Leave` (appended, F24: the authority leaves on purpose, ADR-054).
 2. **In one frame**, the authority does the following:
    - removes or hides every tagged ghost (save hygiene, a reference lesson; avatars stay);
    - calls `SaveGame(slot, name)`;
@@ -1314,6 +1314,8 @@ carries `request_key` (idempotency), which is not repeated below.
 | 0x0114 | StringTableAdd | A→S, S→N, S→A | Ctl | entries[index, kind, value] |
 | 0x0115 | GalaxySummary | A→S | Ctl | per-sector ship counts by class, station count (0.2 Hz; feeds the GUI galaxy map) |
 | 0x0116 | ServerSettingsUpdate | S→N | Ctl | version (ulong), entries[key, value] (strings). The **full** set of node-relevant live settings (`PushToNodes`), sent right after Welcome/SessionState/roster and whenever one changes. Value text: strings and enum names unquoted, other JSON raw (`true`, `30`). Nodes ignore a lower version than they hold. |
+| 0x0118 | LeaveSaveRequest | A→S | Ctl | kind (0 Disconnect, 1 Exit to main menu, 2 Quit). F24 / ADR-054: the authority is about to leave on purpose with its universe loaded; the server takes a checkpoint with `SaveReason.Leave` first. Authority role, node phase InGame only |
+| 0x0119 | LeaveSaveResult | S→A | Ctl | saved (the checkpoint is current), detail. The one answer to LeaveSaveRequest; the node then sends Disconnect(ClientQuit) (or after its own timeout) |
 | 0x0117 | ModPolicyChanged | S→N | Ctl | policy (ModPolicy: version, source_mode, unknown_default, enforcement, entries[ModPolicyEntry]). Pushed when the admin edits the session mod list; nodes are not kicked, it applies at the next join (mod-management 3.3). Added with M1-X1; the push itself is M1-X4. |
 
 ### World (0x02xx)

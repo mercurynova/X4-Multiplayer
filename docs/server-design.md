@@ -402,6 +402,9 @@ Ended ─(admin: Resume session, F13)─▶ WaitingForAuthority ─▶ Authority
   authority. The authority (mod) cleans ghosts, saves, sends the `SaveStarted` journal
   marker, and uploads the save plus manifest (section 3, ADR-008). The new save becomes
   the session's current save, so late joiners get a recent universe.
+- **Planned authority leave (F24, ADR-054)**: the authority mod sends `LeaveSaveRequest` before it leaves on purpose (Disconnect, Esc > Exit / Quit). `SaveService.LeaveSave.cs`
+  sends `RequestSave{Leave}` (after the request in flight, if any) and answers `LeaveSaveResult{saved}` when that checkpoint is current, stored but not current, failed or timed out
+  (`SaveRequestTimeoutSeconds`). The authority detaching drops the wait. Crashes, lost sockets and the F1 main-menu leave never come this way.
 
 ### 2.5 Interest management
 

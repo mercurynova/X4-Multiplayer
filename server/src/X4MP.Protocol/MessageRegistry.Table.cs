@@ -47,6 +47,8 @@ public sealed partial class MessageRegistry
         Add<GalaxySummary>(MsgType.GalaxySummary, Lane.Control, GalaxySummary.GetRootAsGalaxySummary, GalaxySummaryVerify.Verify, t => t.UnPack());
         Add<ServerSettingsUpdate>(MsgType.ServerSettingsUpdate, Lane.Control, ServerSettingsUpdate.GetRootAsServerSettingsUpdate, ServerSettingsUpdateVerify.Verify, t => t.UnPack());
         Add<ModPolicyChanged>(MsgType.ModPolicyChanged, Lane.Control, ModPolicyChanged.GetRootAsModPolicyChanged, ModPolicyChangedVerify.Verify, t => t.UnPack());
+        Add<LeaveSaveRequest>(MsgType.LeaveSaveRequest, Lane.Control, LeaveSaveRequest.GetRootAsLeaveSaveRequest, LeaveSaveRequestVerify.Verify, t => t.UnPack());
+        Add<LeaveSaveResult>(MsgType.LeaveSaveResult, Lane.Control, LeaveSaveResult.GetRootAsLeaveSaveResult, LeaveSaveResultVerify.Verify, t => t.UnPack());
         Add<EntitySpawn>(MsgType.EntitySpawn, Lane.Control, EntitySpawn.GetRootAsEntitySpawn, EntitySpawnVerify.Verify, t => t.UnPack());
         Add<EntityDespawn>(MsgType.EntityDespawn, Lane.Control, EntityDespawn.GetRootAsEntityDespawn, EntityDespawnVerify.Verify, t => t.UnPack());
         Add<WorldUpdate>(MsgType.WorldUpdate, Lane.Realtime, WorldUpdate.GetRootAsWorldUpdate, WorldUpdateVerify.Verify, t => t.UnPack());

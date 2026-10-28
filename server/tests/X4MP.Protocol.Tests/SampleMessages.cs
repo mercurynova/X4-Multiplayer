@@ -231,6 +231,8 @@ public static class SampleMessages
         }),
         S(Settings()),
         S(new ModPolicyChangedT { Policy = ModPolicy() }),
+        S(new LeaveSaveRequestT { Kind = 1 }),
+        S(new LeaveSaveResultT { Saved = true, Detail = "checkpoint 12 is current" }),
         S(new RequestSaveT { RequestId = 5, Reason = SaveReason.JoinRequested, SlotName = "x4mp_checkpoint" }),
         S(new SaveStartedT { RequestId = 5, CheckpointId = Id(12), GameTime = 7200.5, NextNetId = 5000 }),
         S(new SaveUploadBeginT { CheckpointId = Id(12), Kind = UploadKind.Manifest, Size = 123_456_789_012, Sha256 = Enumerable.Repeat((byte)0xCD, 32).ToList(), Name = "checkpoint", GhostsCleaned = true }),
