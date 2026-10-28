@@ -211,6 +211,11 @@ public sealed partial class SaveService
             ReleaseFreshWaiters(); // the fresh save they waited for did not become current: give them the one we have
         }
 
+        if (_inFlight is null)
+        {
+            OnLeaveRequestFinished(cp.IsCurrent, cp.Failed ? "the checkpoint upload failed" : "the checkpoint was stored but not made current");
+        }
+
         if (_stopPending)
         {
             CompleteStop("final save finished");

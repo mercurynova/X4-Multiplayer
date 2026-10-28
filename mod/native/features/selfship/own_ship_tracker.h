@@ -13,8 +13,9 @@
 // rate, and it never bursts after a long frame gap (a gate jump is a ~3.5 s gap, S13.4).
 //
 // Flags: PlayerControlled always (the pilot is in the seat), Docked, InHighway (local and super highways cannot be told apart natively:
-// GetContextByClass(.., "highway") answers for both), Hidden = Docked or InHighway (docked inside vs on a pad cannot be told apart
-// either), Teleport on a sector change / ship change / sit-down / position jump (a jump bigger than 2 km + 15 km/s * frame time).
+// GetContextByClass(.., "highway") answers for both), Hidden = Docked or a SUPERHIGHWAY (docked inside vs on a pad cannot be told apart
+// either). F21b: a local highway is InHighway but NOT Hidden: the engine's highway context alone does not hide the ship; the superhighway is told
+// by the game's own MD signal and by the ship's sector leaving the sector map (see below), never by the context. Teleport on a sector change / ship change / sit-down / position jump (a jump bigger than 2 km + 15 km/s * frame time).
 // Angles are the game's radians exactly as UIPosRot gives them (S13.4); positions are sector-local metres.
 
 #include <cstdint>

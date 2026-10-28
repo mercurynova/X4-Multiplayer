@@ -129,6 +129,7 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   }
   if (long long v = 0; read_int(doc, "frame_budget_us", 100, 50000, v, source, diags)) cfg.frame_budget_us = static_cast<int>(v);
   if (long long v = 0; read_int(doc, "menu_leave_confirm_ms", 1000, 120000, v, source, diags)) cfg.menu_leave_confirm_ms = static_cast<int>(v);
+  if (long long v = 0; read_int(doc, "leave_save_timeout_ms", 5000, 300000, v, source, diags)) cfg.leave_save_timeout_ms = static_cast<int>(v);
   if (auto it = doc.find("selftest"); it != doc.end()) {
     if (it->is_boolean()) cfg.selftest = it->get<bool>();
     else bad(diags, source, "selftest", "must be true or false");
@@ -155,7 +156,7 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
   warn_unknown(doc,
                {"diag", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "diag.team_self_relation_100", "diag.team_move_respawn", "diag.avatars_inert_once",
                 "diag.dress_no_radar_no_known", "diag.no_set_faction_known", "diag.takeover_mode_reown", "diag.takeover_keep_own_ship", "diag.hints_off", "diag.hints_all_speeds", "diag.engine_guard_off", "server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
-                "outbox_byte_cap", "frame_budget_us", "menu_leave_confirm_ms", "log_categories", "selftest", "last_address", "last_name"},  // last_*: remembered Join fields (M3-07)
+                "outbox_byte_cap", "frame_budget_us", "menu_leave_confirm_ms", "leave_save_timeout_ms", "log_categories", "selftest", "last_address", "last_name"},  // last_*: remembered Join fields (M3-07)
                source, diags);
 }
 
@@ -305,6 +306,7 @@ std::string describe(const Config& c) {
   out += "outbox_byte_cap=" + std::to_string(c.outbox_byte_cap) + "\n";
   out += "frame_budget_us=" + std::to_string(c.frame_budget_us) + "\n";
   out += "menu_leave_confirm_ms=" + std::to_string(c.menu_leave_confirm_ms) + "\n";
+  out += "leave_save_timeout_ms=" + std::to_string(c.leave_save_timeout_ms) + "\n";
   for (const auto& [name, level] : c.log_categories) out += "log_category." + name + "=" + log::level_name(level) + "\n";
   if (c.diag.any()) {
     out += std::string("diag.takeover_keep_original=") + (c.diag.takeover_keep_original ? "true" : "false") + "\n";

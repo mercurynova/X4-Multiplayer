@@ -75,7 +75,27 @@ lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4300.0}
 frame 60Hz 720
 expect-file extension/logs/x4mp.log SaveStarted sent (game_time 4300.000
 expect-no-log self-spawn sent net_id=2
+
+# F24 (ADR-054): the authority's Disconnect in game is a PLANNED leave: a checkpoint (RequestSave{Leave}) is taken first, the Disconnect follows once it is stored
 lua-raw x4mp.disconnect {"v":1}
+frame 60Hz 30
+expect-file extension/logs/x4mp.log planned leave: asking the server for a checkpoint first (kind 0
+expect-lua x4mp.leave_wait 3000 json $.text contains Saving the universe
+expect-lua x4mp.auth_collect 8000
+lua-raw x4mp.auth_md {"v":1,"data":"G;cluster_01_sector001_macro|cluster_01_macro|Argon Prime|argon|0|0|0|"}
+lua-raw x4mp.auth_md {"v":1,"data":"E;1"}
+lua-raw x4mp.auth_md {"v":1,"data":"P;ship_arg_s_fighter_01_a_macro|Hostsim Hawk|HSA-001|cluster_01_sector001_macro|ship_s|player"}
+frame 60Hz 30
+expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
+expect-no-log leaving the session (disconnect)
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src3}"
+lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4400.0}
+frame 60Hz 720
+expect-file extension/logs/x4mp.log SaveStarted sent (game_time 4400.000
+expect-file extension/logs/x4mp.log planned leave: the server answered saved=true
+expect-file extension/logs/x4mp.log planned leave: leaving now (the checkpoint is stored
+expect-file extension/logs/x4mp.log leaving the session (disconnect)
+expect-lua x4mp.leave_go 3000
 frame 60Hz 30
 expect-no-secret ${apw}
 shutdown

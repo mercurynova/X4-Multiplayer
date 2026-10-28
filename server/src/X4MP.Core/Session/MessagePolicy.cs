@@ -183,6 +183,8 @@ public static class MessagePolicy
             (MsgType.GalaxySummary, A, Post),
             (MsgType.ServerSettingsUpdate, None, PolicyPhase.None),
             (MsgType.ModPolicyChanged, None, PolicyPhase.None),
+            (MsgType.LeaveSaveRequest, A, PolicyPhase.InGame),
+            (MsgType.LeaveSaveResult, None, PolicyPhase.None),
 
             // World (0x02xx)
             (MsgType.EntitySpawn, A, Post),

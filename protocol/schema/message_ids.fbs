@@ -48,6 +48,8 @@ enum MsgType : ushort {
   GalaxySummary        = 0x0115,
   ServerSettingsUpdate = 0x0116,   // session.fbs table
   ModPolicyChanged     = 0x0117,   // mods.fbs table
+  LeaveSaveRequest     = 0x0118,   // F24: authority -> server, checkpoint before a planned leave
+  LeaveSaveResult      = 0x0119,   // F24: server -> authority, the answer
 
   // world.fbs
   EntitySpawn          = 0x0200,

@@ -323,6 +323,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
     {
         CancelDownload(node.PlayerId);
         _waitingForFresh.Remove(node.PlayerId);
+        ClearLeave(node);
         if (node.IsAuthority)
         {
             AuthorityGone(keepRequest: true);
@@ -336,6 +337,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         _knownNodes.Remove(node.PlayerId);
         _loaded.Remove(node.PlayerId);
         _waitingForFresh.Remove(node.PlayerId);
+        ClearLeave(node);
         if (node.IsAuthority)
         {
             AuthorityGone(keepRequest: false);
@@ -370,6 +372,9 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
                 case MsgType.ManifestReport:
                     OnManifestReport(node, MessageRegistry.Default.Decode<ManifestReport>(frame.Frame));
                     return true;
+                case MsgType.LeaveSaveRequest:
+                    OnLeaveSaveRequest(node, MessageRegistry.Default.Decode<LeaveSaveRequest>(frame.Frame));
+                    return true;
                 default:
                     return false;
             }
@@ -389,10 +394,16 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
             LogRequestTimedOut(pending.RequestId, pending.Reason);
             _inFlight = null;
             _lastRequestFailedAt = timestamp;
+            OnLeaveRequestFinished(false, "the checkpoint request timed out");
             if (_stopPending)
             {
                 CompleteStop("final save request timed out");
             }
+        }
+
+        if (_leaveNode is not null && !_leaveStarted && _inFlight is null)
+        {
+            TryStartLeaveSave();
         }
 
         if (_inFlight is null && _authority?.Connection is not null && _authority.Phase == NodePhase.InGame)
@@ -450,6 +461,8 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
     {
         AbortTransfers();
         _checkpoints.Clear();
+        _leaveNode = null;
+        _leaveStarted = false;
         _loaded.Clear();
         _waitingForFresh.Clear();
         _current = null;

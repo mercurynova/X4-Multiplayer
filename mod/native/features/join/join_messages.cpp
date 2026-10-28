@@ -53,4 +53,23 @@ std::uint16_t msg_load_status() noexcept { return static_cast<std::uint16_t>(P::
 std::uint16_t msg_manifest_report() noexcept { return static_cast<std::uint16_t>(P::MsgType::ManifestReport); }
 std::uint16_t msg_node_ready() noexcept { return static_cast<std::uint16_t>(P::MsgType::NodeReady); }
 
+Payload encode_leave_save_request(std::uint8_t kind) {
+  flatbuffers::FlatBufferBuilder fbb(32);
+  fbb.Finish(P::CreateLeaveSaveRequest(fbb, kind));
+  return take(fbb);
+}
+std::uint16_t msg_leave_save_request() noexcept { return static_cast<std::uint16_t>(P::MsgType::LeaveSaveRequest); }
+
+std::optional<LeaveSaveResultInfo> parse_leave_save_result(std::span<const std::uint8_t> payload) {
+  if (payload.empty()) return std::nullopt;
+  flatbuffers::Verifier v(payload.data(), payload.size());
+  if (!v.VerifyBuffer<P::LeaveSaveResult>(nullptr)) return std::nullopt;
+  const auto* r = flatbuffers::GetRoot<P::LeaveSaveResult>(payload.data());
+  LeaveSaveResultInfo info;
+  info.saved = r->saved();
+  if (r->detail() != nullptr) info.detail = r->detail()->str();
+  return info;
+}
+std::uint16_t msg_leave_save_result() noexcept { return static_cast<std::uint16_t>(P::MsgType::LeaveSaveResult); }
+
 }  // namespace x4mp::features::join

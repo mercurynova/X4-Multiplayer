@@ -48,7 +48,7 @@ constexpr auto kLoadFallbackAfter = seconds(15);         // loadSave raised but 
 constexpr const char* kStateKey = "state";               // stash "join.state"
 constexpr const char* kExtReportedKey = "ext_reported";  // stash "join.ext_reported": the last x4mp.extensions payload from Lua
 
-constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions", "load_session", "remember"};
+constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions", "load_session", "remember", "leave_request"};
 
 std::string endpoint_text(const std::string& host, std::uint16_t port) {
   return (host.find(':') != std::string::npos ? "[" + host + "]" : host) + ":" + std::to_string(port);
@@ -269,6 +269,11 @@ void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) 
     }
   }
 
+  if (leave_.waiting()) {  // F24
+    if (!welcomed()) apply_leave(ctx, leave_.on_session_lost());
+    else apply_leave(ctx, leave_.tick(Clock::now().time_since_epoch() / milliseconds(1)));
+  }
+
   pump_session(ctx);
   update_diag(ctx);
   publish_status(ctx, false);
@@ -281,12 +286,15 @@ void JoinFeature::drain_inbox(host::HostContext& ctx) {
       on_join(ctx, payload);
     } else if (verb == "disconnect") {
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "disconnect requested by the UI");
-      stop_session(ctx, "disconnect");
-      stage_ = Stage::Idle;
-      reject_.clear();
-      detail_.clear();
-      mod_refusal_json_.clear();
-      mod_policy_json_.clear();
+      on_leave_action(ctx, join::LeaveKind::Disconnect);
+    } else if (verb == "leave_request") {  // F24: the Lua wrapper of QuitModule (kind 1) / QuitGame (kind 2) holds the real call
+      int kind = 1;
+      const auto doc = nlohmann::json::parse(payload, nullptr, false);
+      if (doc.is_object()) {
+        if (const auto it = doc.find("kind"); it != doc.end() && it->is_number_integer()) kind = it->get<int>();
+      }
+      X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "leave requested by the game menu ({})", kind == 2 ? "quit" : "exit to the main menu");
+      on_leave_action(ctx, kind == 2 ? join::LeaveKind::Quit : join::LeaveKind::ExitMenu);
     } else if (verb == "ui_ready" || verb == "request_status") {
       if (verb == "ui_ready") on_ui_ready(ctx, payload);
       force_status_ = true;
@@ -329,6 +337,48 @@ void JoinFeature::leave_for_main_menu(host::HostContext& ctx) {
   if (stash_) auth::AuthorityFlow::forget_loaded_sha(*stash_);  // F1c: the game runs no save any more
   X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "main menu: the player exited to the main menu; leaving the session (F1)");
   stop_session(ctx, "main menu");  // Disconnect(ClientQuit): the server parks the avatar and marks the player not in game (the authority: its grace applies)
+  stage_ = Stage::Idle;
+  reject_.clear();
+  detail_.clear();
+  mod_refusal_json_.clear();
+  mod_policy_json_.clear();
+  force_status_ = true;
+}
+
+// F24 (ADR-054). A leave the player chose on purpose. The authority, in game with a welcomed session, takes a checkpoint first: the server
+// answers LeaveSaveResult when it is current, then this node sends its Disconnect. Everything else leaves at once.
+void JoinFeature::on_leave_action(host::HostContext& ctx, join::LeaveKind kind) {
+  const bool can_save = authority_ && session_ && welcomed() && stage_ == Stage::InGame && ctx.gates.universe_ready;
+  const auto now_ms = Clock::now().time_since_epoch() / milliseconds(1);
+  apply_leave(ctx, leave_.request(kind, can_save, now_ms, ctx.config.leave_save_timeout_ms));
+}
+
+void JoinFeature::apply_leave(host::HostContext& ctx, const join::LeaveDecision& d) {
+  using A = join::LeaveDecision::Action;
+  if (d.action == A::None) return;
+  if (d.action == A::SendRequest) {
+    X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "planned leave: asking the server for a checkpoint first (kind {}, up to {} ms)", static_cast<int>(d.kind),
+              ctx.config.leave_save_timeout_ms);
+    send_control(join::msg_leave_save_request(), join::encode_leave_save_request(static_cast<std::uint8_t>(d.kind)));
+    const char* text = d.kind == join::LeaveKind::Disconnect
+                           ? "Saving the universe before leaving. Press Disconnect again to leave at once."
+                           : "Saving the universe before leaving. Choose it again to leave at once.";
+    const std::string notice = std::string(R"({"v":1,"level":"info","text":")") + text + R"("})";
+    raise_lua(ctx, "x4mp.notify", notice);
+    raise_lua(ctx, "x4mp.leave_wait", notice);
+    return;
+  }
+  static constexpr const char* kWhy[] = {"no save needed", "the checkpoint is stored", "the server could not save", "timed out waiting for the checkpoint",
+                                         "pressed again", "the session ended"};
+  const char* why = kWhy[static_cast<std::size_t>(d.why)];
+  const bool warn = d.why == join::LeaveWhy::NotSaved || d.why == join::LeaveWhy::TimedOut;
+  X4MP_CLOG(ctx.log, Cat::Sess, warn ? Level::Warn : Level::Info, "planned leave: leaving now ({}; kind {})", why, static_cast<int>(d.kind));
+  if (d.close_session) finish_disconnect(ctx, "disconnect");
+  raise_lua(ctx, "x4mp.leave_go", R"({"v":1})");  // releases a held Esc > Exit / Quit; harmless when nothing is held
+}
+
+void JoinFeature::finish_disconnect(host::HostContext& ctx, const char* why) {
+  stop_session(ctx, why);
   stage_ = Stage::Idle;
   reject_.clear();
   detail_.clear();
@@ -504,6 +554,7 @@ void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
   // F1b: every leave ends the F1 main-menu watch and the open reload decision; a Join the player starts afterwards is not that session.
   menu_watch_.disarm();
   undecided_.reset();
+  leave_.reset();  // F24
   if (session_) {
     X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "leaving the session ({})", why);
     session_->stop();  // Disconnect(ClientQuit), intent cleared
@@ -806,6 +857,12 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       avatars::avatar_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);  // M3-11
       // M3-10: player-ship entity messages and Replication go to the ghost feature (features/ghosts); it ignores everything else.
       ghosts::ghost_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
+      if (e.type == join::msg_leave_save_result()) {  // F24
+        if (const auto result = join::parse_leave_save_result(std::span<const std::uint8_t>(e.payload))) {
+          X4MP_CLOG(ctx.log, Cat::Sess, Level::Info, "planned leave: the server answered saved={} ({})", result->saved, result->detail);
+          apply_leave(ctx, leave_.on_result(result->saved));
+        }
+      }
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
