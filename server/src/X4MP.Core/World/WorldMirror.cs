@@ -121,6 +121,9 @@ public sealed partial class WorldMirror : ISessionModule
     /// </summary>
     public long BackwardClockJumps { get; private set; }
 
+    /// <summary><c>PlayerState</c> samples dropped because game time was frozen and a strictly increasing stamp would have run past the overshoot cap (<see cref="PlayerSampleClock.MaxOvershootSeconds"/>).</summary>
+    public long DroppedPlayerSamples { get; private set; }
+
     /// <summary>
     /// The <c>capture_time_us</c> of the latest <c>WorldUpdate</c>: the authority's estimate of the server clock at the time
     /// <see cref="AuthorityGameTime"/> was sampled. The pair is the reference of every <c>Replication</c> frame.
@@ -984,7 +987,14 @@ public sealed partial class WorldMirror : ISessionModule
         ship.AcceptAnySeq = false;
 
         long now = _time.GetTimestamp();
-        double stamp = PlayerSampleClock.Stamp(ship, state.SampleTimeUs, HasWorldUpdate, AuthorityGameTime, AuthorityCaptureTimeUs);
+        if (!PlayerSampleClock.TryStamp(ship, state.SampleTimeUs, HasWorldUpdate, AuthorityGameTime, AuthorityCaptureTimeUs, out double stamp))
+        {
+            // Game time is frozen and the stamp would pass the overshoot cap (review 2026-10-28, 2): nothing is written, so the previous sample stays
+            // the newest. Seq is NOT advanced: a dropped sample is not "seen", and the next one (any newer seq) is accepted as usual once game time runs.
+            DroppedPlayerSamples++;
+            return;
+        }
+
         ship.Seq = state.Seq;
         ship.SampleTimeUs = state.SampleTimeUs;
         ship.NetId = state.NetId;
