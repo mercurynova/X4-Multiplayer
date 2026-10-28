@@ -131,6 +131,42 @@ public sealed class LeaveSaveTests
     }
 
     [Fact]
+    public async Task AnUnrelatedCheckpointThatFinishesFirstDoesNotAnswerTheLeave()
+    {
+        // Review 2026-10-28 (4): a manual save of the authority player (request id 0) finishes while the leave's own request is in flight. The old
+        // FinishRequest cleared the in-flight request for it and answered the leave with ITS checkpoint. Here the fake authority is busy with the
+        // manual save and ignores the leave's RequestSave, so the only honest answer is the request timeout.
+        using var stall = new ManualResetEventSlim(false);
+        bool stalling = false;
+        await using var server = await SaveServer.StartAsync("--X4MP:Saves:AutosaveMinutes=0", "--X4MP:Saves:SaveRequestTimeoutSeconds=6");
+        await using var authority = await RunningAsync(
+            server,
+            Options(server, (_, _) =>
+            {
+                if (Volatile.Read(ref stalling))
+                {
+                    stall.Wait(TimeSpan.FromSeconds(30));
+                }
+            }));
+
+        Volatile.Write(ref stalling, true);
+        var manual = authority.Saves.RunCheckpointAsync(0, SaveReason.Admin, resume: false);
+        await SaveServer.WaitUntilAsync(() => authority.Saves.JobRunning, 10_000, "the manual save is running");
+        await AskAsync(authority);
+        await SaveServer.WaitUntilAsync(() => authority.Saves.LastRequestReason == SaveReason.Leave && server.Saves.LeaveSavePending, 10_000, "the leave request is in flight");
+        stall.Set();
+        await manual;
+
+        await Task.Delay(1500);
+        Assert.Equal(0, Results(authority)); // the manual checkpoint is not the leave's
+        Assert.True(server.Saves.LeaveSavePending);
+
+        var result = await ResultAsync(authority, 30_000);
+        Assert.False(result.Saved);
+        Assert.Contains("timed out", result.Detail);
+    }
+
+    [Fact]
     public async Task AnAuthorityThatDropsWhileWaitingLeavesNothingPending()
     {
         using var stall = new ManualResetEventSlim(false);

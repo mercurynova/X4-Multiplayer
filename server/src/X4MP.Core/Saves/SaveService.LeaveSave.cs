@@ -14,6 +14,7 @@ public sealed partial class SaveService
 {
     private SessionNode? _leaveNode;
     private bool _leaveStarted;
+    private uint _leaveRequestId;
 
     /// <summary>True while a planned authority leave waits for its checkpoint (tests, GUI).</summary>
     public bool LeaveSavePending => _leaveNode is not null;
@@ -55,6 +56,7 @@ public sealed partial class SaveService
         if (SendRequestSave(SaveReason.Leave))
         {
             _leaveStarted = true;
+            _leaveRequestId = _inFlight?.RequestId ?? 0;
         }
         else
         {
@@ -62,12 +64,16 @@ public sealed partial class SaveService
         }
     }
 
-    /// <summary>The request that was in flight is over (current, stored but not current, failed or timed out): answers a waiting leave.</summary>
-    private void OnLeaveRequestFinished(bool current, string detail)
+    /// <summary>A request is over (current, stored but not current, failed or timed out): answers a waiting leave only when it is the leave's own request.</summary>
+    private void OnLeaveRequestFinished(uint requestId, bool current, string detail)
     {
         if (_leaveNode is { } node && _leaveStarted)
         {
-            ReplyLeave(node, current, current ? "checkpoint is current" : detail);
+            // Only the leave's own request answers it; any other finished request leaves it waiting (review 2026-10-28, 4).
+            if (requestId == _leaveRequestId)
+            {
+                ReplyLeave(node, current, current ? "checkpoint is current" : detail);
+            }
         }
         else
         {
