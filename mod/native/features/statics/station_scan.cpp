@@ -46,7 +46,8 @@ bool parse_double(std::string_view text, double& out) {
   return r.ec == std::errc{} && r.ptr == text.data() + text.size();
 }
 
-// One '|'-separated row: component|macro|x|y|z[|idcode]. Extra fields are ignored, so MD can append without breaking the parser.
+// One '|'-separated row: component|macro|x|y|z[|idcode][|owner]. Extra fields are ignored, so MD can append without breaking the
+// parser.
 bool parse_row(std::string_view text, StationRow& out) {
   text = trim(text);
   if (text.empty()) return false;
@@ -58,6 +59,7 @@ bool parse_row(std::string_view text, StationRow& out) {
   if (!parse_double(next_sep(text, '|'), out.z)) return false;
   out.macro.assign(macro);
   if (!text.empty()) out.idcode.assign(trim(next_sep(text, '|')));  // M4-18 tie-break, optional
+  if (!text.empty()) out.owner.assign(trim(next_sep(text, '|')));   // M5-17, optional
   return true;
 }
 

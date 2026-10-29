@@ -202,3 +202,27 @@ TEST_CASE("M5-14: a ware ref is stable and differs per ware", "[economy][m514]")
   CHECK(ware_ref_of("") == 2166136261u);  // the FNV-1a offset basis: an empty name is never a real ware
   CHECK(ware_ref_of("energycells") != 0);
 }
+
+TEST_CASE("M5-17: the counter-flow pays or charges the station owner, and never guesses", "[economy][m517]") {
+  // A buy (amount > 0) is the player paying the station: the owner is credited, the player's faction is debited.
+  const auto buy = trade_money_op("x4mp_team_1", "teladi", 12, 3);
+  REQUIRE(buy.has_value());
+  CHECK(buy->from == "x4mp_team_1");
+  CHECK(buy->to == "teladi");
+  CHECK(buy->amount == 36);
+
+  // A sale (amount < 0) is the station paying the player: the owner is debited for the same worth, never credited twice.
+  const auto sale = trade_money_op("player", "argon", -500, 21);
+  REQUIRE(sale.has_value());
+  CHECK(sale->from == "argon");
+  CHECK(sale->to == "player");
+  CHECK(sale->amount == 10500);
+
+  // Nothing to address, nothing to move.
+  CHECK_FALSE(trade_money_op("", "argon", 10, 5).has_value());         // the payer is unknown
+  CHECK_FALSE(trade_money_op("player", "", 10, 5).has_value());        // the scan never read the owner
+  CHECK_FALSE(trade_money_op("player", "player", 10, 5).has_value());  // our own station: the money never left
+  CHECK_FALSE(trade_money_op("player", "argon", 0, 5).has_value());    // no units moved
+  CHECK_FALSE(trade_money_op("player", "argon", 10, 0).has_value());   // no price to be worth
+  CHECK_FALSE(trade_money_op("player", "argon", 10, -5).has_value());  // a negative price is not a trade
+}

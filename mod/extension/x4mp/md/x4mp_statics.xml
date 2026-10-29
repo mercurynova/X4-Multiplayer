@@ -10,7 +10,7 @@
 
     native -> Lua  x4mp.statics_request {"v":1,"sector":"<sector macro id>"}
     Lua -> MD      AddUITriggeredEvent("X4MP_Statics", "scan", { <sector macro id> })
-    MD -> Lua      raise_lua_event "x4mp.statics_scan" "S;<sector macro>;<component>|<station macro>|<x>|<y>|<z>;..."
+    MD -> Lua      raise_lua_event "x4mp.statics_scan" "S;<sector macro>;<component>|<station macro>|<x>|<y>|<z>||<owner>;..."
                    raise_lua_event "x4mp.statics_scan" "E;<sector macro>;<count>"
     Lua -> native  verb x4mp.statics_scan {"v":1,"data":"<the same string>"}
 
@@ -47,10 +47,15 @@
           <do_for_each name="$St" in="$Stations">
             <do_if value="$St.exists and $St.macro.id and $St.position">
               <set_value name="$Pos" exact="$St.position"/>
+              <!-- M5-17: the owner faction id, read the way md/x4mp_capture.xml reads a ship's owner (@$Obj.owner.id, null-guarded) -->
+              <set_value name="$Owner" exact="@$St.owner.id"/>
+              <do_if value="$Owner == null">
+                <set_value name="$Owner" exact="''"/>
+              </do_if>
               <do_if value="$Chunk != ''">
                 <set_value name="$Chunk" exact="$Chunk + ';'"/>
               </do_if>
-              <set_value name="$Chunk" exact="$Chunk + '' + $St + '|' + $St.macro.id + '|' + ($Pos.x / 1m) + '|' + ($Pos.y / 1m) + '|' + ($Pos.z / 1m)"/>
+              <set_value name="$Chunk" exact="$Chunk + '' + $St + '|' + $St.macro.id + '|' + ($Pos.x / 1m) + '|' + ($Pos.y / 1m) + '|' + ($Pos.z / 1m) + '||' + $Owner"/>
               <set_value name="$InChunk" exact="$InChunk + 1"/>
               <set_value name="$Total" exact="$Total + 1"/>
               <do_if value="$InChunk ge 40">

@@ -239,7 +239,7 @@ void StaticsFeature::on_batch(host::HostContext& ctx, std::uint16_t sector, cons
     // M5-16: every station gets an id this node can name on the wire, matched or not: the manifest row's id, else the M3 hash of the
     // same key (the fallback the on-foot flow uses). Without a manifest (the authority) it is always the hash.
     statics::statics_hub().note_station(sector, row.component, hit != nullptr ? hit->net_id : onfoot::matched_container_id(key),
-                                       batch.sector_macro);
+                                       batch.sector_macro, false, row.owner);
     state.seen.insert(row.component);
     if (!index.loaded()) continue;  // no manifest on this node: there is nothing to match, only ids to note
     ++match.stations;

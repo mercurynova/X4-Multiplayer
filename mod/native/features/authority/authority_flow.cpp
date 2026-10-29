@@ -640,13 +640,22 @@ void AuthorityFlow::apply_trade(host::HostContext& ctx, const events::IntentRequ
                    events::encode_trade_event(station, ship, request.player_id, economy::ware_ref_of(ware), amount, unit_price, 0, 0,
                                               request.game_time, 0));
 
-  // M5-17 is not wired yet: the station owner's faction is not on this node (the statics scan carries no owner), so the NPC counter-flow
-  // has no addressee. Tracked in docs/m5-plan.md W4.
+  // M5-17: the NPC side of the trade. The player's own money already moved inside the game; the station owner's faction is moved the
+  // opposite way so the NPC economy does not leak (a buy pays the owner, a sale is paid by it - economy::trade_money_op decides).
+  // The payer is the reporting player's team faction ("player" when they are on none), never a value the client sent; an owner the
+  // scan could not read means no op at all, and that is counted.
+  const std::uint16_t payer_team = team_of_player(request.player_id);
+  const std::string payer = payer_team != 0 ? teams::team_hub().faction_of_team(payer_team) : std::string("player");
+  if (const auto money =
+          economy::trade_money_op(payer, statics::statics_hub().owner_of(component), amount, unit_price)) {
+    economy::economy_hub().queue(*money);
+    ++trades_paid_;
+  }
   X4MP_CLOG(ctx.log, Cat::Auth, Level::Info,
             "authority: trade at net {} ware '{}' x{} applied to component {} (applied={} deferred={} dropped={} unknown={} stock ops={} "
-            "snapshots={})",
+            "snapshots={} paid={})",
             station, ware, amount, component, trades_applied_, trades_deferred_, trades_dropped_, trades_unknown_, stock_ops_,
-            snapshots_sent_);
+            snapshots_sent_, trades_paid_);
 }
 
 void AuthorityFlow::send_station_cargo(host::HostContext& ctx, std::uint32_t station, std::uint64_t component) {

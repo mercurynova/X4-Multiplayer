@@ -246,6 +246,7 @@ class AuthorityFlow {
   std::uint32_t trades_unknown_ = 0;
   std::uint32_t stock_ops_ = 0;
   std::uint32_t snapshots_sent_ = 0;
+  std::uint32_t trades_paid_ = 0;  // M5-17: trades whose NPC counter-flow was queued
   // M5-19
   std::uint32_t stations_spawned_ = 0;
   std::uint32_t stations_rejected_ = 0;

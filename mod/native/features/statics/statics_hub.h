@@ -79,7 +79,7 @@ class StaticsHub {
   // hash of the very same match key (onfoot::matched_container_id), which every node computes identically - the fallback the on-foot
   // flow already uses (statics_hub.h:62). Unlike `bind`, this is not a matching claim: it carries no report counters.
   void note_station(std::uint16_t sector, std::uint64_t component, std::uint32_t net_id, std::string sector_macro = {},
-                    bool pinned = false);
+                    bool pinned = false, std::string owner = {});
   // M5-19: the authority assigned this id (a built station's EntitySpawn/IntentResult). A pinned id survives later scans: the
   // hash fallback must not take it back.
   void pin_station(std::uint16_t sector, std::uint64_t component, std::uint32_t net_id, std::string sector_macro = {}) {
@@ -89,6 +89,8 @@ class StaticsHub {
   [[nodiscard]] std::uint64_t station_component(std::uint32_t net_id) const;
   // M5-18: the sector macro a station was scanned in (empty when this node never named it).
   [[nodiscard]] std::string sector_macro_of(std::uint64_t component) const;
+  // M5-17: the faction id the scan read for this station (empty when MD could not read it, or the node never scanned it).
+  [[nodiscard]] std::string owner_of(std::uint64_t component) const;
   [[nodiscard]] std::size_t stations_known() const noexcept { return station_by_component_.size(); }
   // M5-16: a station this pass no longer lists is gone from this universe.
   std::size_t prune_stations(std::uint16_t sector, const std::unordered_set<std::uint64_t>& present);
@@ -123,6 +125,7 @@ class StaticsHub {
     std::uint16_t sector = 0;
     std::string sector_macro;  // M5-18: what the scan called the sector (the wire index is `sector`)
     bool pinned = false;       // M5-19: the authority assigned this id; a scan's hash id must not replace it
+    std::string owner;         // M5-17: the station's owner faction as the scan read it; empty when unknown
   };
   std::unordered_map<std::uint64_t, LocalStation> station_by_component_;
   std::unordered_map<std::uint32_t, std::uint64_t> component_by_station_;

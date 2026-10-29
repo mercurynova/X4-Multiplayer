@@ -225,12 +225,11 @@ M5-09 needed no new code: a tracked entity that becomes invalid is already detec
 | M5-14 | `Intent{TradeReport{station, ship, ware_ref, amount}}` upward, and `EntityCargo` for the own ship at most 1 Hz on change. | The report names the matched station net id; the cargo state line is at most 1 Hz |
 | M5-15 | The authority applies the stock change through the MD actions shim (`add_cargo`/`remove_cargo` with `exact=`), batched into one `AddUITriggeredEvent` per frame under a per-frame ware budget. | 500 units land within 10 s with no frame over 2 ms in the `authority_ms` slot of the budget line |
 | M5-16 | Broadcast and client apply: the authority sends `EntityCargo` for the station; each client computes the delta against its matched station and applies it through the same shim. | A buy reduces the stock on every node; an unmatched station is skipped and counted, never guessed |
-| M5-17 | NPC counter-flow: `transfer_money` to the station owner's faction so the NPC economy does not leak, resolved node-relative. | A sale raises the owner faction's money by the same amount, once |
+| M5-17 | NPC counter-flow: `transfer_money` to the station owner's faction so the NPC economy does not leak, resolved node-relative. | A player purchase credits the owner faction's account with exactly the trade's worth, once (a player sale debits it) |
 
 **AC (wave).** AC item 4.
 
-**Status 2026-10-28: W4 done for M5-13..M5-16 (code + tests); M5-17 blocked on station ownership, which the statics scan does
-not carry.**
+**Status 2026-10-28: W4 done for M5-13..M5-17 (code + tests).**
 
 **Built.**
 
@@ -269,23 +268,23 @@ not carry.**
   `GameApi::cargo`, computes the difference with `cargo_delta` (`features/economy/stock_apply.h:28`), and queues only the
   differing wares. A net id the statics scan does not know is skipped and counted `cargo_skipped`; a station whose cargo cannot
   be read is `cargo_bad` and left alone. Nothing is guessed.
+- **NPC counter-flow (M5-17).** The scan's 7th field carries the station owner's faction id, read through the same `@$St.owner.id` idiom proven on ships in `md/x4mp_capture.xml`; `StationRow.owner` parses it, `note_station` keeps the owner a pass could not read (and still learns a captured pinned station's new owner without touching its id), and `owner_of` is the accessor. `apply_trade` resolves the payer through `team_of_player` (the reporting player's team faction, `"player"` when there is no team) and queues the trade's counter-flow through `economy::economy_hub()`, counting `trades_paid_`. The direction is the opposite of the player's (docs/mod-design.md 5.3 and 12.2): a buy of 12 units at 3 Credits debits the payer's faction 36 and credits the owner 36, while a sale of 500 at 21 moves 10500 the other way, the owner paying the player's faction. `trade_money_op` refuses an empty payer or owner, a payer that is its own station, a zero amount, a zero price, and a negative price: the mod never guesses an addressee.
 
-**Verified:** build green; ctest **656/656** (4 skipped, the same network smokes as W3); new host cases `[economy]` — 6 test
-cases, 63 assertions; Lua **263/263**, including the new `mod/tests/lua/test_actions.lua`.
+**Verified:** build green, no compiler errors; ctest **652/652 passed** (656 registered, the 4 network smokes not run, the
+same as W3) in 97.6 s; new cases `[economy][m517]` (the counter-flow's direction and its six refusals) and `[statics][m517]`
+(the 7th scan field, a silent pass keeping the owner, a captured pinned station learning a new owner); Lua **263/263**,
+including `mod/tests/lua/test_actions.lua`.
 
 **Not done, deliberately.**
 
-- **M5-17 (NPC counter-flow) is not implemented.** The station scan line carries `component|macro|x|y|z|idcode` and no owner,
-  so the authority cannot name the station's faction and has no `transfer_money` addressee. Picking a faction would be the one
-  guess this wave is built to avoid. The fix is small and known: add the owner to `md/x4mp_statics.xml`, carry it through
-  `StationRow` / `parse_station_batch`, and queue a `MoneyOp` from `apply_trade`.
 - **A station id is the M3 hash, not a manifest id** (see the first bullet). This is why the authority can apply a trade at all
   in W4, and it is also the reason the two sides must switch to manifest ids together, in one commit, when M4 AC item 1 lands.
 
 **`[VERIFY]` for session 8:** whether a nested list survives `AddUITriggeredEvent` into `event.param3` and `do_for_each`; whether
 MD coerces a component id out of a Lua number (the scan path already prints hex text, the actions path sends numbers); whether
 `add_cargo` on a station the authority's player does not own applies at all — the V13 spike only proved it on the player's own
-ship — and `transfer_money` to an NPC faction, which M5-17 needs.
+ship — and `transfer_money` to an NPC faction, which M5-17 needs; whether `@$St.owner.id` reads a station's owner (the same
+idiom is proven on ships in `md/x4mp_capture.xml:48`).
 
 ### W5 — Builds and capture (M5-18..M5-21)
 
@@ -402,6 +401,40 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
 | M5-26 | Shared-pool overdraft: negative pool if the game tolerates it, otherwise clamp local money at 0 and surface the team debt in the HUD and the economy screen. | Two simultaneous purchases in Shared mode leave all members at the same final balance within 2 s |
 
 **AC (wave).** AC item 10.
+
+**Status 2026-10-29: W6 started; M5-22 done (code + tests), M5-23..M5-26 open.**
+
+**Built.**
+
+- **The read has to be Lua-side, and that is why the poll exists.** The vendored game function table has `AddPlayerMoney` and no
+  getter at all (`mod/third_party/x4native/v9.0.0-611726/sdk/x4_game_func_list.inc:40`), so native can write money but never read
+  it. `ui/x4mp_money.lua` therefore polls `GetPlayerMoney()` once per frame and pushes `x4mp.money {"v":1,"value":N}` on change
+  only: the value is rounded to whole credits (`math.floor(v + 0.5)`, the game hands back a float), a missing function, a
+  non-number or a NaN counts as `bad` and is never sent as 0, the start menu is skipped, and a refused send is retried on the next
+  poll instead of being lost. The per-frame timer is the hud's re-arming one-time callback with the same stale guard, so another
+  mod's raising callback cannot kill the loop for good. `event_player_money_updated` is deliberately not the source: it does not
+  fire for every change, so it can only ever be a reason hint (that is M5-24's job).
+- **The verb is not queueable** (`ui/x4mp_bridge.lua`, `B.VERBS.money`): a balance that arrives late is a wrong balance, and the
+  next poll re-reads the truth anyway.
+- **`features/wallet`** is the native half. `wallet_hub.h` `parse_money_value` reads the body (an object with an integral `value`,
+  any key order, extra fields ignored, floats/strings/null/oversized bodies refused) and `WalletHub::observe`
+  (`wallet_hub.cpp:28`) is the 12.2 state machine: the first reading of a session is a `Baseline`, the same value is `Quiet`, a
+  change that equals what `note_apply` asked the game for is an `Echo` and clears the expectation, anything else is the player's
+  own `Change`. A real change never eats an outstanding expectation, so an echo that lands after it is still recognised as ours;
+  two writes before one poll are recognised as their sum. `note_apply` is what M5-23 will call around `AddPlayerMoney`.
+- **`WalletFeature`** subscribes `x4mp.money` into a mutex inbox (64 bodies, oldest dropped), drains it in `on_frame` after
+  `universe_ready`, and logs one greppable line every 30 s: `[wallet] local=... known=... changes=... echoes=... applies=...
+  quiet=... bad=... expected=...`. A new universe drops the baseline (`on_game_loaded`), because the next account is not this one.
+  It is registered after `EconomyFeature`, which will book its changes upward in M5-23.
+
+**Verified.** build green, no compiler errors; ctest **655/655 passed** (659 registered, the 4 network smokes not run, the same as
+W3) in 82.4 s; Lua **271/271** (8 new `test_money` cases). New native cases: `[wallet][m522]` "a money body is a JSON object with
+an integral value", "...the first reading is a baseline, our own write is an echo, the rest is the player's", "...a zero balance at
+start is a baseline, not a quiet frame" (`mod/tests/test_wallet.cpp`).
+
+**`[VERIFY]` for session 8:** that `GetPlayerMoney()` exists as a Lua global and returns credits in the same unit `AddPlayerMoney`
+takes; that a per-frame poll is not measurable in the frame time; and that an `AddPlayerMoney` written by native comes back as one
+change on the next poll (M5-23's whole echo rule rests on that).
 
 ### W7 — Relations, chat and the economy screen (M5-27..M5-31)
 

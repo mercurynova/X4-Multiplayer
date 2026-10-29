@@ -370,3 +370,43 @@ TEST_CASE("M5-16: station components and net ids map both ways, per sector", "[s
   CHECK(hub.stations_known() == 0);
   CHECK(hub.station_component(0x222) == 0);
 }
+
+TEST_CASE("M5-17: the scan carries the station owner, and a silent pass does not erase it", "[statics][m517]") {
+  // The 7th field is the owner faction id; the 6th stays the M4-18 id code, so MD sends an empty id code today.
+  const auto batch = S::parse_station_batch(
+      "S;sec_a_macro;0x18ead5|station_a_macro|1200.4|3400.2|-50.1||argon;0x18ead6|station_b_macro|0|0|0|TELADI-01|teladi");
+  REQUIRE(batch.has_value());
+  REQUIRE(batch->rows.size() == 2);
+  CHECK(batch->rows[0].owner == "argon");
+  CHECK(batch->rows[0].idcode.empty());
+  CHECK(batch->rows[1].idcode == "TELADI-01");
+  CHECK(batch->rows[1].owner == "teladi");
+
+  // A row without the field at all is still a row: the owner is simply unknown.
+  const auto bare = S::parse_station_batch("S;sec;0x10|m|1|2|3");
+  REQUIRE(bare.has_value());
+  REQUIRE(bare->rows.size() == 1);
+  CHECK(bare->rows[0].owner.empty());
+
+  // The hub keeps the owner next to the id, and a pass that could not read it keeps the one it already knew.
+  auto& hub = S::statics_hub();
+  hub.clear_stations();
+  hub.note_station(4, 0x18ead5, 0x99, "sec_a_macro", false, "argon");
+  CHECK(hub.owner_of(0x18ead5) == "argon");
+  hub.note_station(4, 0x18ead5, 0x99, "sec_a_macro");  // the same station, owner unreadable this time
+  CHECK(hub.owner_of(0x18ead5) == "argon");
+  CHECK(hub.sector_macro_of(0x18ead5) == "sec_a_macro");
+
+  // A changed owner is learned, and a pinned id keeps the owner it was pinned with.
+  hub.note_station(4, 0x18ead5, 0x99, "sec_a_macro", false, "teladi");
+  CHECK(hub.owner_of(0x18ead5) == "teladi");
+  hub.pin_station(4, 0x18ead5, 0x4242, "sec_a_macro");
+  CHECK(hub.station_net_id(0x18ead5) == 0x4242);
+  CHECK(hub.owner_of(0x18ead5) == "teladi");  // pinning an id does not lose what the scan read
+  // A captured pinned station keeps its id and changes hands: the scan updates the owner, never the id.
+  hub.note_station(4, 0x18ead5, 0x99, "sec_a_macro", false, "argon");
+  CHECK(hub.station_net_id(0x18ead5) == 0x4242);
+  CHECK(hub.owner_of(0x18ead5) == "argon");
+  hub.clear_stations();
+  CHECK(hub.owner_of(0x18ead5).empty());
+}

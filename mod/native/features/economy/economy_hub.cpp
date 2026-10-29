@@ -11,6 +11,20 @@ std::uint32_t ware_ref_of(std::string_view ware) noexcept {
   return h;
 }
 
+std::optional<MoneyOp> trade_money_op(std::string_view payer, std::string_view station_owner, std::int32_t amount,
+                                      std::int32_t unit_price) {
+  if (payer.empty() || station_owner.empty()) return std::nullopt;  // nothing to address
+  if (payer == station_owner) return std::nullopt;                  // our own station: the money never left the faction
+  if (amount == 0 || unit_price <= 0) return std::nullopt;          // no value moved, or no price the trade could be worth
+  const std::int64_t units = amount < 0 ? -static_cast<std::int64_t>(amount) : static_cast<std::int64_t>(amount);
+  const std::int64_t total = units * static_cast<std::int64_t>(unit_price);
+  if (total <= 0) return std::nullopt;
+  // The counter-flow is the opposite of the player's: a buy (amount > 0) pays the station owner, a sale (amount < 0) is paid by it
+  // (docs/mod-design.md 5.3 and 12.2: "credits or debits the station owner's faction account").
+  if (amount > 0) return MoneyOp{std::string(payer), std::string(station_owner), total};
+  return MoneyOp{std::string(station_owner), std::string(payer), total};
+}
+
 void EconomyHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload) {
   if (type != static_cast<std::uint16_t>(X4MP::Proto::MsgType::EntityCargo)) return;
   events::CargoView view;

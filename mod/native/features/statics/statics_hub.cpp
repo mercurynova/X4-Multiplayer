@@ -75,14 +75,28 @@ std::size_t StaticsHub::prune_sector(std::uint16_t sector, const std::unordered_
 }
 
 void StaticsHub::note_station(std::uint16_t sector, std::uint64_t component, std::uint32_t net_id, std::string sector_macro,
-                              bool pinned) {
+                              bool pinned, std::string owner) {
   if (component == 0 || net_id == 0) return;
+  // What this node already knows about the station: a pass that could not read the owner or the sector macro must not erase them.
+  std::string known_macro;
+  std::string known_owner;
+  bool was_pinned = false;
   const auto old = station_by_component_.find(component);
   if (old != station_by_component_.end()) {
-    if (old->second.pinned && !pinned) return;  // M5-19: the authority's id wins over the local hash for good
-    if (old->second.net_id == net_id && old->second.sector == sector) {
-      if (sector_macro.empty()) return;  // the same answer as last pass, and nothing new to learn
-      old->second.sector_macro = std::move(sector_macro);
+    if (old->second.pinned && !pinned) {
+      // M5-19: the authority's id wins over the local hash for good. The scan is still the only source for the owner and the sector
+      // macro, though: a captured station keeps its pinned id and changes hands, so learn them and leave the id alone.
+      if (!sector_macro.empty()) old->second.sector_macro = std::move(sector_macro);
+      if (!owner.empty()) old->second.owner = std::move(owner);
+      return;
+    }
+    was_pinned = old->second.pinned;
+    known_macro = old->second.sector_macro;
+    known_owner = old->second.owner;
+    if (old->second.net_id == net_id && old->second.sector == sector && !pinned) {
+      // the same answer as last pass: only learn what this pass named and the last one did not
+      if (!sector_macro.empty()) old->second.sector_macro = std::move(sector_macro);
+      if (!owner.empty()) old->second.owner = std::move(owner);
       return;
     }
     component_by_station_.erase(old->second.net_id);
@@ -94,6 +108,8 @@ void StaticsHub::note_station(std::uint16_t sector, std::uint64_t component, std
       }
     }
   }
+  if (sector_macro.empty()) sector_macro = std::move(known_macro);
+  if (owner.empty()) owner = std::move(known_owner);
   // One net id names one station on this node: a second component claiming it takes it over (a station was rebuilt at the same spot).
   const auto other = component_by_station_.find(net_id);
   if (other != component_by_station_.end() && other->second != component) station_by_component_.erase(other->second);
@@ -101,7 +117,8 @@ void StaticsHub::note_station(std::uint16_t sector, std::uint64_t component, std
   row.net_id = net_id;
   row.sector = sector;
   row.sector_macro = std::move(sector_macro);
-  row.pinned = pinned;
+  row.pinned = pinned || was_pinned;
+  row.owner = std::move(owner);
   station_by_component_[component] = std::move(row);
   component_by_station_[net_id] = component;
   stations_by_sector_[sector].insert(component);
@@ -120,6 +137,11 @@ std::uint64_t StaticsHub::station_component(std::uint32_t net_id) const {
 std::string StaticsHub::sector_macro_of(std::uint64_t component) const {
   const auto it = station_by_component_.find(component);
   return it == station_by_component_.end() ? std::string() : it->second.sector_macro;
+}
+
+std::string StaticsHub::owner_of(std::uint64_t component) const {
+  const auto it = station_by_component_.find(component);
+  return it == station_by_component_.end() ? std::string() : it->second.owner;
 }
 
 std::size_t StaticsHub::prune_stations(std::uint16_t sector, const std::unordered_set<std::uint64_t>& present) {

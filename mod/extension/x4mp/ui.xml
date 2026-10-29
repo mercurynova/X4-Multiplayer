@@ -17,6 +17,8 @@
      M5-01 added x4mp_events.lua (the Lua half of the event capture ring: one line per occurrence from md/x4mp_events.xml to native).
      M5-15 added x4mp_actions.lua (the economy actions shim: native's queued cargo and money changes become one AddUITriggeredEvent per
      frame, md/x4mp_actions.xml applies them with add_cargo/remove_cargo exact= and transfer_money).
+     M5-22 added x4mp_money.lua (the wallet read: GetPlayerMoney() polled per frame, pushed to native as x4mp.money only on change;
+     native has no money getter of its own).
      Later tasks must not edit this file.
      __X4MP_USER (userdata storage, not in the save): { version, lastAddress, lastName }; never the password. -->
 <addon name="x4mp">
@@ -41,6 +43,7 @@
     <file name="ui/x4mp_onfoot.lua" />
     <file name="ui/x4mp_diag.lua" />
     <file name="ui/x4mp_events.lua" />
+    <file name="ui/x4mp_money.lua" />
     <dependency name="ego_detailmonitorHelper" />
     <savedvariable name="__X4MP_USER" storage="userdata" />
   </environment>

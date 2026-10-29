@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -42,6 +43,13 @@ struct MoneyOp {
   std::string to;
   std::int64_t amount = 0;
 };
+
+// M5-17: the counter-flow of one trade. It is the opposite of the player's flow, so the NPC economy does not leak: a buy
+// (amount > 0) credits the station owner's faction and debits the payer, a sale (amount < 0) debits the owner and credits the payer.
+// The payer is the reporting player's faction, never a value a client sent, and an unknown side means no op at all: the mod does not
+// guess an addressee (and does not move money when the station belongs to the payer's own faction).
+[[nodiscard]] std::optional<MoneyOp> trade_money_op(std::string_view payer, std::string_view station_owner,
+                                                    std::int32_t amount, std::int32_t unit_price);
 
 struct EconomyStats {
   // M5-13/14, the client half

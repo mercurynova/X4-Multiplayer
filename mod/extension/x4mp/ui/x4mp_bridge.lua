@@ -33,6 +33,8 @@
 --                        server as PlayerAppearance, refused when the pair is not in the curated catalogue
 --   x4mp.onfoot_talk    {"v":1,"to":<pid>,"kind":"wave"}   (M3b W5, x4mp_onfoot.lua) the Talk choice on an MP avatar; native sends
 --                        PlayerInteraction to the relay, which forwards it to the target only
+--   x4mp.money          {"v":1,"value":<credits, integer>}   (M5-22, x4mp_money.lua) the player's balance from GetPlayerMoney(), sent
+--                        only when it changed; native features/wallet keeps it and reconciles it against the ledger (design 12.2)
 --
 -- TOPICS (native -> Lua), handled by the bridge and forwarded to B.on(topic, fn) handlers
 --   x4mp.status    {"v":1,"state":"disconnected|connecting|handshaking|checking_save|downloading|loading|matching|save_changed|
@@ -490,3 +492,10 @@ log("bridge loaded (api present: " .. tostring(B.getApi() ~= nil) .. ")")
 -- start menu belongs to no game.
 ------------------------------------------------------------------------------
 B.VERBS.event = true
+
+------------------------------------------------------------------------------
+-- M5-22 wallet read. Lua -> native x4mp.money {"v":1,"value":<credits>} - the player's balance as GetPlayerMoney() reports it, sent
+-- only when the value changes (docs/m5-plan.md W6). The game function table has no money getter, so this is the only way native can
+-- know a balance. Not queueable: a balance that arrives late is a wrong balance, and the next poll re-reads the truth anyway.
+------------------------------------------------------------------------------
+B.VERBS.money = true
