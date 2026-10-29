@@ -3,7 +3,9 @@
 #include <chrono>
 #include <utility>
 
+#include "features/events/events_hub.h"
 #include "features/wallet/wallet_hub.h"
+#include "features/wallet/wallet_wire.h"
 #include "host/host_log.h"
 
 namespace x4mp::features::wallet {
@@ -14,6 +16,8 @@ using host::Cat;
 using host::Level;
 
 constexpr std::int64_t kLogUs = 30'000'000;
+// A frame that books a burst must not send a burst: the rest goes in the following frames, in order.
+constexpr std::size_t kMaxSendsPerFrame = 8;
 
 std::int64_t now_us() {
   using namespace std::chrono;
@@ -44,8 +48,10 @@ void WalletFeature::on_init(host::HostContext& ctx) {
 }
 
 void WalletFeature::on_game_loaded(host::HostContext& ctx) {
-  // A new universe means a new player account: the old balance says nothing about this one.
+  // A new universe means a new player account: the old balance says nothing about this one, and an unbooked delta of the old
+  // universe cannot be booked into the new one (the ledger it belonged to is gone with the save).
   wallet_hub().reset();
+  linked_prev_ = false;
   last_log_us_ = 0;
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "wallet: a new universe was loaded: the balance baseline is dropped");
 }
@@ -54,11 +60,43 @@ void WalletFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   universe_ready_ = info.universe_ready;
   if (!info.universe_ready || !inbox_) return;
   const std::int64_t now = now_us();
-  drain(ctx, static_cast<std::uint64_t>(now));
+  // M5-24: the link's rising edge is the reconnect. Every delta the ledger has not acked goes again with its original key and seq,
+  // so a reconnect in the middle of a purchase loses nothing and the server still books each delta once (economy.fbs:53-54).
+  const bool linked = events::events_hub().linked();
+  if (linked && !linked_prev_) {
+    wallet_hub().resend_all();
+    if (wallet_hub().pending_count() > 0) {
+      X4MP_CLOG(ctx.log, Cat::Net, Level::Info, "wallet: the link is back, {} unacked delta(s) go again",
+                wallet_hub().pending_unsent());
+    }
+  }
+  linked_prev_ = linked;
+  drain(ctx, static_cast<std::uint64_t>(now), info.frame_index);
+  flush(info);
   converge(ctx);
   if (last_log_us_ == 0 || now - last_log_us_ >= kLogUs) {
     last_log_us_ = now;
     report(ctx);
+  }
+}
+
+void WalletFeature::flush(const host::FrameInfo& info) {
+  if (!events::events_hub().linked()) return;
+  for (const PendingDelta& row : wallet_hub().take_unsent(kMaxSendsPerFrame)) {
+    CreditDeltaData data;
+    data.key_lo = row.key_lo;
+    data.key_hi = row.key_hi;
+    data.amount = row.delta;
+    data.source = row.source;
+    data.ref_event_seq = row.ref_event_seq;
+    data.game_time = info.game_time.value_or(0.0);
+    data.seq = row.seq;
+    const std::vector<std::uint8_t> bytes = encode_credit_delta(data);
+    if (!events::events_hub().send_control(static_cast<std::uint16_t>(X4MP::Proto::MsgType::CreditDelta), bytes)) {
+      wallet_hub().note_send_failed();
+      return;  // the same row is first in line next frame, so the order the deltas were booked in is kept
+    }
+    wallet_hub().mark_sent(row.seq);
   }
 }
 
@@ -80,7 +118,7 @@ void WalletFeature::converge(host::HostContext& ctx) {
             wallet_hub().effective_local(), wallet_hub().target_balance());
 }
 
-void WalletFeature::drain(host::HostContext& ctx, std::uint64_t now) {
+void WalletFeature::drain(host::HostContext& ctx, std::uint64_t now, std::uint64_t frame) {
   std::vector<std::string> bodies = inbox_->take();
   for (const std::string& body : bodies) {
     const std::optional<std::int64_t> value = parse_money_value(body);
@@ -89,9 +127,14 @@ void WalletFeature::drain(host::HostContext& ctx, std::uint64_t now) {
       continue;
     }
     if (wallet_hub().observe(*value, now) != Observation::Change) continue;
-    // A change this node did not cause. M5-23 books it upward from here; for now it is logged so session 8 can read it.
-    X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "wallet: local balance {} (change {})", wallet_hub().local_balance(),
-              wallet_hub().last_change());
+    // M5-24: a change this node did not cause is income or spending the ledger has not seen yet, so it is booked upward with the
+    // cause the events of this frame window named (a trade, a finished build), and sent as one CreditDelta on the next flush.
+    const ReasonHint reason = wallet_hub().take_reason(frame);
+    const std::uint16_t player = events::events_hub().self_player_id();
+    const std::optional<PendingDelta> row = wallet_hub().book_upward(wallet_hub().last_change(), reason, player);
+    if (!row.has_value()) continue;
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "wallet: change {} booked as seq {} (source {})", row->delta, row->seq,
+              static_cast<int>(row->source));
   }
 }
 
@@ -100,10 +143,12 @@ void WalletFeature::report(host::HostContext& ctx) {
   const WalletStats& s = hub.stats();
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info,
             "[wallet] local={} known={} changes={} echoes={} applies={} quiet={} bad={} expected={} server={} target={} pending={}/{} "
-            "updates={} stale={} converged={} writes={} failed={} acked={} dropped={}",
+            "updates={} stale={} converged={} writes={} failed={} acked={} dropped={} booked={} sent={} sendfail={} resent={} "
+            "reasons={} unsent={} events={}",
             hub.local_balance(), hub.has_balance() ? 1 : 0, s.changes, s.echoes, s.applies, s.quiet, s.bad, hub.expected_adjust(),
             hub.server_known() ? hub.server_balance() : 0, hub.target_balance(), hub.pending_count(), hub.pending_sum(), s.updates,
-            s.stale, s.converged, s.writes, s.write_failed, s.pending_acked, s.pending_dropped);
+            s.stale, s.converged, s.writes, s.write_failed, s.pending_acked, s.pending_dropped, s.booked, s.sent, s.send_failed,
+            s.resent, s.reasons, hub.pending_unsent(), hub.events_seen());
 }
 
 void WalletFeature::on_shutdown(host::HostContext& ctx) {

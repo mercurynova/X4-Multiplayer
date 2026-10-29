@@ -402,7 +402,7 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
 
 **AC (wave).** AC item 10.
 
-**Status 2026-10-29: W6 under way; M5-22 and M5-23 done (code + tests), M5-24..M5-26 open.**
+**Status 2026-10-29: W6 under way; M5-22, M5-23 and M5-24 done (code + tests), M5-25 and M5-26 open.**
 
 **Built.**
 
@@ -441,20 +441,40 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
 - **Why the loop converges instead of "fixing" a balance**: the mod never invents money for a divergence (wave rule, `:429-431`);
   every correction is `AddPlayerMoney(target - local)` and every real delta goes up to the ledger, which is the only writer of a
   balance. A game refund, a rounding difference or a debug write is therefore corrected on the next `WalletUpdate`, not fought.
+- **M5-24, the change goes upward.** `WalletFeature::drain` no longer only logs a `Change`: the delta is booked with
+  `WalletHub::book_upward`, which fixes the three things a resend must repeat byte for byte — the per-node `seq` (`economy.fbs:54`,
+  strictly monotonic even across a zero delta, so an ack never points at a gap), the `request_key` (`key_lo` from this node's
+  counter, `key_hi` = our player id, the convention `trade_report.h:85-88` already uses) and the reason. `wallet_wire.h`
+  `encode_credit_delta` builds the message (`player_id`/`team_id` stay 0: `economy.fbs:47-48` says a client's are stamped by the
+  server) and `flush` sends at most 8 per frame through `events_hub().send_control(MsgType::CreditDelta, ...)` on the reliable,
+  ordered Control lane; a refusal leaves the row unsent and the very same bytes go again next frame. `take_unsent`/`mark_sent`
+  keep one row from being sent twice per link, and a link rising edge (`events_hub().linked()` going true) calls `resend_all()`,
+  which arms every unacked row again with its original key and seq — that is what makes the server book it once. The reason comes
+  from the events of the same frame window: `EventsFeature` reports every MD event to `WalletHub::note_event`, a `Trade` or a
+  `Build` names the cause (`ref_event_seq` = that event's number, `frame` = the host frame index every feature shares), `take_reason`
+  accepts it only within `kReasonFrames` = 2 frames and consumes it, so one event never pays for two changes, and a change with no
+  event is `CreditSource::Other`. Everything else (`Kill`, `Money`, ...) still bumps the event counter — `ref_event_seq` counts
+  events, not reasons — but never names a cause, which is why `event_player_money_updated` stays a hint.
 
-**Verified.** build green, no compiler errors; ctest **660/660 passed** (664 registered, the 4 network smokes not run, the same as
-W3); Lua **271/271** unchanged (M5-23 touched no Lua file). New native cases: `[wallet][m522]` "a money body is a JSON object with
-an integral value", "...the first reading is a baseline, our own write is an echo, the rest is the player's", "...a zero balance at
-start is a baseline, not a quiet frame"; `[wallet][m523]` "a WalletUpdate names this node's wallet, and junk is refused", "the node
-converges to serverBalance + its own unbooked deltas", "a delta the ledger books leaves pending, so it is never counted twice", "in
-Shared mode the node converges to the team pool, not its own wallet" (`mod/tests/test_wallet.cpp`), plus `[game][api][m5][wallet]`
-"GameApi::add_player_money is the write half of the wallet" (`mod/tests/test_game_api.cpp`).
+**Verified.** build green, no compiler errors; ctest **664/664 passed** (668 registered, the 4 network smokes not run, the same as
+W3) in 80.8 s; Lua **271/271** unchanged (M5-23 and M5-24 touched no Lua file). New native cases: `[wallet][m522]` "a money body is
+a JSON object with an integral value", "...the first reading is a baseline, our own write is an echo, the rest is the player's",
+"...a zero balance at start is a baseline, not a quiet frame"; `[wallet][m523]` "a WalletUpdate names this node's wallet, and junk
+is refused", "the node converges to serverBalance + its own unbooked deltas", "a delta the ledger books leaves pending, so it is
+never counted twice", "in Shared mode the node converges to the team pool, not its own wallet"; `[wallet][m524]` "a CreditDelta is
+this node's change, with the key and seq it was booked with", "only a money event names the cause, and it pays for one change", "a
+booked change goes up once, and again only after the link comes back", "pending cannot grow without a ledger, and a stale update
+changes nothing" (`mod/tests/test_wallet.cpp`, 476 assertions in 12 cases), plus `[game][api][m5][wallet]` "GameApi::add_player_money
+is the write half of the wallet" (`mod/tests/test_game_api.cpp`).
 
 **`[VERIFY]` for session 8:** that `GetPlayerMoney()` exists as a Lua global and returns credits in the same unit `AddPlayerMoney`
 takes; that a per-frame poll is not measurable in the frame time; that an `AddPlayerMoney` written by native comes back as one
 change on the next poll (M5-23's whole echo rule rests on that); that `AddPlayerMoney` is exported under exactly that name in the
 shipped game (the table lists it, but the mod had never called it before M5-23) and that the server's `WalletUpdate` names our
-wallet with `owner_id` = our player id in PerPlayer and our team id in Shared.
+wallet with `owner_id` = our player id in PerPlayer and our team id in Shared; that the server takes a `CreditDelta` from a client
+with `player_id`/`team_id` 0 and stamps the sender itself (`economy.fbs:47-48`), that `acked_delta_seq` actually comes back (without
+it every delta stays pending for ever and `target_balance` drifts), and that a resend of the same `request_key` + `seq` after a
+reconnect is booked once rather than twice.
 
 ### W7 — Relations, chat and the economy screen (M5-27..M5-31)
 

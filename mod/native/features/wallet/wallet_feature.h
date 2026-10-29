@@ -3,6 +3,10 @@
 //
 // The platform callback runs on the event thread, so it only copies the body into an inbox; on_frame drains it and hands the parsed
 // value to wallet_hub(). A body that is not a money reading is counted, never guessed at.
+//
+// M5-24: a change the node did not cause is booked upward and sent as CreditDelta on the Control lane. The send is retried every
+// frame until the link takes it, and when the link comes back after a reconnect every unacked delta goes again with its original
+// key and seq - the ledger books one per key, so a resend costs nothing and a lost send is recovered.
 
 #include <cstdint>
 #include <memory>
@@ -34,13 +38,16 @@ class WalletFeature final : public host::IFeature {
   void on_shutdown(host::HostContext& ctx) override;
 
  private:
-  void drain(host::HostContext& ctx, std::uint64_t now_us);
+  void drain(host::HostContext& ctx, std::uint64_t now_us, std::uint64_t frame);
   // M5-23: make the local money equal serverBalance + pending, one AddPlayerMoney at a time.
   void converge(host::HostContext& ctx);
+  // M5-24: hand every unsent delta to the link, oldest first; a refused send stops the batch and goes again next frame.
+  void flush(const host::FrameInfo& info);
   void report(host::HostContext& ctx);
 
   std::shared_ptr<WalletInbox> inbox_;
   bool universe_ready_ = false;
+  bool linked_prev_ = false;  // the link's state last frame: its rising edge arms every pending delta again
   std::int64_t last_log_us_ = 0;
 };
 

@@ -20,6 +20,13 @@
 //   Lua x4mp.money -> WalletFeature inbox -> observe()            (what the game actually says)
 //   server WalletUpdate -> on_frame_message -> note_server_balance (what the ledger says)
 //   both -> take_convergence() -> AddPlayerMoney                  (make the first equal the second)
+//
+// M5-24 closes the loop upward: a change this node did not cause is a delta the ledger has not booked yet, so it is booked
+// (book_upward: a per-node seq and a request key, both fixed once) and sent as CreditDelta. The reason travels with it - the
+// events feature reports every MD event here, and a trade or a finished build seen in the same frame window names the cause; a
+// change with no such event is CreditSource::Other. Nothing is lost on a reconnect: the pending rows stay until a WalletUpdate
+// acks their seq, and resend_all() hands every unsent row back to the sender with the very same key and seq, which is what makes
+// the server book it once.
 
 #include <cstddef>
 #include <cstdint>
@@ -28,7 +35,12 @@
 #include <string_view>
 #include <vector>
 
+#include "economy_generated.h"
+#include "features/events/event_types.h"
+
 namespace x4mp::features::wallet {
+
+namespace P = X4MP::Proto;
 
 // A money body is one small object. Anything bigger is not one of ours.
 inline constexpr std::size_t kMaxMoneyBody = 256;
@@ -59,6 +71,12 @@ struct WalletStats {
   std::uint64_t write_failed = 0;   // AddPlayerMoney calls that could not be made
   std::uint64_t pending_acked = 0;  // our own deltas the ledger booked
   std::uint64_t pending_dropped = 0;  // deltas dropped because too many stayed unbooked
+  // M5-24
+  std::uint64_t booked = 0;        // deltas this node booked upward (a change it did not cause)
+  std::uint64_t sent = 0;          // CreditDeltas the link took
+  std::uint64_t send_failed = 0;   // CreditDeltas the link refused (no session yet, a closed link)
+  std::uint64_t resent = 0;        // pending rows armed again after the link came back
+  std::uint64_t reasons = 0;       // changes that were booked with a named cause (a trade, a build)
 };
 
 // M5-23: one of this node's own deltas that the ledger has not booked yet. `seq` is per node and strictly monotonic
@@ -67,10 +85,31 @@ struct PendingDelta {
   std::uint64_t seq = 0;
   std::int64_t delta = 0;
   std::uint8_t reason = 0;  // LedgerReason as the wire carries it; history only, never part of the arithmetic (mod-design 12.2)
+  // M5-24: what the CreditDelta carries. The key and the seq are fixed when the delta is booked, so a resend is the same request
+  // and the server books it once.
+  std::uint64_t key_lo = 0;
+  std::uint64_t key_hi = 0;         // the sending player, so two nodes' keys cannot collide
+  std::uint8_t source = 0;          // CreditSource: Trade, Build, ... Other when no event named a cause
+  std::uint64_t ref_event_seq = 0;  // this node's running event count, 0 when the change came from no event at all
+  bool sent = false;                // the link took a send of it; a reconnect clears this (resend_all)
 };
 
 // Far more than a node can accumulate while the server answers: past this the oldest is dropped and counted.
 inline constexpr std::size_t kMaxPending = 256;
+
+// M5-24: why the change happened, as the events of the same frame window said. `frame` is the host frame index, the one clock every
+// feature shares, so "the same frame" needs no timestamp: a trade event and the poll that shows its money land in the same frame or
+// the next one.
+struct ReasonHint {
+  std::uint8_t source = static_cast<std::uint8_t>(P::CreditSource::Other);
+  std::uint64_t ref_event_seq = 0;
+  std::uint64_t frame = 0;
+  [[nodiscard]] bool named() const noexcept { return ref_event_seq != 0; }
+};
+
+// How many frames an event can be older than the change it paid for. The poll is per frame and the MD event reaches the bus in the
+// same frame, so one frame of slack covers the order the two features run in; more than that and the event is a different change.
+inline constexpr std::uint64_t kReasonFrames = 2;
 
 // The balance out of {"v":1,"value":N}: an object with an integral `value`, any key order, extra fields ignored. A float, a string, a
 // missing field, a body that is not JSON or one that is too big is not a reading and returns nullopt (never 0: a fabricated zero looks
@@ -105,6 +144,26 @@ class WalletHub {
   // The game took the write: this is the same accounting observe() will later recognise as the echo.
   void note_write(std::int64_t delta);
 
+  // ---- M5-24: the delta goes upward ----
+  // One MD event, as the events feature saw it. Only the kinds that move money name a cause (a trade, a finished build); every
+  // other kind still bumps the event counter, because ref_event_seq is a count of events, not of reasons.
+  void note_event(events::EventKind kind, std::uint64_t frame);
+  // The cause of the change about to be booked: the newest money event if it is fresh, else CreditSource::Other. Consumed, so one
+  // event never pays for two changes.
+  [[nodiscard]] ReasonHint take_reason(std::uint64_t frame);
+  // Book a change this node did not cause and hand back the row to send. nullopt for a zero delta (the seq is still consumed) and
+  // when the change is one of ours after all.
+  std::optional<PendingDelta> book_upward(std::int64_t delta, ReasonHint reason, std::uint16_t player_id);
+  // The rows whose send the link has not taken yet, oldest first, at most `max` of them.
+  [[nodiscard]] std::vector<PendingDelta> take_unsent(std::size_t max) const;
+  // The link took the send of `seq` (a row the ledger has already booked is simply gone).
+  void mark_sent(std::uint64_t seq);
+  // The link refused it: the row stays unsent and goes again next frame, with the same key and seq.
+  void note_send_failed() noexcept { ++stats_.send_failed; }
+  // The link came back (a reconnect, a resume): every pending row is armed again and resent with its original key and seq, which is
+  // what makes the server book it exactly once (economy.fbs:53-54).
+  void resend_all();
+
   [[nodiscard]] bool has_balance() const noexcept { return has_balance_; }
   [[nodiscard]] std::int64_t local_balance() const noexcept { return local_balance_; }
   [[nodiscard]] std::int64_t last_change() const noexcept { return last_change_; }
@@ -119,6 +178,8 @@ class WalletHub {
   [[nodiscard]] std::uint64_t last_seq() const noexcept { return seq_; }
   [[nodiscard]] std::int64_t pending_sum() const noexcept { return pending_sum_; }
   [[nodiscard]] std::size_t pending_count() const noexcept { return pending_.size(); }
+  [[nodiscard]] std::size_t pending_unsent() const noexcept;
+  [[nodiscard]] std::uint64_t events_seen() const noexcept { return event_seq_; }
   // serverBalance + sum(pending): what this node's money should be (0 when no update arrived yet).
   [[nodiscard]] std::int64_t target_balance() const noexcept { return server_balance_ + pending_sum_; }
   // The local money as this node believes it is: the last reading plus the writes not yet read back.
@@ -127,6 +188,9 @@ class WalletHub {
   void reset();
 
  private:
+  // Capacity of pending_: past kMaxPending the oldest row goes, and that is counted (a node that never hears an ack must not grow).
+  void make_room();
+
   bool has_balance_ = false;
   std::int64_t local_balance_ = 0;
   std::int64_t last_change_ = 0;
@@ -140,6 +204,10 @@ class WalletHub {
   std::uint64_t seq_ = 0;
   std::int64_t pending_sum_ = 0;
   std::vector<PendingDelta> pending_;
+  // M5-24
+  std::uint64_t event_seq_ = 0;  // MD events seen, the ref_event_seq a delta names
+  std::uint64_t key_ = 0;        // request keys this node has issued (key_hi is the player, so two nodes never collide)
+  ReasonHint hint_{};
   WalletStats stats_;
 };
 

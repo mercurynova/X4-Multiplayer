@@ -270,3 +270,174 @@ TEST_CASE("M5-23: in Shared mode the node converges to the team pool, not its ow
   CHECK(same_node.on_frame_message(type, make_update(50, 4, 0, P::WalletKind::Player, kPlayer), kPlayer, kTeam));
   CHECK(same_node.server_balance() == 50);
 }
+
+TEST_CASE("M5-24: a CreditDelta is this node's change, with the key and seq it was booked with", "[wallet][m524]") {
+  W::CreditDeltaData data;
+  data.key_lo = 41;
+  data.key_hi = kPlayer;
+  data.amount = -1250;
+  data.source = static_cast<std::uint8_t>(P::CreditSource::Build);
+  data.ref_event_seq = 9;
+  data.game_time = 1234.5;
+  data.seq = 3;
+
+  const auto bytes = W::encode_credit_delta(data);
+  REQUIRE(bytes.size() > 8);
+  const P::CreditDelta* delta = flatbuffers::GetRoot<P::CreditDelta>(bytes.data());
+  REQUIRE(delta != nullptr);
+  REQUIRE(delta->request_key() != nullptr);
+  CHECK(delta->request_key()->lo() == 41);
+  CHECK(delta->request_key()->hi() == kPlayer);
+  CHECK(delta->amount() == -1250);
+  CHECK(delta->source() == P::CreditSource::Build);
+  CHECK(delta->ref_event_seq() == 9);
+  CHECK(delta->game_time() == 1234.5);
+  CHECK(delta->seq() == 3);
+  // economy.fbs:47-48: player_id/team_id are A->S only, a client leaves them 0 and the server stamps the sender.
+  CHECK(delta->player_id() == 0);
+  CHECK(delta->team_id() == 0);
+}
+
+TEST_CASE("M5-24: only a money event names the cause, and it pays for one change", "[wallet][m524]") {
+  W::WalletHub hub;
+  constexpr std::uint64_t frame = 100;
+
+  // No event at all: the change is booked as CreditSource::Other and names no event.
+  const auto bare = hub.take_reason(frame);
+  CHECK_FALSE(bare.named());
+  CHECK(bare.source == static_cast<std::uint8_t>(P::CreditSource::Other));
+
+  // A trade in this frame is the cause of the change booked right after it.
+  hub.note_event(x4mp::features::events::EventKind::Trade, frame);
+  CHECK(hub.events_seen() == 1);
+  const auto trade = hub.take_reason(frame);
+  CHECK(trade.named());
+  CHECK(trade.source == static_cast<std::uint8_t>(P::CreditSource::Trade));
+  CHECK(trade.ref_event_seq == 1);
+  // Consumed: one event never pays for two changes.
+  CHECK_FALSE(hub.take_reason(frame).named());
+
+  // A build is a cause too, and one frame of slack covers the order the two features run in.
+  hub.note_event(x4mp::features::events::EventKind::Build, frame);
+  const auto build = hub.take_reason(frame + W::kReasonFrames);
+  CHECK(build.source == static_cast<std::uint8_t>(P::CreditSource::Build));
+
+  // Too old: the event is a different change, not this one.
+  hub.note_event(x4mp::features::events::EventKind::Trade, frame);
+  CHECK_FALSE(hub.take_reason(frame + W::kReasonFrames + 1).named());
+
+  // Kinds that do not move money still count as events (ref_event_seq is a count, not a reason), and never name a cause.
+  hub.note_event(x4mp::features::events::EventKind::Kill, frame);
+  hub.note_event(x4mp::features::events::EventKind::Money, frame);
+  CHECK(hub.events_seen() == 5);
+  CHECK_FALSE(hub.take_reason(frame).named());
+
+  // The counter the delta names is the event's own number, so a late reader can find it in the ring.
+  hub.note_event(x4mp::features::events::EventKind::Trade, frame);
+  CHECK(hub.take_reason(frame).ref_event_seq == 6);
+}
+
+TEST_CASE("M5-24: a booked change goes up once, and again only after the link comes back", "[wallet][m524]") {
+  W::WalletHub hub;
+  constexpr std::uint16_t player = 11;
+  hub.observe(1000, 1);
+  hub.note_server_balance(1000, 1, 0);
+
+  // The player's own trade: +500, caused by event 1.
+  hub.note_event(x4mp::features::events::EventKind::Trade, 5);
+  const auto first = hub.book_upward(500, hub.take_reason(5), player);
+  REQUIRE(first.has_value());
+  CHECK(first->seq == 1);
+  CHECK(first->delta == 500);
+  CHECK(first->key_lo == 1);
+  CHECK(first->key_hi == player);
+  CHECK(first->source == static_cast<std::uint8_t>(P::CreditSource::Trade));
+  CHECK(first->ref_event_seq == 1);
+  CHECK(hub.pending_count() == 1);
+  CHECK(hub.pending_sum() == 500);
+  CHECK(hub.target_balance() == 1500);
+  CHECK(hub.stats().booked == 1);
+  CHECK(hub.stats().reasons == 1);
+
+  // A change with no event is booked as Other, and a zero delta books nothing but still consumes a seq (an ack must never point
+  // at a gap).
+  CHECK_FALSE(hub.book_upward(0, hub.take_reason(5), player).has_value());
+  CHECK(hub.last_seq() == 2);
+  CHECK(hub.pending_count() == 1);
+
+  // A spend: -200, no cause.
+  const auto second = hub.book_upward(-200, hub.take_reason(6), player);
+  REQUIRE(second.has_value());
+  CHECK(second->seq == 3);
+  CHECK(second->key_lo == 2);
+  CHECK(second->source == static_cast<std::uint8_t>(P::CreditSource::Other));
+  CHECK(second->ref_event_seq == 0);
+  CHECK(hub.pending_sum() == 300);
+
+  // Both rows are offered, oldest first, and each is offered only until the link takes it.
+  auto unsent = hub.take_unsent(8);
+  REQUIRE(unsent.size() == 2);
+  CHECK(unsent[0].seq == 1);
+  CHECK(unsent[1].seq == 3);
+  hub.mark_sent(1);
+  hub.mark_sent(1);  // idempotent: a second take of the same send is not a second send
+  CHECK(hub.stats().sent == 1);
+  CHECK(hub.pending_unsent() == 1);
+  unsent = hub.take_unsent(8);
+  REQUIRE(unsent.size() == 1);
+  CHECK(unsent[0].seq == 3);
+  // The cap is respected: a sender that can only afford one per frame gets one.
+  CHECK(hub.take_unsent(0).empty());
+
+  // The ledger booked seq 1: that delta is inside the balance now, so it leaves pending and is never sent again.
+  CHECK(hub.note_server_balance(1500, 2, 1));
+  CHECK(hub.pending_count() == 1);
+  CHECK(hub.pending_sum() == -200);
+  CHECK(hub.ack_seq() == 1);
+  CHECK(hub.stats().pending_acked == 1);
+  unsent = hub.take_unsent(8);
+  REQUIRE(unsent.size() == 1);
+  CHECK(unsent[0].seq == 3);
+
+  // The link dropped: every sent row is armed again with the very same key and seq, which is what makes the server book it once.
+  hub.mark_sent(3);
+  CHECK(hub.pending_unsent() == 0);
+  hub.resend_all();
+  CHECK(hub.pending_unsent() == 1);
+  CHECK(hub.stats().resent == 1);
+  unsent = hub.take_unsent(8);
+  REQUIRE(unsent.size() == 1);
+  CHECK(unsent[0].seq == 3);
+  CHECK(unsent[0].key_lo == 2);
+  CHECK(unsent[0].key_hi == player);
+
+  // A resend that arrives before the ack changes no arithmetic: the delta is still counted exactly once.
+  CHECK(hub.pending_sum() == -200);
+  CHECK(hub.target_balance() == 1300);
+}
+
+TEST_CASE("M5-24: pending cannot grow without a ledger, and a stale update changes nothing", "[wallet][m524]") {
+  W::WalletHub hub;
+  hub.observe(0, 1);
+  hub.note_server_balance(0, 10, 0);
+  for (std::size_t i = 0; i < W::kMaxPending; ++i) {
+    REQUIRE(hub.book_upward(1, W::ReasonHint{}, kPlayer).has_value());
+  }
+  CHECK(hub.pending_count() == W::kMaxPending);
+  CHECK(hub.pending_sum() == static_cast<std::int64_t>(W::kMaxPending));
+  CHECK(hub.last_seq() == W::kMaxPending);
+
+  // One more delta: the oldest row goes, and that is counted - a node that never hears an ack must not grow.
+  const auto extra = hub.book_upward(1, W::ReasonHint{}, kPlayer);
+  REQUIRE(extra.has_value());
+  CHECK(hub.pending_count() == W::kMaxPending);
+  CHECK(hub.pending_sum() == static_cast<std::int64_t>(W::kMaxPending));
+  CHECK(hub.stats().pending_dropped == 1);
+  CHECK(hub.take_unsent(1).front().seq == 2);  // seq 1 was the row that went
+
+  // An update older than the one already seen is dropped, not applied: it would undo the balance the ledger just named.
+  CHECK_FALSE(hub.note_server_balance(999, 9, 0));
+  CHECK(hub.stats().stale == 1);
+  CHECK(hub.server_balance() == 0);
+  CHECK(hub.server_version() == 10);
+}

@@ -8,6 +8,7 @@
 #include "features/events/hook_state.h"
 #include "features/ghosts/ghost_hub.h"
 #include "features/selfship/selfship_hub.h"
+#include "features/wallet/wallet_hub.h"
 
 namespace x4mp::features {
 
@@ -119,6 +120,8 @@ void EventsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
     if (event.kind == events::EventKind::Trade) (void)economy::economy_hub().on_event(event);
     // M5-18: a finished build goes up as Intent{StationBuildRequest} (the builds feature owns the reporter and the dedupe).
     if (event.kind == events::EventKind::Build) (void)builds::builds_hub().on_event(event);
+    // M5-24: the wallet books a money change with the cause of the event that paid for it, so it is told what happened here.
+    wallet::wallet_hub().note_event(event.kind, info.frame_index);
     if (sink_) sink_(event);
   }
 

@@ -96,14 +96,98 @@ bool WalletHub::note_server_balance(std::int64_t balance, std::uint64_t version,
 std::uint64_t WalletHub::book_pending(std::int64_t delta, std::uint8_t reason) {
   const std::uint64_t seq = ++seq_;  // strictly monotonic even for a zero delta, so an ack can never point at a gap
   if (delta == 0) return seq;
-  if (pending_.size() >= kMaxPending) {
-    pending_sum_ -= pending_.front().delta;
-    pending_.erase(pending_.begin());
-    ++stats_.pending_dropped;
-  }
+  make_room();
   pending_.push_back(PendingDelta{seq, delta, reason});
   pending_sum_ += delta;
   return seq;
+}
+
+void WalletHub::make_room() {
+  if (pending_.size() < kMaxPending) return;
+  pending_sum_ -= pending_.front().delta;
+  pending_.erase(pending_.begin());
+  ++stats_.pending_dropped;
+}
+
+void WalletHub::note_event(events::EventKind kind, std::uint64_t frame) {
+  ++event_seq_;
+  std::uint8_t source = 0;
+  switch (kind) {
+    case events::EventKind::Trade: source = static_cast<std::uint8_t>(P::CreditSource::Trade); break;
+    case events::EventKind::Build: source = static_cast<std::uint8_t>(P::CreditSource::Build); break;
+    default:
+      // Not a cause of money: the counter moved (a delta can still name the event by its number), the hint did not.
+      return;
+  }
+  hint_.source = source;
+  hint_.ref_event_seq = event_seq_;
+  hint_.frame = frame;
+}
+
+ReasonHint WalletHub::take_reason(std::uint64_t frame) {
+  ReasonHint out;
+  const bool fresh = hint_.named() && frame >= hint_.frame && frame - hint_.frame <= kReasonFrames;
+  if (fresh) out = hint_;
+  hint_ = ReasonHint{};  // consumed either way: a stale event must not pay for the next change
+  return out;
+}
+
+std::optional<PendingDelta> WalletHub::book_upward(std::int64_t delta, ReasonHint reason, std::uint16_t player_id) {
+  if (delta == 0) {
+    ++seq_;  // the seq stays strictly monotonic, so an ack can never point at a gap
+    return std::nullopt;
+  }
+  make_room();
+  PendingDelta row;
+  row.seq = ++seq_;
+  row.delta = delta;
+  row.key_lo = ++key_;
+  row.key_hi = player_id;
+  row.source = reason.source;
+  row.ref_event_seq = reason.ref_event_seq;
+  if (reason.named()) ++stats_.reasons;
+  pending_.push_back(row);
+  pending_sum_ += delta;
+  ++stats_.booked;
+  return row;
+}
+
+std::vector<PendingDelta> WalletHub::take_unsent(std::size_t max) const {
+  std::vector<PendingDelta> out;
+  for (const PendingDelta& row : pending_) {
+    if (out.size() >= max) break;
+    if (!row.sent) out.push_back(row);
+  }
+  return out;
+}
+
+void WalletHub::mark_sent(std::uint64_t seq) {
+  for (PendingDelta& row : pending_) {
+    if (row.seq != seq) continue;
+    if (!row.sent) {
+      row.sent = true;
+      ++stats_.sent;
+    }
+    return;
+  }
+}
+
+void WalletHub::resend_all() {
+  std::uint64_t armed = 0;
+  for (PendingDelta& row : pending_) {
+    if (!row.sent) continue;
+    row.sent = false;
+    ++armed;
+  }
+  stats_.resent += armed;
+}
+
+std::size_t WalletHub::pending_unsent() const noexcept {
+  std::size_t count = 0;
+  for (const PendingDelta& row : pending_) {
+    if (!row.sent) ++count;
+  }
+  return count;
 }
 
 std::optional<std::int64_t> WalletHub::take_convergence() const {

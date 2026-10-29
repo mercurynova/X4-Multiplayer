@@ -9,6 +9,9 @@
 //
 // Same shape as features/events/event_wire.h: verify the buffer, then copy the fields out, because the pointer lives only as long
 // as the payload does.
+//
+// The other direction is one CreditDelta (M5-24, economy.fbs:44-55): the node's own change going up, with the seq the ledger echoes
+// back in acked_delta_seq.
 
 #include <cstdint>
 #include <span>
@@ -65,6 +68,29 @@ struct WalletUpdateView {
     }
   }
   return true;
+}
+
+// M5-24: one delta of this node, going up (economy.fbs:44-55). `seq` is the node's own counter and comes back as
+// WalletUpdate.acked_delta_seq; `request_key` is fixed when the delta is booked, so a resend after a reconnect is the same request
+// and the server books it once. player_id/team_id are A->S only (a client's are stamped by the server), so a client leaves them 0.
+struct CreditDeltaData {
+  std::uint64_t key_lo = 0;
+  std::uint64_t key_hi = 0;
+  std::int64_t amount = 0;          // signed: positive is income, negative is spending
+  std::uint8_t source = 0;          // CreditSource: why it happened, history only
+  std::uint64_t ref_event_seq = 0;  // the event that caused it, 0 when none did
+  double game_time = 0.0;
+  std::uint64_t seq = 0;
+};
+
+[[nodiscard]] inline std::vector<std::uint8_t> encode_credit_delta(const CreditDeltaData& data) {
+  flatbuffers::FlatBufferBuilder fbb(64);
+  const P::Id128 key(data.key_lo, data.key_hi);
+  const flatbuffers::Offset<P::CreditDelta> delta =
+      P::CreateCreditDelta(fbb, &key, 0, 0, data.amount, static_cast<P::CreditSource>(data.source), data.ref_event_seq,
+                           data.game_time, data.seq);
+  fbb.Finish(delta);
+  return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
 }
 
 }  // namespace x4mp::features::wallet
