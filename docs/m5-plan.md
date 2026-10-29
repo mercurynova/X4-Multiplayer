@@ -402,7 +402,7 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
 
 **AC (wave).** AC item 10.
 
-**Status 2026-10-29: W6 under way; M5-22, M5-23, M5-24 and M5-25 done (code + tests), M5-26 open.**
+**Status 2026-10-29: W6 done for M5-22..M5-26 (code + tests).**
 
 **Built.**
 
@@ -470,18 +470,35 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
   refresh and is not documented as one: that answer carries no balances (`EconomyModule.cs:333-351` sends only the changed ones),
   so a balance divergence is corrected by the next real change or by a reconnect, where the server sends every visible balance on
   attach (`EconomyModule.cs:119-123`).
+- **M5-26, a pool spent below zero holds the node at 0 and says so.** The design lets the pool go negative (`mod-design.md:2354-2362`)
+  and the server already models that as the debt itself - `EconomyModels.cs:118` says "the ledger balance is negative (debt). In
+  game the balance clamps at 0; the debt lives only here" - so no `debt:<team>` wallet was added: the negative balance *is* the
+  debt. The game is not known to hold a negative player balance, so `take_convergence()` (`wallet_hub.cpp`) stops at the floor:
+  when the target is below zero it asks `AddPlayerMoney` only for `-effective_local()` (what takes the money to 0), counts
+  `clamped` once per descent, and returns nothing at all once the local money is already at 0, so a balance the game cannot reach
+  is not written every frame. `debt()` reports what the ledger says the wallet is short of while the local money is held there,
+  and a recovered pool converges upward from 0 like any other target. Because both members of a pool read the same negative
+  balance, both land on 0 in the frame it arrives - that is the M5-26 acceptance, and it is pinned by a test with two hubs at
+  different starting balances. The debt is surfaced, not hidden: `WalletFeature::publish` raises `x4mp.wallet
+  {"v":1,"local":N,"target":N,"debt":N,"kind":K,"owner":O,"mode":"shared"|"per_player"}` on change only (the economy screen of W7
+  M5-29 reads the same message), `ui/x4mp_hud.lua` appends `T(303)` ("pool debt %s Cr") to its one-line frame while `debt > 0` and
+  warns once per descent with `T(304)`, and native logs one `Warn` per descent plus `debt=`/`clamped=` in the 30 s line. Texts are
+  ids 303/304 on page 92000 in both `t/0001-l044.xml` and `t/0001-l007.xml`.
 
-**Verified.** build green, no compiler errors; ctest **666/666 passed** (670 registered, the 4 network smokes not run, the same as
-W3); Lua **271/271** unchanged (M5-23 and M5-24 touched no Lua file). New native cases: `[wallet][m522]` "a money body is
+**Verified.** build green, no compiler errors; ctest **668/668 passed** (672 registered, the 4 network smokes not run, the same as
+W3); Lua **275/275** (M5-26 added `mod/tests/lua/test_wallet.lua`). New native cases: `[wallet][m522]` "a money body is
 a JSON object with an integral value", "...the first reading is a baseline, our own write is an echo, the rest is the player's",
 "...a zero balance at start is a baseline, not a quiet frame"; `[wallet][m523]` "a WalletUpdate names this node's wallet, and junk
 is refused", "the node converges to serverBalance + its own unbooked deltas", "a delta the ledger books leaves pending, so it is
 never counted twice", "in Shared mode the node converges to the team pool, not its own wallet"; `[wallet][m524]` "a CreditDelta is
 this node's change, with the key and seq it was booked with", "only a money event names the cause, and it pays for one change", "a
 booked change goes up once, and again only after the link comes back", "pending cannot grow without a ledger, and a stale update
-changes nothing" (`mod/tests/test_wallet.cpp`, 516 assertions in 14 cases); `[wallet][m525]` "a mode switch is a new wallet, whose
-versions are its own", "the 30 s probe asks for the ack without moving money"; plus `[game][api][m5][wallet]` "GameApi::add_player_money
-is the write half of the wallet" (`mod/tests/test_game_api.cpp`).
+changes nothing"; `[wallet][m525]` "a mode switch is a new wallet, whose versions are its own", "the 30 s probe asks for the ack
+without moving money"; `[wallet][m526]` "a pool spent below zero holds the local money at 0 and reports the debt", "two members of
+one pool end at the same balance after one overspend" (`mod/tests/test_wallet.cpp`, 550 assertions in 16 cases); plus
+`[game][api][m5][wallet]` "GameApi::add_player_money is the write half of the wallet" (`mod/tests/test_game_api.cpp`). Lua cases in
+`test_wallet.lua`: "the topic reaches the HUD and the line carries the pool debt", "a pool in the black adds nothing to the line",
+"one warning per descent, and a recovered pool arms the next one", "a payload the bridge refuses leaves the last known debt alone".
 
 **`[VERIFY]` for session 8:** that `GetPlayerMoney()` exists as a Lua global and returns credits in the same unit `AddPlayerMoney`
 takes; that a per-frame poll is not measurable in the frame time; that an `AddPlayerMoney` written by native comes back as one
@@ -492,7 +509,9 @@ with `player_id`/`team_id` 0 and stamps the sender itself (`economy.fbs:47-48`),
 it every delta stays pending for ever and `target_balance` drifts), and that a resend of the same `request_key` + `seq` after a
 reconnect is booked once rather than twice; that a zero-amount `CreditDelta` really is answered with a `WalletUpdate` (M5-25's
 probe relies on the server's "zero amount" path, `EconomyService.cs:440-453`), and that a mode switch reaches the node as one
-`WalletUpdate` whose `effective_mode` and balance name the new wallet (the 2 s acceptance rests on it).
+`WalletUpdate` whose `effective_mode` and balance name the new wallet (the 2 s acceptance rests on it); and whether X4 holds a
+negative player balance at all - if it does, the M5-26 clamp can be lifted and the ledger's debt shown as it is, otherwise the
+clamp is the right answer and the HUD line `T(303)` is the only place the debt exists in game.
 
 ### W7 — Relations, chat and the economy screen (M5-27..M5-31)
 

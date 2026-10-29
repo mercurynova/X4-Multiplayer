@@ -512,3 +512,69 @@ TEST_CASE("M5-25: the 30 s probe asks for the ack without moving money", "[walle
   CHECK(hub.ack_seq() == probe->seq);
   CHECK(hub.target_balance() == target);  // the ack drained the row, it did not add anything
 }
+
+TEST_CASE("M5-26: a pool spent below zero holds the local money at 0 and reports the debt", "[wallet][m526]") {
+  const auto type = static_cast<std::uint16_t>(P::MsgType::WalletUpdate);
+  W::WalletHub hub;
+  REQUIRE(hub.observe(800, 1) == W::Observation::Baseline);
+
+  // The ledger is 500 in the red. The game cannot hold a negative balance, so the node goes down to 0 and stops there: the rest is
+  // the team's debt, and it stays in the ledger.
+  REQUIRE(hub.on_frame_message(type, make_update(-500, 1, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared),
+                               kPlayer, kTeam));
+  CHECK(hub.target_balance() == -500);
+  const auto adjust = hub.take_convergence();
+  REQUIRE(adjust.has_value());
+  CHECK(*adjust == -800);  // everything it has, not the 1300 the ledger would need
+  CHECK(hub.stats().clamped == 1);
+  CHECK(hub.debt() == 500);
+  hub.note_write(*adjust);
+  CHECK(hub.effective_local() == 0);
+
+  // At the floor nothing more is written: a balance the game cannot reach must not become a write every frame.
+  CHECK_FALSE(hub.take_convergence().has_value());
+  CHECK(hub.stats().clamped == 1);
+  CHECK(hub.debt() == 500);
+
+  // A node that is already at 0 writes nothing at all, and still reports the debt.
+  W::WalletHub flat;
+  REQUIRE(flat.observe(0, 1) == W::Observation::Baseline);
+  REQUIRE(flat.on_frame_message(type, make_update(-300, 1, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared),
+                                kPlayer, kTeam));
+  CHECK_FALSE(flat.take_convergence().has_value());
+  CHECK(flat.stats().writes == 0);
+  CHECK(flat.debt() == 300);
+
+  // The pool comes back: the node converges from 0 to the new balance and the debt is gone.
+  REQUIRE(flat.on_frame_message(type, make_update(200, 2, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared),
+                                kPlayer, kTeam));
+  const auto up = flat.take_convergence();
+  REQUIRE(up.has_value());
+  CHECK(*up == 200);
+  flat.note_write(*up);
+  CHECK(flat.effective_local() == 200);
+  CHECK(flat.debt() == 0);
+  CHECK(flat.stats().clamped == 1);  // counted once per descent, not per frame
+}
+
+TEST_CASE("M5-26: two members of one pool end at the same balance after one overspend", "[wallet][m526]") {
+  const auto type = static_cast<std::uint16_t>(P::MsgType::WalletUpdate);
+  // The acceptance: two simultaneous purchases in Shared mode leave every member at the same final balance. They start from
+  // different local balances, the ledger tells both the same new pool balance, and each one converges to it in the same frame.
+  W::WalletHub a;
+  W::WalletHub b;
+  REQUIRE(a.observe(500, 1) == W::Observation::Baseline);
+  REQUIRE(b.observe(900, 1) == W::Observation::Baseline);
+  const auto pool = make_update(-300, 1, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared);
+  REQUIRE(a.on_frame_message(type, pool, kPlayer, kTeam));
+  REQUIRE(b.on_frame_message(type, pool, kPlayer, kTeam));
+
+  for (auto* hub : {&a, &b}) {
+    if (const auto adjust = hub->take_convergence()) hub->note_write(*adjust);
+    CHECK(hub->effective_local() == 0);
+    CHECK(hub->target_balance() == -300);
+    CHECK(hub->debt() == 300);
+  }
+  CHECK(a.effective_local() == b.effective_local());
+  CHECK(a.debt() == b.debt());
+}

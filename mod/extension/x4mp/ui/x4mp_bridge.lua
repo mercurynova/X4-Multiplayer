@@ -76,7 +76,7 @@ local B = { loaded = true, version = 1, handlers = {}, pending = {} }
 X4MPBridge = B
 
 B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true, onfoot_room = true, onfoot_actor = true, onfoot_rooms = true, capture_scan = true }
-B.TOPICS = { "status", "notify", "error", "load_save", "open" }
+B.TOPICS = { "status", "notify", "error", "load_save", "open", "wallet" }
 local queueable = { ui_ready = true, request_status = true, extensions = true }
 
 -- M3-07 begin (own block). Remembered Join fields live in x4mp.json, not in __X4MP_USER (uidata.xml).

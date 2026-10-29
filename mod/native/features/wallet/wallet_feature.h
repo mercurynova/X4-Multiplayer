@@ -11,6 +11,10 @@
 // M5-25: the spendable wallet is whatever the last WalletUpdate named (wallet:<player> in PerPlayer, pool:<team> in Shared), and a
 // mode switch is taken as a new wallet - see wallet_hub.h. Every 30 s a zero-amount CreditDelta asks the ledger to say what it has
 // booked (mod-design 12.3), so a node whose ack was lost does not resend forever.
+//
+// M5-26: a shared pool may be spent below zero, and the game is not known to hold a negative balance, so the write stops at 0 and
+// the shortfall is published to the HUD (verb x4mp.wallet {local, target, debt, mode}) - the economy screen reads the same message
+// in W7. Nothing is published while nothing changed: a quiet frame costs nothing on that wire either.
 
 #include <cstdint>
 #include <memory>
@@ -49,6 +53,8 @@ class WalletFeature final : public host::IFeature {
   void flush(const host::FrameInfo& info);
   // M5-25: every 30 s ask the ledger for its acked seq with a zero-amount CreditDelta (nothing is booked, only the ack comes back).
   void refresh(host::HostContext& ctx, std::int64_t now_us);
+  // M5-26: hand the HUD the balance it should show (x4mp.wallet), on change only.
+  void publish(host::HostContext& ctx);
   void report(host::HostContext& ctx);
 
   std::shared_ptr<WalletInbox> inbox_;
@@ -56,6 +62,14 @@ class WalletFeature final : public host::IFeature {
   bool linked_prev_ = false;  // the link's state last frame: its rising edge arms every pending delta again
   std::int64_t last_log_us_ = 0;
   std::int64_t last_refresh_us_ = 0;  // M5-25: when the last ack probe went out
+  std::int64_t debt_prev_ = 0;        // M5-26: the debt the last frame saw, so the descent is warned once
+  // M5-26: what the HUD was last told, so an unchanged balance is not sent again.
+  bool published_ = false;
+  std::int64_t pub_local_ = 0;
+  std::int64_t pub_target_ = 0;
+  std::int64_t pub_debt_ = 0;
+  std::uint8_t pub_kind_ = 0;
+  std::uint16_t pub_owner_ = 0;
 };
 
 }  // namespace x4mp::features::wallet

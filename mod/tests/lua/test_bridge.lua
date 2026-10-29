@@ -100,6 +100,7 @@ end)
 local ADDON_TOPICS = {
 	appearance_state = "x4mp_menu.lua",
 	onfoot_talk_in = "x4mp_onfoot.lua",
+	wallet = "x4mp_hud.lua",
 	presence = "x4mp_onfoot.lua",
 }
 

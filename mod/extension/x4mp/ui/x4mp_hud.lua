@@ -102,6 +102,20 @@ end
 --- the presence line (M3b Tier 0), set by x4mp_onfoot.lua: "Alice here" while somebody shares the container, nil otherwise
 H.presenceText = nil
 
+--- M5-26: the shared-pool picture native publishes as x4mp.wallet {local, target, debt, mode}; nil until the first message
+H.wallet = nil
+--- the debt the warning was already given for (0 = no warning outstanding): a descent warns once, not every frame
+H.walletDebtNotified = 0
+
+--- the pool debt as a line suffix, nil while the pool is not in the red
+function H.walletText()
+	local w = H.wallet
+	if type(w) ~= "table" then return nil end
+	local debt = tonumber(w.debt)
+	if debt == nil or debt <= 0 then return nil end
+	return T(303, math.floor(debt + 0.5))
+end
+
 --- the one-line text for the current status, nil when there is nothing to say
 function H.text()
 	local st = status()
@@ -118,6 +132,8 @@ function H.text()
 	end
 	local suffix = type(H.presenceText) == "function" and H.presenceText() or nil
 	if type(suffix) == "string" and suffix ~= "" then text = text .. " | " .. suffix end
+	local debt = H.walletText()
+	if type(debt) == "string" and debt ~= "" then text = text .. " | " .. debt end
 	return text
 end
 
@@ -534,12 +550,32 @@ local function kick(force, reason)
 end
 H.kick = kick
 
+--- M5-26: the wallet picture arrived from native. The line carries the debt while the pool is in the red, and the descent
+--- warns exactly once: the frame is redrawn every 0.25 s and a warning per frame would be noise.
+function H.onWallet(p)
+	H.wallet = type(p) == "table" and p or nil
+	local debt = H.wallet and tonumber(H.wallet.debt) or 0
+	if debt == nil then debt = 0 end
+	if debt > 0 then
+		if H.walletDebtNotified <= 0 then
+			H.walletDebtNotified = debt
+			local text = T(304, math.floor(debt + 0.5))
+			if text ~= "" then pcall(AddUITriggeredEvent, "X4MP", "notify", text) end
+		end
+	else
+		H.walletDebtNotified = 0 -- back in the black: the next descent warns again
+	end
+	kick(true, "wallet")
+end
+
 if not H.hooked then
 	H.hooked = true
 	pcall(RegisterEvent, "show", function() kick(false, "show") end)
 	pcall(RegisterEvent, "gfx_ok", function() kick(false, "gfx_ok") end)
 	if type(X4MPBridge) == "table" and type(X4MPBridge.on) == "function" then
-		X4MPBridge.on("status", function() kick(true, "status") end) -- a status change is never throttled
+		local B = X4MPBridge
+		B.on("status", function() kick(true, "status") end) -- a status change is never throttled
+		B.on("wallet", function(p) H.onWallet(p) end) -- M5-26: the pool debt, published on change only
 	else
 		log("hud: bridge missing, the HUD will not update")
 	end

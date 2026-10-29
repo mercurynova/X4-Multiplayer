@@ -3,6 +3,8 @@
 #include <chrono>
 #include <utility>
 
+#include <nlohmann/json.hpp>
+
 #include "features/events/events_hub.h"
 #include "features/wallet/wallet_hub.h"
 #include "features/wallet/wallet_wire.h"
@@ -56,6 +58,8 @@ void WalletFeature::on_game_loaded(host::HostContext& ctx) {
   linked_prev_ = false;
   last_log_us_ = 0;
   last_refresh_us_ = 0;  // the new session gets its balances on attach, so the first probe waits a full period
+  published_ = false;    // M5-26: the HUD is told the new balance as soon as there is one
+  debt_prev_ = 0;
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "wallet: a new universe was loaded: the balance baseline is dropped");
 }
 
@@ -78,6 +82,7 @@ void WalletFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   refresh(ctx, now);
   flush(info);
   converge(ctx);
+  publish(ctx);
   if (last_log_us_ == 0 || now - last_log_us_ >= kLogUs) {
     last_log_us_ = now;
     report(ctx);
@@ -109,6 +114,12 @@ void WalletFeature::converge(host::HostContext& ctx) {
   // game agree with serverBalance + this node's own unbooked deltas. A write of ours comes back as the next poll's change and is
   // recognised as our echo (M5-22), so it is never booked upward as the player's income.
   const std::optional<std::int64_t> adjust = wallet_hub().take_convergence();
+  // M5-26: the frame the ledger first goes below what the game can hold. Warned once per descent (debt() is 0 again as soon as the
+  // pool recovers), because it is the moment the team is spending money it does not have.
+  if (wallet_hub().debt() > 0 && debt_prev_ == 0) {
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Warn, "wallet: the shared pool is {} in the red, the local money is held at 0", wallet_hub().debt());
+  }
+  debt_prev_ = wallet_hub().debt();
   if (!adjust.has_value()) return;
   if (!ctx.game.add_player_money(*adjust)) {
     wallet_hub().note_write_failed();
@@ -158,18 +169,49 @@ void WalletFeature::refresh(host::HostContext& ctx, std::int64_t now) {
   X4MP_CLOG(ctx.log, Cat::Net, Level::Debug, "wallet: asking the ledger what it has booked");
 }
 
+void WalletFeature::publish(host::HostContext& ctx) {
+  // M5-26 (mod-design 12.3): the HUD is the only place a team can see that the pool is spent, because the game itself will not show
+  // a negative balance. Published on change only - a quiet frame costs nothing here, exactly like the money verb it comes from.
+  const WalletHub& hub = wallet_hub();
+  if (!hub.has_balance()) return;
+  const std::int64_t local = hub.effective_local();
+  const std::int64_t target = hub.server_known() ? hub.target_balance() : local;
+  const std::int64_t debt = hub.debt();
+  const std::uint8_t kind = hub.wallet_kind();
+  const std::uint16_t owner = hub.wallet_owner();
+  if (published_ && local == pub_local_ && target == pub_target_ && debt == pub_debt_ && kind == pub_kind_ &&
+      owner == pub_owner_) {
+    return;
+  }
+  nlohmann::json j;
+  j["v"] = 1;
+  j["local"] = local;
+  j["target"] = target;
+  j["debt"] = debt;
+  j["kind"] = static_cast<int>(kind);  // WalletKind: 0 wallet:<player>, 2 pool:<team>
+  j["owner"] = static_cast<int>(owner);
+  j["mode"] = kind == kKindTeamPool ? "shared" : "per_player";
+  if (!ctx.platform.raise_lua("x4mp.wallet", j.dump())) return;  // the next change publishes again
+  published_ = true;
+  pub_local_ = local;
+  pub_target_ = target;
+  pub_debt_ = debt;
+  pub_kind_ = kind;
+  pub_owner_ = owner;
+}
+
 void WalletFeature::report(host::HostContext& ctx) {
   const WalletHub& hub = wallet_hub();
   const WalletStats& s = hub.stats();
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info,
             "[wallet] local={} known={} changes={} echoes={} applies={} quiet={} bad={} expected={} server={} target={} pending={}/{} "
             "updates={} stale={} converged={} writes={} failed={} acked={} dropped={} booked={} sent={} sendfail={} resent={} "
-            "reasons={} unsent={} events={} wallet={}:{} switched={} probes={}",
+            "reasons={} unsent={} events={} wallet={}:{} switched={} probes={} debt={} clamped={}",
             hub.local_balance(), hub.has_balance() ? 1 : 0, s.changes, s.echoes, s.applies, s.quiet, s.bad, hub.expected_adjust(),
             hub.server_known() ? hub.server_balance() : 0, hub.target_balance(), hub.pending_count(), hub.pending_sum(), s.updates,
             s.stale, s.converged, s.writes, s.write_failed, s.pending_acked, s.pending_dropped, s.booked, s.sent, s.send_failed,
             s.resent, s.reasons, hub.pending_unsent(), hub.events_seen(), static_cast<int>(hub.wallet_kind()), hub.wallet_owner(),
-            s.switched, s.probes);
+            s.switched, s.probes, hub.debt(), s.clamped);
 }
 
 void WalletFeature::on_shutdown(host::HostContext& ctx) {

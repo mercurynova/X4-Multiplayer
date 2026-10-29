@@ -79,6 +79,8 @@
     <t id="300">Join or manage an X4MP multiplayer session</t>
     <t id="301">X4MP: %s</t>
     <t id="302">X4MP: %s, %s players, %s ms</t>
+    <t id="303">pool debt %s Cr</t>
+    <t id="304">X4MP: the team pool is %s credits in the red</t>
     <t id="400">Your mods do not match this session.</t>
     <t id="401">Install: %s</t>
     <t id="402">Enable: %s</t>

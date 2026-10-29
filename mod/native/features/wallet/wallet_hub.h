@@ -42,6 +42,11 @@ namespace x4mp::features::wallet {
 
 namespace P = X4MP::Proto;
 
+// The WalletKind values a node can spend from (economy.fbs, mod-design 12.1: wallet:<player> in PerPlayer, pool:<team> in Shared).
+// TeamShared is not one of the two spendable accounts the design names, so it is never picked.
+inline constexpr std::uint8_t kKindPlayer = static_cast<std::uint8_t>(P::WalletKind::Player);
+inline constexpr std::uint8_t kKindTeamPool = static_cast<std::uint8_t>(P::WalletKind::TeamPool);
+
 // A money body is one small object. Anything bigger is not one of ours.
 inline constexpr std::size_t kMaxMoneyBody = 256;
 
@@ -80,6 +85,8 @@ struct WalletStats {
   // M5-25
   std::uint64_t switched = 0;  // the spendable wallet changed: the session moved between PerPlayer and Shared
   std::uint64_t probes = 0;    // zero-amount CreditDeltas sent to make the ledger report what it has booked
+  // M5-26
+  std::uint64_t clamped = 0;  // the ledger went below zero and the local money was held at 0 (a team debt)
 };
 
 // M5-23: one of this node's own deltas that the ledger has not booked yet. `seq` is per node and strictly monotonic
@@ -144,7 +151,14 @@ class WalletHub {
   std::uint64_t book_pending(std::int64_t delta, std::uint8_t reason);
   // The adjust to hand AddPlayerMoney so the local money becomes serverBalance + sum(pending). nullopt when there is nothing to
   // do: no reading yet (the next poll supplies one), no WalletUpdate yet, or already equal.
-  [[nodiscard]] std::optional<std::int64_t> take_convergence() const;
+  //
+  // M5-26 (mod-design 12.3): with one pool and several spenders the ledger can go below zero, and X4 has never been shown to hold
+  // a negative player balance. So the write stops at 0 - the node asks for the part that brings it to zero and no more - and the
+  // shortfall stays the ledger's debt (debt()), which the HUD shows. Once at 0 the call returns nullopt: a balance the game cannot
+  // reach is not retried every frame. When the pool recovers, the next update converges from 0 as usual.
+  [[nodiscard]] std::optional<std::int64_t> take_convergence();
+  // M5-26: what the ledger says the wallet is short of, while the local money is held at 0. 0 when the ledger is not below zero.
+  [[nodiscard]] std::int64_t debt() const noexcept;
   // The game refused the write take_convergence() asked for (a missing export): count it, keep the target for the next frame.
   void note_write_failed() noexcept { ++stats_.write_failed; }
   // The game took the write: this is the same accounting observe() will later recognise as the echo.
@@ -228,6 +242,8 @@ class WalletHub {
   bool wallet_known_ = false;
   std::uint8_t wallet_kind_ = 0;
   std::uint16_t wallet_owner_ = 0;
+  // M5-26: the ledger is below zero and the local money is being held at 0. Counted once per descent, not once per frame.
+  bool clamped_ = false;
   WalletStats stats_;
 };
 

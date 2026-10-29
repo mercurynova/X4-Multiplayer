@@ -8,15 +8,6 @@
 
 namespace x4mp::features::wallet {
 
-namespace {
-
-// The WalletKind a node spends from, per credit mode (mod-design 12.1: wallet:<player> in PerPlayer, pool:<team> in Shared).
-// TeamShared is not one of the two spendable accounts the design names, so it is never picked here.
-constexpr std::uint8_t kKindPlayer = static_cast<std::uint8_t>(P::WalletKind::Player);
-constexpr std::uint8_t kKindTeamPool = static_cast<std::uint8_t>(P::WalletKind::TeamPool);
-
-}  // namespace
-
 std::optional<std::int64_t> parse_money_value(std::string_view text) {
   if (text.empty() || text.size() > kMaxMoneyBody) return std::nullopt;
   const nlohmann::json body = nlohmann::json::parse(text.begin(), text.end(), nullptr, /*allow_exceptions=*/false);
@@ -219,12 +210,30 @@ std::size_t WalletHub::pending_unsent() const noexcept {
   return count;
 }
 
-std::optional<std::int64_t> WalletHub::take_convergence() const {
+std::optional<std::int64_t> WalletHub::take_convergence() {
   // Without both halves there is nothing to compare: no reading yet (the first poll supplies it) or no WalletUpdate yet.
   if (!server_known_ || !has_balance_) return std::nullopt;
   const std::int64_t adjust = target_balance() - effective_local();
   if (adjust == 0) return std::nullopt;
+  // M5-26 (mod-design 12.3): a shared pool may be spent below zero, and the game is not known to hold a negative balance. Stop at
+  // 0 and let the rest stay the ledger's debt; asking for the negative number would either be refused or corrupt the balance.
+  if (effective_local() + adjust < 0) {
+    if (!clamped_) {
+      clamped_ = true;
+      ++stats_.clamped;
+    }
+    const std::int64_t to_zero = -effective_local();
+    if (to_zero == 0) return std::nullopt;  // already at the floor: nothing to write, the debt is reported instead
+    return to_zero;
+  }
+  clamped_ = false;  // the ledger is back above the floor (or never left it)
   return adjust;
+}
+
+std::int64_t WalletHub::debt() const noexcept {
+  if (!clamped_ || !server_known_ || !has_balance_) return 0;
+  const std::int64_t target = target_balance();
+  return target < 0 ? -target : 0;
 }
 
 void WalletHub::note_write(std::int64_t delta) {
