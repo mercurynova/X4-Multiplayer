@@ -402,7 +402,7 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
 
 **AC (wave).** AC item 10.
 
-**Status 2026-10-29: W6 started; M5-22 done (code + tests), M5-23..M5-26 open.**
+**Status 2026-10-29: W6 under way; M5-22 and M5-23 done (code + tests), M5-24..M5-26 open.**
 
 **Built.**
 
@@ -426,15 +426,35 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
   `universe_ready`, and logs one greppable line every 30 s: `[wallet] local=... known=... changes=... echoes=... applies=...
   quiet=... bad=... expected=...`. A new universe drops the baseline (`on_game_loaded`), because the next account is not this one.
   It is registered after `EconomyFeature`, which will book its changes upward in M5-23.
+- **M5-23, the ledger half of 12.2.** `features/wallet/wallet_wire.h` is the C++ half of `WalletUpdate` (`economy.fbs:33-39`):
+  `decode_wallet_update` verifies the buffer and copies out the balances (wallet kind, owner, balance, ledger `version`), the
+  `effective_mode` and `acked_delta_seq`. `WalletHub::on_frame_message` picks the one row that is this node's spendable money —
+  `wallet:<player>` in PerPlayer, `pool:<team>` in Shared (`mod-design.md:2286`; `TeamShared` is not one of the two spendable
+  accounts the design names) — and hands it to `note_server_balance`, which drops any update whose `version` is not newer
+  (`economy.fbs:23`), then removes the pending deltas the ledger has booked (`seq <= ack_seq`) because they are inside the
+  balance now. The money this node should have is `target_balance() = serverBalance + sum(pending)`; `take_convergence()` returns
+  `target - (local + writes not yet read back)` and the feature hands that to the new `GameApi::add_player_money`
+  (`AddPlayerMoney`, `kGameFnCount` 34 -> 35, null-safe, main-thread only), then `note_write` records it so the next poll is
+  recognised as the echo and never booked as the player's income. `book_pending(delta, reason)` assigns the per-node `seq` M5-24
+  will put in `CreditDelta` and keeps the delta until `acked_delta_seq` covers it, capped at 256 (`pending_dropped` counts the
+  overflow). `join_feature.cpp` routes `WalletUpdate` to the hub with this node's player and team id.
+- **Why the loop converges instead of "fixing" a balance**: the mod never invents money for a divergence (wave rule, `:429-431`);
+  every correction is `AddPlayerMoney(target - local)` and every real delta goes up to the ledger, which is the only writer of a
+  balance. A game refund, a rounding difference or a debug write is therefore corrected on the next `WalletUpdate`, not fought.
 
-**Verified.** build green, no compiler errors; ctest **655/655 passed** (659 registered, the 4 network smokes not run, the same as
-W3) in 82.4 s; Lua **271/271** (8 new `test_money` cases). New native cases: `[wallet][m522]` "a money body is a JSON object with
+**Verified.** build green, no compiler errors; ctest **660/660 passed** (664 registered, the 4 network smokes not run, the same as
+W3); Lua **271/271** unchanged (M5-23 touched no Lua file). New native cases: `[wallet][m522]` "a money body is a JSON object with
 an integral value", "...the first reading is a baseline, our own write is an echo, the rest is the player's", "...a zero balance at
-start is a baseline, not a quiet frame" (`mod/tests/test_wallet.cpp`).
+start is a baseline, not a quiet frame"; `[wallet][m523]` "a WalletUpdate names this node's wallet, and junk is refused", "the node
+converges to serverBalance + its own unbooked deltas", "a delta the ledger books leaves pending, so it is never counted twice", "in
+Shared mode the node converges to the team pool, not its own wallet" (`mod/tests/test_wallet.cpp`), plus `[game][api][m5][wallet]`
+"GameApi::add_player_money is the write half of the wallet" (`mod/tests/test_game_api.cpp`).
 
 **`[VERIFY]` for session 8:** that `GetPlayerMoney()` exists as a Lua global and returns credits in the same unit `AddPlayerMoney`
-takes; that a per-frame poll is not measurable in the frame time; and that an `AddPlayerMoney` written by native comes back as one
-change on the next poll (M5-23's whole echo rule rests on that).
+takes; that a per-frame poll is not measurable in the frame time; that an `AddPlayerMoney` written by native comes back as one
+change on the next poll (M5-23's whole echo rule rests on that); that `AddPlayerMoney` is exported under exactly that name in the
+shipped game (the table lists it, but the mod had never called it before M5-23) and that the server's `WalletUpdate` names our
+wallet with `owner_id` = our player id in PerPlayer and our team id in Shared.
 
 ### W7 — Relations, chat and the economy screen (M5-27..M5-31)
 

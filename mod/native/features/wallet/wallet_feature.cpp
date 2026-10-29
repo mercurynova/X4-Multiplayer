@@ -55,10 +55,29 @@ void WalletFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   if (!info.universe_ready || !inbox_) return;
   const std::int64_t now = now_us();
   drain(ctx, static_cast<std::uint64_t>(now));
+  converge(ctx);
   if (last_log_us_ == 0 || now - last_log_us_ >= kLogUs) {
     last_log_us_ = now;
     report(ctx);
   }
+}
+
+void WalletFeature::converge(host::HostContext& ctx) {
+  // M5-23 (mod-design 12.2): the ledger is the truth, the game is the copy. Nothing here decides a balance; it only makes the
+  // game agree with serverBalance + this node's own unbooked deltas. A write of ours comes back as the next poll's change and is
+  // recognised as our echo (M5-22), so it is never booked upward as the player's income.
+  const std::optional<std::int64_t> adjust = wallet_hub().take_convergence();
+  if (!adjust.has_value()) return;
+  if (!ctx.game.add_player_money(*adjust)) {
+    wallet_hub().note_write_failed();
+    if (wallet_hub().stats().write_failed <= 3) {
+      X4MP_CLOG(ctx.log, Cat::Md, Level::Warn, "wallet: cannot adjust the local money by {} (AddPlayerMoney unavailable)", *adjust);
+    }
+    return;
+  }
+  wallet_hub().note_write(*adjust);
+  X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "wallet: local {} -> {} (target {})", wallet_hub().local_balance(),
+            wallet_hub().effective_local(), wallet_hub().target_balance());
 }
 
 void WalletFeature::drain(host::HostContext& ctx, std::uint64_t now) {
@@ -79,8 +98,12 @@ void WalletFeature::drain(host::HostContext& ctx, std::uint64_t now) {
 void WalletFeature::report(host::HostContext& ctx) {
   const WalletHub& hub = wallet_hub();
   const WalletStats& s = hub.stats();
-  X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "[wallet] local={} known={} changes={} echoes={} applies={} quiet={} bad={} expected={}",
-            hub.local_balance(), hub.has_balance() ? 1 : 0, s.changes, s.echoes, s.applies, s.quiet, s.bad, hub.expected_adjust());
+  X4MP_CLOG(ctx.log, Cat::Md, Level::Info,
+            "[wallet] local={} known={} changes={} echoes={} applies={} quiet={} bad={} expected={} server={} target={} pending={}/{} "
+            "updates={} stale={} converged={} writes={} failed={} acked={} dropped={}",
+            hub.local_balance(), hub.has_balance() ? 1 : 0, s.changes, s.echoes, s.applies, s.quiet, s.bad, hub.expected_adjust(),
+            hub.server_known() ? hub.server_balance() : 0, hub.target_balance(), hub.pending_count(), hub.pending_sum(), s.updates,
+            s.stale, s.converged, s.writes, s.write_failed, s.pending_acked, s.pending_dropped);
 }
 
 void WalletFeature::on_shutdown(host::HostContext& ctx) {

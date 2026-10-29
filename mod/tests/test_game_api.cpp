@@ -142,6 +142,14 @@ OwnerFactionPod fk_owner_details(UniverseId id) {
   return OwnerFactionPod{g_owner_faction.c_str(), "Fake Faction", "icon"};
 }
 
+// M5-23: the only money export there is. AddPlayerMoney is void, so the fake records what it was asked to add.
+std::int64_t g_added_money = 0;
+int g_add_money_calls = 0;
+void fk_add_money(std::int64_t money) {
+  g_added_money = money;
+  ++g_add_money_calls;
+}
+
 void* lookup_all(const char* name) {
   const std::string n = name;
   if (n == "GetCurrentGameTime") return reinterpret_cast<void*>(&fk_time);
@@ -178,6 +186,7 @@ void* lookup_all(const char* name) {
   if (n == "GetCargo") return reinterpret_cast<void*>(&fk_cargo);
   if (n == "SpawnStationAtPos") return reinterpret_cast<void*>(&fk_spawn_station);
   if (n == "GetOwnerDetails") return reinterpret_cast<void*>(&fk_owner_details);
+  if (n == "AddPlayerMoney") return reinterpret_cast<void*>(&fk_add_money);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -220,7 +229,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 34);
+  CHECK(missing_exports(api.fns()).size() == 35);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -237,7 +246,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 34);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 35);
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -283,7 +292,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 33);
+  CHECK(missing_exports(api.fns()).size() == 34);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {
@@ -597,4 +606,30 @@ TEST_CASE("GameApi::owner_faction names the owner and refuses a bad read", "[gam
   std::string off_thread = "x";
   std::thread([&] { off_thread = api.owner_faction(0x77); }).join();
   CHECK(off_thread.empty());
+}
+
+TEST_CASE("GameApi::add_player_money is the write half of the wallet", "[game][api][m5][wallet]") {
+  ResetMainThread guard;
+  GameApi api(resolve_game_fns(lookup_all), GameInfo{"9.00", "9.0.0", 900});
+
+  g_added_money = 0;
+  g_add_money_calls = 0;
+  CHECK(api.add_player_money(250));
+  CHECK(g_added_money == 250);
+  CHECK(api.add_player_money(-3800));  // a spend is the same call with a negative delta
+  CHECK(g_added_money == -3800);
+  CHECK(g_add_money_calls == 2);
+
+  // Nothing to do is not a call, and a zero is not a write.
+  CHECK_FALSE(api.add_player_money(0));
+  CHECK(g_add_money_calls == 2);
+
+  GameApi none(resolve_game_fns(lookup_none), GameInfo{});
+  CHECK_FALSE(none.add_player_money(250));  // export missing
+
+  main_thread().capture_frame();  // off the game thread every wrapper refuses
+  bool off_thread = true;
+  std::thread([&] { off_thread = api.add_player_money(5); }).join();
+  CHECK_FALSE(off_thread);
+  CHECK(g_add_money_calls == 2);
 }

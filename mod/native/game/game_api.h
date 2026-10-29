@@ -121,10 +121,14 @@ struct GameFns {
   // M5-20: the owner faction of a component as a string ("player", "xenon", ...). The typed MD hook EntityChangedOwner
   // gives a faction id the mod cannot compare against anything, so the capture detector asks the game for the name.
   OwnerFactionPod (*GetOwnerDetails)(UniverseId componentid) = nullptr;
+  // M5-23: the write half of the wallet. The table has no getter at all (the balance arrives from Lua, M5-22), but it does have
+  // this one, and it is the only way to make the local money equal what the ledger says: AddPlayerMoney(delta) with the delta
+  // design 12.2 computes (serverBalance + pending - local).
+  void (*AddPlayerMoney)(std::int64_t money) = nullptr;
 };
 
 // Number of exports in GameFns (keep in step with resolve_game_fns / missing_exports; the self-test reports resolved/total).
-inline constexpr std::size_t kGameFnCount = 34;
+inline constexpr std::size_t kGameFnCount = 35;
 
 // Upper bound on the cargo lines one read copies (far above any real hold; keeps a bad export from allocating forever).
 inline constexpr std::uint32_t kMaxCargoLines = 4096;
@@ -210,6 +214,12 @@ class GameApi {
   // The owner faction of a component as the game names it ("player", "xenon", ...); empty when the export is missing, the
   // id is 0, the main-thread check fails or the game returns nothing. M5-20 compares this with "player".
   [[nodiscard]] std::string owner_faction(UniverseId component) const noexcept;
+
+  // ---- M5 (wallet) ----
+  // Add `delta` credits to the local player (negative spends). True when the call was made; false when the export is missing,
+  // `delta` is 0 or the main-thread check fails. The change comes back as an ordinary reading on the next GetPlayerMoney poll,
+  // which is what note_apply()/observe() recognise as this node's own echo (M5-23).
+  bool add_player_money(std::int64_t delta) const noexcept;
 
  private:
   GameFns fns_{};

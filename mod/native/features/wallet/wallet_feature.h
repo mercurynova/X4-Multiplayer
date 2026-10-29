@@ -35,6 +35,8 @@ class WalletFeature final : public host::IFeature {
 
  private:
   void drain(host::HostContext& ctx, std::uint64_t now_us);
+  // M5-23: make the local money equal serverBalance + pending, one AddPlayerMoney at a time.
+  void converge(host::HostContext& ctx);
   void report(host::HostContext& ctx);
 
   std::shared_ptr<WalletInbox> inbox_;

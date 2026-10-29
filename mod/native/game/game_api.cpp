@@ -47,6 +47,7 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "GetCargo", f.GetCargo);
   bind(get, "SpawnStationAtPos", f.SpawnStationAtPos);
   bind(get, "GetOwnerDetails", f.GetOwnerDetails);
+  bind(get, "AddPlayerMoney", f.AddPlayerMoney);
   return f;
 }
 
@@ -89,6 +90,7 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.GetCargo), "GetCargo");
   check(reinterpret_cast<const void*>(f.SpawnStationAtPos), "SpawnStationAtPos");
   check(reinterpret_cast<const void*>(f.GetOwnerDetails), "GetOwnerDetails");
+  check(reinterpret_cast<const void*>(f.AddPlayerMoney), "AddPlayerMoney");
   return out;
 }
 
@@ -261,6 +263,12 @@ std::string GameApi::owner_faction(UniverseId component) const noexcept {
   const OwnerFactionPod details = fns_.GetOwnerDetails(component);
   if (!details.faction_id || !*details.faction_id) return {};
   return std::string(details.faction_id);
+}
+
+bool GameApi::add_player_money(std::int64_t delta) const noexcept {
+  if (delta == 0 || !fns_.AddPlayerMoney || !assert_main_thread("AddPlayerMoney")) return false;
+  fns_.AddPlayerMoney(delta);
+  return true;
 }
 
 }  // namespace x4mp::game
