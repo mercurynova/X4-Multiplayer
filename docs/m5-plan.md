@@ -402,7 +402,7 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
 
 **AC (wave).** AC item 10.
 
-**Status 2026-10-29: W6 under way; M5-22, M5-23 and M5-24 done (code + tests), M5-25 and M5-26 open.**
+**Status 2026-10-29: W6 under way; M5-22, M5-23, M5-24 and M5-25 done (code + tests), M5-26 open.**
 
 **Built.**
 
@@ -455,16 +455,32 @@ M5-21's assertions extend the existing `[events]` case, now 1250 assertions.
   accepts it only within `kReasonFrames` = 2 frames and consumes it, so one event never pays for two changes, and a change with no
   event is `CreditSource::Other`. Everything else (`Kill`, `Money`, ...) still bumps the event counter — `ref_event_seq` counts
   events, not reasons — but never names a cause, which is why `event_player_money_updated` stays a hint.
+- **M5-25, the spendable wallet follows the mode.** The mode itself is never read from `SessionSettings`: `Auto` is resolved
+  server-side into `effective_mode` (`teams.fbs:76`) and every `WalletUpdate` carries the resolved value next to the balance it
+  applies to, so a separate copy could only disagree with it. What the node did have wrong is the ledger `version`: it counts per
+  wallet, and `note_server_balance` compared it across a mode switch, so the pool's first balance (`pool:<team>`, its own counter
+  starting low) was dropped as stale and a switch to Shared would never land. `select_wallet(kind, owner)` now runs before every
+  balance: the same pair keeps the version rule, a different pair drops the baseline and takes the new wallet's first version as
+  it is (`switched` counts the change). Pending deltas stay across the switch on purpose: the ledger books them against whatever
+  wallet is effective when it takes them, so they still belong on top of the new balance. That is what makes the M5-25 acceptance
+  hold - a member's local money becomes the pool balance in the frame the switch update lands, because `take_convergence()` is
+  evaluated in that same frame. The 30 s refresh of `mod-design.md` 12.3 is a zero-amount `CreditDelta`
+  (`WalletHub::book_probe`): the server books nothing but answers with `acked_delta_seq`
+  (`server/src/X4MP.Core/Economy/EconomyService.cs:440-453`), which drains pending rows whose ack was lost. It is not a *balance*
+  refresh and is not documented as one: that answer carries no balances (`EconomyModule.cs:333-351` sends only the changed ones),
+  so a balance divergence is corrected by the next real change or by a reconnect, where the server sends every visible balance on
+  attach (`EconomyModule.cs:119-123`).
 
-**Verified.** build green, no compiler errors; ctest **664/664 passed** (668 registered, the 4 network smokes not run, the same as
-W3) in 80.8 s; Lua **271/271** unchanged (M5-23 and M5-24 touched no Lua file). New native cases: `[wallet][m522]` "a money body is
+**Verified.** build green, no compiler errors; ctest **666/666 passed** (670 registered, the 4 network smokes not run, the same as
+W3); Lua **271/271** unchanged (M5-23 and M5-24 touched no Lua file). New native cases: `[wallet][m522]` "a money body is
 a JSON object with an integral value", "...the first reading is a baseline, our own write is an echo, the rest is the player's",
 "...a zero balance at start is a baseline, not a quiet frame"; `[wallet][m523]` "a WalletUpdate names this node's wallet, and junk
 is refused", "the node converges to serverBalance + its own unbooked deltas", "a delta the ledger books leaves pending, so it is
 never counted twice", "in Shared mode the node converges to the team pool, not its own wallet"; `[wallet][m524]` "a CreditDelta is
 this node's change, with the key and seq it was booked with", "only a money event names the cause, and it pays for one change", "a
 booked change goes up once, and again only after the link comes back", "pending cannot grow without a ledger, and a stale update
-changes nothing" (`mod/tests/test_wallet.cpp`, 476 assertions in 12 cases), plus `[game][api][m5][wallet]` "GameApi::add_player_money
+changes nothing" (`mod/tests/test_wallet.cpp`, 516 assertions in 14 cases); `[wallet][m525]` "a mode switch is a new wallet, whose
+versions are its own", "the 30 s probe asks for the ack without moving money"; plus `[game][api][m5][wallet]` "GameApi::add_player_money
 is the write half of the wallet" (`mod/tests/test_game_api.cpp`).
 
 **`[VERIFY]` for session 8:** that `GetPlayerMoney()` exists as a Lua global and returns credits in the same unit `AddPlayerMoney`
@@ -474,7 +490,9 @@ shipped game (the table lists it, but the mod had never called it before M5-23) 
 wallet with `owner_id` = our player id in PerPlayer and our team id in Shared; that the server takes a `CreditDelta` from a client
 with `player_id`/`team_id` 0 and stamps the sender itself (`economy.fbs:47-48`), that `acked_delta_seq` actually comes back (without
 it every delta stays pending for ever and `target_balance` drifts), and that a resend of the same `request_key` + `seq` after a
-reconnect is booked once rather than twice.
+reconnect is booked once rather than twice; that a zero-amount `CreditDelta` really is answered with a `WalletUpdate` (M5-25's
+probe relies on the server's "zero amount" path, `EconomyService.cs:440-453`), and that a mode switch reaches the node as one
+`WalletUpdate` whose `effective_mode` and balance name the new wallet (the 2 s acceptance rests on it).
 
 ### W7 — Relations, chat and the economy screen (M5-27..M5-31)
 

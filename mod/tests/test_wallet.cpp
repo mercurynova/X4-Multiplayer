@@ -441,3 +441,74 @@ TEST_CASE("M5-24: pending cannot grow without a ledger, and a stale update chang
   CHECK(hub.server_balance() == 0);
   CHECK(hub.server_version() == 10);
 }
+
+TEST_CASE("M5-25: a mode switch is a new wallet, whose versions are its own", "[wallet][m525]") {
+  const auto type = static_cast<std::uint16_t>(P::MsgType::WalletUpdate);
+  W::WalletHub hub;
+  REQUIRE(hub.observe(4000, 1) == W::Observation::Baseline);
+
+  // PerPlayer: wallet:<player>, its own ledger counter at 42.
+  REQUIRE(hub.on_frame_message(type, make_update(4000, 42, 0), kPlayer, kTeam));
+  CHECK(hub.wallet_kind() == static_cast<std::uint8_t>(P::WalletKind::Player));
+  CHECK(hub.wallet_owner() == kPlayer);
+  CHECK(hub.server_version() == 42);
+  CHECK_FALSE(hub.take_convergence().has_value());  // the local money already is the wallet's
+
+  // The session switches to Shared. The pool's counter is at 3, lower than the wallet's 42, and that says nothing about the pool:
+  // the version belongs to the wallet it was issued for. Taking the pool's first balance as it is, is what makes the switch land.
+  const auto shared = make_update(12000, 3, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared);
+  REQUIRE(hub.on_frame_message(type, shared, kPlayer, kTeam));
+  CHECK(hub.stats().switched == 1);
+  CHECK(hub.wallet_kind() == static_cast<std::uint8_t>(P::WalletKind::TeamPool));
+  CHECK(hub.wallet_owner() == kTeam);
+  CHECK(hub.server_version() == 3);
+  CHECK(hub.server_balance() == 12000);
+  // M5-25 acceptance: every member's local money becomes the pool balance, in the frame the update lands.
+  const auto adjust = hub.take_convergence();
+  REQUIRE(adjust.has_value());
+  CHECK(*adjust == 8000);
+  hub.note_write(*adjust);
+  CHECK(hub.effective_local() == hub.target_balance());
+
+  // Inside one wallet the rule still holds: an update at the version already seen is not news.
+  CHECK_FALSE(hub.on_frame_message(type, shared, kPlayer, kTeam));
+  CHECK(hub.stats().stale == 1);
+
+  // And back: the player's wallet returns at a version the pool never saw, which is not stale either.
+  REQUIRE(hub.on_frame_message(type, make_update(4200, 7, 0), kPlayer, kTeam));
+  CHECK(hub.stats().switched == 2);
+  CHECK(hub.wallet_kind() == static_cast<std::uint8_t>(P::WalletKind::Player));
+  CHECK(hub.server_balance() == 4200);
+}
+
+TEST_CASE("M5-25: the 30 s probe asks for the ack without moving money", "[wallet][m525]") {
+  const auto type = static_cast<std::uint16_t>(P::MsgType::WalletUpdate);
+  W::WalletHub hub;
+  REQUIRE(hub.observe(1000, 1) == W::Observation::Baseline);
+  REQUIRE(hub.on_frame_message(type, make_update(1000, 9, 0), kPlayer, kTeam));
+  const std::int64_t target = hub.target_balance();
+  const std::int64_t sum = hub.pending_sum();
+
+  const auto probe = hub.book_probe(kPlayer);
+  REQUIRE(probe.has_value());
+  CHECK(probe->delta == 0);  // nothing is booked: the server answers with acked_delta_seq only
+  CHECK(probe->seq == 1);
+  CHECK(probe->key_hi == kPlayer);
+  CHECK(probe->source == static_cast<std::uint8_t>(P::CreditSource::Other));
+  CHECK(hub.stats().probes == 1);
+  CHECK(hub.pending_count() == 1);
+  CHECK(hub.pending_sum() == sum);        // a probe is not money
+  CHECK(hub.target_balance() == target);  // so the node never converges towards a balance it does not have
+
+  // It goes out like any other row, and the ack that comes back takes it out of pending.
+  const auto unsent = hub.take_unsent(8);
+  REQUIRE(unsent.size() == 1);
+  CHECK(unsent.front().seq == probe->seq);
+  hub.mark_sent(probe->seq);
+  CHECK(hub.pending_unsent() == 0);
+  CHECK(hub.on_frame_message(type, make_update(1000, 10, probe->seq), kPlayer, kTeam));
+  CHECK(hub.pending_count() == 0);
+  CHECK(hub.stats().pending_acked == 1);
+  CHECK(hub.ack_seq() == probe->seq);
+  CHECK(hub.target_balance() == target);  // the ack drained the row, it did not add anything
+}

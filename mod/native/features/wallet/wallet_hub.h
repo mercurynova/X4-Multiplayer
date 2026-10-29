@@ -77,6 +77,9 @@ struct WalletStats {
   std::uint64_t send_failed = 0;   // CreditDeltas the link refused (no session yet, a closed link)
   std::uint64_t resent = 0;        // pending rows armed again after the link came back
   std::uint64_t reasons = 0;       // changes that were booked with a named cause (a trade, a build)
+  // M5-25
+  std::uint64_t switched = 0;  // the spendable wallet changed: the session moved between PerPlayer and Shared
+  std::uint64_t probes = 0;    // zero-amount CreditDeltas sent to make the ledger report what it has booked
 };
 
 // M5-23: one of this node's own deltas that the ledger has not booked yet. `seq` is per node and strictly monotonic
@@ -127,6 +130,9 @@ class WalletHub {
   void note_bad() noexcept { ++stats_.bad; }
 
   // ---- M5-23: the ledger half of 12.2 ----
+  // Which wallet this node spends from (mod-design 12.1). Set by on_frame_message before every balance; when the pair changes the
+  // session switched credit mode, and the ledger version of the new wallet is its own counter, so the baseline is dropped.
+  void select_wallet(std::uint8_t kind, std::uint16_t owner);
   // One WalletUpdate for this node. `own_player`/`own_team` say which row is this node's spendable money (mod-design 12.1:
   // wallet:<player> in PerPlayer, pool:<team> in Shared). Returns true when it was taken; false for a payload that is not a
   // WalletUpdate, an update with no wallet of ours, or one older than the last version seen.
@@ -163,6 +169,11 @@ class WalletHub {
   // The link came back (a reconnect, a resume): every pending row is armed again and resent with its original key and seq, which is
   // what makes the server book it exactly once (economy.fbs:53-54).
   void resend_all();
+  // M5-25: ask the ledger what it holds without moving money. A zero-amount CreditDelta is booked as nothing but still answers with
+  // acked_delta_seq (server EconomyService.cs:440-453), which drains pending rows whose ack was lost - the periodic refresh of
+  // mod-design 12.3. It carries no balances (EconomyModule.SendTo sends the changed ones only), so a *balance* refresh comes from
+  // the next real change or from a reconnect, where the server sends every visible balance on attach.
+  std::optional<PendingDelta> book_probe(std::uint16_t player_id);
 
   [[nodiscard]] bool has_balance() const noexcept { return has_balance_; }
   [[nodiscard]] std::int64_t local_balance() const noexcept { return local_balance_; }
@@ -180,6 +191,10 @@ class WalletHub {
   [[nodiscard]] std::size_t pending_count() const noexcept { return pending_.size(); }
   [[nodiscard]] std::size_t pending_unsent() const noexcept;
   [[nodiscard]] std::uint64_t events_seen() const noexcept { return event_seq_; }
+  // M5-25: the spendable wallet as the last WalletUpdate named it (WalletKind: Player = our own wallet, TeamPool = the team pool).
+  [[nodiscard]] bool wallet_known() const noexcept { return wallet_known_; }
+  [[nodiscard]] std::uint8_t wallet_kind() const noexcept { return wallet_kind_; }
+  [[nodiscard]] std::uint16_t wallet_owner() const noexcept { return wallet_owner_; }
   // serverBalance + sum(pending): what this node's money should be (0 when no update arrived yet).
   [[nodiscard]] std::int64_t target_balance() const noexcept { return server_balance_ + pending_sum_; }
   // The local money as this node believes it is: the last reading plus the writes not yet read back.
@@ -208,6 +223,11 @@ class WalletHub {
   std::uint64_t event_seq_ = 0;  // MD events seen, the ref_event_seq a delta names
   std::uint64_t key_ = 0;        // request keys this node has issued (key_hi is the player, so two nodes never collide)
   ReasonHint hint_{};
+  // M5-25: which wallet the ledger balance belongs to. A ledger version counts per wallet, so it is only comparable while the pair
+  // stays the same; a mode switch drops the baseline and takes the new wallet's first version as it is.
+  bool wallet_known_ = false;
+  std::uint8_t wallet_kind_ = 0;
+  std::uint16_t wallet_owner_ = 0;
   WalletStats stats_;
 };
 

@@ -68,7 +68,8 @@ void WalletHub::note_apply(std::int64_t delta) {
 }
 
 bool WalletHub::note_server_balance(std::int64_t balance, std::uint64_t version, std::uint64_t ack_seq) {
-  // economy.fbs:23: `version` is the ledger sequence, and an older update must not undo a newer one. Equal means nothing new.
+  // economy.fbs:23: `version` is the ledger sequence, and an older update must not undo a newer one. Equal means nothing new. The
+  // counter belongs to one wallet, so this is only asked while select_wallet() says the wallet is the same one.
   if (server_known_ && version <= server_version_) {
     ++stats_.stale;
     return false;
@@ -91,6 +92,34 @@ bool WalletHub::note_server_balance(std::int64_t balance, std::uint64_t version,
   ++stats_.updates;
   if (has_balance_ && effective_local() == target_balance()) ++stats_.converged;
   return true;
+}
+
+void WalletHub::select_wallet(std::uint8_t kind, std::uint16_t owner) {
+  if (wallet_known_ && kind == wallet_kind_ && owner == wallet_owner_) return;
+  // A different wallet is a different ledger counter: wallet:<player> and pool:<team> each count their own versions, so the version
+  // seen on one says nothing about the other. Dropping the baseline is what lets a mode switch take the pool's first balance even
+  // when its version is lower than the wallet's last one (M5-25). Pending deltas stay: they are booked against whatever wallet is
+  // effective when the ledger takes them, so they still belong on top of the new balance.
+  if (wallet_known_) ++stats_.switched;
+  wallet_known_ = true;
+  wallet_kind_ = kind;
+  wallet_owner_ = owner;
+  server_known_ = false;
+  server_version_ = 0;
+  server_balance_ = 0;
+}
+
+std::optional<PendingDelta> WalletHub::book_probe(std::uint16_t player_id) {
+  make_room();
+  PendingDelta row;
+  row.seq = ++seq_;
+  row.delta = 0;  // nothing to book: the server answers with acked_delta_seq and moves no money
+  row.key_lo = ++key_;
+  row.key_hi = player_id;
+  row.source = static_cast<std::uint8_t>(P::CreditSource::Other);
+  pending_.push_back(row);  // delta 0, so pending_sum_ is untouched and the target balance does not move
+  ++stats_.probes;
+  return row;
 }
 
 std::uint64_t WalletHub::book_pending(std::int64_t delta, std::uint8_t reason) {
@@ -222,6 +251,7 @@ bool WalletHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_
   }
   for (const WalletBalanceView& row : view.balances) {
     if (row.kind != want || row.owner != owner) continue;
+    select_wallet(want, owner);  // a mode switch is a new wallet, whose versions are its own (M5-25)
     return note_server_balance(row.balance, row.version, view.ack_seq);
   }
   ++stats_.no_wallet;

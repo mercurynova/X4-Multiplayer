@@ -16,6 +16,8 @@ using host::Cat;
 using host::Level;
 
 constexpr std::int64_t kLogUs = 30'000'000;
+// M5-25 (mod-design 12.3): how often a node asks the ledger to say what it has booked, even when nothing happened.
+constexpr std::int64_t kRefreshUs = 30'000'000;
 // A frame that books a burst must not send a burst: the rest goes in the following frames, in order.
 constexpr std::size_t kMaxSendsPerFrame = 8;
 
@@ -53,6 +55,7 @@ void WalletFeature::on_game_loaded(host::HostContext& ctx) {
   wallet_hub().reset();
   linked_prev_ = false;
   last_log_us_ = 0;
+  last_refresh_us_ = 0;  // the new session gets its balances on attach, so the first probe waits a full period
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "wallet: a new universe was loaded: the balance baseline is dropped");
 }
 
@@ -72,6 +75,7 @@ void WalletFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   }
   linked_prev_ = linked;
   drain(ctx, static_cast<std::uint64_t>(now), info.frame_index);
+  refresh(ctx, now);
   flush(info);
   converge(ctx);
   if (last_log_us_ == 0 || now - last_log_us_ >= kLogUs) {
@@ -138,17 +142,34 @@ void WalletFeature::drain(host::HostContext& ctx, std::uint64_t now, std::uint64
   }
 }
 
+void WalletFeature::refresh(host::HostContext& ctx, std::int64_t now) {
+  // M5-25 (mod-design 12.3): the ledger is asked, it does not volunteer. A zero-amount CreditDelta books nothing and is answered
+  // with acked_delta_seq (server EconomyService.cs:440-453), so a delta whose ack was lost stops being resent. Its WalletUpdate
+  // carries no balances, so a *balance* divergence is corrected by the next real change or by a reconnect, where the server sends
+  // every visible balance on attach (EconomyModule.cs:119-123).
+  if (last_refresh_us_ == 0) {
+    last_refresh_us_ = now;  // the first probe waits a full period: a fresh session already got its balances on attach
+    return;
+  }
+  if (now - last_refresh_us_ < kRefreshUs) return;
+  last_refresh_us_ = now;
+  if (!events::events_hub().linked()) return;  // nothing to ask, and flush() would refuse the row anyway
+  wallet_hub().book_probe(events::events_hub().self_player_id());
+  X4MP_CLOG(ctx.log, Cat::Net, Level::Debug, "wallet: asking the ledger what it has booked");
+}
+
 void WalletFeature::report(host::HostContext& ctx) {
   const WalletHub& hub = wallet_hub();
   const WalletStats& s = hub.stats();
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info,
             "[wallet] local={} known={} changes={} echoes={} applies={} quiet={} bad={} expected={} server={} target={} pending={}/{} "
             "updates={} stale={} converged={} writes={} failed={} acked={} dropped={} booked={} sent={} sendfail={} resent={} "
-            "reasons={} unsent={} events={}",
+            "reasons={} unsent={} events={} wallet={}:{} switched={} probes={}",
             hub.local_balance(), hub.has_balance() ? 1 : 0, s.changes, s.echoes, s.applies, s.quiet, s.bad, hub.expected_adjust(),
             hub.server_known() ? hub.server_balance() : 0, hub.target_balance(), hub.pending_count(), hub.pending_sum(), s.updates,
             s.stale, s.converged, s.writes, s.write_failed, s.pending_acked, s.pending_dropped, s.booked, s.sent, s.send_failed,
-            s.resent, s.reasons, hub.pending_unsent(), hub.events_seen());
+            s.resent, s.reasons, hub.pending_unsent(), hub.events_seen(), static_cast<int>(hub.wallet_kind()), hub.wallet_owner(),
+            s.switched, s.probes);
 }
 
 void WalletFeature::on_shutdown(host::HostContext& ctx) {
