@@ -53,9 +53,7 @@ from the same `git rev-parse HEAD`.
    ```powershell
    $env:X4MP__Net__NodeTcpEndpoint = '0.0.0.0:47780'
    $env:X4MP__Net__MaxPlayers = '8'
-   $env:X4MP__Teams__JoinMode = 'Lobby'
-   $env:X4MP__Teams__AllowCreateInLobby = 'true'
-   $env:X4MP__Teams__AutoAssign = 'Balance'
+   $env:X4MP__Teams__JoinMode = 'AdminAssign'   # the AC's admin_only mode: the admin places every player in the GUI
    $env:X4MP__Teams__DefaultRelation = 'Hostile'
    $env:X4MP__Teams__AllowAssetTransfer = 'true'
    $env:X4MP__Economy__TradeScope = 'Anyone'
@@ -90,7 +88,7 @@ Run them in this order. Between steps, keep both logs open; every step names the
 | A | `admitted Admin (player 1) as Authority, Client, Admin` in `server.out.log` |
 | B | `admitted <name> (player 2) as Client` |
 | A + B | `[sess] onfoot: ... roster=2` in `x4mp.log` |
-| A | `teams: applied seq=1 slots=2 relations=...` |
+| A | `teams: applied seq=1 slots=2 relations=...` after the admin places both players in the GUI (AdminAssign) |
 
 `/who` in the chat window on both PCs must list both players (M5-28), `/ping` must show the latency.
 This is also the first half of AC 9 (relations applied).
@@ -151,9 +149,9 @@ lines on both and the hull value before/after.
 
 1. With two teams hostile, each side's targeting must be red on **both** screens.
 2. An admin flips the relation to allied; it must take effect on both nodes within 2 s.
-3. With `X4MP__Teams__JoinMode=AdminAssign` (restart the server with it - this is the admin-only mode the
-   AC calls `admin_only`), an admin moves a player to the other team in the GUI; the avatar's owner must
-   move with it (`ReassignPlayerAssets`).
+3. With `X4MP__Teams__JoinMode=AdminAssign` (the admin-only mode the AC calls `admin_only`, set from the
+   start in section 2), an admin moves a player to the other team in the GUI; the avatar's owner must move
+   with it (`ReassignPlayerAssets`). No server restart is needed: the GUI team change is the switch.
 
 Quote `teams: apply seq=<n> ... relations=<n>` on both, with the timestamps of the two lines (the delta is
 the 2 s), and on A the reassign line from the server log.
