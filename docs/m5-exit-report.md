@@ -203,7 +203,7 @@ Reading it honestly:
 
 1. A **two-node** sitting (two PCs, or one PC plus `out\fakenode\X4MP.FakeNode.exe client`) to fill AC 2-7, the UI half
    of 9 (red targeting on both sides, allied within 2 s, `admin_only` switch moving the avatar) and the two-node halves
-   of 10.
+   of 10. The run sheet is [in-game-session-9.md](in-game-session-9.md).
 2. **W7 remainder**: M5-27 needs that two-node run; M5-29 (the 12.7 economy screen), M5-30 (notifications,
    `/mp accept|decline`) and M5-31 (escrowed settlement in the mod) are **not implemented**. The mod's net layer decodes
    no `Trade*`/`Loan*`/`Transfer*` frame today even though `protocol/schema/economy.fbs` carries them and the server

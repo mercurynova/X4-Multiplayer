@@ -48,8 +48,9 @@ clients, three teams, heavy economy, duplicate attacks and failing trades ended 
 2026-10-30 through the real `ExecuteDebugCommand` global (`Игроков в сессии: 1`, `Пинг: 196 мс, сервер
 127.0.0.1:47780, состояние ingame`). The rest of W7 (M5-27 needs the
 two-node run; M5-29 economy screen, M5-30 notifications, M5-31 escrowed settlement in the mod) is not started, and
-acceptance items 2-7 still need a second game node. [in-game-session-8.md](in-game-session-8.md) is the session
-record and [m5-exit-report.md](m5-exit-report.md) section 2 is the table the remaining criteria fill.
+acceptance items 2-7 still need a second game node. [in-game-session-8.md](in-game-session-8.md) is the
+single-node record; the two-node sitting has a run sheet - [in-game-session-9.md](in-game-session-9.md):
+two PCs, a fresh server build, one step per acceptance item with the log line to quote.
 
 ---
 
