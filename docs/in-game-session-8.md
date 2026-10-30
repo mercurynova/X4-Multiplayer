@@ -234,14 +234,10 @@ symptom in the header comment (`game_api.h:218-228`) and a test that pins both t
 2. **W7 remainder.** M5-28 is done (`/who`, `/ping`); M5-27 needs the two-node run; M5-29..M5-31 (economy screen,
    notifications, escrowed settlement in the mod) are not started, so AC 11 and 12 (mod side) and the UI half of 9
    have no implementation.
-3. **`x4mp_ui_standalone.lua`.** A second, independent load-time crasher: with it enabled and everything else on, the
-   save load dies. It stays commented out in the installed `ui.xml` (a deploy re-enables it, so it must be
-   re-commented right after every deploy). The three dumps taken while it was enabled (09:16, 09:23, 09:32) show the
-   *same* four-address cycle as 8.2, so it is the same class of bug: an engine callback re-entered from Lua. The
-   candidate is `menu.onCloseElement` (`x4mp_ui_standalone.lua:104-111`), which calls
-   `Helper.closeMenu(menu, dueToClose)` from inside the close callback the engine itself invokes, and the close path
-   re-opens the start menu through `Helper.addDelayedOneTimeCallbackOnUpdate(reopen, true, getElapsedTime() + 0.1)`
-   (`:169-170`). Both need the `inArm`-style guard before the module can be enabled again.
+3. ~~**`x4mp_ui_standalone.lua`**~~ - **fixed on 2026-10-30, §8.11.** The close path and the delayed reopen now carry a
+   re-entrancy guard, the module is enabled in the repo and in the installed `ui.xml`, and it no longer has to be
+   re-commented after a deploy. The dumps taken while it was enabled (09:16, 09:23, 09:32) showed the *same*
+   four-address cycle as 8.2 - an engine callback re-entered from Lua.
 4. ~~**The 60-minute auditor session** (M5-34)~~ - **done**, §8.10.
 
 ## 8.6 The log greps
@@ -477,3 +473,46 @@ How to read it:
 What this does not prove: the run is headless. It proves the server's ledger, escrow and replication under load, not
 the mod's in-game screens (AC 11, the UI half of AC 9) and not the two-node game behaviour of AC 2-7 and 10. Those
 still need the second machine.
+
+## 8.11 The standalone screen is back: the close path got its guard (2026-10-30)
+
+The last single-PC defect of M5 is closed. `x4mp_ui_standalone.lua` is enabled again in both `ui.xml` files, and the
+scenario that produced three stack-overflow dumps now runs clean.
+
+**What was measured first.** The documented candidate (8.5 item 3) was that `menu.onCloseElement` calls
+`Helper.closeMenu`, which calls `menu.onCloseElement` again. That is not what happens. In the running game, with the
+window up (`shown=true|frame=true|rows=11`):
+
+```
+pcall(Helper.closeMenu, X4MPMenu, "close") -> ok:closeOk=true|err=nil|shown=nil|frame=table: 0x020919946ec0
+pcall(X4MPMenu.onCloseElement, "close")    -> ok:directOk=true|err=nil|frameBefore=true|frameAfter=nil
+```
+
+`Helper.closeMenu` clears `shown` and leaves `menu.frame` set, so it does **not** call our callback. The cycle is the
+callback being entered again from the engine's own close path while the frame is being torn down.
+
+**The fix** (`mod/extension/x4mp/ui/x4mp_ui_standalone.lua`):
+
+- `menu.display()` is a guarded wrapper over the old body (now `drawFrame`): `menu.inDisplay` makes a re-entered draw
+  return at once, and the flag is cleared on every path, including an error.
+- `menu.onCloseElement` sets `menu.closing` before it touches the frame and clears it after `menu.cleanup()`, so a
+  re-entered close returns immediately and the outer call finishes the job. `Helper.closeMenu` runs under `pcall`.
+- The delayed reopen inside `menu.restoreStartMenu()` is dropped when `X4MPBridge.loadingSave` is set or when the window
+  is open again - a callback queued before a session save started loading must not switch the game's screen afterwards.
+
+**Evidence, in game (game pid 34784, save `x4mp_s108_a`):**
+
+```
+open via /x4mp        -> shown=true|rows=11|title=Сетевая игра
+close via renderer    -> shown=nil|frame=nil, game alive
+30 draw+close cycles  -> ok=30|err=0|first=nil|closing=nil|inDisplay=nil
+8 open/close cycles, both close paths -> every one ok:true|nil|shown=nil|frame=false
+delayed reopen forced (overStartMenu=true) -> reopen ran, OptionsMenu shown=true, game alive
+save load with the window open -> load finished, is_game_loaded=true, renderer=standalone, wallet=per_player
+```
+
+The log agrees: `[X4MP] standalone: closed, reopening start menu (OpenMenu OptionsMenu, saved return record no)`,
+`[X4MP] standalone ui loaded`, and the load itself (`Loading saved game 'x4mp_s108_a', first pass` / `second pass`).
+No `.dmp` exists anywhere under `D:\Admin\Documents\Egosoft\X4\183887795`, where the three session-8 dumps were.
+
+The Lua gate stayed at `293 passed, 0 failed` - no Lua test covers this module, the proof is the run above.

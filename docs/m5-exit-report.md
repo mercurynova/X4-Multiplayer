@@ -279,5 +279,8 @@ server start or the two-node run; it is recorded in the S10 note rather than for
    mode, and a loan or a trade answered by the other side. M5-31 (escrowed settlement in the mod) is the one W7 task still unimplemented - a
    stretch item that moves to M6. The mod now encodes every request and decodes every answer `protocol/schema/economy.fbs`
    carries for a player, so this is no longer "a new mod-side economy client plus UI".
-3. `x4mp_ui_standalone.lua` re-enabled only after its close path gets the same re-entrancy guard; it stays commented
-   in the installed `ui.xml` today.
+3. ~~`x4mp_ui_standalone.lua` re-enabled only after its close path gets the same re-entrancy guard~~ - **done on
+   2026-10-30**: `menu.display()` and `menu.onCloseElement` are guarded, the delayed reopen is dropped during a save
+   load, the module is enabled in both `ui.xml` files, and the save-load crash no longer reproduces
+   ([in-game-session-8.md](in-game-session-8.md) §8.11). The screen UI (M2-05/M2-11: `/x4mp`, the Join and Status
+   screens) is therefore live again, not only the HUD and the chat.

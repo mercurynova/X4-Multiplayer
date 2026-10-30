@@ -44,17 +44,9 @@ from the same `git rev-parse HEAD`.
    `/healthz` with `{"status":"ok","version":"0.1.0","protocol":{"min":0,"max":1},...}` and serves the embedded
    GUI on `/`.
 2. **Build and deploy the mod** (`mod\build.ps1 -Config relwithdebinfo`, then
-   `mod\tools\deploy.ps1`). After every deploy, re-comment the standalone screen: the
-   `x4mp_ui_standalone.lua` line in the **installed** `extensions\x4mp\ui.xml` - line 30 today - because the
-   deploy copies the repo file, which has it enabled, and the enabled
-   module crashes the save load:
-   ```powershell
-   $p = 'D:\Steam\steamapps\common\X4 Foundations\extensions\x4mp\ui.xml'
-   $t = [System.IO.File]::ReadAllText($p)
-   $t = $t.Replace('<file name="ui/x4mp_ui_standalone.lua" />', '<!-- <file name="ui/x4mp_ui_standalone.lua" /> -->')
-   [System.IO.File]::WriteAllText($p, $t, (New-Object System.Text.UTF8Encoding($false)))
-   ```
-   Do not use `Set-Content`: PowerShell 5.1 writes ANSI and X4 needs UTF-8.
+   `mod\tools\deploy.ps1`). ~~After every deploy, re-comment the standalone screen~~ - **no longer needed since
+   2026-10-30**: `ui/x4mp_ui_standalone.lua` carries its re-entrancy guard and is enabled on purpose in both the repo
+   and the installed `ui.xml` ([in-game-session-8.md](in-game-session-8.md) §8.11). The deploy can leave it enabled.
 3. **Open the firewall** (elevated). Every profile on this box is **Public** - `Get-NetConnectionProfile` reports
    Public for `Ethernet 2`, the Hyper-V vEthernet and Radmin VPN - so rules scoped to `-Profile Private` never
    match and PC B is silently refused. Scope them by address instead:
@@ -89,7 +81,8 @@ from the same `git rev-parse HEAD`.
 ## 3. Prepare PC B
 
 1. Copy `extensions\x4mp` and `extensions\x4native` from PC A (or run the same deploy there), enable both
-   extensions, Protected UI Mode OFF, and re-comment the standalone line in `ui.xml` if the deploy ran there.
+   extensions and set Protected UI Mode OFF. Leave the standalone screen enabled - it is safe since 2026-10-30
+   ([in-game-session-8.md](in-game-session-8.md) §8.11).
 2. Start X4. In the X4MP menu choose **Join a server**: address `<PC A LAN IP>:47780`, the player name,
    team `auto` (or the team the step asks for), role **client**, and the **admin password only if this
    player should be authority** - a normal client leaves it empty.

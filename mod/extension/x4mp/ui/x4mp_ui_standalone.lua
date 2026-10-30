@@ -36,7 +36,7 @@ end
 ------------------------------------------------------------------------------
 -- drawing
 ------------------------------------------------------------------------------
-function menu.display()
+local function drawFrame()
 	local model = menu.model
 	if not model then return end
 	Helper.clearDataForRefresh(menu, LAYER)
@@ -87,6 +87,17 @@ function menu.display()
 	menu.frame:display()
 end
 
+-- One draw at a time: a handler that fires while the frame is being built must not build it again (the same re-entrancy class as
+-- the close callback below). The flag is cleared on every path, including an error, so one failed draw does not freeze the
+-- window.
+function menu.display()
+	if menu.inDisplay then return end
+	menu.inDisplay = true
+	local ok, err = pcall(drawFrame)
+	menu.inDisplay = nil
+	if not ok then log("standalone ui: display failed: " .. tostring(err)) end
+end
+
 ------------------------------------------------------------------------------
 -- Helper menu callbacks
 ------------------------------------------------------------------------------
@@ -101,12 +112,28 @@ function menu.onShowMenu()
 	if not ok then log("standalone ui: display failed: " .. tostring(err)) end
 end
 
+-- One close at a time. With this module enabled the save load died with 0xc00000fd at ~8000 frames deep on one four-address
+-- cycle, Lua -> X4 C function -> the same Lua callback (session 8 8.5: three dumps, 09:16/09:23/09:32). Measured in game on
+-- 2026-10-30: Helper.closeMenu(menu, "close") does NOT call this callback (shown cleared, menu.frame left set), so the cycle is
+-- not our call to Helper.closeMenu coming straight back. It is this callback being entered again from the engine's own close
+-- path while the frame is being torn down, which is exactly what the flag stops: the re-entry returns at once and the outer
+-- call finishes the job.
 function menu.onCloseElement(dueToClose)
+	if menu.closing then return end
+	menu.closing = true
 	local ret = menu.returnTo
 	-- Vanilla Helper.closeMenu(menu, "back") reopens param2[1] itself (helper.lua, Helper.closeMenu). Every other reason (the Close
 	-- button and Esc deliver "close") only closes, so the way back is ours.
 	menu.vanillaReturn = (dueToClose == "back") and ret ~= nil
-	Helper.closeMenu(menu, dueToClose or "close")
+	-- When the engine's own close path brought us here, Helper is already closing this menu; a second closeMenu would reopen the
+	-- start menu twice for "back".
+	if not menu.inHelperClose then
+		menu.inHelperClose = true
+		local ok, err = pcall(Helper.closeMenu, menu, dueToClose or "close")
+		menu.inHelperClose = nil
+		if not ok then log("standalone ui: closeMenu failed: " .. tostring(err)) end
+	end
+	menu.closing = nil
 	menu.cleanup()
 end
 
@@ -157,6 +184,17 @@ function menu.restoreStartMenu()
 	log("standalone: closed, reopening start menu (OpenMenu " .. name .. ", saved return record "
 		.. (ret and "yes" or "no") .. ")")
 	local function reopen()
+		-- A delayed callback can outlive the reason it was queued for: a session save started loading in the meantime, or the
+		-- window was opened again. Reopening the start menu then would fight the game's own screen switch - the exact
+		-- situation the save-load crash happened in.
+		if X4MPBridge.loadingSave then
+			log("standalone: the delayed reopen is dropped, a session save is loading")
+			return
+		end
+		if menu.shown then
+			log("standalone: the delayed reopen is dropped, the window is open again")
+			return
+		end
 		-- a stale "shown" would make the game ignore the request (see above): clear it the way closeMenu does
 		local om = findOptionsMenu()
 		if om and om.shown and type(Helper) == "table" and type(Helper.clearMenu) == "function" then
