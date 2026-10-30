@@ -9,10 +9,11 @@ but the rest of the acceptance line ("MOD §9 M5 acceptance items 2-12; every ev
 with log evidence", with the roadmap's "yes (2 PCs)" column) needs a two-node session, and session 8 ran **one node plus
 the server**. W7 is now code-complete on the mod side: **M5-28 (`/who`, `/ping`) is verified in game**, and **M5-29/M5-30
 (the economy client: teammate transfers, the team pool, loans, trade accept/decline and the `/mp` screen) are implemented**
-in `features/economy_client` and `ui/x4mp_economy.lua` - green at 674 mod tests and 293 Lua cases, waiting for the in-game
-run in session 9 step S10. M5-27 (relations) needs the same two-node run; M5-31 (escrowed settlement on the mod side) stays
-a stretch and moves to M6. So AC 11 is a **first cut**, AC 12 is proven on the **server and on the mod client**, and the UI
-half of AC 9 still has nothing to verify.
+in `features/economy_client` and `ui/x4mp_economy.lua` - green at 674 mod tests and 293 Lua cases, and **run in game**
+on one node in step S10 (the `/mp` screen, the loans/trades lists and a request that the ledger answered, §4.6). M5-27
+(relations) needs the same two-node run; M5-31 (escrowed settlement on the mod side) stays
+a stretch and moves to M6. So AC 11 is a **first cut proven in game**, AC 12 is proven on the **server and on the mod
+client**, and the UI half of AC 9 still has nothing to verify.
 
 What session 8 did produce is worth as much as the numbers it failed to produce: it found **four real defects** that
 no unit test had caught - two crashes that killed the game, one unit bug that silently wrote 1/100 of every balance
@@ -60,7 +61,7 @@ failing names were not captured - treat that pair as flaky until a run reproduce
 | 8 | Chat moderation hooks, `/who`, `/ping`, `/w`, `/t` | PASS (session 9) | `/w` and `/t` were already live (`[X4MP] chat: wrappers installed / installed / installed`); M5-28 added `/who` (the roster from `X4MPPlayers.list` in team colours, capped at ten rows) and `/ping` (the last `x4mp.status` topic) in `x4mp_chat.lua:244-271`, texts 512-516 in both pages, cases `test_chat.lua:210,231`. Verified in game on 2026-10-30 through the real `ExecuteDebugCommand` global: `who_ok=true ping_ok=true new_lines=3` -> `Игроков в сессии: 1`, the team-coloured row `#ffff8000#AdminX - вы \| Команда 1 \| в сети \| 40 мс \| - пешком, здесь`, `Пинг: 196 мс, сервер 127.0.0.1:47780, состояние ingame`; a non-ours command added `chat_lines_added=0`. Moderation is server-side and answers with a system line. Lua gate **280 passed, 0 failed**. Details: [in-game-session-8.md](in-game-session-8.md) §8.9 |
 | 9 | Two hostile teams show red targeting on both sides; allied takes effect within 2 s; `admin_only` switch moves the avatar's owner | PARTIAL | server + mod half proven: `[X4MP] teams: applied seq=1 slots=1 relations=1 active=1 mismatches=0 player_locked=0`; the UI half needs W7 and the second node |
 | 10 | A 1M Cr purchase on a client shows in the ledger within 1 s; two simultaneous purchases in Shared mode converge within 2 s; a forced local edit is corrected within 30 s | PARTIAL - **two defects found and fixed in this wave** | before: `[wallet] ... server=0 target=10000 ... updates=0 ... acked=0`; after the kind fix: `[wallet] local=11000 ... updates=3 ... converged=2 writes=1 failed=0 acked=2`; the write unit was wrong (`+100000` credits moved 10000 -> 11000, §4.3) and the seeder doubled the balance (110000 -> 220000, §4.4); after the seeder fix a fresh session posts only the difference (`team_shared +120000 -> 220000`, `world -120000`) and lands on the save's number. The 1 s ledger latency and the two-simultaneous-purchases half still need the second node |
-| 11 | Send credits, team pool and the Economy screen, first cut | IMPLEMENTED, in-game run pending (session 9 S10) | M5-29/M5-30: `mod/native/features/economy_client` encodes `CreditTransferRequest`, `PoolDepositRequest`, `PoolWithdrawRequest`, `LoanRepay`, `LoanForgive`, `TradeAccept`, `TradeCancel` and decodes `EconomyResult`, `LoanStatus`, `TradeStatus`, `TradeResult`; `/mp` shows the wallet, the pool debt, the open loans and the incoming trades and takes `send|deposit|withdraw|repay|forgive|accept|decline`. Gate: **674 mod tests, 0 failed** (`[economy_client]` 93 assertions in 6 cases) and Lua **293 passed, 0 failed** (13 `test_economy` cases). The in-game half is step S10 of [in-game-session-9.md](in-game-session-9.md) |
+| 11 | Send credits, team pool and the Economy screen, first cut | PASS (session 9, single node) - first cut | M5-29/M5-30: `mod/native/features/economy_client` encodes `CreditTransferRequest`, `PoolDepositRequest`, `PoolWithdrawRequest`, `LoanRepay`, `LoanForgive`, `TradeAccept`, `TradeCancel` and decodes `EconomyResult`, `LoanStatus`, `TradeStatus`, `TradeResult`; `/mp` shows the wallet, the pool debt, the open loans and the incoming trades and takes `send|deposit|withdraw|repay|forgive|accept|decline`. Gates: **674 mod tests, 0 failed** (`[economy_client]` 93 assertions in 6 cases) and Lua **293 passed, 0 failed** (13 `test_economy` cases). In game on 2026-10-30 after an X4 restart with the new DLL: `/mp` answered `Экономика: общий, кошелёк 110 000, долг пула 0` + `Открытых займов: 0, входящих сделок: 0`, `/mp loans` and `/mp trades` added `Открытые займы: / пусто / Входящие сделки: / пусто`, and `/mp deposit 50000` + `/mp withdraw 20000` came back through the ledger as `last{ok=false status=2 reason=5 key=2:1}` - `NotApplicableInSharedMode`, the correct refusal for a team in Shared mode (§4.6). A successful transfer, a pool move in PerPlayer mode and a loan/trade between two players need the second node |
 | 12 | Loans and escrowed offers settle atomically, rollback exact, residuals 0 | PARTIAL (server + mod client) | the server half is proven by the 60-minute run (§4.5): `trades=[Completed=653,Expired=2,InDoubt=5,RolledBack=91]`, `trade-authority: ... failed=93 withheld=29 silent=5`, `ledger-sum=0`, `inEscrow=14307` held only by the 5 in-doubt orders. The mod now speaks the loan and trade frames as well (M5-29/M5-30), so a node can repay, forgive, accept and cancel; the settlement itself stays authority-side, and M5-31 (settlement in the mod) moves to M6 |
 
 Also unverified from the milestone line: **"every event in REQ §8.3 checklist executed once with log evidence"** - the
@@ -232,19 +233,50 @@ close that gap:
   to `WalletUpdate`, `CMakeLists.txt:133` builds `tests/test_economy_client.cpp`, `ui.xml` loads the new module, and both
   text pages carry ids 517-570.
 
-Evidence: `mod\build.ps1 -Config relwithdebinfo` -> **674 tests, 100% passed, 0 failed** (`[economy_client]`: 93
-assertions in 6 cases, which build real flatbuffers the way the server packs them and decode them back);
-`python mod\tests\lua\run_lupa.py` -> **293 passed, 0 failed**, of which 13 are the new `/mp` cases. What is not yet
-proven is the in-game half - the running game (pid 19328) holds the pre-economy `x4mp.dll`, so the end-to-end check is
-session 9 step S10, after the deploy the sheet already prescribes.
+Evidence, out of game: `mod\build.ps1 -Config relwithdebinfo` -> **674 tests, 100% passed, 0 failed** (`[economy_client]`:
+93 assertions in 6 cases, which build real flatbuffers the way the server packs them and decode them back);
+`python mod\tests\lua\run_lupa.py` -> **293 passed, 0 failed**, of which 13 are the new `/mp` cases.
+
+Evidence, in game (2026-10-30, one node, step S10 of the run sheet): the mod was deployed, X4 was restarted so the new
+`x4mp.dll` loads (8020992 bytes, 30.10 8:45:42 - the pre-economy build sits beside it as `x4mp_live.dll`), `x4mp_s108_a`
+was loaded and the node joined as authority to session `223c106d-5a83-428c-affc-3bee2f0b9da6`:
+
+```
+[13:52:29] player 1 (Admin) joined as Authority, Client, Admin
+[13:52:53] X4MP.Core.Saves.EconomySaveSeeder seeded the economy with 110000 credits from the save: None
+[13:52:53] session 223c106d-...: AuthorityLoading -> Running (first checkpoint stored)
+```
+
+`ExecuteDebugCommand("mp", "")` (the vanilla global takes the name and the arguments separately) answered through the
+module in the real chat window:
+
+```
+Экономика: общий, кошелёк 110 000, долг пула 0
+Открытых займов: 0, входящих сделок: 0
+```
+
+`/mp loans` and `/mp trades` added four more lines (`Открытые займы:` / `пусто` / `Входящие сделки:` / `пусто`,
+`before=3 after=7`), so the screen reads the native snapshot. `/mp deposit 50000` and `/mp withdraw 20000` sent their
+frames and the server answered with an `EconomyResult` the mod decoded:
+
+```
+last{ok=false status=2 reason=5 detail= key=0000000000000002:0000000000000001}
+```
+
+`status=2` is `EconomyStatus::Rejected` and `reason=5` is `EconomyReject::NotApplicableInSharedMode`, which is the
+correct answer here: the team runs in **Shared** credit mode (`wallet=shared/110000/0`), where a team pool does not
+exist. The request key `(2, 1)` - the second key of player 1 - proves the round trip: Lua verb -> native hub -> Control
+frame -> server -> `EconomyResult` -> snapshot -> the screen. A *successful* pool move needs `CreditMode=PerPlayer` at
+server start or the two-node run; it is recorded in the S10 note rather than forced on a single node.
 
 ## 5. What M5 needs next
 
 1. A **two-node** sitting (two PCs, or one PC plus `out\fakenode\X4MP.FakeNode.exe client`) to fill AC 2-7, the UI half
    of 9 (red targeting on both sides, allied within 2 s, `admin_only` switch moving the avatar) and the two-node halves
    of 10. The run sheet is [in-game-session-9.md](in-game-session-9.md).
-2. **W7 remainder**: M5-27 needs that two-node run; M5-29/M5-30 are **implemented and green** and only need step S10 of
-   the run sheet executed in game; M5-31 (escrowed settlement in the mod) is the one W7 task still unimplemented - a
+2. **W7 remainder**: M5-27 needs that two-node run; M5-29/M5-30 are **implemented, green and run in game on one node**
+   (step S10, §4.6) - what is left of them is the two-player half: a transfer to a teammate, a pool move in PerPlayer
+   mode, and a loan or a trade answered by the other side. M5-31 (escrowed settlement in the mod) is the one W7 task still unimplemented - a
    stretch item that moves to M6. The mod now encodes every request and decodes every answer `protocol/schema/economy.fbs`
    carries for a player, so this is no longer "a new mod-side economy client plus UI".
 3. `x4mp_ui_standalone.lua` re-enabled only after its close path gets the same re-entrancy guard; it stays commented

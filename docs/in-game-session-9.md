@@ -192,6 +192,19 @@ raise a verb - that is the local guard, not the server.
 AC 12's escrow settlement stays authority-side; the mod-side settlement work (M5-31) is not in this run. Do not mark
 AC 11 PASS unless the lines above are quoted from this session, and do not mark AC 12 PASS on this run at all.
 
+#### S10 done on one node on 2026-10-30 (the two-player half is what remains)
+
+Step S10 was run on **one** PC to prove the mod side end to end before the sitting, and the result is in
+[m5-exit-report.md](m5-exit-report.md) section 4.6. In short: after an X4 restart with the new `x4mp.dll` and
+`x4mp_s108_a` loaded, the node joined session `223c106d` as authority, and `ExecuteDebugCommand("mp", "")` answered
+`Экономика: общий, кошелёк 110 000, долг пула 0` / `Открытых займов: 0, входящих сделок: 0`; `/mp loans` and `/mp trades`
+added `Открытые займы: / пусто / Входящие сделки: / пусто`. `/mp deposit 50000` and `/mp withdraw 20000` reached the
+ledger and came back as `last{ok=false status=2 reason=5 key=2:1}` - `NotApplicableInSharedMode`, which is correct while
+the team runs in **Shared** credit mode. So on the two-node sitting the pool commands need `Economy:CreditMode=PerPlayer`
+in the server environment (add it next to the other `X4MP__*` variables in section 2); in Shared mode only the transfers,
+loans and trades make sense. What still has to come out of the sitting is the two-player half: a transfer whose two
+wallets move, a pool move that succeeds, and a loan or trade the other side answers.
+
 ## 5. What to send back
 
 From **both** PCs, after the last step:
