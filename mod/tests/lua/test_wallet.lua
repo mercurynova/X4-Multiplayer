@@ -32,8 +32,9 @@ local function setup()
 end
 
 local function wallet(debt)
+	-- kind 1 = TeamShared: in Shared mode the spendable account is the team's shared wallet (protocol.md:1043), not TeamPool (2).
 	return '{"v":1,"local":0,"target":' .. tostring(-debt) .. ',"debt":' .. tostring(debt) ..
-		',"kind":2,"owner":3,"mode":"shared"}'
+		',"kind":1,"owner":3,"mode":"shared"}'
 end
 
 test("wallet: the topic reaches the HUD and the line carries the pool debt", function()

@@ -216,10 +216,17 @@ class GameApi {
   [[nodiscard]] std::string owner_faction(UniverseId component) const noexcept;
 
   // ---- M5 (wallet) ----
-  // Add `delta` credits to the local player (negative spends). True when the call was made; false when the export is missing,
+  // Add `delta` CREDITS to the local player (negative spends). True when the call was made; false when the export is missing,
   // `delta` is 0 or the main-thread check fails. The change comes back as an ordinary reading on the next GetPlayerMoney poll,
   // which is what note_apply()/observe() recognise as this node's own echo (M5-23).
+  //
+  // The export itself takes CENTS while GetPlayerMoney returns credits (decisions.md:519, the money-units decision): the
+  // conversion happens here and nowhere else. Session 8 passed credits straight through, so a +100000 credit write moved the
+  // player by 1000 and the ledger could never converge on the game.
   bool add_player_money(std::int64_t delta) const noexcept;
+
+  // The wire and the ledger count credits, the game's write export counts cents.
+  static constexpr std::int64_t kCentsPerCredit = 100;
 
  private:
   GameFns fns_{};

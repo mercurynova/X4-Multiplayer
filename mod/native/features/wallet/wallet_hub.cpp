@@ -249,10 +249,10 @@ bool WalletHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_
     ++stats_.bad_update;
     return false;
   }
-  // Which row is ours: the shared pool in Shared mode, our own wallet in PerPlayer (mod-design 12.1). No owner means this node is
-  // not in a session yet, and a row we do not have is not an error either: the update simply named no wallet of ours.
+  // Which row is ours: the team's shared wallet in Shared mode, our own wallet in PerPlayer (protocol.md:1043). No owner means this
+  // node is not in a session yet, and a row we do not have is not an error either: the update simply named no wallet of ours.
   const bool shared = view.effective_mode == static_cast<std::uint8_t>(P::EffectiveCreditMode::Shared);
-  const std::uint8_t want = shared ? kKindTeamPool : kKindPlayer;
+  const std::uint8_t want = shared ? kKindTeamShared : kKindPlayer;
   const std::uint16_t owner = shared ? own_team : own_player;
   if (owner == 0) {
     ++stats_.no_wallet;

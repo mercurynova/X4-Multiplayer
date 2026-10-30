@@ -20,6 +20,23 @@ test("api present at load: ui_ready is raised once with the start-menu flag", fu
 	eq(#env.raisedNamed("x4mp.ui_ready"), 1, "no duplicate ui_ready")
 end)
 
+test("isStartMenu: the ffi symbol is bound once, the answer stays live", function()
+	local B = bridge()
+	local ffi = require("ffi")
+	local cdefs = 0
+	local realCdef = ffi.cdef
+	ffi.cdef = function(...) cdefs = cdefs + 1 return realCdef(...) end
+	env.startmenu = false
+	eq(B.isStartMenu(), false)
+	env.startmenu = true
+	eq(B.isStartMenu(), true, "a cached binding must still read the live answer")
+	eq(B.isStartMenu(), true)
+	ffi.cdef = realCdef
+	-- Session 8: the money poll asked this 100 times a second and the game died with 0xc00000fd; require("ffi") plus
+	-- cdef on every call was pure overhead on top of that. One cdef for the whole session is the rule.
+	eq(cdefs, 1, "ffi.cdef must run once, not once per call")
+end)
+
 test("api missing at load: queued verbs flush on gfx_ok once the api exists", function()
 	local B = bridge()
 	eq(#env.raised, 0)

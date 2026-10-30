@@ -42,10 +42,13 @@ namespace x4mp::features::wallet {
 
 namespace P = X4MP::Proto;
 
-// The WalletKind values a node can spend from (economy.fbs, mod-design 12.1: wallet:<player> in PerPlayer, pool:<team> in Shared).
-// TeamShared is not one of the two spendable accounts the design names, so it is never picked.
+// The WalletKind values a node can spend from: its own wallet in PerPlayer, the team's shared wallet in Shared
+// (docs/protocol.md:1043 "Shared: a TeamShared wallet per team, and no pool"; docs/server-design.md:1009). TeamPool is the separate
+// pool of a PerPlayer session with team_pool=true, so it is never the spendable account of a Shared session. Session 8 found the
+// client picking TeamPool here while the server booked Shared money into TeamShared: every WalletUpdate named no wallet of ours and
+// the node never converged.
 inline constexpr std::uint8_t kKindPlayer = static_cast<std::uint8_t>(P::WalletKind::Player);
-inline constexpr std::uint8_t kKindTeamPool = static_cast<std::uint8_t>(P::WalletKind::TeamPool);
+inline constexpr std::uint8_t kKindTeamShared = static_cast<std::uint8_t>(P::WalletKind::TeamShared);
 
 // A money body is one small object. Anything bigger is not one of ours.
 inline constexpr std::size_t kMaxMoneyBody = 256;

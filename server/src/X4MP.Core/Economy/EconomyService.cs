@@ -572,7 +572,33 @@ public sealed partial class EconomyService
             }
         }
 
-        entries.Insert(0, new PostEntry(WalletId.World, -amount));
+        // The seed is a target, not an addition. The authority books its own balance when it attaches (the mod's
+        // CreditDelta) and the seeder runs on the first checkpoint, so a wallet that already holds part of the save's
+        // money must not receive it twice: session 8 seeded 110000 on top of the 110000 the mod had just booked and the
+        // player's money doubled to 220000. Post the difference to each target and let World be the counter-account for
+        // exactly that difference, so the totals stay balanced and a repeated seed moves nothing.
+        var delta = new List<PostEntry>(entries.Count);
+        long minted = 0;
+        foreach (var entry in entries)
+        {
+            var change = entry.Amount - _ledger.BalanceOf(entry.Wallet);
+            if (change == 0)
+            {
+                continue;
+            }
+
+            delta.Add(new PostEntry(entry.Wallet, change));
+            minted += change;
+        }
+
+        if (delta.Count == 0)
+        {
+            // Already at the save's balance: nothing to post, and the earlier posting is the answer.
+            var replayed = _ledger.FindReplay(0, "save-money", PayloadHasher.Hash("SaveMoney", amount));
+            return new EconomyActionResult(EconomyReject.None, replayed, "already at the save's balance");
+        }
+
+        delta.Insert(0, new PostEntry(WalletId.World, -minted));
         var outcome = _ledger.Post(new PostRequest
         {
             Kind = TxKind.SaveMoney,
@@ -581,7 +607,7 @@ public sealed partial class EconomyService
             RequestId = "save-money",
             RequestType = "SaveMoney",
             PayloadHash = PayloadHasher.Hash("SaveMoney", amount),
-            Entries = entries,
+            Entries = delta,
             Flags = PostOptions.BypassWalletFreeze,
             Note = "inherit_team",
         });

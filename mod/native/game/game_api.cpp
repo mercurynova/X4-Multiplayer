@@ -1,5 +1,7 @@
 #include "game/game_api.h"
 
+#include <limits>
+
 #include "game/main_thread.h"
 
 namespace x4mp::game {
@@ -267,7 +269,11 @@ std::string GameApi::owner_faction(UniverseId component) const noexcept {
 
 bool GameApi::add_player_money(std::int64_t delta) const noexcept {
   if (delta == 0 || !fns_.AddPlayerMoney || !assert_main_thread("AddPlayerMoney")) return false;
-  fns_.AddPlayerMoney(delta);
+  // Credits in, cents out: the export's unit is not the one GetPlayerMoney reports (decisions.md:519). A delta that would
+  // overflow the conversion is refused rather than wrapped into a nonsense write.
+  constexpr std::int64_t kMaxCredits = std::numeric_limits<std::int64_t>::max() / kCentsPerCredit;
+  if (delta > kMaxCredits || delta < -kMaxCredits) return false;
+  fns_.AddPlayerMoney(delta * kCentsPerCredit);
   return true;
 }
 

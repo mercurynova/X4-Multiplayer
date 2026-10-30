@@ -313,11 +313,26 @@ function B.getApi()
 	return nil
 end
 
-function B.isStartMenu()
+-- IsStartmenu() reaches into X4.exe through FFI, so the symbol is resolved exactly ONCE and the result (including "there
+-- is no ffi here") is remembered: require("ffi") plus ffi.cdef on every call is work the game does not need. Session 8
+-- asked it once per frame from the money poll and the game died with 0xc00000fd (STACK_OVERFLOW in lua51_64.dll) after
+-- an ~8040-deep X4.exe -> Lua -> X4.exe cycle; the same build ran 12 minutes clean with this call stubbed out. The
+-- money poll now caches the answer for a second on its side too (x4mp_money.lua MENU_S).
+local startMenuFn, startMenuTried = nil, false
+local function bindStartMenu()
+	if startMenuTried then return startMenuFn end
+	startMenuTried = true
 	local okFfi, ffi = pcall(require, "ffi")
-	if not okFfi then return false end
+	if not okFfi or type(ffi) ~= "table" then return nil end
 	pcall(ffi.cdef, "bool IsStartmenu();") -- "redefine" is expected and harmless
-	local ok, res = pcall(function() return ffi.C.IsStartmenu() end)
+	if type(ffi.C) == "table" then startMenuFn = ffi.C.IsStartmenu end
+	return startMenuFn
+end
+
+function B.isStartMenu()
+	local fn = bindStartMenu()
+	if fn == nil then return false end
+	local ok, res = pcall(fn)
 	return ok and res == true
 end
 

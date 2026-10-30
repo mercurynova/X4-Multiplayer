@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
@@ -615,13 +616,19 @@ TEST_CASE("GameApi::add_player_money is the write half of the wallet", "[game][a
   g_added_money = 0;
   g_add_money_calls = 0;
   CHECK(api.add_player_money(250));
-  CHECK(g_added_money == 250);
+  // Credits in, cents out: the export counts cents while GetPlayerMoney reports credits (decisions.md:519). Session 8 sent
+  // +100000 credits unchanged and the player gained 1000, so the ledger and the game could never meet.
+  CHECK(g_added_money == 250 * GameApi::kCentsPerCredit);
   CHECK(api.add_player_money(-3800));  // a spend is the same call with a negative delta
-  CHECK(g_added_money == -3800);
+  CHECK(g_added_money == -3800 * GameApi::kCentsPerCredit);
   CHECK(g_add_money_calls == 2);
 
   // Nothing to do is not a call, and a zero is not a write.
   CHECK_FALSE(api.add_player_money(0));
+  CHECK(g_add_money_calls == 2);
+
+  // A delta that cannot be expressed in cents is refused instead of wrapping around.
+  CHECK_FALSE(api.add_player_money(std::numeric_limits<std::int64_t>::max()));
   CHECK(g_add_money_calls == 2);
 
   GameApi none(resolve_game_fns(lookup_none), GameInfo{});

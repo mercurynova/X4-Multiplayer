@@ -190,7 +190,7 @@ void WalletFeature::publish(host::HostContext& ctx) {
   j["debt"] = debt;
   j["kind"] = static_cast<int>(kind);  // WalletKind: 0 wallet:<player>, 2 pool:<team>
   j["owner"] = static_cast<int>(owner);
-  j["mode"] = kind == kKindTeamPool ? "shared" : "per_player";
+  j["mode"] = kind == kKindTeamShared ? "shared" : "per_player";
   if (!ctx.platform.raise_lua("x4mp.wallet", j.dump())) return;  // the next change publishes again
   published_ = true;
   pub_local_ = local;

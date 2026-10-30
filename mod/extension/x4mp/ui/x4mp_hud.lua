@@ -523,6 +523,7 @@ local function schedule(reason)
 	if type(Helper) ~= "table" or type(Helper.addDelayedOneTimeCallbackOnUpdate) ~= "function" or type(getElapsedTime) ~= "function" then
 		return
 	end
+	if H.inArm then return end -- re-entered from inside our own arm call: never recurse
 	local t = now()
 	if H.timerPending then
 		local age = t - (H.timerArmedAt or t)
@@ -532,13 +533,28 @@ local function schedule(reason)
 	H.timerGen = (H.timerGen or 0) + 1
 	local gen = H.timerGen
 	H.timerPending, H.timerArmedAt = true, t
-	Helper.addDelayedOneTimeCallbackOnUpdate(function()
-		if gen ~= H.timerGen then return end -- superseded by a newer arm
-		H.timerPending = false
-		local ok, err = pcall(H.tick)
-		if not ok then log("hud: tick raised: " .. tostring(err)) end
-		if H.wanted() or menu.shown then pcall(schedule, "loop") end
-	end, false, t + H.config.interval)
+	-- A callback armed for a time that has already passed runs while Helper is still inside the arm call, and this
+	-- callback re-arms itself: that recursed ~8000 deep and the game died with 0xc00000fd (STACK_OVERFLOW in
+	-- lua51_64.dll) in session 8. The arm is repeated with a growing delay until the callback really lands in the
+	-- future; if it never does, the loop stops instead of eating the stack.
+	local delay = H.config.interval
+	for _ = 1, 4 do
+		local ranNow = false
+		H.inArm = true
+		Helper.addDelayedOneTimeCallbackOnUpdate(function()
+			if H.inArm then ranNow = true; return end -- ran synchronously inside the arm call
+			if gen ~= H.timerGen then return end -- superseded by a newer arm
+			H.timerPending = false
+			local ok, err = pcall(H.tick)
+			if not ok then log("hud: tick raised: " .. tostring(err)) end
+			if H.wanted() or menu.shown then pcall(schedule, "loop") end
+		end, false, t + delay)
+		H.inArm = false
+		if not ranNow then return end
+		delay = delay * 10
+	end
+	H.timerPending = false
+	log("hud: the timer keeps running inside the arm call; loop paused until the next event")
 end
 H.schedule = schedule
 

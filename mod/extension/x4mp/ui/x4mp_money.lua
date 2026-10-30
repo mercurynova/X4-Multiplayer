@@ -30,10 +30,24 @@ local function read()
 	return math.floor(v + 0.5)
 end
 
+-- B.isStartMenu() reaches X4.exe through FFI, and asking it once per frame (100 times a second at FRAME_S) crashed the
+-- game in session 8: 0xc00000fd, an 8043-deep X4.exe+0xaf7150 <-> lua51_64.dll cycle, reproduced with only the bridge
+-- and this module loaded and gone as soon as the call was stubbed out. Ask once a second and cache the answer.
+local MENU_S = 1
+local function inStartMenu()
+	if type(getElapsedTime) == "function" then
+		local t = getElapsedTime()
+		if O.menuAt ~= nil and t - O.menuAt < MENU_S then return O.inMenu == true end
+		O.menuAt = t
+	end
+	O.inMenu = type(B) == "table" and type(B.isStartMenu) == "function" and B.isStartMenu() == true
+	return O.inMenu
+end
+
 --- One reading: counts, and sends only what native has not seen yet. Public so a test can drive it without a timer.
 function O.poll()
 	O.polls = O.polls + 1
-	if type(B) == "table" and type(B.isStartMenu) == "function" and B.isStartMenu() then
+	if inStartMenu() then
 		O.skipped = O.skipped + 1 -- the start menu has no player and no balance
 		return
 	end
@@ -62,11 +76,18 @@ function O.poll()
 	end
 end
 
+-- One frame at 60 fps, and it has to be a time in the FUTURE. A callback armed for `t` is already due when
+-- Helper.addDelayedOneTimeCallbackOnUpdate is called, and Helper runs due callbacks while it is still flushing the
+-- queue, so arm -> flush -> callback -> schedule -> arm recursed without bound: the game exited with 0xc00000fd
+-- (STACK_OVERFLOW in lua51_64.dll) at universe_ready in session 8. The hud and onfoot loops arm at t + interval.
+local FRAME_S = 0.01
+
 local function schedule()
 	if type(Helper) ~= "table" or type(Helper.addDelayedOneTimeCallbackOnUpdate) ~= "function"
 		or type(getElapsedTime) ~= "function" then
 		return -- no frame clock (the start menu, the tests): the next gfx_ok/show re-arms it
 	end
+	if O.inArm then return end -- re-entered from inside our own arm call: never recurse
 	local t = getElapsedTime()
 	if O.timerPending then
 		local age = t - (O.armedAt or t)
@@ -76,12 +97,28 @@ local function schedule()
 	O.timerGen = O.timerGen + 1
 	local gen = O.timerGen
 	O.timerPending, O.armedAt = true, t
-	Helper.addDelayedOneTimeCallbackOnUpdate(function()
-		if gen ~= O.timerGen then return end -- a newer loop took over
-		O.timerPending = false
-		pcall(O.poll)
-		pcall(schedule)
-	end, false, t)
+	-- A callback armed for a time that has already passed runs while Helper is still inside the arm call, and this
+	-- callback re-arms itself: arm -> callback -> schedule -> arm recursed ~8000 deep and the game died with
+	-- 0xc00000fd (STACK_OVERFLOW in lua51_64.dll). Session 8 saw it at universe_ready and again minutes after the
+	-- checkpoint save, when the UI clock and Helper's queue disagreed. So the arm is repeated with a growing delay
+	-- until the callback really lands in the future; if it never does, the loop stops instead of eating the stack.
+	local delay = FRAME_S
+	for _ = 1, 4 do
+		local ranNow = false
+		O.inArm = true
+		Helper.addDelayedOneTimeCallbackOnUpdate(function()
+			if O.inArm then ranNow = true; return end -- ran synchronously inside the arm call
+			if gen ~= O.timerGen then return end -- a newer loop took over
+			O.timerPending = false
+			pcall(O.poll)
+			pcall(schedule)
+		end, false, t + delay)
+		O.inArm = false
+		if not ranNow then return end
+		delay = delay * 10
+	end
+	O.timerPending = false
+	log("the timer keeps running inside the arm call; loop paused until the next event")
 end
 O.schedule = schedule
 

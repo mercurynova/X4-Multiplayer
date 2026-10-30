@@ -244,13 +244,14 @@ TEST_CASE("M5-23: a delta the ledger books leaves pending, so it is never counte
   CHECK(capped.pending_sum() == static_cast<std::int64_t>(W::kMaxPending));
 }
 
-TEST_CASE("M5-23: in Shared mode the node converges to the team pool, not its own wallet", "[wallet][m523]") {
+TEST_CASE("M5-23: in Shared mode the node converges to the team's shared wallet, not its own wallet", "[wallet][m523]") {
   W::WalletHub hub;
   const auto type = static_cast<std::uint16_t>(P::MsgType::WalletUpdate);
   hub.observe(100, 1);
 
-  // mod-design 12.1: the spendable balance is pool:<team> in Shared mode, and TeamShared is not one of the two spendable accounts.
-  const auto shared = make_update(900, 3, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared);
+  // protocol.md:1043: in Shared mode the spendable balance is the team's TeamShared wallet; TeamPool is the separate pool of a
+  // PerPlayer session with team_pool=true, so it is never the account a Shared node spends from.
+  const auto shared = make_update(900, 3, 0, P::WalletKind::TeamShared, kTeam, P::EffectiveCreditMode::Shared);
   REQUIRE(hub.on_frame_message(type, shared, kPlayer, kTeam));
   CHECK(hub.server_balance() == 900);
   CHECK(*hub.take_convergence() == 800);
@@ -259,10 +260,10 @@ TEST_CASE("M5-23: in Shared mode the node converges to the team pool, not its ow
   W::WalletHub other;
   CHECK_FALSE(other.on_frame_message(type, shared, kPlayer, 4));
   CHECK(other.stats().no_wallet == 1);
-  // A TeamShared row is not the pool either.
-  CHECK_FALSE(other.on_frame_message(type, make_update(900, 3, 0, P::WalletKind::TeamShared, 4, P::EffectiveCreditMode::Shared), kPlayer, 4));
+  // A TeamPool row is not the shared wallet either.
+  CHECK_FALSE(other.on_frame_message(type, make_update(900, 3, 0, P::WalletKind::TeamPool, 4, P::EffectiveCreditMode::Shared), kPlayer, 4));
 
-  // The mode comes from the update itself (the server resolves Auto -> PerPlayer|Shared), so the same node picks the pool row
+  // The mode comes from the update itself (the server resolves Auto -> PerPlayer|Shared), so the same node picks the shared-wallet row
   // when the server says Shared and its own wallet row when it says PerPlayer.
   W::WalletHub same_node;
   CHECK(same_node.on_frame_message(type, shared, kPlayer, kTeam));
@@ -454,16 +455,16 @@ TEST_CASE("M5-25: a mode switch is a new wallet, whose versions are its own", "[
   CHECK(hub.server_version() == 42);
   CHECK_FALSE(hub.take_convergence().has_value());  // the local money already is the wallet's
 
-  // The session switches to Shared. The pool's counter is at 3, lower than the wallet's 42, and that says nothing about the pool:
-  // the version belongs to the wallet it was issued for. Taking the pool's first balance as it is, is what makes the switch land.
-  const auto shared = make_update(12000, 3, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared);
+  // The session switches to Shared. The shared wallet's counter is at 3, lower than the wallet's 42, and that says nothing about it:
+  // the version belongs to the wallet it was issued for. Taking the shared wallet's first balance as it is, is what makes the switch land.
+  const auto shared = make_update(12000, 3, 0, P::WalletKind::TeamShared, kTeam, P::EffectiveCreditMode::Shared);
   REQUIRE(hub.on_frame_message(type, shared, kPlayer, kTeam));
   CHECK(hub.stats().switched == 1);
-  CHECK(hub.wallet_kind() == static_cast<std::uint8_t>(P::WalletKind::TeamPool));
+  CHECK(hub.wallet_kind() == static_cast<std::uint8_t>(P::WalletKind::TeamShared));
   CHECK(hub.wallet_owner() == kTeam);
   CHECK(hub.server_version() == 3);
   CHECK(hub.server_balance() == 12000);
-  // M5-25 acceptance: every member's local money becomes the pool balance, in the frame the update lands.
+  // M5-25 acceptance: every member's local money becomes the shared balance, in the frame the update lands.
   const auto adjust = hub.take_convergence();
   REQUIRE(adjust.has_value());
   CHECK(*adjust == 8000);
@@ -474,7 +475,7 @@ TEST_CASE("M5-25: a mode switch is a new wallet, whose versions are its own", "[
   CHECK_FALSE(hub.on_frame_message(type, shared, kPlayer, kTeam));
   CHECK(hub.stats().stale == 1);
 
-  // And back: the player's wallet returns at a version the pool never saw, which is not stale either.
+  // And back: the player's wallet returns at a version the shared wallet never saw, which is not stale either.
   REQUIRE(hub.on_frame_message(type, make_update(4200, 7, 0), kPlayer, kTeam));
   CHECK(hub.stats().switched == 2);
   CHECK(hub.wallet_kind() == static_cast<std::uint8_t>(P::WalletKind::Player));
@@ -513,14 +514,14 @@ TEST_CASE("M5-25: the 30 s probe asks for the ack without moving money", "[walle
   CHECK(hub.target_balance() == target);  // the ack drained the row, it did not add anything
 }
 
-TEST_CASE("M5-26: a pool spent below zero holds the local money at 0 and reports the debt", "[wallet][m526]") {
+TEST_CASE("M5-26: a shared wallet spent below zero holds the local money at 0 and reports the debt", "[wallet][m526]") {
   const auto type = static_cast<std::uint16_t>(P::MsgType::WalletUpdate);
   W::WalletHub hub;
   REQUIRE(hub.observe(800, 1) == W::Observation::Baseline);
 
   // The ledger is 500 in the red. The game cannot hold a negative balance, so the node goes down to 0 and stops there: the rest is
   // the team's debt, and it stays in the ledger.
-  REQUIRE(hub.on_frame_message(type, make_update(-500, 1, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared),
+  REQUIRE(hub.on_frame_message(type, make_update(-500, 1, 0, P::WalletKind::TeamShared, kTeam, P::EffectiveCreditMode::Shared),
                                kPlayer, kTeam));
   CHECK(hub.target_balance() == -500);
   const auto adjust = hub.take_convergence();
@@ -539,14 +540,14 @@ TEST_CASE("M5-26: a pool spent below zero holds the local money at 0 and reports
   // A node that is already at 0 writes nothing at all, and still reports the debt.
   W::WalletHub flat;
   REQUIRE(flat.observe(0, 1) == W::Observation::Baseline);
-  REQUIRE(flat.on_frame_message(type, make_update(-300, 1, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared),
+  REQUIRE(flat.on_frame_message(type, make_update(-300, 1, 0, P::WalletKind::TeamShared, kTeam, P::EffectiveCreditMode::Shared),
                                 kPlayer, kTeam));
   CHECK_FALSE(flat.take_convergence().has_value());
   CHECK(flat.stats().writes == 0);
   CHECK(flat.debt() == 300);
 
-  // The pool comes back: the node converges from 0 to the new balance and the debt is gone.
-  REQUIRE(flat.on_frame_message(type, make_update(200, 2, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared),
+  // The shared wallet comes back: the node converges from 0 to the new balance and the debt is gone.
+  REQUIRE(flat.on_frame_message(type, make_update(200, 2, 0, P::WalletKind::TeamShared, kTeam, P::EffectiveCreditMode::Shared),
                                 kPlayer, kTeam));
   const auto up = flat.take_convergence();
   REQUIRE(up.has_value());
@@ -557,15 +558,15 @@ TEST_CASE("M5-26: a pool spent below zero holds the local money at 0 and reports
   CHECK(flat.stats().clamped == 1);  // counted once per descent, not per frame
 }
 
-TEST_CASE("M5-26: two members of one pool end at the same balance after one overspend", "[wallet][m526]") {
+TEST_CASE("M5-26: two members of one shared wallet end at the same balance after one overspend", "[wallet][m526]") {
   const auto type = static_cast<std::uint16_t>(P::MsgType::WalletUpdate);
   // The acceptance: two simultaneous purchases in Shared mode leave every member at the same final balance. They start from
-  // different local balances, the ledger tells both the same new pool balance, and each one converges to it in the same frame.
+  // different local balances, the ledger tells both the same new shared balance, and each one converges to it in the same frame.
   W::WalletHub a;
   W::WalletHub b;
   REQUIRE(a.observe(500, 1) == W::Observation::Baseline);
   REQUIRE(b.observe(900, 1) == W::Observation::Baseline);
-  const auto pool = make_update(-300, 1, 0, P::WalletKind::TeamPool, kTeam, P::EffectiveCreditMode::Shared);
+  const auto pool = make_update(-300, 1, 0, P::WalletKind::TeamShared, kTeam, P::EffectiveCreditMode::Shared);
   REQUIRE(a.on_frame_message(type, pool, kPlayer, kTeam));
   REQUIRE(b.on_frame_message(type, pool, kPlayer, kTeam));
 

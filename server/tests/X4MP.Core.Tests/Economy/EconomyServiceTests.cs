@@ -523,6 +523,26 @@ public sealed class EconomyServiceTests
     }
 
     [Fact]
+    public void SaveMoneyBringsTheWalletToTheSavesBalanceInsteadOfAddingToIt()
+    {
+        // Shared mode: the mod books the authority's balance into the team wallet when it attaches, and the seeder runs
+        // on the first checkpoint. Session 8 seeded 110000 on top of the 110000 the mod had just booked and the player's
+        // money doubled to 220000; the seed is a target, so it must bring the wallet TO that amount, not add to it.
+        var kit = Kit(members: OneTeam, teams: [1]);
+        kit.Service.BookCreditDelta(2, false, Delta(500, 1));
+        Assert.Equal(500, kit.Balance(WalletId.TeamShared(1)));
+
+        var seeded = kit.Service.SeedSaveMoney(777, 2, "system");
+        Assert.True(seeded.Ok);
+        Assert.Equal(777, kit.Balance(WalletId.TeamShared(1))); // 777, not 1277
+        Assert.Equal(0, kit.Ledger.TotalBalance()); // World carries the difference only
+
+        var again = kit.Service.SeedSaveMoney(777, 2, "system");
+        Assert.True(again.Ok);
+        Assert.Equal(777, kit.Balance(WalletId.TeamShared(1))); // a repeated seed moves nothing
+    }
+
+    [Fact]
     public void SaveHeaderMoneyIsWholeCreditsNotCents()
     {
         var kit = Kit();

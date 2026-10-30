@@ -301,6 +301,7 @@ end
 -- generation number; the stale one, should it still run, does nothing. Same guard as x4mp_hud.lua.
 local function schedule()
 	if type(Helper) ~= "table" or type(Helper.addDelayedOneTimeCallbackOnUpdate) ~= "function" then return end
+	if O.inArm then return end -- re-entered from inside our own arm call: never recurse
 	local t = now()
 	if O.timerPending then
 		local age = t - (O.timerArmedAt or t)
@@ -310,13 +311,28 @@ local function schedule()
 	O.timerGen = (O.timerGen or 0) + 1
 	local gen = O.timerGen
 	O.timerPending, O.timerArmedAt = true, t
-	Helper.addDelayedOneTimeCallbackOnUpdate(function()
-		if gen ~= O.timerGen then return end
-		O.timerPending = false
-		pcall(report)
-		pcall(maybe_janitor)
-		pcall(schedule)
-	end, false, t + O.interval)
+	-- A callback armed for a time that has already passed runs while Helper is still inside the arm call, and this
+	-- callback re-arms itself: that recursed ~8000 deep and the game died with 0xc00000fd (STACK_OVERFLOW in
+	-- lua51_64.dll) in session 8. The arm is repeated with a growing delay until the callback really lands in the
+	-- future; if it never does, the loop stops instead of eating the stack.
+	local delay = O.interval
+	for _ = 1, 4 do
+		local ranNow = false
+		O.inArm = true
+		Helper.addDelayedOneTimeCallbackOnUpdate(function()
+			if O.inArm then ranNow = true; return end -- ran synchronously inside the arm call
+			if gen ~= O.timerGen then return end
+			O.timerPending = false
+			pcall(report)
+			pcall(maybe_janitor)
+			pcall(schedule)
+		end, false, t + delay)
+		O.inArm = false
+		if not ranNow then return end
+		delay = delay * 10
+	end
+	O.timerPending = false
+	log("the timer keeps running inside the arm call; loop paused until the next event")
 end
 
 pcall(RegisterEvent, "gfx_ok", function() pcall(schedule) end)
