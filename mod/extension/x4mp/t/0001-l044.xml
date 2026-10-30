@@ -66,6 +66,11 @@
     <t id="509">%s left the session</t>
     <t id="510">%s: %s</t>
     <t id="511">The message could not be sent.</t>
+    <t id="512">Players in the session: %d</t>
+    <t id="513">and %d more players</t>
+    <t id="514">Ping: %d ms, server %s, state %s</t>
+    <t id="515">No player list yet: the server has not sent a roster.</t>
+    <t id="516">Not connected to a multiplayer session: no ping.</t>
     <t id="520">Players in this session</t>
     <t id="521">online</t>
     <t id="522">offline</t>

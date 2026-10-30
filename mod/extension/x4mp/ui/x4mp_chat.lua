@@ -5,7 +5,8 @@
 -- While a multiplayer session is active this file wraps those three globals:
 --   OnlineGetChatMessages  the result of the previous function (vanilla, or SirNukes' chat API) plus the multiplayer lines, by time
 --   OnlineSendChatMessage  a plain typed line goes to the session (verb x4mp.chat_send, channel all); never to Ventures
---   ExecuteDebugCommand    "/t text" = team chat, "/w name text" = whisper; every other command goes to the previous function untouched
+--   ExecuteDebugCommand    "/t text" = team chat, "/w name text" = whisper, "/who" = the player list, "/ping" = latency and
+--                          state (M5-28); every other command goes to the previous function untouched
 --
 -- Native side (features/chat): topic x4mp.chat {"v":1,"replay":bool,"messages":[{"from","name","team","channel","text","t","self","code"}]};
 -- verb x4mp.chat_send {"v":1,"channel":"all|team|whisper","to":<player id>,"text":"..."}. The server sends every message back to the sender
@@ -238,6 +239,34 @@ function C.handleCommand(cmd, param)
 			C.systemLine(T(505))
 		else
 			C.sendLine("whisper", row.id, rest)
+		end
+		return true
+	elseif cmd == "who" then
+		-- M5-28: the roster as the server last sent it, one line per player, in the team colour (X4MPPlayers.rowText)
+		local P = rawget(_G, "X4MPPlayers")
+		local list = type(P) == "table" and P.list or nil
+		if type(list) ~= "table" or #list == 0 then
+			C.systemLine(T(515))
+		else
+			C.systemLine(T(512, #list))
+			for i, row in ipairs(list) do
+				if i > 10 then
+					C.systemLine(T(513, #list - 10))
+					break
+				end
+				local text = type(P.rowText) == "function" and P.rowText(row) or tostring(row.name)
+				C.systemLine(text)
+			end
+		end
+		return true
+	elseif cmd == "ping" then
+		-- M5-28: the session latency and state from the last status topic (B.status, x4mp_bridge.lua)
+		local st = B.status
+		local ping = type(st) == "table" and tonumber(st.ping_ms) or nil
+		if not ping then
+			C.systemLine(T(516))
+		else
+			C.systemLine(T(514, math.floor(ping + 0.5), tostring(st.server or "?"), tostring(st.state or "?")))
 		end
 		return true
 	elseif cmd == "x4mp" then
