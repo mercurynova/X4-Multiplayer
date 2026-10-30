@@ -130,7 +130,8 @@ if(X4MP_TESTS)
     tests/test_game_api.cpp
     tests/test_statics.cpp
     tests/test_wallet.cpp
-  tests/test_economy_client.cpp)
+  tests/test_economy_client.cpp
+  tests/test_settlement.cpp)
   target_link_libraries(x4mp_host_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
   x4mp_set_warnings(x4mp_host_tests)
   catch_discover_tests(x4mp_host_tests TEST_PREFIX "host." PROPERTIES TIMEOUT 60)

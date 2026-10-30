@@ -14,6 +14,7 @@
 #include "features/chat/chat_json.h"
 #include "features/selfship/galaxy_map.h"
 #include "features/selfship/selfship_hub.h"
+#include "features/settlement/settlement_feature.h"
 #include "features/stats/frame_timing.h"
 #include "session_generated.h"
 #include "world_generated.h"
@@ -751,6 +752,12 @@ bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::sp
   }
   if (type == T(P::MsgType::Intent)) {
     on_intent(ctx, payload);
+    return true;
+  }
+  // M5-31: the ledger's asset side of an escrowed trade, and the server asking what became of an order it never heard about.
+  // The hub owns the journal and the confirm outbox; this flow only routes.
+  if (type == T(P::MsgType::AssetTransferOrder) || type == T(P::MsgType::TradeQuery)) {
+    (void)settlement::settlement_hub().on_frame(ctx, type, payload);
     return true;
   }
   return uploader_.on_frame(type, payload);

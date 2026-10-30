@@ -11,9 +11,11 @@ the server**. W7 is now code-complete on the mod side: **M5-28 (`/who`, `/ping`)
 (the economy client: teammate transfers, the team pool, loans, trade accept/decline and the `/mp` screen) are implemented**
 in `features/economy_client` and `ui/x4mp_economy.lua` - green at 674 mod tests and 293 Lua cases, and **run in game**
 on one node in step S10 (the `/mp` screen, the loans/trades lists and a request that the ledger answered, §4.6). M5-27
-(relations) needs the same two-node run; M5-31 (escrowed settlement on the mod side) stays
-a stretch and moves to M6. So AC 11 is a **first cut proven in game**, AC 12 is proven on the **server and on the mod
-client**, and the UI half of AC 9 still has nothing to verify.
+(relations) needs the same two-node run. **M5-31 (escrowed settlement on the mod side) is implemented too** -
+`features/settlement` takes the `AssetTransferOrder` the ledger sends the authority, applies it line by line behind a
+journal and compensates in reverse when a line fails (§4.7) - green at **681** mod tests, and its two-node acceptance is
+part of the sitting. So AC 11 is a **first cut proven in game**, AC 12 is proven on the **server and on the authority**,
+and the UI half of AC 9 still has nothing to verify.
 
 What session 8 did produce is worth as much as the numbers it failed to produce: it found **four real defects** that
 no unit test had caught - two crashes that killed the game, one unit bug that silently wrote 1/100 of every balance
@@ -34,9 +36,10 @@ They are listed in §4.
 
 | Gate | Command | Result |
 |---|---|---|
-| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **674 tests, 0 failed** (4 skipped: the real-server/game smokes 648, 649, 659, 668), 108.8 s |
+| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **681 tests, 0 failed** (4 skipped: the real-server/game smokes 648, 649, 659, 668), 99.0 s |
 | Mod unit binary, wallet only | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[wallet]"` | **550 assertions in 16 test cases**, all passed |
 | Mod unit binary, economy client | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[economy_client]"` | **93 assertions in 6 test cases**, all passed |
+| Mod unit binary, settlement | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[settlement]"` | **69 assertions in 7 test cases**, all passed |
 | Lua | `python mod\tests\lua\run_lupa.py` | **293 passed, 0 failed** (280 before the 13 `test_economy` cases: the `/mp` screen, the accept/decline version, the local refusals; 276 before the session-8 cases, 278 before the two M5-28 chat cases) |
 | Deploy | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\tools\deploy.ps1` | `Deployed.`; prints `x4mp is in use (x4mp_live.dll); merging over the running installation` while the game runs |
 | `X4MP.Core.Tests` | `dotnet test server\tests\X4MP.Core.Tests\X4MP.Core.Tests.csproj` | **1379 passed, 0 failed** (the seeder fix added one case) |
@@ -62,7 +65,7 @@ failing names were not captured - treat that pair as flaky until a run reproduce
 | 9 | Two hostile teams show red targeting on both sides; allied takes effect within 2 s; `admin_only` switch moves the avatar's owner | PARTIAL | server + mod half proven: `[X4MP] teams: applied seq=1 slots=1 relations=1 active=1 mismatches=0 player_locked=0`; the UI half needs W7 and the second node |
 | 10 | A 1M Cr purchase on a client shows in the ledger within 1 s; two simultaneous purchases in Shared mode converge within 2 s; a forced local edit is corrected within 30 s | PARTIAL - **two defects found and fixed in this wave** | before: `[wallet] ... server=0 target=10000 ... updates=0 ... acked=0`; after the kind fix: `[wallet] local=11000 ... updates=3 ... converged=2 writes=1 failed=0 acked=2`; the write unit was wrong (`+100000` credits moved 10000 -> 11000, §4.3) and the seeder doubled the balance (110000 -> 220000, §4.4); after the seeder fix a fresh session posts only the difference (`team_shared +120000 -> 220000`, `world -120000`) and lands on the save's number. The 1 s ledger latency and the two-simultaneous-purchases half still need the second node |
 | 11 | Send credits, team pool and the Economy screen, first cut | PASS (session 9, single node) - first cut | M5-29/M5-30: `mod/native/features/economy_client` encodes `CreditTransferRequest`, `PoolDepositRequest`, `PoolWithdrawRequest`, `LoanRepay`, `LoanForgive`, `TradeAccept`, `TradeCancel` and decodes `EconomyResult`, `LoanStatus`, `TradeStatus`, `TradeResult`; `/mp` shows the wallet, the pool debt, the open loans and the incoming trades and takes `send|deposit|withdraw|repay|forgive|accept|decline`. Gates: **674 mod tests, 0 failed** (`[economy_client]` 93 assertions in 6 cases) and Lua **293 passed, 0 failed** (13 `test_economy` cases). In game on 2026-10-30 after an X4 restart with the new DLL: `/mp` answered `Экономика: общий, кошелёк 110 000, долг пула 0` + `Открытых займов: 0, входящих сделок: 0`, `/mp loans` and `/mp trades` added `Открытые займы: / пусто / Входящие сделки: / пусто`, and `/mp deposit 50000` + `/mp withdraw 20000` came back through the ledger as `last{ok=false status=2 reason=5 key=2:1}` - `NotApplicableInSharedMode`, the correct refusal for a team in Shared mode (§4.6). A successful transfer, a pool move in PerPlayer mode and a loan/trade between two players need the second node |
-| 12 | Loans and escrowed offers settle atomically, rollback exact, residuals 0 | PARTIAL (server + mod client) | the server half is proven by the 60-minute run (§4.5): `trades=[Completed=653,Expired=2,InDoubt=5,RolledBack=91]`, `trade-authority: ... failed=93 withheld=29 silent=5`, `ledger-sum=0`, `inEscrow=14307` held only by the 5 in-doubt orders. The mod now speaks the loan and trade frames as well (M5-29/M5-30), so a node can repay, forgive, accept and cancel; the settlement itself stays authority-side, and M5-31 (settlement in the mod) moves to M6 |
+| 12 | Loans and escrowed offers settle atomically, rollback exact, residuals 0 | PARTIAL (server + authority settlement) | the server half is proven by the 60-minute run (§4.5): `trades=[Completed=653,Expired=2,InDoubt=5,RolledBack=91]`, `trade-authority: ... failed=93 withheld=29 silent=5`, `ledger-sum=0`, `inEscrow=14307` held only by the 5 in-doubt orders. The mod speaks the loan and trade frames (M5-29/M5-30), so a node can repay, forgive, accept and cancel, and **M5-31 puts the settlement itself in the mod**: `features/settlement` takes the ledger's `AssetTransferOrder`, prechecks every line, applies it behind a journal and compensates in reverse when a line fails (§4.7). Green at **681** mod tests (`[settlement]` 69 assertions in 7 cases). The two-node half - a ship for credits settling atomically with residuals 0 - is part of the sitting; the injected-failure rollback is proven by the tests and the auditor, not on two PCs |
 
 Also unverified from the milestone line: **"every event in REQ §8.3 checklist executed once with log evidence"** - the
 REQ checklist is a two-node exercise. The other half of that line, **"ledger auditor clean after a 60-min session with
@@ -78,7 +81,7 @@ purchases on all nodes"**, is now met: see §4.5.
 | W4 | M5-16..M5-19: trade and cargo application, station stock | code-complete |
 | W5 | M5-20..M5-21: station builds, capture | code-complete |
 | W6 | M5-22..M5-26: wallet reconciliation (poll, booking, ack, convergence, debt/clamp) | code-complete; two defects found in game and fixed, §4.1 and §4.3 |
-| W7 | M5-27..M5-31: relations, chat commands, economy screen, notifications, escrowed settlement | M5-28 done (`/who`, `/ping`, verified in game §8.9); **M5-29/M5-30 done** (the economy client: `features/economy_client` + `ui/x4mp_economy.lua` + `/mp`, 674 mod tests, Lua 293/0, in-game run is session 9 step S10); M5-27 relations code-complete in `features/teams` and proven to apply on one node (`teams: applied seq=1 ... relations=1`), needs the two-node run; M5-31 **not implemented** - stretch, moves to M6 |
+| W7 | M5-27..M5-31: relations, chat commands, economy screen, notifications, escrowed settlement | M5-28 done (`/who`, `/ping`, verified in game §8.9); **M5-29/M5-30 done** (the economy client: `features/economy_client` + `ui/x4mp_economy.lua` + `/mp`, 674 mod tests, Lua 293/0, in-game run is session 9 step S10); **M5-31 done** (the authority-side settlement: `features/settlement` with a journal, reverse compensation and `AssetTransferConfirm`, 681 mod tests, §4.7); M5-27 relations code-complete in `features/teams` and proven to apply on one node (`teams: applied seq=1 ... relations=1`), needs the two-node run |
 | W8 | M5-32..M5-34: this report, session 8 sheet, roadmap/index/auditor | this report + the sheet done; **auditor run PASSED**, §4.5 |
 
 ## 4. Defects found in session 8
@@ -269,16 +272,57 @@ exist. The request key `(2, 1)` - the second key of player 1 - proves the round 
 frame -> server -> `EconomyResult` -> snapshot -> the screen. A *successful* pool move needs `CreditMode=PerPlayer` at
 server start or the two-node run; it is recorded in the S10 note rather than forced on a single node.
 
+## 4.7 M5-31: the authority settles an escrowed trade, and can undo it
+
+`docs/m5-plan.md:522` asks for the last piece of the economy: the ledger escrows both sides, but the **assets** live in
+the universe, so the node that owns the universe has to move them - precheck everything, journal it, apply in order,
+compensate in reverse on a failure, and answer with an `AssetTransferConfirm`. That is now
+`mod/native/features/settlement/`:
+
+- `settlement_wire.h` - `decode_asset_transfer_order`, `decode_trade_query`, `encode_asset_transfer_confirm`
+  (`protocol/schema/economy.fbs:209-244`), reusing `economy_client::Id128Value` for ids.
+- `settlement_journal.h/.cpp` - a sidecar `settlement.json` written with a temp file and a rename, one entry per
+  `trade_id` in `applying | applied | compensated | needs_admin | refused`, the applied line count and the error. An entry
+  still `applying` when the file is read back becomes `needs_admin` with `"the game stopped during settlement"`, which is
+  the crash-safety half of the design (`docs/mod-design.md:2395-2440`). A file that does not parse is reported in
+  `problem()` and the hub keeps working from memory.
+- `settlement_feature.h/.cpp` - `SettlementHub::on_frame` takes the order, refuses a duplicate by answering from the
+  journal, and otherwise **prechecks every line before touching anything**: the asset must be a valid, non-wrecked
+  component that is not player-guarded, the team must have a faction, and the old owner must be readable, because that
+  owner is what the undo needs. Then it applies line by line with `set_component_owner`, logging
+  `settlement: order {} line {} component {} '{}' -> '{}'`. A failure at line N puts the applied prefix back in reverse
+  order and verifies each undo with `owner_faction`; if every undo lands the entry is `compensated`, and if one does not
+  the entry is `needs_admin` with the residual named in the error and a `Level::Error` log - wares and ships are never
+  silently invented or lost. The confirm goes out on the Control lane from an outbox, so a refused send is retried next
+  frame with the same `trade_id`. `TradeQuery` is answered from the journal, and an unknown trade gets
+  `ok=false, "no record of this trade on the authority"`.
+- Routing: every inbound frame reaches `AuthorityFlow::on_frame` first (`join_feature.cpp:741`), so the branch for
+  `AssetTransferOrder` and `TradeQuery` sits there and hands the payload to `settlement::settlement_hub()`.
+- v1 scope: `OwnerChange` only (a ship or a station for credits). A `WareMove` line is refused with
+  `"a ware move is not settled by the authority in v1"`, because the cargo shim (`md/x4mp_actions.xml:32-50`) applies a
+  move but reports no per-operation result, and without a result the reverse compensation cannot be verified - refusing
+  is honest, guessing is not. `OwnerChange` is also team-to-team: the asset moves to `x4mp_team_<slot>`, and `to_player`
+  is ledger information only.
+
+Evidence: `mod\build.ps1 -Config relwithdebinfo` -> **681 tests, 100% passed, 0 failed** (99.0 s),
+`x4mp_host_tests.exe "[settlement]"` -> `All tests passed (69 assertions in 7 test cases)`, Lua `293 passed, 0 failed`.
+The seven cases cover the order round trip against a real flatbuffer, a broken buffer, the confirm encoding, the
+`TradeQuery`, a journal that survives a reload, the `applying`-at-load promotion, an unreadable file and a journal with
+no path. What is left is the two-node half: a real ship-for-credits trade where both wallets move and the ship changes
+hands, in the checklist file [two-pc-checklist.md](two-pc-checklist.md) section 11.
+
 ## 5. What M5 needs next
 
 1. A **two-node** sitting (two PCs, or one PC plus `out\fakenode\X4MP.FakeNode.exe client`) to fill AC 2-7, the UI half
    of 9 (red targeting on both sides, allied within 2 s, `admin_only` switch moving the avatar) and the two-node halves
-   of 10. The run sheet is [in-game-session-9.md](in-game-session-9.md).
+   of 10 and 12. The run sheet is [in-game-session-9.md](in-game-session-9.md); the per-mechanic checklist is
+   [two-pc-checklist.md](two-pc-checklist.md).
 2. **W7 remainder**: M5-27 needs that two-node run; M5-29/M5-30 are **implemented, green and run in game on one node**
    (step S10, §4.6) - what is left of them is the two-player half: a transfer to a teammate, a pool move in PerPlayer
-   mode, and a loan or a trade answered by the other side. M5-31 (escrowed settlement in the mod) is the one W7 task still unimplemented - a
-   stretch item that moves to M6. The mod now encodes every request and decodes every answer `protocol/schema/economy.fbs`
-   carries for a player, so this is no longer "a new mod-side economy client plus UI".
+   mode, and a loan or a trade answered by the other side. **M5-31 is implemented** too (§4.7): the authority settles the
+   asset side behind a journal and compensates in reverse; its two-node acceptance is a ship for credits. The mod now
+   encodes every request and decodes every answer `protocol/schema/economy.fbs` carries for a player, and it settles the
+   assets those answers escrow.
 3. ~~`x4mp_ui_standalone.lua` re-enabled only after its close path gets the same re-entrancy guard~~ - **done on
    2026-10-30**: `menu.display()` and `menu.onCloseElement` are guarded, the delayed reopen is dropped during a save
    load, the module is enabled in both `ui.xml` files, and the save-load crash no longer reproduces

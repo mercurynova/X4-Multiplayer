@@ -30,11 +30,11 @@ own criteria are in-game numbers, so M4 stays open until [in-game-session-7.md](
 criterion there names the log line the number comes from, and [m4-exit-report.md](m4-exit-report.md) section 2 is the
 table it fills.
 
-**M5 status (2026-10-30): waves 1-6 merged, M5-28 and the economy client (M5-29/M5-30) done, auditor clean;
-acceptance pending a two-node session.**
+**M5 status (2026-10-30): waves 1-7 code-complete on the mod side - M5-28, the economy client (M5-29/M5-30) and the
+authority settlement (M5-31) done, auditor clean; acceptance pending a two-node session.**
 [m5-plan.md](m5-plan.md) splits the milestone into eight waves (M5-01..M5-34). W1-W6 (M5-01..M5-26) are merged and every
-CI gate is green: `ctest` **674** (670 passed, 4 skipped), Lua **293**, `x4mp_host_tests "[wallet]"` 550 assertions in 16
-cases and `"[economy_client]"` 93 in 6. The server half shipped in M1 (ledger, credit modes, transfers, loans, escrowed trades, auditor, admin REST,
+CI gate is green: `ctest` **681** (677 passed, 4 skipped), Lua **293**, `x4mp_host_tests "[wallet]"` 550 assertions in 16
+cases, `"[economy_client]"` 93 in 6 and `"[settlement]"` 69 in 7. The server half shipped in M1 (ledger, credit modes, transfers, loans, escrowed trades, auditor, admin REST,
 teams, `RelayModule`), so M5 is a detection-and-apply milestone on the mod side. Session 8 ran the authority half in
 game - events, presence, HUD, teams, chat wrappers, the 152-sector map, checkpoints and wallet reconciliation - and
 found four real defects: two `0xc00000fd` stack overflows (the money timer re-arming itself inside the helper flush,
@@ -51,8 +51,13 @@ clients, three teams, heavy economy, duplicate attacks and failing trades ended 
 `mod/native/features/economy_client` (wire + hub + feature: transfers, the team pool, loan repay/forgive, trade
 accept/cancel, and the four answers decoded) and `ui/x4mp_economy.lua` with the `/mp` screen and commands, wired at
 `feature_list.cpp:38,63` and `join_feature.cpp`, tested by `test_economy_client.cpp` and 13 Lua cases, texts 517-570 in
-both pages. The remaining W7 work is M5-27 (needs the two-node run) and M5-31 (escrowed settlement in the mod - a
-stretch that moves to M6), and acceptance items 2-7 still need a second game node. [in-game-session-8.md](in-game-session-8.md) is the
+both pages. **The authority settlement is done too**: M5-31 added `mod/native/features/settlement` (wire, a JSON journal
+with temp+rename, `SettlementHub` + `SettlementFeature`): the authority takes the ledger's `AssetTransferOrder`,
+prechecks every line before touching the universe, applies the owner changes in order and compensates in reverse when a
+line fails, answering `AssetTransferConfirm` and `TradeQuery` from the journal. v1 settles `OwnerChange` only - a
+`WareMove` is refused because the cargo shim reports no per-operation result. The remaining W7 work is M5-27 (needs the
+two-node run), and acceptance items 2-7, the two-node halves of 10 and 12 still need a second game node.
+[in-game-session-8.md](in-game-session-8.md) is the
 single-node record; the two-node sitting has a run sheet - [in-game-session-9.md](in-game-session-9.md):
 two PCs, a fresh server build, one step per acceptance item with the log line to quote.
 
