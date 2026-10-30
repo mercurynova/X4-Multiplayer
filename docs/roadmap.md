@@ -30,13 +30,26 @@ own criteria are in-game numbers, so M4 stays open until [in-game-session-7.md](
 criterion there names the log line the number comes from, and [m4-exit-report.md](m4-exit-report.md) section 2 is the
 table it fills.
 
-**M5 status (2026-10-27): planned, not started.** [m5-plan.md](m5-plan.md) splits the milestone into eight waves
-(M5-01..M5-34) and starts by recording that the server half already ships: the ledger, credit modes, transfers, loans,
-escrowed trades, the auditor, the admin REST and the web page landed in M1 (M1-E1..E7), the teams in M1-T1..T5, and
-`RelayModule` already validates every `IntentBody` and fans out every `GameEventBody`. The wire is likewise complete
-(`events.fbs`, `economy.fbs`). What does not exist is the mod side: no `features/events`, no `features/economy`, and no
-C++ reference to any economy or event message in the 207 sources under `mod/native`. M5 is therefore a detection-and-apply
-milestone, and its numbers need the same two-client sitting as M4's.
+**M5 status (2026-10-30): waves 1-6 merged, M5-28 done, auditor clean; acceptance pending a two-node session.**
+[m5-plan.md](m5-plan.md) splits the milestone into eight waves (M5-01..M5-34). W1-W6 (M5-01..M5-26) are merged and every
+CI gate is green: `ctest` 668 (664 passed, 4 skipped), Lua **280**, `x4mp_host_tests "[wallet]"` 550 assertions in 16
+cases. The server half shipped in M1 (ledger, credit modes, transfers, loans, escrowed trades, auditor, admin REST,
+teams, `RelayModule`), so M5 is a detection-and-apply milestone on the mod side. Session 8 ran the authority half in
+game - events, presence, HUD, teams, chat wrappers, the 152-sector map, checkpoints and wallet reconciliation - and
+found four real defects: two `0xc00000fd` stack overflows (the money timer re-arming itself inside the helper flush,
+then the start-menu FFI call made once per frame, which re-entered the engine's Lua callback ~8000 deep), a
+cents/credits unit bug in the money write, and a save seeder that added the save's balance on top of one the ledger
+already held (110000 -> 220000). All four are fixed and pinned by tests - the seeder now treats the save's amount as
+the wallet's target and was re-verified on a fresh session. **M5-34 is met**: a 60-minute FakeNode swarm with five
+clients, three teams, heavy economy, duplicate attacks and failing trades ended `auditor=ok violations=0`,
+`ledger-sum=0`, `duplicate-effects=0`, `drift=0`, `verify: ... errors=0` after 3614 s
+([m5-exit-report.md](m5-exit-report.md) section 4.5). **M5-28 is done**: `/who` and `/ping` join `/w` and `/t` in
+`x4mp_chat.lua` with texts 512-516 in both language pages and two new Lua cases, and both were run in game on
+2026-10-30 through the real `ExecuteDebugCommand` global (`Игроков в сессии: 1`, `Пинг: 196 мс, сервер
+127.0.0.1:47780, состояние ingame`). The rest of W7 (M5-27 needs the
+two-node run; M5-29 economy screen, M5-30 notifications, M5-31 escrowed settlement in the mod) is not started, and
+acceptance items 2-7 still need a second game node. [in-game-session-8.md](in-game-session-8.md) is the session
+record and [m5-exit-report.md](m5-exit-report.md) section 2 is the table the remaining criteria fill.
 
 ---
 
