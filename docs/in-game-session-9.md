@@ -31,8 +31,9 @@ from the same `git rev-parse HEAD`.
    ```
    Stop any running `x4mp-server` first, or the build fails with MSB3021/MSB3027.
 2. **Build and deploy the mod** (`mod\build.ps1 -Config relwithdebinfo`, then
-   `mod\tools\deploy.ps1`). After every deploy, re-comment the standalone screen in the **installed**
-   `extensions\x4mp\ui.xml:28` - the deploy copies the repo file, which has it enabled, and the enabled
+   `mod\tools\deploy.ps1`). After every deploy, re-comment the standalone screen: the
+   `x4mp_ui_standalone.lua` line in the **installed** `extensions\x4mp\ui.xml` - line 30 today - because the
+   deploy copies the repo file, which has it enabled, and the enabled
    module crashes the save load:
    ```powershell
    $p = 'D:\Steam\steamapps\common\X4 Foundations\extensions\x4mp\ui.xml'
@@ -69,7 +70,7 @@ from the same `git rev-parse HEAD`.
 ## 3. Prepare PC B
 
 1. Copy `extensions\x4mp` and `extensions\x4native` from PC A (or run the same deploy there), enable both
-   extensions, Protected UI Mode OFF, and re-comment `ui.xml:28` if the deploy ran there.
+   extensions, Protected UI Mode OFF, and re-comment the standalone line in `ui.xml` if the deploy ran there.
 2. Start X4. In the X4MP menu choose **Join a server**: address `<PC A LAN IP>:47780`, the player name,
    team `auto` (or the team the step asks for), role **client**, and the **admin password only if this
    player should be authority** - a normal client leaves it empty.
@@ -229,7 +230,9 @@ Then fill a copy of this table into `docs/in-game-session-9.md`:
 - The mod log timestamps are **UTC** (`Z`); the dev log is local time.
 - The console renders Cyrillic and `§` as mojibake. The files are UTF-8; check with
   `[System.IO.File]::ReadAllBytes` + `Encoding.UTF8.GetString`, not with the console.
-- A deploy while X4 runs is fine (`merging over the running installation`), but a changed Lua file needs
-  `/reloadui` or a restart; a changed DLL needs a restart.
+- A deploy while X4 runs is fine (`merging over the running installation`), but it leaves the old DLL loaded
+  (`deploy: 1 file(s) left as loaded; restart X4 to pick them up`), so deploy **before** launching X4 when the
+  change is native - the economy client is native, so this run needs that order. A changed Lua file alone needs
+  `/reloadui` or a restart.
 - If the client cannot join: check `Test-NetConnection <PC A IP> -Port 47780`, then the server's
   `admitted`/`refused` lines, then the mod version (`manifest` mismatch is refused with the exact lists).
