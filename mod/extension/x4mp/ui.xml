@@ -19,6 +19,8 @@
      frame, md/x4mp_actions.xml applies them with add_cargo/remove_cargo exact= and transfer_money).
      M5-22 added x4mp_money.lua (the wallet read: GetPlayerMoney() polled per frame, pushed to native as x4mp.money only on change;
      native has no money getter of its own).
+     M5-29/30 added x4mp_economy.lua (the economy screen and the /mp commands: loans and trades from topic x4mp.economy, every
+     action sent as verb x4mp.economy; it needs x4mp_chat.lua for the system lines, so it loads after it).
      Later tasks must not edit this file.
      __X4MP_USER (userdata storage, not in the save): { version, lastAddress, lastName }; never the password. -->
 <addon name="x4mp">
@@ -44,6 +46,7 @@
     <file name="ui/x4mp_diag.lua" />
     <file name="ui/x4mp_events.lua" />
     <file name="ui/x4mp_money.lua" />
+    <file name="ui/x4mp_economy.lua" />
     <dependency name="ego_detailmonitorHelper" />
     <savedvariable name="__X4MP_USER" storage="userdata" />
   </environment>

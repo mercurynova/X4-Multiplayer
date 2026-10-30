@@ -35,6 +35,7 @@
 #include "features/builds/builds_feature.h"
 #include "features/capture/capture_feature.h"
 #include "features/wallet/wallet_feature.h"
+#include "features/economy_client/economy_client_feature.h"
 
 namespace x4mp::host {
 
@@ -59,6 +60,7 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::builds::BuildsFeature>());  // M5-18/M5-19 client half: a finished build goes up as one request and the result pins the station id; after events (Build events) and statics (the id table)
   registry.add(std::make_unique<x4mp::features::capture::CaptureFeature>());  // M5-20: the typed EntityChangedOwner hook reports a captured ghost; after ghosts (the component map) and events (the send path)
   registry.add(std::make_unique<x4mp::features::wallet::WalletFeature>());  // M5-22: the x4mp.money poll into wallet_hub; after economy, which will book its changes upward (M5-23)
+  registry.add(std::make_unique<x4mp::features::economy_client::EconomyClientFeature>());  // M5-29/30: the x4mp.economy verb and the EconomyResult/LoanStatus/TradeStatus/TradeResult snapshot, after wallet so the screen sees the balance
   registry.add(std::make_unique<x4mp::features::StatsFeature>());  // last: its frame cost sample covers the earlier features
 }
 

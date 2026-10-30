@@ -217,7 +217,7 @@ function C.sendLine(channel, to, text)
 	return true
 end
 
---- handleCommand(cmd, param) -> true when the command is ours ("t", "w"); everything else must go to the previous function untouched
+--- handleCommand(cmd, param) -> true when the command is ours ("t", "w", "who", "ping", "mp"); everything else must go to the previous function untouched
 function C.handleCommand(cmd, param)
 	cmd = tostring(cmd or ""):lower()
 	if cmd == "t" then
@@ -269,6 +269,12 @@ function C.handleCommand(cmd, param)
 			C.systemLine(T(514, math.floor(ping + 0.5), tostring(st.server or "?"), tostring(st.state or "?")))
 		end
 		return true
+	elseif cmd == "mp" then
+		-- M5-29/30: the economy screen and its actions (X4MPEconomy, x4mp_economy.lua). Every "/mp ..." line is ours, even a
+		-- wrong one, so a typo answers with the command list instead of reaching the previous function.
+		local E = rawget(_G, "X4MPEconomy")
+		if type(E) == "table" and type(E.command) == "function" then return E.command(param) end
+		return false
 	elseif cmd == "x4mp" then
 		-- M3-23 diagnostic: "/x4mp knowledge" logs the map-knowledge counts (X4MPDiag, x4mp_diag.lua); other "/x4mp ..." go to the previous function
 		local D = rawget(_G, "X4MPDiag")

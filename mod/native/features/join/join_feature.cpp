@@ -20,6 +20,7 @@
 #include "features/diag/diag_hub.h"
 #include "features/events/events_hub.h"
 #include "features/economy/economy_hub.h"
+#include "features/economy_client/economy_client_hub.h"
 #include "features/wallet/wallet_hub.h"
 #include "features/builds/builds_feature.h"
 #include "features/ghosts/ghost_hub.h"
@@ -821,6 +822,9 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       wallet::wallet_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload),
                                             session_ ? session_->welcome().player_id : 0,
                                             session_ ? session_->welcome().team_id : 0);
+      // M5-29: EconomyResult / LoanStatus / TradeStatus / TradeResult go to the economy-client hub, which keeps the rows the
+      // screen shows and the last result; it ignores everything else.
+      economy_client::economy_client_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload));
       // M5-19: the authority's IntentResult for a build binds the station id this node already has.
       builds::builds_hub().on_frame_message(static_cast<X4MP::Proto::MsgType>(e.type), std::span<const std::uint8_t>(e.payload));
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list

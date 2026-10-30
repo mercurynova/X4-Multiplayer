@@ -1,0 +1,317 @@
+#include "features/economy_client/economy_client_hub.h"
+
+#include <algorithm>
+#include <utility>
+
+#include <nlohmann/json.hpp>
+
+#include "message_ids_generated.h"
+
+namespace x4mp::features::economy_client {
+
+namespace P = X4MP::Proto;
+
+namespace {
+
+// A screen that keeps a few hundred rows is a screen nobody can read, and an unbounded map is a leak in a long session.
+constexpr std::size_t kMaxUnsent = 32;
+
+std::string items_json(const std::vector<TradeItemView>& items) {
+  nlohmann::json arr = nlohmann::json::array();
+  for (const TradeItemView& item : items) {
+    nlohmann::json row;
+    row["kind"] = static_cast<int>(item.kind);
+    row["amount"] = item.amount;
+    if (item.ware_ref != 0) row["ware"] = item.ware_ref;
+    if (item.asset != 0) row["asset"] = item.asset;
+    arr.push_back(std::move(row));
+  }
+  return arr.dump();
+}
+
+}  // namespace
+
+const char* op_name(Op op) noexcept {
+  switch (op) {
+    case Op::Send: return "send";
+    case Op::Deposit: return "deposit";
+    case Op::Withdraw: return "withdraw";
+    case Op::Repay: return "repay";
+    case Op::Forgive: return "forgive";
+    case Op::Accept: return "accept";
+    case Op::Cancel: return "cancel";
+  }
+  return "?";
+}
+
+bool parse_op(std::string_view name, Op& out) noexcept {
+  if (name == "send") { out = Op::Send; return true; }
+  if (name == "deposit") { out = Op::Deposit; return true; }
+  if (name == "withdraw") { out = Op::Withdraw; return true; }
+  if (name == "repay") { out = Op::Repay; return true; }
+  if (name == "forgive") { out = Op::Forgive; return true; }
+  if (name == "accept") { out = Op::Accept; return true; }
+  if (name == "cancel" || name == "decline") { out = Op::Cancel; return true; }
+  return false;
+}
+
+EconomyClientHub& economy_client_hub() {
+  static EconomyClientHub hub;
+  return hub;
+}
+
+void EconomyClientHub::reset() {
+  self_ = 0;
+  key_ = 0;
+  stats_ = EconomyStats{};
+  dirty_ = false;
+  last_.reset();
+  last_trade_.reset();
+  loans_.clear();
+  trades_.clear();
+  unsent_.clear();
+}
+
+Id128Value EconomyClientHub::next_key() noexcept {
+  Id128Value key;
+  key.lo = ++key_;
+  key.hi = self_;
+  return key;
+}
+
+bool EconomyClientHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload) {
+  const auto msg = static_cast<P::MsgType>(type);
+  switch (msg) {
+    case P::MsgType::EconomyResult: {
+      EconomyResultView view;
+      if (!decode_economy_result(payload, view)) {
+        ++stats_.bad;
+        return true;
+      }
+      ++stats_.results;
+      if (view.status == 2) ++stats_.rejected;  // EconomyStatus::Rejected
+      last_ = std::move(view);
+      dirty_ = true;
+      return true;
+    }
+    case P::MsgType::LoanStatus: {
+      LoanRowView view;
+      if (!decode_loan_status(payload, view)) {
+        ++stats_.bad;
+        return true;
+      }
+      ++stats_.loans;
+      put_loan(view);
+      dirty_ = true;
+      return true;
+    }
+    case P::MsgType::TradeStatus: {
+      TradeRowView view;
+      if (!decode_trade_status(payload, view)) {
+        ++stats_.bad;
+        return true;
+      }
+      ++stats_.trades;
+      put_trade(std::move(view));
+      dirty_ = true;
+      return true;
+    }
+    case P::MsgType::TradeResult: {
+      TradeResultView view;
+      if (!decode_trade_result(payload, view)) {
+        ++stats_.bad;
+        return true;
+      }
+      ++stats_.trade_results;
+      last_trade_ = std::move(view);
+      dirty_ = true;
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+void EconomyClientHub::put_loan(const LoanRowView& row) {
+  for (LoanRowView& existing : loans_) {
+    if (existing.loan_id.lo == row.loan_id.lo && existing.loan_id.hi == row.loan_id.hi) {
+      existing = row;
+      return;
+    }
+  }
+  loans_.push_back(row);
+  if (loans_.size() > kMaxRows) loans_.erase(loans_.begin());
+}
+
+void EconomyClientHub::put_trade(const TradeRowView& row) {
+  for (TradeRowView& existing : trades_) {
+    if (existing.trade_id.lo == row.trade_id.lo && existing.trade_id.hi == row.trade_id.hi) {
+      if (row.version >= existing.version) existing = row;  // an older status must not roll the screen back
+      return;
+    }
+  }
+  trades_.push_back(row);
+  if (trades_.size() > kMaxRows) trades_.erase(trades_.begin());
+}
+
+bool EconomyClientHub::request(Op op, const RequestParams& p, std::string& error) {
+  error.clear();
+  if (unsent_.size() >= kMaxUnsent) {
+    error = "too many unsent requests";
+    ++stats_.bad;
+    return false;
+  }
+  const Id128Value key = next_key();
+  OutFrame frame;
+  frame.key = key;
+  frame.op = op;
+
+  switch (op) {
+    case Op::Send: {
+      if (p.to_player == 0) { error = "no recipient"; break; }
+      if (p.to_player == self_) { error = "cannot send to yourself"; break; }
+      if (p.amount <= 0) { error = "amount must be positive"; break; }
+      CreditTransferData data;
+      data.key = key;
+      data.to_player = p.to_player;
+      data.amount = p.amount;
+      data.memo = p.memo;
+      frame.type = static_cast<std::uint16_t>(P::MsgType::CreditTransferRequest);
+      frame.bytes = encode_credit_transfer(data);
+      break;
+    }
+    case Op::Deposit:
+    case Op::Withdraw: {
+      if (p.amount <= 0) { error = "amount must be positive"; break; }
+      PoolMoveData data;
+      data.key = key;
+      data.amount = p.amount;
+      frame.type = static_cast<std::uint16_t>(op == Op::Deposit ? P::MsgType::PoolDepositRequest
+                                                                : P::MsgType::PoolWithdrawRequest);
+      frame.bytes = op == Op::Deposit ? encode_pool_deposit(data) : encode_pool_withdraw(data);
+      break;
+    }
+    case Op::Repay:
+    case Op::Forgive: {
+      if (p.id.empty()) { error = "no loan id"; break; }
+      if (op == Op::Repay && p.amount <= 0) { error = "amount must be positive"; break; }
+      if (op == Op::Forgive && p.amount < 0) { error = "amount cannot be negative"; break; }
+      LoanActionData data;
+      data.key = key;
+      data.loan_id = p.id;
+      data.amount = p.amount;
+      frame.type = static_cast<std::uint16_t>(op == Op::Repay ? P::MsgType::LoanRepay : P::MsgType::LoanForgive);
+      frame.bytes = op == Op::Repay ? encode_loan_repay(data) : encode_loan_forgive(data);
+      break;
+    }
+    case Op::Accept: {
+      if (p.id.empty()) { error = "no trade id"; break; }
+      TradeAcceptData data;
+      data.key = key;
+      data.trade_id = p.id;
+      data.version = p.version;
+      data.receive_into_asset = p.receive_into_asset;
+      frame.type = static_cast<std::uint16_t>(P::MsgType::TradeAccept);
+      frame.bytes = encode_trade_accept(data);
+      break;
+    }
+    case Op::Cancel: {
+      if (p.id.empty()) { error = "no trade id"; break; }
+      TradeCancelData data;
+      data.key = key;
+      data.trade_id = p.id;
+      frame.type = static_cast<std::uint16_t>(P::MsgType::TradeCancel);
+      frame.bytes = encode_trade_cancel(data);
+      break;
+    }
+  }
+
+  if (!error.empty()) {
+    ++stats_.bad;
+    return false;
+  }
+  ++stats_.requests;
+  unsent_.push_back(std::move(frame));
+  return true;
+}
+
+std::vector<OutFrame> EconomyClientHub::take_unsent(std::size_t max) {
+  std::vector<OutFrame> out;
+  if (max == 0) return out;
+  const std::size_t n = std::min(max, unsent_.size());
+  out.reserve(n);
+  for (std::size_t i = 0; i < n; ++i) out.push_back(std::move(unsent_[i]));
+  unsent_.erase(unsent_.begin(), unsent_.begin() + static_cast<std::ptrdiff_t>(n));
+  return out;
+}
+
+void EconomyClientHub::note_send_failed() { ++stats_.send_failed; }
+
+std::string EconomyClientHub::snapshot_json() const {
+  nlohmann::json j;
+  j["v"] = 1;
+  j["self"] = self_;
+
+  nlohmann::json loans = nlohmann::json::array();
+  for (const LoanRowView& row : loans_) {
+    nlohmann::json r;
+    r["id"] = row.loan_id.hex();
+    r["lender"] = row.lender;
+    r["borrower"] = row.borrower;
+    r["state"] = static_cast<int>(row.state);
+    r["principal"] = row.principal;
+    r["repay_total"] = row.repay_total;
+    r["repaid"] = row.repaid;
+    r["forgiven"] = row.forgiven;
+    r["created_us"] = row.created_time_us;
+    r["due_us"] = row.due_time_us;
+    r["memo"] = row.memo;
+    r["mine"] = (row.lender == self_ || row.borrower == self_);
+    r["i_lend"] = (row.lender == self_);
+    loans.push_back(std::move(r));
+  }
+  j["loans"] = std::move(loans);
+
+  nlohmann::json trades = nlohmann::json::array();
+  for (const TradeRowView& row : trades_) {
+    nlohmann::json r;
+    r["id"] = row.trade_id.hex();
+    r["version"] = row.version;
+    r["state"] = static_cast<int>(row.state);
+    r["initiator"] = row.initiator.player_id;
+    r["counterparty"] = row.counterparty.player_id;
+    r["initiator_team"] = row.initiator.team_id;
+    r["counterparty_team"] = row.counterparty.team_id;
+    r["give"] = nlohmann::json::parse(items_json(row.initiator.give));
+    r["want"] = nlohmann::json::parse(items_json(row.counterparty.give));
+    r["expires_us"] = row.expires_time_us;
+    r["memo"] = row.memo;
+    r["incoming"] = (row.counterparty.player_id == self_);
+    r["mine"] = (row.initiator.player_id == self_ || row.counterparty.player_id == self_);
+    trades.push_back(std::move(r));
+  }
+  j["trades"] = std::move(trades);
+
+  if (last_.has_value()) {
+    nlohmann::json r;
+    r["ok"] = last_->status == 0;  // EconomyStatus::Ok
+    r["status"] = static_cast<int>(last_->status);
+    r["reason"] = static_cast<int>(last_->reason);
+    r["detail"] = last_->detail;
+    r["ref"] = last_->ref_id.hex();
+    r["key"] = last_->request_key.hex();
+    j["last"] = std::move(r);
+  }
+  if (last_trade_.has_value()) {
+    nlohmann::json r;
+    r["id"] = last_trade_->trade_id.hex();
+    r["version"] = last_trade_->version;
+    r["state"] = static_cast<int>(last_trade_->state);
+    r["reason"] = static_cast<int>(last_trade_->reason);
+    r["detail"] = last_trade_->detail;
+    j["last_trade"] = std::move(r);
+  }
+  return j.dump();
+}
+
+}  // namespace x4mp::features::economy_client

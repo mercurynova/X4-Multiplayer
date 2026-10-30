@@ -168,9 +168,28 @@ and the server's `WalletUpdate`/`CreditDelta` lines.
 
 ### S10 - AC 11 and 12
 
-Blocked until M5-29 (economy screen) and M5-31 (mod-side escrow) land. The server halves are proven: AC 12
-by the 60-minute auditor run ([m5-exit-report.md](m5-exit-report.md) section 4.5), AC 11's wallet/pool by
-the W6 loop. Do not mark them PASS on this run.
+The mod side is implemented now (M5-29/M5-30, [m5-exit-report.md](m5-exit-report.md) section 4.6): the native
+`features/economy_client` sends and receives every player-facing economy frame, and `/mp` is its screen. Run it on
+**PC B** with PC A online and `Economy:TradeScope=Anyone`:
+
+```
+/mp                        # header: mode, wallet, pool debt, open loans, incoming trades
+/mp deposit 50000          # into the team pool; expect "Last request: ok" and the pool debt drop
+/mp withdraw 20000         # back out; the wallet topic in the HUD follows within a second
+/mp send <player on A> 10000 test   # the recipient's wallet rises, the sender's falls, both by 10000
+/mp loans                  # the row the transfer/loan created, with the short id the next command takes
+/mp repay <id> 5000        # a loan the server opened; "repaid 5000 of ..." on the next /mp loans
+/mp trades                 # incoming offers; /mp accept <id> takes the version shown
+/mp decline <id>           # the other side sees the trade cancelled
+```
+
+Quote from the mod log: `[economy_client] requests=<n> sent=<n> sendfail=0 results=<n> rejected=<n> loans=<n>
+trades=<n> trade_results=<n> bad=0`, and from the server log the matching `EconomyResult`/`WalletUpdate` pair. A
+refusal (for example `/mp send <name> 0`) must answer `Amount must be a whole number of credits.` and must not
+raise a verb - that is the local guard, not the server.
+
+AC 12's escrow settlement stays authority-side; the mod-side settlement work (M5-31) is not in this run. Do not mark
+AC 11 PASS unless the lines above are quoted from this session, and do not mark AC 12 PASS on this run at all.
 
 ## 5. What to send back
 
