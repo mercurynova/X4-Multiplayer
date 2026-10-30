@@ -47,7 +47,7 @@ X4MP__Admin__AllowRemote=true
 
 **Ожидаемый результат.** `git rev-parse HEAD` на A и B совпадает; `Test-NetConnection` даёт `TcpTestSucceeded : True`; в `server.out.log` есть строка запуска и `Now listening on: http://0.0.0.0:47790`.
 
-**Где смотреть.** Консоль и `server.out.log` на A, `x4mp.log` на обеих машинах.
+**Где смотреть.** Консоль и `server.out.log` на A, `x4mp.log` на обеих машинах. Полный путь к логу мода — `%LOCALAPPDATA%\X4MP\logs\x4mp.log`, то есть `C:\Users\<имя>\AppData\Local\X4MP\logs\x4mp.log`; это не папка `Documents`. Рядом лежат `x4mp.json` и журнал расчётов `settlement.json`.
 
 **Если не совпало.** Приложить вывод `git rev-parse HEAD`, размеры `x4mp.dll` с обеих машин, `Get-NetFirewallProfile` и хвост `server.out.log`.
 
