@@ -8,6 +8,9 @@ This sheet exists because session 8 ran **one game node plus the server**. Every
 node is listed here as a numbered step with the action, the log line that proves it and where to copy it
 from. A step is only PASS when the line is quoted; "it looked right" is not evidence.
 
+The same checks, written as a per-mechanic acceptance checklist in Russian, are in
+[two-pc-checklist.md](two-pc-checklist.md): use that one at the sitting and this sheet for the stand.
+
 ## 1. Machines and roles
 
 | | PC A (host) | PC B (client) |
