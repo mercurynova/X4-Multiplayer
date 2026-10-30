@@ -23,13 +23,26 @@ from the same `git rev-parse HEAD`.
 
 ## 2. Prepare PC A (do this before the session)
 
-1. **Build the server fresh.** The `out\win-x64\x4mp-server.exe` in the tree is from 2026-10-20 and predates
-   the seeder fix (section 8.8 of the session-8 record), so rebuild:
+1. **Build the server fresh.** The `out\win-x64\x4mp-server.exe` in the tree was from 2026-10-20 and predated
+   the seeder fix (section 8.8 of the session-8 record); it is now rebuilt, but rebuild again if anything under
+   `server\` changed:
    ```powershell
-   dotnet build server\src\X4MP.Server -c Release -o out\win-x64
+   dotnet build server\src\X4MP.Server -c Release -o out\win-x64 -p:SkipWebBuild=true
    Get-Item out\win-x64\x4mp-server.exe | Select-Object LastWriteTime   # must be today
    ```
    Stop any running `x4mp-server` first, or the build fails with MSB3021/MSB3027.
+   `-p:SkipWebBuild=true` is needed **on this machine** and only skips the React GUI step, never the server: the
+   Release configuration always rebuilds `server\web`, and this box has Node 18.16.1 while vite 8 needs
+   Node >= 20.11 - without the flag the build stops at
+   `SyntaxError: The requested module 'node:util' does not provide an export named 'styleText'`. The prebuilt
+   `server\web\dist` is embedded instead and is current, because the web sources last changed on 2026-10-04 and
+   `dist` was built on 2026-10-27; on a machine with Node >= 20.11 the plain command works. `npm ci` in
+   `X4MP.Server.csproj` now passes `--include=dev`, because a machine-wide `NODE_ENV=production` (this box has
+   it) otherwise omits typescript and vite and the build dies with
+   `Cannot find module .../typescript/bin/tsc`.
+   Verified on 2026-10-30: the fresh `out\win-x64\x4mp-server.exe` answers
+   `/healthz` with `{"status":"ok","version":"0.1.0","protocol":{"min":0,"max":1},...}` and serves the embedded
+   GUI on `/`.
 2. **Build and deploy the mod** (`mod\build.ps1 -Config relwithdebinfo`, then
    `mod\tools\deploy.ps1`). After every deploy, re-comment the standalone screen: the
    `x4mp_ui_standalone.lua` line in the **installed** `extensions\x4mp\ui.xml` - line 30 today - because the
@@ -42,14 +55,20 @@ from the same `git rev-parse HEAD`.
    [System.IO.File]::WriteAllText($p, $t, (New-Object System.Text.UTF8Encoding($false)))
    ```
    Do not use `Set-Content`: PowerShell 5.1 writes ANSI and X4 needs UTF-8.
-3. **Open the firewall** (elevated, LAN profile):
+3. **Open the firewall** (elevated). Every profile on this box is **Public** - `Get-NetConnectionProfile` reports
+   Public for `Ethernet 2`, the Hyper-V vEthernet and Radmin VPN - so rules scoped to `-Profile Private` never
+   match and PC B is silently refused. Scope them by address instead:
    ```powershell
-   New-NetFirewallRule -DisplayName "X4MP game TCP" -Direction Inbound -Protocol TCP -LocalPort 47780 -Profile Private -Action Allow
-   New-NetFirewallRule -DisplayName "X4MP game UDP" -Direction Inbound -Protocol UDP -LocalPort 47781 -Profile Private -Action Allow
-   New-NetFirewallRule -DisplayName "X4MP admin"    -Direction Inbound -Protocol TCP -LocalPort 47790 -Profile Private -RemoteAddress LocalSubnet -Action Allow
+   New-NetFirewallRule -DisplayName "X4MP game TCP" -Direction Inbound -Protocol TCP -LocalPort 47780 -Profile Any -RemoteAddress LocalSubnet -Action Allow
+   New-NetFirewallRule -DisplayName "X4MP game UDP" -Direction Inbound -Protocol UDP -LocalPort 47781 -Profile Any -RemoteAddress LocalSubnet -Action Allow
+   New-NetFirewallRule -DisplayName "X4MP admin"    -Direction Inbound -Protocol TCP -LocalPort 47790 -Profile Any -RemoteAddress LocalSubnet -Action Allow
    ```
-   `Get-NetIPAddress -AddressFamily IPv4 | Where-Object InterfaceAlias -notmatch 'Loopback'` gives the LAN
-   address PC B types into the Join dialog.
+   If PC B arrives over the Radmin VPN rather than the local subnet, drop `-RemoteAddress LocalSubnet` from the
+   two game ports or add that VPN range; `LocalSubnet` on this box's `/8` adapters is broader than it looks.
+   `Get-NetIPAddress -AddressFamily IPv4 | Where-Object InterfaceAlias -notmatch 'Loopback'` gives the candidate
+   addresses PC B types into the Join dialog (`Ethernet 2` today, the Hyper-V vEthernet is not reachable from
+   another PC); confirm the one you pick with `Test-NetConnection <addr> -Port 47780` from PC B after the server
+   is up.
 4. **Start the server** with the settings this session needs:
    ```powershell
    $env:X4MP__Net__NodeTcpEndpoint = '0.0.0.0:47780'
@@ -249,3 +268,6 @@ Then fill a copy of this table into `docs/in-game-session-9.md`:
   `/reloadui` or a restart.
 - If the client cannot join: check `Test-NetConnection <PC A IP> -Port 47780`, then the server's
   `admitted`/`refused` lines, then the mod version (`manifest` mismatch is refused with the exact lists).
+- A Release server build on this box needs `-p:SkipWebBuild=true` (step 1 of section 2): Node 18.16.1 is too old
+  for vite 8, and a machine-wide `NODE_ENV=production` makes `npm ci` skip typescript. Neither affects the mod or
+  the protocol; both only stop the React GUI from being rebuilt.

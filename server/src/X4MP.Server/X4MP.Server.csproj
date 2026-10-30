@@ -55,7 +55,9 @@
   </ItemGroup>
 
   <Target Name="NpmInstall" Inputs="$(WebDir)package-lock.json" Outputs="$(WebInstallStamp)">
-    <Exec Command="npm ci" WorkingDirectory="$(WebDir)" />
+    <!-- --include=dev: with a machine-wide NODE_ENV=production npm ci silently omits devDependencies, and the next
+         `npm run build` dies with "Cannot find module .../typescript/bin/tsc". The web build always needs tsc and vite. -->
+    <Exec Command="npm ci --include=dev" WorkingDirectory="$(WebDir)" />
   </Target>
 
   <Target Name="BuildWeb" BeforeTargets="BeforeBuild" DependsOnTargets="NpmInstall" Condition="'$(SkipWebBuild)' != 'true' And ('$(Configuration)' == 'Release' Or !Exists('$(WebDistIndex)'))" Inputs="@(WebInput)" Outputs="$(WebDistIndex)">
