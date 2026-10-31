@@ -1508,6 +1508,8 @@ carries `request_key` (idempotency), which is not repeated below.
 | 0x0813 | AssetTransferOrder | S→A | Ctl | trade_id, lines[kind (OwnerChange or WareMove), asset, to_team, to_player, ware_ref, amount, dest_asset], deadline_ms. One order per trade, cargo moves before ownership changes. |
 | 0x0814 | AssetTransferConfirm | A→S | Ctl | trade_id, ok, failed_line, compensated, error. Settles a Transferring or InDoubt trade once; a repeat is ignored. `ok=false` with `compensated=false` and `failed_line > 0` leaves the trade InDoubt (earlier lines were applied). |
 | 0x0815 | TradeQuery | S→A | Ctl | trade_id (authority answers with AssetTransferConfirm, or `ok=false, failed_line=-1, error="Unknown"`, which the server treats as "never received" and refunds). Timeline: `TradeExecuteTimeoutSeconds` (30) after the order, then up to 3 queries `TradeQueryIntervalSeconds` (10) apart, then InDoubt. |
+| 0x0816 | LedgerRequest | C→S | Ctl | request_key, limit (clamped 1..200, 0 = 50), before (ULID cursor; empty = newest first). Answers with exactly one LedgerPage carrying the same request_key. |
+| 0x0817 | LedgerPage | S→C | Ctl | request_key, status, reason, detail, rows[LedgerRow], more. A row counts only the wallets the requester may see (own, team shared/pool, the trades and loans it is party to), so it never implies a counterparty balance; `more` says at least one older visible row exists. |
 
 Also changed by ADR-036: `CreditDelta` gains `seq`; `WalletUpdate` gains
 `acked_delta_seq`; `LoanOffer` gains `auto_repay_pct`; `TradeState` gains `InDoubt`;

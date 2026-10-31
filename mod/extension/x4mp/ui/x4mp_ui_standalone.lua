@@ -36,9 +36,19 @@ end
 ------------------------------------------------------------------------------
 -- drawing
 ------------------------------------------------------------------------------
+-- The frame handle is the only piece of the window the engine still holds after a close, and a close path that did not run
+-- menu.cleanup (a bare Helper.closeMenu from the engine or a script) leaves it set while shown is already nil. One place drops
+-- it, so every path - our close, the engine's close, a redraw - ends with exactly one handle or none.
+local function releaseFrame()
+	menu.frame = nil
+end
+menu.releaseFrame = releaseFrame
+
 local function drawFrame()
 	local model = menu.model
 	if not model then return end
+	-- Drop a handle left behind by a close path that never reached menu.onCloseElement, before building the new one.
+	releaseFrame()
 	Helper.clearDataForRefresh(menu, LAYER)
 	local width = Helper.scaleX(model.wide and 620 or 460)
 	menu.frame = Helper.createFrameHandle(menu, {
@@ -140,7 +150,7 @@ end
 function menu.cleanup()
 	menu.shown = nil
 	menu.opening = nil
-	menu.frame = nil
+	releaseFrame()
 	menu.model = nil
 	S.onClosed()
 	menu.restoreStartMenu()

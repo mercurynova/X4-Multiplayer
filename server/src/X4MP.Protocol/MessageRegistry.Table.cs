@@ -108,5 +108,7 @@ public sealed partial class MessageRegistry
         Add<AssetTransferOrder>(MsgType.AssetTransferOrder, Lane.Control, AssetTransferOrder.GetRootAsAssetTransferOrder, AssetTransferOrderVerify.Verify, t => t.UnPack());
         Add<AssetTransferConfirm>(MsgType.AssetTransferConfirm, Lane.Control, AssetTransferConfirm.GetRootAsAssetTransferConfirm, AssetTransferConfirmVerify.Verify, t => t.UnPack());
         Add<TradeQuery>(MsgType.TradeQuery, Lane.Control, TradeQuery.GetRootAsTradeQuery, TradeQueryVerify.Verify, t => t.UnPack());
+        Add<LedgerRequest>(MsgType.LedgerRequest, Lane.Control, LedgerRequest.GetRootAsLedgerRequest, LedgerRequestVerify.Verify, t => t.UnPack());
+        Add<LedgerPage>(MsgType.LedgerPage, Lane.Control, LedgerPage.GetRootAsLedgerPage, LedgerPageVerify.Verify, t => t.UnPack());
     }
 }

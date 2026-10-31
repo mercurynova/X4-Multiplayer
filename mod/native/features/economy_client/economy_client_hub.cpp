@@ -15,6 +15,8 @@ namespace {
 
 // A screen that keeps a few hundred rows is a screen nobody can read, and an unbounded map is a leak in a long session.
 constexpr std::size_t kMaxUnsent = 32;
+// Two hundred rows is the server's largest page: "load more" past that point only pushes older rows out of the list.
+constexpr std::size_t kMaxLedgerRows = 200;
 
 std::string items_json(const std::vector<TradeItemView>& items) {
   nlohmann::json arr = nlohmann::json::array();
@@ -40,6 +42,7 @@ const char* op_name(Op op) noexcept {
     case Op::Forgive: return "forgive";
     case Op::Accept: return "accept";
     case Op::Cancel: return "cancel";
+    case Op::Ledger: return "ledger";
   }
   return "?";
 }
@@ -52,6 +55,7 @@ bool parse_op(std::string_view name, Op& out) noexcept {
   if (name == "forgive") { out = Op::Forgive; return true; }
   if (name == "accept") { out = Op::Accept; return true; }
   if (name == "cancel" || name == "decline") { out = Op::Cancel; return true; }
+  if (name == "ledger") { out = Op::Ledger; return true; }
   return false;
 }
 
@@ -69,7 +73,12 @@ void EconomyClientHub::reset() {
   last_trade_.reset();
   loans_.clear();
   trades_.clear();
+  ledger_.clear();
+  ledger_more_ = false;
+  ledger_pending_ = false;
+  ledger_before_.clear();
   unsent_.clear();
+  notices_.clear();
 }
 
 Id128Value EconomyClientHub::next_key() noexcept {
@@ -127,6 +136,17 @@ bool EconomyClientHub::on_frame_message(std::uint16_t type, std::span<const std:
       dirty_ = true;
       return true;
     }
+    case P::MsgType::LedgerPage: {
+      LedgerPageView view;
+      if (!decode_ledger_page(payload, view)) {
+        ++stats_.bad;
+        return true;
+      }
+      ++stats_.ledger_pages;
+      put_ledger_page(view);
+      dirty_ = true;
+      return true;
+    }
     default:
       return false;
   }
@@ -141,7 +161,31 @@ void EconomyClientHub::put_loan(const LoanRowView& row) {
   }
   loans_.push_back(row);
   if (loans_.size() > kMaxRows) loans_.erase(loans_.begin());
+  // M5-30: a loan offered TO this node is the one thing on this screen that waits for an answer. A later LoanStatus for the
+  // same loan only updates the row, so the player is told once.
+  if (self_ != 0 && row.borrower == self_ && row.state == static_cast<std::uint8_t>(P::LoanState::Offered)) {
+    Notice notice;
+    notice.kind = NoticeKind::LoanOffer;
+    notice.id = row.loan_id;
+    notice.from = row.lender;
+    notice.amount = row.principal;
+    notices_.push_back(notice);
+  }
 }
+
+namespace {
+
+// The credits the other side puts on the table, when the trade is a straight credit offer: the screen can then say a number
+// instead of "see the trades list". A trade of wares or ships leaves it at 0.
+std::int64_t credit_offer(const std::vector<TradeItemView>& items) {
+  std::int64_t sum = 0;
+  for (const TradeItemView& item : items) {
+    if (item.kind == static_cast<std::uint8_t>(P::TradeItemKind::Credits)) sum += item.amount;
+  }
+  return sum;
+}
+
+}  // namespace
 
 void EconomyClientHub::put_trade(const TradeRowView& row) {
   for (TradeRowView& existing : trades_) {
@@ -152,6 +196,43 @@ void EconomyClientHub::put_trade(const TradeRowView& row) {
   }
   trades_.push_back(row);
   if (trades_.size() > kMaxRows) trades_.erase(trades_.begin());
+  // M5-30: a new trade where this node is the counterparty and the ball is in its court. A counter-offer arrives as a new
+  // version of a trade we already hold, so it is a row update, not a new offer - the player already saw that trade.
+  const bool open = row.state == static_cast<std::uint8_t>(P::TradeState::Proposed) ||
+                    row.state == static_cast<std::uint8_t>(P::TradeState::Countered);
+  if (self_ != 0 && open && row.counterparty.player_id == self_) {
+    Notice notice;
+    notice.kind = NoticeKind::TradeOffer;
+    notice.id = row.trade_id;
+    notice.from = row.initiator.player_id;
+    notice.amount = credit_offer(row.initiator.give);
+    notice.version = row.version;
+    notices_.push_back(notice);
+  }
+}
+
+// The last page replaces the list, a cursor page appends only rows this node has not seen: the cursor is the last id shown, so
+// a row cannot repeat, and a resend of the same page changes nothing. A rejected page leaves the list alone - the screen keeps
+// what it had and shows the error from `last`.
+void EconomyClientHub::put_ledger_page(const LedgerPageView& page) {
+  const bool from_newest = ledger_before_.empty();
+  ledger_pending_ = false;
+  ledger_before_.clear();
+  if (page.status != static_cast<std::uint8_t>(P::EconomyStatus::Ok)) return;
+  if (from_newest) ledger_.clear();
+  for (const LedgerRowView& row : page.rows) {
+    const bool seen = std::any_of(ledger_.begin(), ledger_.end(), [&row](const LedgerRowView& held) { return held.id == row.id; });
+    if (!seen) ledger_.push_back(row);
+  }
+  if (ledger_.size() > kMaxLedgerRows) ledger_.resize(kMaxLedgerRows);
+  ledger_more_ = page.more;
+}
+
+std::vector<Notice> EconomyClientHub::take_notices() {
+  std::vector<Notice> out;
+  out.swap(notices_);
+  stats_.notices += out.size();
+  return out;
 }
 
 bool EconomyClientHub::request(Op op, const RequestParams& p, std::string& error) {
@@ -224,6 +305,20 @@ bool EconomyClientHub::request(Op op, const RequestParams& p, std::string& error
       frame.bytes = encode_trade_cancel(data);
       break;
     }
+    case Op::Ledger: {
+      // One page in flight at a time: two answers cannot be told apart, and the list would jump when they interleave.
+      if (ledger_pending_) { error = "a ledger page is already on its way"; break; }
+      if (p.before.size() > 64) { error = "bad ledger cursor"; break; }
+      LedgerRequestData data;
+      data.key = key;
+      data.limit = p.limit;
+      data.before = p.before;
+      frame.type = static_cast<std::uint16_t>(P::MsgType::LedgerRequest);
+      frame.bytes = encode_ledger_request(data);
+      ledger_pending_ = true;
+      ledger_before_ = p.before;
+      break;
+    }
   }
 
   if (!error.empty()) {
@@ -291,6 +386,29 @@ std::string EconomyClientHub::snapshot_json() const {
     trades.push_back(std::move(r));
   }
   j["trades"] = std::move(trades);
+
+  // M5-29: the last entries the player may see, newest first, plus whether the server has an older page. The screen renders
+  // these rows itself; nothing here formats a line or decides what a row means.
+  nlohmann::json ledger = nlohmann::json::array();
+  for (const LedgerRowView& row : ledger_) {
+    nlohmann::json r;
+    r["id"] = row.id;
+    r["at_us"] = row.at_us;
+    r["kind"] = static_cast<int>(row.kind);
+    r["wallet_kind"] = static_cast<int>(row.wallet_kind);
+    r["wallet_owner"] = row.wallet_owner;
+    r["delta"] = row.delta;
+    r["actor"] = row.actor;
+    r["ref_type"] = row.ref_type;
+    r["ref_id"] = row.ref_id;
+    r["note"] = row.note;
+    r["reversed"] = row.reversed;
+    ledger.push_back(std::move(r));
+  }
+  j["ledger"] = std::move(ledger);
+  j["ledger_more"] = ledger_more_;
+  // a counter, so the UI can tell a fresh page from a redraw of the same one
+  j["ledger_pages"] = stats_.ledger_pages;
 
   if (last_.has_value()) {
     nlohmann::json r;

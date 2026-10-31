@@ -47,6 +47,9 @@ class EconomyClientFeature final : public host::IFeature {
   void flush();
   // Publish the snapshot to Lua when something changed (a result, a loan, a trade), never on a quiet frame.
   void publish(host::HostContext& ctx);
+  // M5-30: turn every incoming offer into one x4mp.economy_notice event (the Lua half draws the toast, the chat line and the
+  // badge from it).
+  void announce(host::HostContext& ctx);
   void report(host::HostContext& ctx);
 
   std::shared_ptr<EconomyInbox> inbox_;

@@ -26,7 +26,7 @@
 
 namespace x4mp::features::economy_client {
 
-enum class Op : std::uint8_t { Send = 0, Deposit, Withdraw, Repay, Forgive, Accept, Cancel };
+enum class Op : std::uint8_t { Send = 0, Deposit, Withdraw, Repay, Forgive, Accept, Cancel, Ledger };
 
 [[nodiscard]] const char* op_name(Op op) noexcept;
 // "send", "deposit", ... -> Op. False on anything else.
@@ -39,6 +39,8 @@ struct RequestParams {
   std::uint32_t version = 0;         // Accept: the version the player saw
   std::uint32_t receive_into_asset = 0;  // Accept: 0 = the default destination
   std::string memo;                  // Send
+  std::uint16_t limit = 0;           // Ledger: 0 = the server default (50)
+  std::string before;                // Ledger: ULID cursor; empty = from the newest
 };
 
 // One frame waiting for the link: what to send and the key it was booked under (for the log line and the retry order).
@@ -55,10 +57,25 @@ struct EconomyStats {
   std::uint64_t loans = 0;         // LoanStatus taken
   std::uint64_t trades = 0;        // TradeStatus taken
   std::uint64_t trade_results = 0; // TradeResult taken
+  std::uint64_t ledger_pages = 0;  // LedgerPage taken
   std::uint64_t sent = 0;
   std::uint64_t send_failed = 0;
   std::uint64_t bad = 0;           // payloads that were not an economy frame, or a request the hub refused
   std::uint64_t requests = 0;      // requests the Lua side made (accepted ones)
+  std::uint64_t notices = 0;       // incoming offers the player was told about (M5-30)
+};
+
+// M5-30: one thing that arrived and the player has not been told about yet. The hub only says what is NEW, so a resent status
+// or a later update of the same trade never rings twice; the feature turns each notice into one chat line and one toast, and the
+// HUD counts what is still open from the snapshot.
+enum class NoticeKind : std::uint8_t { LoanOffer = 0, TradeOffer };
+
+struct Notice {
+  NoticeKind kind = NoticeKind::LoanOffer;
+  Id128Value id;
+  std::uint16_t from = 0;   // the player on the other side
+  std::int64_t amount = 0;  // loan principal, or the credits the other side puts on the table (0 when there are none)
+  std::uint32_t version = 0;
 };
 
 class EconomyClientHub {
@@ -83,6 +100,9 @@ class EconomyClientHub {
   [[nodiscard]] std::vector<OutFrame> take_unsent(std::size_t max);
   void note_send_failed();
 
+  // Incoming offers that have not been announced yet, oldest first. Taking them is what marks them announced.
+  [[nodiscard]] std::vector<Notice> take_notices();
+
   // The screen asks for a snapshot only when something changed; this flag is cleared by clear_dirty().
   [[nodiscard]] bool dirty() const noexcept { return dirty_; }
   void clear_dirty() noexcept { dirty_ = false; }
@@ -94,11 +114,19 @@ class EconomyClientHub {
   [[nodiscard]] const std::vector<LoanRowView>& loans() const noexcept { return loans_; }
   [[nodiscard]] const std::vector<TradeRowView>& trades() const noexcept { return trades_; }
   [[nodiscard]] const std::optional<TradeResultView>& last_trade_result() const noexcept { return last_trade_; }
+  // The ledger rows this node has been shown, newest first: the last page replaces them, a cursor page appends the older
+  // rows. `more` says the server has at least one older row this node may see.
+  [[nodiscard]] const std::vector<LedgerRowView>& ledger() const noexcept { return ledger_; }
+  [[nodiscard]] bool ledger_more() const noexcept { return ledger_more_; }
+  // True while a page is on its way. A second request is refused, because the answer could not be told apart from the
+  // first one's and the list would jump.
+  [[nodiscard]] bool ledger_pending() const noexcept { return ledger_pending_; }
 
  private:
   Id128Value next_key() noexcept;
   void put_loan(const LoanRowView& row);
   void put_trade(const TradeRowView& row);
+  void put_ledger_page(const LedgerPageView& page);
 
   std::uint16_t self_ = 0;
   std::uint64_t key_ = 0;
@@ -108,7 +136,12 @@ class EconomyClientHub {
   std::optional<TradeResultView> last_trade_;
   std::vector<LoanRowView> loans_;
   std::vector<TradeRowView> trades_;
+  std::vector<LedgerRowView> ledger_;
+  bool ledger_more_ = false;
+  bool ledger_pending_ = false;
+  std::string ledger_before_;  // the cursor of the page in flight; empty = the request from the newest row
   std::vector<OutFrame> unsent_;
+  std::vector<Notice> notices_;
 };
 
 // Process-wide instance, like wallet_hub() and team_hub(): the inbound dispatcher and the feature share one state.

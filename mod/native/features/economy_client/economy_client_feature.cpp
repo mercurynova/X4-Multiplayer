@@ -57,6 +57,14 @@ bool parse_request(std::string_view body, Op& op, RequestParams& params) {
     params.memo = it->get<std::string>();
     if (params.memo.size() > 120) params.memo.resize(120);
   }
+  if (const auto it = j.find("limit"); it != j.end() && it->is_number_unsigned()) {
+    const std::uint64_t limit = it->get<std::uint64_t>();
+    if (limit > 0xFFFF) return false;
+    params.limit = static_cast<std::uint16_t>(limit);
+  }
+  if (const auto it = j.find("before"); it != j.end() && it->is_string()) {
+    params.before = it->get<std::string>();
+  }
   return true;
 }
 
@@ -117,6 +125,7 @@ void EconomyClientFeature::on_frame(host::HostContext& ctx, const host::FrameInf
   drain(ctx);
   flush();
   publish(ctx);
+  announce(ctx);
   if (last_log_us_ == 0 || now - last_log_us_ >= kLogUs) {
     last_log_us_ = now;
     report(ctx);
@@ -150,6 +159,24 @@ void EconomyClientFeature::flush() {
   }
 }
 
+// M5-30: an offer that arrived is worth a line in the chat window and a toast, because nothing else on screen moves when the
+// other player clicks. The hub has already deduped it; this only renders the event for the Lua half.
+void EconomyClientFeature::announce(host::HostContext& ctx) {
+  for (const Notice& notice : economy_client_hub().take_notices()) {
+    nlohmann::json j;
+    j["v"] = 1;
+    j["kind"] = notice.kind == NoticeKind::LoanOffer ? "loan" : "trade";
+    j["id"] = notice.id.hex();
+    j["from"] = notice.from;
+    j["amount"] = notice.amount;
+    j["version"] = notice.version;
+    const bool raised = ctx.platform.raise_lua("x4mp.economy_notice", j.dump());
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "economy_client: {} offer {} from player {} amount={} raised={}",
+              notice.kind == NoticeKind::LoanOffer ? "loan" : "trade", notice.id.hex(), notice.from, notice.amount,
+              raised ? 1 : 0);
+  }
+}
+
 void EconomyClientFeature::publish(host::HostContext& ctx) {
   if (!economy_client_hub().dirty() && published_) return;
   if (!ctx.platform.raise_lua("x4mp.economy", economy_client_hub().snapshot_json())) return;  // the next change publishes again
@@ -160,10 +187,10 @@ void EconomyClientFeature::publish(host::HostContext& ctx) {
 void EconomyClientFeature::report(host::HostContext& ctx) {
   const EconomyStats& s = economy_client_hub().stats();
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info,
-            "[economy_client] requests={} sent={} sendfail={} results={} rejected={} loans={} trades={} trade_results={} bad={} "
-            "self={} linked={}",
-            s.requests, s.sent, s.send_failed, s.results, s.rejected, s.loans, s.trades, s.trade_results, s.bad,
-            economy_client_hub().self(), events::events_hub().linked() ? 1 : 0);
+            "[economy_client] requests={} sent={} sendfail={} results={} rejected={} loans={} trades={} trade_results={} "
+            "ledger_pages={} bad={} notices={} self={} linked={}",
+            s.requests, s.sent, s.send_failed, s.results, s.rejected, s.loans, s.trades, s.trade_results, s.ledger_pages, s.bad,
+            s.notices, economy_client_hub().self(), events::events_hub().linked() ? 1 : 0);
 }
 
 void EconomyClientFeature::on_shutdown(host::HostContext& ctx) {

@@ -119,6 +119,32 @@ struct TradeResultView {
   std::string detail;
 };
 
+// One committed transaction as this node may see it (economy.fbs LedgerRow). Only the wallets this node could already see in
+// a WalletUpdate are counted into `delta`, so a row never implies the counterparty's balance. `id` is a ULID and doubles as
+// the paging cursor: the next page asks for rows strictly older than the last one seen.
+struct LedgerRowView {
+  std::string id;
+  std::uint64_t at_us = 0;
+  std::uint8_t kind = 0;  // LedgerKind
+  std::uint8_t wallet_kind = 0;  // WalletKind of the first visible line
+  std::uint16_t wallet_owner = 0;
+  std::int64_t delta = 0;  // net change to this node's visible wallets
+  std::uint16_t actor = 0;  // the player whose action caused it; 0 = the server or the authority
+  std::string ref_type;
+  std::int64_t ref_id = 0;
+  std::string note;
+  bool reversed = false;
+};
+
+struct LedgerPageView {
+  Id128Value request_key;
+  std::uint8_t status = 0;  // EconomyStatus
+  std::uint8_t reason = 0;  // EconomyReject
+  std::string detail;
+  std::vector<LedgerRowView> rows;  // newest first
+  bool more = false;                // at least one older row this node may see exists
+};
+
 // --- requests (node -> server) ---------------------------------------------------------------------------------------
 
 struct CreditTransferData {
@@ -149,6 +175,12 @@ struct TradeAcceptData {
 struct TradeCancelData {
   Id128Value key;
   Id128Value trade_id;
+};
+
+struct LedgerRequestData {
+  Id128Value key;
+  std::uint16_t limit = 0;  // 0 = the server default (50); the server clamps 1..200
+  std::string before;       // ULID cursor; empty = from the newest
 };
 
 namespace detail {
@@ -218,6 +250,15 @@ inline P::Id128 to_wire(const Id128Value& id) { return P::Id128(id.lo, id.hi); }
   const P::Id128 key = detail::to_wire(data.key);
   const P::Id128 trade = detail::to_wire(data.trade_id);
   const auto req = P::CreateTradeCancel(fbb, &key, &trade);
+  fbb.Finish(req);
+  return detail::finish(fbb);
+}
+
+[[nodiscard]] inline std::vector<std::uint8_t> encode_ledger_request(const LedgerRequestData& data) {
+  flatbuffers::FlatBufferBuilder fbb(128);
+  const P::Id128 key = detail::to_wire(data.key);
+  const auto before = data.before.empty() ? flatbuffers::Offset<flatbuffers::String>() : fbb.CreateString(data.before);
+  const auto req = P::CreateLedgerRequest(fbb, &key, data.limit, before);
   fbb.Finish(req);
   return detail::finish(fbb);
 }
@@ -330,6 +371,45 @@ inline void copy_side(const P::TradeSide* side, TradeSideView& out) {
   out.state = static_cast<std::uint8_t>(r->state());
   out.reason = static_cast<std::uint8_t>(r->reason());
   if (const auto* detail = r->detail()) out.detail = detail->str();
+  return true;
+}
+
+[[nodiscard]] inline bool decode_ledger_page(std::span<const std::uint8_t> bytes, LedgerPageView& out) {
+  out = LedgerPageView{};
+  if (bytes.size() < 4) return false;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::LedgerPage>(nullptr)) return false;
+  const P::LedgerPage* r = flatbuffers::GetRoot<P::LedgerPage>(bytes.data());
+  if (r == nullptr) return false;
+  if (const P::Id128* key = r->request_key()) {
+    out.request_key.lo = key->lo();
+    out.request_key.hi = key->hi();
+  }
+  out.status = static_cast<std::uint8_t>(r->status());
+  out.reason = static_cast<std::uint8_t>(r->reason());
+  if (const auto* detail = r->detail()) out.detail = detail->str();
+  out.more = r->more();
+  if (const auto* rows = r->rows()) {
+    out.rows.reserve(rows->size());
+    for (const P::LedgerRow* row : *rows) {
+      if (row == nullptr) continue;
+      LedgerRowView view;
+      if (const auto* id = row->id()) view.id = id->str();
+      view.at_us = row->at_us();
+      view.kind = static_cast<std::uint8_t>(row->kind());
+      if (const P::WalletRef* wallet = row->wallet()) {
+        view.wallet_kind = static_cast<std::uint8_t>(wallet->kind());
+        view.wallet_owner = wallet->owner_id();
+      }
+      view.delta = row->delta();
+      view.actor = row->actor();
+      if (const auto* ref_type = row->ref_type()) view.ref_type = ref_type->str();
+      view.ref_id = row->ref_id();
+      if (const auto* note = row->note()) view.note = note->str();
+      view.reversed = row->reversed();
+      out.rows.push_back(std::move(view));
+    }
+  }
   return true;
 }
 

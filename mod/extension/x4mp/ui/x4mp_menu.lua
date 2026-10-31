@@ -230,6 +230,10 @@ local function buildMain(_, rows)
 		rows[#rows + 1] = { type = "button", id = "join", text = T(2), active = true, onClick = function() S.go("join") end }
 	end
 	rows[#rows + 1] = { type = "button", id = "appearance", text = T(900), active = true, onClick = function() S.openAppearance() end }
+	-- M5-29: the economy screen. It needs a session (the server owns the books), so it sits next to the other in-session rows.
+	if S.connectionActive() then
+		rows[#rows + 1] = { type = "button", id = "economy", text = T(576), active = true, onClick = function() S.go("economy") end }
+	end
 	-- M2-X3: the session's mod list while connected (x4mp_join_mods.lua loads after this file)
 	if S.connectionActive() and X4MPJoinMods then X4MPJoinMods.policyRows(rows) end
 	if S.connectionActive() and X4MPPlayers then X4MPPlayers.rows(rows) end -- M3-06: the player table
@@ -414,8 +418,21 @@ local function buildAppearance(_, rows)
 	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
 end
 
-local builders = { main = buildMain, join = buildJoin, status = buildStatus, appearance = buildAppearance }
-local titles = { main = 1, join = 2, status = 11, appearance = 900 }
+-- M5-29 (docs/mod-design.md 12.7): the economy screen. The rows are built by the economy module, which owns the snapshot and the
+-- request verbs; this file only registers the screen, so the chat commands and the window can never drift apart. The module loads
+-- after this file (ui.xml), so it is looked up at build time.
+local function buildEconomy(st, rows)
+	local E = rawget(_G, "X4MPEconomy")
+	if type(E) ~= "table" or type(E.screenRows) ~= "function" then
+		rows[#rows + 1] = text(T(518), "warning")
+	else
+		E.screenRows(rows, st)
+	end
+	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
+end
+
+local builders = { main = buildMain, join = buildJoin, status = buildStatus, appearance = buildAppearance, economy = buildEconomy }
+local titles = { main = 1, join = 2, status = 11, appearance = 900, economy = 576 }
 
 function S.buildModel()
 	local st = S.initState()

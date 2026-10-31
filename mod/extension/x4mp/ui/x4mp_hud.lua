@@ -116,6 +116,16 @@ function H.walletText()
 	return T(303, math.floor(debt + 0.5))
 end
 
+--- M5-30: the badge for offers that wait for an answer, nil when there are none. The economy module loads after the HUD, so it is
+--- looked up at call time and never captured at load.
+function H.economyText()
+	local E = rawget(_G, "X4MPEconomy")
+	if type(E) ~= "table" or type(E.pending) ~= "function" then return nil end
+	local n = tonumber(E.pending()) or 0
+	if n <= 0 then return nil end
+	return T(575, math.floor(n))
+end
+
 --- the one-line text for the current status, nil when there is nothing to say
 function H.text()
 	local st = status()
@@ -134,6 +144,8 @@ function H.text()
 	if type(suffix) == "string" and suffix ~= "" then text = text .. " | " .. suffix end
 	local debt = H.walletText()
 	if type(debt) == "string" and debt ~= "" then text = text .. " | " .. debt end
+	local offers = H.economyText()
+	if type(offers) == "string" and offers ~= "" then text = text .. " | " .. offers end
 	return text
 end
 

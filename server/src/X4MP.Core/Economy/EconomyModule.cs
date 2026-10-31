@@ -167,6 +167,11 @@ public sealed partial class EconomyModule : ISessionModule
             return true;
         }
 
+        if (LedgerOnMessage(node, frame))
+        {
+            return true;
+        }
+
         if (frame.Type is MsgType.CreditTransferRequest or MsgType.DonateRequest or MsgType.PoolDepositRequest or MsgType.PoolWithdrawRequest)
         {
             return OnPlayerAction(node, frame);
@@ -351,9 +356,15 @@ public sealed partial class EconomyModule : ISessionModule
         node.Connection.TrySend(ControlFrames.Encode(MsgType.WalletUpdate, fbb => WalletUpdate.Pack(fbb, update).Value, 128));
     }
 
+    private static WalletRefT ToWalletRef(WalletId wallet) => new()
+    {
+        Kind = ToWire(wallet.Kind),
+        OwnerId = (ushort)Math.Clamp(wallet.OwnerId, 0, ushort.MaxValue),
+    };
+
     private static WalletBalanceT ToWire(WalletBalanceAfter balance) => new()
     {
-        Wallet = new WalletRefT { Kind = ToWire(balance.Wallet.Kind), OwnerId = (ushort)Math.Clamp(balance.Wallet.OwnerId, 0, ushort.MaxValue) },
+        Wallet = ToWalletRef(balance.Wallet),
         Balance = balance.Balance,
         Version = (ulong)balance.Version,
     };

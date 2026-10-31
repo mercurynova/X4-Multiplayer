@@ -242,3 +242,48 @@ table AssetTransferConfirm {
 /// S->A (authority). Resolve a trade left InDoubt: the authority answers with AssetTransferConfirm
 /// (final outcome of the order, or error="Unknown" if it never received one).
 table TradeQuery { trade_id:Id128; }
+
+// ---- ledger listing: what the economy screen shows under "last entries" (M5-29) ----
+
+/// Mirrors X4MP.Core.Economy.TxKind one to one, in that enum's order: the server stores TxKind as a byte, so the
+/// numbering here may never be rearranged. A client that meets a value above Other shows Other.
+enum LedgerKind : ubyte {
+  Donate = 0, PoolDeposit, PoolWithdraw, LoanEscrow, LoanDisburse, LoanRepay, LoanAutoRepay,
+  LoanRefund, TradeEscrow, TradeSettle, TradeRefund, GameIncome, GameSpend, AdminAdjust,
+  Reversal, ModeMigration, TeamMove, StartingCredits, SaveMoney, Transfer,
+  Other                          // a kind this build does not know
+}
+
+/// One committed transaction, as one party may see it: only the wallets that party may see are counted, so the
+/// counterparty's balance is never implied. Entries always sum to zero, which is why delta can be a single number.
+table LedgerRow {
+  id:string;                     // ULID, newest first; also the cursor for the next page (LedgerRequest.before)
+  at_us:ulong;                   // server wall clock, microseconds since the Unix epoch (millisecond precision)
+  kind:LedgerKind;
+  wallet:WalletRef;              // the first wallet of this transaction the receiver may see
+  delta:long;                    // net change to the receiver's visible wallets in this transaction
+  actor:ushort;                  // the player whose action caused it; 0 = the server or the authority
+  ref_type:string;               // "transfer", "loan", "trade"; empty when the transaction has no reference
+  ref_id:long;                   // id of that transfer / loan / trade; 0 when there is none
+  note:string;
+  reversed:bool;                 // a later Reversal transaction undid it
+}
+
+/// C->S. The newest transactions the requester may see: its own wallet, its team's shared and pool wallets, and
+/// the trades and loans it is a party to (their escrow lines are invisible, but the player lines are not).
+/// Answered with exactly one LedgerPage carrying the same request_key.
+table LedgerRequest {
+  request_key:Id128;
+  limit:ushort = 50;             // clamped to 1..200; 0 means the default
+  before:string;                 // only rows older than this ULID; empty = from the newest
+}
+
+/// S->C.
+table LedgerPage {
+  request_key:Id128;
+  status:EconomyStatus;
+  reason:EconomyReject;
+  detail:string;
+  rows:[LedgerRow];              // newest first
+  more:bool;                     // at least one older row the receiver may see exists
+}

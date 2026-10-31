@@ -55,8 +55,9 @@
   </ItemGroup>
 
   <Target Name="NpmInstall" Inputs="$(WebDir)package-lock.json" Outputs="$(WebInstallStamp)">
-    <!-- --include=dev: with a machine-wide NODE_ENV=production npm ci silently omits devDependencies, and the next
-         `npm run build` dies with "Cannot find module .../typescript/bin/tsc". The web build always needs tsc and vite. -->
+    <!-- The include=dev npm flag: with a machine-wide NODE_ENV=production npm ci silently omits devDependencies, and
+         the next `npm run build` dies with "Cannot find module .../typescript/bin/tsc". The web build always needs tsc
+         and vite. (An XML comment cannot contain a double hyphen, hence the wording above.) -->
     <Exec Command="npm ci --include=dev" WorkingDirectory="$(WebDir)" />
   </Target>
 

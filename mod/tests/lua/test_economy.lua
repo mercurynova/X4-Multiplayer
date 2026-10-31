@@ -6,11 +6,16 @@ local t, env = ...
 local test, eq, truthy, falsy = t.test, t.eq, t.truthy, t.falsy
 
 local lines
+local toasts
 
 local function fresh()
 	env.reset()
 	env.installApi()
 	lines = {}
+	toasts = {}
+	-- env.reset nils the global, so the toast recorder goes in after it: the notice path calls it through pcall and a nil global
+	-- would silently look like success.
+	_G.AddUITriggeredEvent = function(screen, control, value) toasts[#toasts + 1] = { screen, control, value } end
 	env.loadAll({ "x4mp_bridge.lua", "x4mp_menu.lua", "x4mp_players.lua", "x4mp_chat.lua", "x4mp_economy.lua" })
 	X4MPChat.systemLine = function(text) lines[#lines + 1] = text end
 end
@@ -186,3 +191,249 @@ test("economy: every /mp line stays in this module, other commands do not", func
 	truthy(all():find("/mp shows the economy", 1, true), all())
 	falsy(X4MPChat.handleCommand("notacommand", ""), "a foreign command must reach the previous function")
 end)
+
+-- M5-30: an offer that arrives while the player is doing something else must be visible without opening anything: one system
+-- line in the chat window, one toast, and the count on the HUD badge.
+test("economy: an incoming loan offer says so in the chat and in a toast", function()
+	loaded()
+	lines, toasts = {}, {}
+	env.fire("x4mp.economy_notice", '{"v":1,"kind":"loan","id":"000000000000000a:000000000000000b","from":2,"amount":5000,"version":0}')
+	eq(lines[1], "New loan offer 00000a from player 2, principal 5 000 Cr")
+	eq(lines[2], "Answer with /mp accept 00000a or /mp decline 00000a")
+	eq(#toasts, 1, "one toast")
+	eq(toasts[1][1], "X4MP")
+	eq(toasts[1][2], "notify")
+	eq(toasts[1][3], lines[1], "the toast carries the same text as the chat line")
+end)
+
+test("economy: a trade offer quotes the credits on the table, or leaves them out when there are none", function()
+	loaded()
+	lines, toasts = {}, {}
+	env.fire("x4mp.economy_notice", '{"v":1,"kind":"trade","id":"0000000000000014:0000000000000015","from":2,"amount":1200,"version":3}')
+	eq(lines[1], "New trade offer 000014 from player 2, 1 200 Cr on the table")
+	eq(toasts[1][3], lines[1])
+
+	lines, toasts = {}, {}
+	env.fire("x4mp.economy_notice", '{"v":1,"kind":"trade","id":"0000000000000016:0000000000000017","from":3,"amount":0,"version":1}')
+	eq(lines[1], "New trade offer 000016 from player 3")
+	eq(#toasts, 1)
+end)
+
+test("economy: the badge counts the offers that wait for an answer", function()
+	loaded()
+	eq(X4MPEconomy.pending(), 1, "the shipped snapshot holds one open incoming trade and no offered loan")
+
+	env.fire("x4mp.economy", '{"v":1,"self":1,"loans":[' ..
+		'{"id":"000000000000000a:000000000000000b","lender":2,"borrower":1,"state":0,"principal":5000,"repay_total":5500,' ..
+		'"repaid":0,"forgiven":0,"created_us":1,"due_us":2,"memo":"","mine":true,"i_lend":false},' ..
+		'{"id":"000000000000000c:000000000000000d","lender":1,"borrower":2,"state":1,"principal":100,"repay_total":100,' ..
+		'"repaid":0,"forgiven":0,"created_us":1,"due_us":2,"memo":"","mine":true,"i_lend":true}],' ..
+		'"trades":[' ..
+		'{"id":"0000000000000014:0000000000000015","version":3,"state":0,"initiator":2,"counterparty":1,"initiator_team":1,' ..
+		'"counterparty_team":2,"give":[],"want":[],"expires_us":1,"memo":"","incoming":true,"mine":true},' ..
+		'{"id":"0000000000000018:0000000000000019","version":1,"state":5,"initiator":2,"counterparty":1,"initiator_team":1,' ..
+		'"counterparty_team":2,"give":[],"want":[],"expires_us":1,"memo":"","incoming":true,"mine":true}]}')
+	eq(X4MPEconomy.pending(), 2, "one offered loan and one open incoming trade; the active loan and the completed trade do not count")
+end)
+
+test("economy: the notice topic is registered once, next to the snapshot topic", function()
+	loaded()
+	local economy, notice = 0, 0
+	for _, name in ipairs(X4MPBridge.TOPICS) do
+		if name == "economy" then economy = economy + 1 end
+		if name == "economy_notice" then notice = notice + 1 end
+	end
+	eq(economy, 1, "the snapshot topic is registered exactly once")
+	eq(notice, 1, "the notice topic is registered exactly once")
+	truthy(X4MPBridge.VERBS.economy, "the verb the screen sends on")
+end)
+
+------------------------------------------------------------------------------
+-- M5-29: the economy screen in the standalone window (model rows, no renderer)
+------------------------------------------------------------------------------
+local function rowById(model, id)
+	for _, row in ipairs(model.rows) do if row.id == id then return row end end
+	return nil
+end
+
+local function screen()
+	X4MPScreens.go("economy")
+	return X4MPScreens.buildModel(), X4MPScreens.initState().economy
+end
+
+test("economy: the screen shows the wallet, the actions, the loan and the incoming trade", function()
+	loaded()
+	players({ { id = 1, name = "Ann" }, { id = 2, name = "Bob" } }, 1)
+	local model = screen()
+	eq(model.screen, "economy")
+	eq(model.title, "Economy")
+
+	local texts = {}
+	for _, row in ipairs(model.rows) do
+		if row.type == "text" then texts[#texts + 1] = row.text end
+	end
+	eq(texts[1], "Wallet: no balance yet.", "the header line comes from the wallet topic")
+	truthy(table.concat(texts, "\n"):find("Open loans: 1, incoming trades: 1", 1, true), table.concat(texts, "\n"))
+	truthy(table.concat(texts, "\n"):find("Loan 00000a: active, to player 2, repaid 0 of 5 500", 1, true), table.concat(texts, "\n"))
+	truthy(table.concat(texts, "\n"):find("Trade 000014: proposed, from player 2, gives 1 200 Cr, wants 500 x 12", 1, true),
+		table.concat(texts, "\n"))
+
+	eq(rowById(model, "economy_amount").type, "edit")
+	truthy(rowById(model, "economy_deposit").active)
+	truthy(rowById(model, "economy_withdraw").active)
+	eq(rowById(model, "economy_target").text, "Send to Bob", "the picker names the other player")
+	truthy(rowById(model, "economy_send").active)
+	-- self lent this loan, so it can forgive it but not repay it
+	falsy(rowById(model, "economy_repay_000000000000000a:000000000000000b").active)
+	truthy(rowById(model, "economy_forgive_000000000000000a:000000000000000b").active)
+	truthy(rowById(model, "economy_accept_0000000000000014:0000000000000015"), "an incoming trade can be accepted")
+	truthy(rowById(model, "economy_decline_0000000000000014:0000000000000015"))
+	truthy(rowById(model, "back"), "the screen always has a way back")
+end)
+
+test("economy: the screen buttons send the same verbs as the /mp commands", function()
+	loaded()
+	players({ { id = 1, name = "Ann" }, { id = 2, name = "Bob" } }, 1)
+	local model, ui = screen()
+	ui.amount = "250"
+
+	rowById(model, "economy_deposit").onClick()
+	local body = sent()
+	eq(body.op, "deposit")
+	eq(body.amount, 250)
+
+	rowById(model, "economy_withdraw").onClick()
+	body = sent()
+	eq(body.op, "withdraw")
+	eq(body.amount, 250)
+
+	rowById(model, "economy_send").onClick()
+	body = sent()
+	eq(body.op, "send")
+	eq(body.to, 2, "the picked player, not this node")
+	eq(body.amount, 250)
+
+	rowById(model, "economy_forgive_000000000000000a:000000000000000b").onClick()
+	body = sent()
+	eq(body.op, "forgive")
+	eq(body.id, "000000000000000a:000000000000000b")
+	eq(body.amount, 0)
+
+	rowById(model, "economy_accept_0000000000000014:0000000000000015").onClick()
+	body = sent()
+	eq(body.op, "accept")
+	eq(body.version, 3, "the version the player saw")
+
+	rowById(model, "economy_decline_0000000000000014:0000000000000015").onClick()
+	body = sent()
+	eq(body.op, "cancel")
+	eq(body.id, "0000000000000014:0000000000000015")
+end)
+
+test("economy: an amount that is not a whole number is refused on the screen, before the server", function()
+	loaded()
+	players({ { id = 1, name = "Ann" }, { id = 2, name = "Bob" } }, 1)
+	local model, ui = screen()
+	ui.amount = "12.5"
+	local before = #env.raisedNamed("x4mp.economy")
+	rowById(model, "economy_deposit").onClick()
+	eq(#env.raisedNamed("x4mp.economy"), before, "nothing was sent")
+	model = X4MPScreens.buildModel()
+	local warning
+	for _, row in ipairs(model.rows) do
+		if row.type == "text" and row.text == "Amount must be a whole number of credits." then warning = row end
+	end
+	truthy(warning, "the screen says why")
+	eq(warning.tone, "warning")
+end)
+
+test("economy: the borrower repays what is left, and the tab switches the trade list", function()
+	loaded()
+	players({ { id = 1, name = "Ann" }, { id = 2, name = "Bob" } }, 1)
+	env.fire("x4mp.economy", '{"v":1,"self":1,"loans":[{"id":"000000000000000a:000000000000000b","lender":2,' ..
+		'"borrower":1,"state":1,"principal":5000,"repay_total":5500,"repaid":1500,"forgiven":0,"created_us":1,"due_us":2,' ..
+		'"memo":"","mine":true,"i_lend":false}],"trades":[]}')
+	local model = screen()
+	local repay = rowById(model, "economy_repay_000000000000000a:000000000000000b")
+	truthy(repay.active, "the borrower can repay")
+	repay.onClick()
+	local body = sent()
+	eq(body.op, "repay")
+	eq(body.amount, 4000, "repay_total - repaid")
+
+	ui = X4MPScreens.initState().economy
+	eq(ui.tab, "incoming", "the screen opens on the incoming side")
+	rowById(model, "economy_tab_out").onClick()
+	eq(ui.tab, "outgoing")
+	model = X4MPScreens.buildModel()
+	truthy(rowById(model, "economy_tab_out").active == false, "the active tab is drawn as the current one")
+end)
+
+------------------------------------------------------------------------------
+-- M5-31: the ledger list (protocol 0x0816/0x0817; the hub keeps the pages, the snapshot carries them)
+------------------------------------------------------------------------------
+local LEDGER = '{"v":1,"self":1,"loans":[],"trades":[],"ledger":[' ..
+	'{"id":"01J000000000000000000A1","at_us":1700000000000000,"kind":19,"wallet_kind":0,"wallet_owner":1,' ..
+	'"delta":1200,"actor":2,"ref_type":"transfer","ref_id":42,"note":"for the fuel","reversed":false},' ..
+	'{"id":"01J000000000000000000A0","at_us":1699990000000000,"kind":2,"wallet_kind":1,"wallet_owner":1,' ..
+	'"delta":-500,"actor":0,"ref_type":"","ref_id":0,"note":"","reversed":true}],' ..
+	'"ledger_more":true,"ledger_pages":1}'
+
+test("economy: /mp ledger asks for the newest page and prints it when it lands", function()
+	loaded()
+	lines = {}
+	X4MPChat.handleCommand("mp", "ledger")
+	local body = sent()
+	eq(body.op, "ledger")
+	eq(body.limit, 20)
+	eq(body.before, nil, "the newest page needs no cursor")
+	eq(lines[1], "Ledger requested")
+
+	-- the page arrives as a new snapshot: the counter rises, so the armed command prints what it asked for
+	lines = {}
+	env.fire("x4mp.economy", LEDGER)
+	local text = all()
+	truthy(text:find("Ledger, newest first", 1, true), text)
+	truthy(text:find("Transfer", 1, true), text)
+	truthy(text:find("+1 200", 1, true), text)
+	truthy(text:find("from player 2", 1, true), text)
+	truthy(text:find("for the fuel", 1, true), text)
+	truthy(text:find("Pool withdrawal", 1, true), text)
+	truthy(text:find("-500", 1, true), text)
+	truthy(text:find("reversed", 1, true), text)
+	truthy(text:find("Older entries exist: /mp ledger more", 1, true), text)
+end)
+
+test("economy: /mp ledger more asks for the page after the oldest row held", function()
+	loaded()
+	env.fire("x4mp.economy", LEDGER)
+	lines = {}
+	X4MPChat.handleCommand("mp", "ledger more")
+	local body = sent()
+	eq(body.op, "ledger")
+	eq(body.limit, 20)
+	eq(body.before, "01J000000000000000000A0", "the oldest row id is the cursor")
+end)
+
+test("economy: the screen shows the ledger and offers the next page only when one exists", function()
+	loaded()
+	local model = screen()
+	truthy(rowById(model, "economy_ledger"), "the screen can ask for the ledger")
+	falsy(rowById(model, "economy_ledger_more").active, "no older page is known before one arrives")
+
+	env.fire("x4mp.economy", LEDGER)
+	model = X4MPScreens.buildModel()
+	local texts = {}
+	for _, row in ipairs(model.rows) do
+		if row.type == "text" then texts[#texts + 1] = row.text end
+	end
+	local text = table.concat(texts, "\n")
+	truthy(text:find("Transfer", 1, true), text)
+	truthy(text:find("Pool withdrawal", 1, true), text)
+	truthy(rowById(model, "economy_ledger_more").active, "the server said an older row exists")
+	rowById(model, "economy_ledger_more").onClick()
+	local body = sent()
+	eq(body.op, "ledger")
+	eq(body.before, "01J000000000000000000A0")
+end)
+

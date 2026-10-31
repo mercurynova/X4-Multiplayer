@@ -36,14 +36,14 @@ They are listed in §4.
 
 | Gate | Command | Result |
 |---|---|---|
-| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **681 tests, 0 failed** (4 skipped: the real-server/game smokes 648, 649, 659, 668), 99.0 s |
+| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **683 tests, 0 failed** (4 skipped: the real-server/game smokes 663, 664, 674, 683), 80.7 s |
 | Mod unit binary, wallet only | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[wallet]"` | **550 assertions in 16 test cases**, all passed |
-| Mod unit binary, economy client | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[economy_client]"` | **93 assertions in 6 test cases**, all passed |
+| Mod unit binary, economy client | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[economy_client]"` | **158 assertions in 8 test cases**, all passed |
 | Mod unit binary, settlement | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[settlement]"` | **69 assertions in 7 test cases**, all passed |
-| Lua | `python mod\tests\lua\run_lupa.py` | **293 passed, 0 failed** (280 before the 13 `test_economy` cases: the `/mp` screen, the accept/decline version, the local refusals; 276 before the session-8 cases, 278 before the two M5-28 chat cases) |
+| Lua | `python mod\tests\lua\run_lupa.py` | **304 passed, 0 failed** (301 before the three ledger cases; 293 before the offer-notice and screen cases) |
 | Deploy | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\tools\deploy.ps1` | `Deployed.`; prints `x4mp is in use (x4mp_live.dll); merging over the running installation` while the game runs |
-| `X4MP.Core.Tests` | `dotnet test server\tests\X4MP.Core.Tests\X4MP.Core.Tests.csproj` | **1379 passed, 0 failed** (the seeder fix added one case) |
-| `X4MP.Server.Tests` | `dotnet test server\tests\X4MP.Server.Tests\X4MP.Server.Tests.csproj` | **603 passed, 0 failed, 1 skipped** (`SaveTransferTests.TwoHundredMegabyteSaveGoesFromTheAuthorityToThreeClients`), 10 m 57 s |
+| `X4MP.Core.Tests` | `dotnet test server\tests\X4MP.Core.Tests\X4MP.Core.Tests.csproj` | **1381 passed, 0 failed** (the two ledger module cases are new) |
+| `X4MP.Server.Tests` | `dotnet test server\tests\X4MP.Server.Tests\X4MP.Server.Tests.csproj` | **602 passed, 1 failed, 1 skipped** (`SaveTransferTests.TwoHundredMegabyteSaveGoesFromTheAuthorityToThreeClients`). The failure is `FakeNodeLiveTests.SingleClientAndAuthorityPrintWelcomeAndRtt`: its 1 s live run never reaches the first report window on this box, so the log has no `rtt=`. A worktree of clean `56b999a` fails the same assertion alone, so it predates this wave |
 | Ledger auditor (M5-34) | `X4MP.FakeNode.exe swarm --clients 5 --with-authority --teams 3 --relations ffa --economy heavy --dupe-attack --income-rate 2 --trade --trade-fail 10 --trade-timeout 5 --verify --duration 3600` | **clean after 3614 s**: `invariants: auditor=ok violations=0 ... ledger-sum=0 duplicate-requests=0 ... drift=0`, `verify: ... errors=0`; `POST /api/v1/economy/audit` -> `ok=true, violations=[]` (§4.5) |
 
 The .NET suites were re-run after the §4.4 seeder fix, because that is server code. An earlier run of
@@ -310,6 +310,52 @@ The seven cases cover the order round trip against a real flatbuffer, a broken b
 `TradeQuery`, a journal that survives a reload, the `applying`-at-load promotion, an unreadable file and a journal with
 no path. What is left is the two-node half: a real ship-for-credits trade where both wallets move and the ship changes
 hands, in the checklist file [two-pc-checklist.md](two-pc-checklist.md) section 11.
+
+## 4.8 The ledger page, the offer notices, and the window that leaked its handle
+
+Four gaps were left after §4.6/§4.7, and this wave closes them:
+
+1. **An offer arrived silently.** The hub decoded a `LoanStatus` or `TradeStatus` like any other answer, so a player
+   who was flying saw nothing until they typed `/mp`. `economy_client_hub` now records a `Notice` (`kind`, `id`, `from`,
+   `amount`, `version`) when `put_loan` takes a new `Offered` row whose `borrower` is this node, and when `put_trade`
+   takes a new row in `Proposed|Countered` whose `counterparty` is this node - the dedupe is the row identity the hub
+   already applies, so a repeat of the same row is not a second notice. `economy_client_feature` drains them with
+   `take_notices()` and raises `x4mp.economy_notice` `{v:1,kind,id,from,amount,version}`; `ui/x4mp_economy.lua`
+   (`E.onNotice`) answers with one chat line, one `AddUITriggeredEvent("X4MP","notify",...)` toast, the hint
+   `Answer with /mp accept ... or /mp decline ...`, and the HUD badge (`H.economyText()`) counts the offers still open.
+   The `[economy_client]` line carries `notices=<N>`.
+2. **The standalone window leaked its frame handle.** `menu.frame` was dropped on the redraw path and on
+   `menu.cleanup()`, but not when the engine closed the window without calling back, so a handle outlived its frame.
+   `ui/x4mp_ui_standalone.lua` now has one `releaseFrame()` that every path goes through - the top of `drawFrame`, the
+   cleanup hook and the close path. Measured in game: 30 open-close cycles left `n=30 nilFrames=30 bad=0`, while ten
+   bare `Helper.closeMenu` calls reproduced the stale handle (`stale=10`) and the next open replaced it; no `.dmp`.
+3. **The economy screen was chat-only.** `x4mp_menu.lua` gained a `buildEconomy` screen (a main-screen `Economy` button
+   while the session is live) and `x4mp_economy.lua` a `E.screenRows(rows, st)` that builds the rows from the same
+   snapshot and the same verbs as `/mp` - wallet line, the amount box, deposit/withdraw, the recipient picker, the loans
+   with repay/forgive, and the incoming/outgoing trade tabs with accept/decline - so the window and the commands cannot
+   drift apart. Texts 576-585.
+4. **The ledger had no wire pair.** `protocol/schema/economy.fbs` gained `LedgerKind`, `LedgerRow`, `LedgerRequest` and
+   `LedgerPage`, and `message_ids.fbs` `LedgerRequest = 0x0816` / `LedgerPage = 0x0817`; the catalog rows are in
+   [protocol.md](protocol.md). The names are `LedgerRequest`/`LedgerPage` rather than `LedgerQuery` because
+   `X4MP.Core.Economy.LedgerQuery` is the domain type the handler already passes to `QueryTransactions`.
+   - Server: `EconomyModule.Ledger.cs` (`LedgerOnMessage`, `RowOf`, `ActorOf`, `SendLedgerPage`) answers one page per
+     request, over-fetches four times the limit and keeps only the rows `EconomyService.IsVisibleTo` allows, so a row
+     counts the wallets the requester may see - its own, its team's shared and pool wallets, and the trades and loans it
+     is party to - and never implies a counterparty balance. `limit` is clamped to 1..200 (0 means 50), `before` is the
+     ULID cursor, `more` says an older visible row exists, and a request outside `Running` is answered
+     `SessionNotRunning` instead of silence. Routed in `MessagePolicy.cs:262-263` and registered in
+     `MessageRegistry.Table.cs` - without that registration every ledger frame was a `ProtocolViolation`.
+   - Mod: `economy_wire.h/.cpp` encode the request and decode the page (verify, then copy), `economy_client_hub` keeps
+     `ledger_`, one page in flight at a time (`ledger_pending()`), appends a cursor page without repeating an id and
+     replaces the list on a newest-first page, and `snapshot_json()` carries `ledger`, `ledger_more` and a rising
+     `ledger_pages` counter so the UI can tell a fresh page from a redraw.
+   - Lua: `/mp ledger` asks for the newest page and prints it when it lands (the counter is what arms the print),
+     `/mp ledger more` asks for the page after the oldest row held, and the economy screen shows the rows with
+     `Load the ledger` / `Older entries`. Texts 586-613, including one name per `LedgerKind`.
+
+**Build fix.** `server/src/X4MP.Server/X4MP.Server.csproj:58` carried the comment `<!-- --include=dev: ... -->`, and an
+XML comment cannot contain `--`: the whole solution failed with `MSB4025` at that line, on `56b999a` as committed, not
+only on the new code. The comment now spells the flag out in prose. Nothing else in the file changed.
 
 ## 5. What M5 needs next
 

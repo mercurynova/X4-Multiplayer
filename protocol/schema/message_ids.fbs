@@ -123,5 +123,7 @@ enum MsgType : ushort {
   TradeResult          = 0x0812,
   AssetTransferOrder   = 0x0813,
   AssetTransferConfirm = 0x0814,
-  TradeQuery           = 0x0815
+  TradeQuery           = 0x0815,
+  LedgerRequest        = 0x0816,
+  LedgerPage           = 0x0817
 }

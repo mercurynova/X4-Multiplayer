@@ -259,6 +259,8 @@ public static class MessagePolicy
             // confirming its own piloted ship. Follow architecture.md; widen here if the mod ever needs it.
             (MsgType.AssetTransferConfirm, A, InGame),
             (MsgType.TradeQuery, None, PolicyPhase.None),
+            (MsgType.LedgerRequest, C, InGame),
+            (MsgType.LedgerPage, None, PolicyPhase.None),
         };
 
         var registry = MessageRegistry.Default;
