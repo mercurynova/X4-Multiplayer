@@ -441,5 +441,26 @@ public static class SampleMessages
         }),
         S(new AssetTransferConfirmT { TradeId = Id(46), Ok = false, FailedLine = 1, Compensated = true, Error = "no cargo" }),
         S(new TradeQueryT { TradeId = Id(46) }),
+        S(new LedgerRequestT { RequestKey = Id(49), Limit = 20, Before = "01J000000000000000000A0" }),
+        S(new LedgerPageT
+        {
+            RequestKey = Id(49), Status = EconomyStatus.Ok, Reason = EconomyReject.None, Detail = "",
+            Rows =
+            [
+                new LedgerRowT
+                {
+                    Id = "01J000000000000000000A1", AtUs = 1_700_000_000_000_000, Kind = LedgerKind.Transfer,
+                    Wallet = new WalletRefT { Kind = WalletKind.Player, OwnerId = 3 }, Delta = 1200, Actor = 3,
+                    RefType = "transfer", RefId = 42, Note = "for the fuel", Reversed = false,
+                },
+                new LedgerRowT
+                {
+                    Id = "01J000000000000000000A0", AtUs = 1_699_999_999_000_000, Kind = LedgerKind.PoolWithdraw,
+                    Wallet = new WalletRefT { Kind = WalletKind.TeamPool, OwnerId = 1 }, Delta = -500, Actor = 0,
+                    RefType = "", RefId = 0, Note = "", Reversed = true,
+                },
+            ],
+            More = true,
+        }),
     ];
 }

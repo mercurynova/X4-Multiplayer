@@ -36,14 +36,15 @@ They are listed in §4.
 
 | Gate | Command | Result |
 |---|---|---|
-| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **683 tests, 0 failed** (4 skipped: the real-server/game smokes 663, 664, 674, 683), 80.7 s |
+| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **683 tests, 0 failed** (4 skipped: the real-server/game smokes 663, 664, 674, 683), 97.8 s |
 | Mod unit binary, wallet only | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[wallet]"` | **550 assertions in 16 test cases**, all passed |
-| Mod unit binary, economy client | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[economy_client]"` | **158 assertions in 8 test cases**, all passed |
+| Mod unit binary, economy client | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[economy_client]"` | **173 assertions in 8 test cases**, all passed |
 | Mod unit binary, settlement | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[settlement]"` | **69 assertions in 7 test cases**, all passed |
 | Lua | `python mod\tests\lua\run_lupa.py` | **304 passed, 0 failed** (301 before the three ledger cases; 293 before the offer-notice and screen cases) |
 | Deploy | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\tools\deploy.ps1` | `Deployed.`; prints `x4mp is in use (x4mp_live.dll); merging over the running installation` while the game runs |
 | `X4MP.Core.Tests` | `dotnet test server\tests\X4MP.Core.Tests\X4MP.Core.Tests.csproj` | **1381 passed, 0 failed** (the two ledger module cases are new) |
 | `X4MP.Server.Tests` | `dotnet test server\tests\X4MP.Server.Tests\X4MP.Server.Tests.csproj` | **602 passed, 1 failed, 1 skipped** (`SaveTransferTests.TwoHundredMegabyteSaveGoesFromTheAuthorityToThreeClients`). The failure is `FakeNodeLiveTests.SingleClientAndAuthorityPrintWelcomeAndRtt`: its 1 s live run never reaches the first report window on this box, so the log has no `rtt=`. A worktree of clean `56b999a` fails the same assertion alone, so it predates this wave |
+| `X4MP.Protocol.Tests` | `dotnet test server\tests\X4MP.Protocol.Tests\X4MP.Protocol.Tests.csproj` | **535 passed, 0 failed**: every `MsgType` has a sample frame and a golden vector, `0x0816`/`0x0817` included. Was red before the ledger ids reached `protocol/cpp/src/message_table.inc` (В§4.8) |
 | Ledger auditor (M5-34) | `X4MP.FakeNode.exe swarm --clients 5 --with-authority --teams 3 --relations ffa --economy heavy --dupe-attack --income-rate 2 --trade --trade-fail 10 --trade-timeout 5 --verify --duration 3600` | **clean after 3614 s**: `invariants: auditor=ok violations=0 ... ledger-sum=0 duplicate-requests=0 ... drift=0`, `verify: ... errors=0`; `POST /api/v1/economy/audit` -> `ok=true, violations=[]` (§4.5) |
 
 The .NET suites were re-run after the §4.4 seeder fix, because that is server code. An earlier run of
@@ -356,6 +357,38 @@ Four gaps were left after §4.6/§4.7, and this wave closes them:
 **Build fix.** `server/src/X4MP.Server/X4MP.Server.csproj:58` carried the comment `<!-- --include=dev: ... -->`, and an
 XML comment cannot contain `--`: the whole solution failed with `MSB4025` at that line, on `56b999a` as committed, not
 only on the new code. The comment now spells the flag out in prose. Nothing else in the file changed.
+
+**The mod dropped its own session, and the catalog was the reason.** The first in-game `/mp ledger` printed no page. The
+mod log said `net: disconnected (MalformedFrame): invalid inbound frame: UnknownMessageType`, and the server said
+`player 1 (Admin) left: MalformedMessage` - which is only the reason code the client sent, not a server verdict. The
+frame that failed validation was the server's `LedgerPage`: the mod checks every inbound frame against the hand-kept
+catalog `protocol/cpp/src/message_table.inc`, which still ended at `TradeQuery 0x0815`, so the answer to a perfectly good
+request killed the connection. Both ids are in that table now, and three guards that had never been run in this mission
+were red because of the gap: `protocol/cpp/tests/test_wire.cpp` expected 91 catalog entries (93 now), and
+`X4MP.Protocol.Tests` expected 94 message types with a sample frame for each (`FrameCodecTests.cs:39-49`) - 96 now, with
+golden vectors `0x0816_LedgerRequest.bin` and `0x0817_LedgerPage.bin` and their `index.json` rows. A new message type is
+therefore five places, not four: the schema, the golden vectors, `message_table.inc`, the C# registry and the policy.
+
+**A bad page latched the screen.** `economy_client_hub` set `ledger_pending_` before sending and cleared it only in
+`put_ledger_page`, so one unreadable `LedgerPage` left the UI answering `a ledger page is already on its way` for the
+rest of the session. The decode-failure branch now clears the latch and the cursor, marks the snapshot dirty and counts
+one `bad`; the `[economy_client]` test sends an 8-byte garbage page and then asks for a page again.
+
+**The ledger time came out as an epoch number.** X4's Lua sandbox has no `os` table at all, so `os.date` in
+`x4mp_economy.lua` never ran and every row fell back to raw seconds (`1793486237`). The Lua side also cannot convert the
+UTC microsecond stamp to local time on its own: `ConvertTimeString` answers in UTC and the sandbox has no epoch clock. So
+the hub renders the wall clock once, when a page lands (`clock_hhmm` in `economy_client_hub.cpp`, `LedgerRowView::at`),
+and the snapshot carries `"at":"05:52"` beside `at_us`. The Lua side prefers that string and keeps the raw seconds only as
+a fallback for an older DLL.
+
+**Run in game on one node, 2026-11-01.** `/mp ledger` printed `05:52  Доход в игре  +110 000, от игрока 1, Other` and
+`05:52  Стартовые кредиты  +100 000`; `/mp ledger more` asked for the page after the oldest row, the server answered with
+no rows, so the list stayed at two and `more` stayed false (`requests=3 ... ledger_pages=3 bad=0 self=1 linked=1` in the
+`[economy_client]` line, no disconnect). The economy window drew the same two rows under `Журнал, сначала новые`, with
+`Загрузить журнал` active and `Более старые записи` inactive; clicking the first sent the request and raised
+`ledger_pages` to 3. Thirty open/close cycles left `X4MPMenu.frame == nil` every time. The offer notice was raised by
+hand (`X4MPEconomy.onNotice`) and produced the two chat lines with texts 571-574, and `X4MPHud.economyText()` answered
+`ждут ответа: 1` for one incoming trade; the cross-player raise itself is a two-PC item.
 
 ## 5. What M5 needs next
 

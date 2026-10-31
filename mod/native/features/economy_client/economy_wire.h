@@ -134,6 +134,9 @@ struct LedgerRowView {
   std::int64_t ref_id = 0;
   std::string note;
   bool reversed = false;
+  // Not on the wire: the hub fills this with the row's time on the player's own clock (HH:MM) when the page lands. The game's
+  // Lua has no os.date, and the row's timestamp is UTC microseconds, so the only place that can render it is here.
+  std::string at;
 };
 
 struct LedgerPageView {

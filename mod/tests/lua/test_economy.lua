@@ -373,9 +373,9 @@ end)
 -- M5-31: the ledger list (protocol 0x0816/0x0817; the hub keeps the pages, the snapshot carries them)
 ------------------------------------------------------------------------------
 local LEDGER = '{"v":1,"self":1,"loans":[],"trades":[],"ledger":[' ..
-	'{"id":"01J000000000000000000A1","at_us":1700000000000000,"kind":19,"wallet_kind":0,"wallet_owner":1,' ..
+	'{"id":"01J000000000000000000A1","at_us":1700000000000000,"at":"12:04","kind":19,"wallet_kind":0,"wallet_owner":1,' ..
 	'"delta":1200,"actor":2,"ref_type":"transfer","ref_id":42,"note":"for the fuel","reversed":false},' ..
-	'{"id":"01J000000000000000000A0","at_us":1699990000000000,"kind":2,"wallet_kind":1,"wallet_owner":1,' ..
+	'{"id":"01J000000000000000000A0","at_us":1699990000000000,"at":"09:17","kind":2,"wallet_kind":1,"wallet_owner":1,' ..
 	'"delta":-500,"actor":0,"ref_type":"","ref_id":0,"note":"","reversed":true}],' ..
 	'"ledger_more":true,"ledger_pages":1}'
 
@@ -395,6 +395,9 @@ test("economy: /mp ledger asks for the newest page and prints it when it lands",
 	local text = all()
 	truthy(text:find("Ledger, newest first", 1, true), text)
 	truthy(text:find("Transfer", 1, true), text)
+	-- the hub formats the stamp on the player's clock; this Lua has no os.date, so the line must use row.at
+	truthy(text:find("12:04", 1, true), text)
+	truthy(text:find("09:17", 1, true), text)
 	truthy(text:find("+1 200", 1, true), text)
 	truthy(text:find("from player 2", 1, true), text)
 	truthy(text:find("for the fuel", 1, true), text)

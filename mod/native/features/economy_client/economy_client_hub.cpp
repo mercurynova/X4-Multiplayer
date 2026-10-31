@@ -1,6 +1,8 @@
 #include "features/economy_client/economy_client_hub.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <ctime>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -17,6 +19,22 @@ namespace {
 constexpr std::size_t kMaxUnsent = 32;
 // Two hundred rows is the server's largest page: "load more" past that point only pushes older rows out of the list.
 constexpr std::size_t kMaxLedgerRows = 200;
+
+// The ledger carries UTC microseconds and the screen shows the player's own clock. The game's Lua has no os.date at all (it is
+// sandboxed away), so the hub is the last place that still knows the local timezone: format once, when the page lands.
+std::string clock_hhmm(std::uint64_t at_us) {
+  if (at_us == 0) return std::string();
+  const std::time_t secs = static_cast<std::time_t>(at_us / 1000000ull);
+  std::tm tm{};
+#ifdef _WIN32
+  if (localtime_s(&tm, &secs) != 0) return std::string();
+#else
+  if (localtime_r(&secs, &tm) == nullptr) return std::string();
+#endif
+  char buf[8];
+  if (std::snprintf(buf, sizeof buf, "%02d:%02d", tm.tm_hour, tm.tm_min) <= 0) return std::string();
+  return std::string(buf);
+}
 
 std::string items_json(const std::vector<TradeItemView>& items) {
   nlohmann::json arr = nlohmann::json::array();
@@ -139,7 +157,12 @@ bool EconomyClientHub::on_frame_message(std::uint16_t type, std::span<const std:
     case P::MsgType::LedgerPage: {
       LedgerPageView view;
       if (!decode_ledger_page(payload, view)) {
+        // A page that cannot be read still answers the request: clear the latch, or the screen refuses every
+        // later page with "a ledger page is already on its way".
+        ledger_pending_ = false;
+        ledger_before_.clear();
         ++stats_.bad;
+        dirty_ = true;
         return true;
       }
       ++stats_.ledger_pages;
@@ -222,7 +245,11 @@ void EconomyClientHub::put_ledger_page(const LedgerPageView& page) {
   if (from_newest) ledger_.clear();
   for (const LedgerRowView& row : page.rows) {
     const bool seen = std::any_of(ledger_.begin(), ledger_.end(), [&row](const LedgerRowView& held) { return held.id == row.id; });
-    if (!seen) ledger_.push_back(row);
+    if (!seen) {
+      LedgerRowView held = row;
+      held.at = clock_hhmm(row.at_us);
+      ledger_.push_back(std::move(held));
+    }
   }
   if (ledger_.size() > kMaxLedgerRows) ledger_.resize(kMaxLedgerRows);
   ledger_more_ = page.more;
@@ -394,6 +421,7 @@ std::string EconomyClientHub::snapshot_json() const {
     nlohmann::json r;
     r["id"] = row.id;
     r["at_us"] = row.at_us;
+    r["at"] = row.at;
     r["kind"] = static_cast<int>(row.kind);
     r["wallet_kind"] = static_cast<int>(row.wallet_kind);
     r["wallet_owner"] = row.wallet_owner;

@@ -3,6 +3,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -417,4 +418,28 @@ TEST_CASE("economy_client: a ledger page replaces the list, a cursor page append
   CHECK(snapshot.find("\"ledger_pages\":3") != std::string::npos);
   CHECK(snapshot.find("ulid-a") != std::string::npos);
   CHECK(snapshot.find("ulid-c") != std::string::npos);
+  // the row carries its own wall clock: the game's Lua has no os.date, so the hub renders the stamp once, when the page lands
+  const auto at_pos = snapshot.find("\"at\":\"");
+  REQUIRE(at_pos != std::string::npos);
+  const std::string at = snapshot.substr(at_pos + 6, 5);
+  CHECK(at.size() == 5);
+  CHECK(at[2] == ':');
+  CHECK(std::isdigit(static_cast<unsigned char>(at[0])) != 0);
+  CHECK(std::isdigit(static_cast<unsigned char>(at[1])) != 0);
+
+  // A page that cannot be read answers the request too: the latch clears, so the next request is not refused
+  // with "a ledger page is already on its way" for the rest of the session.
+  params.before.clear();
+  REQUIRE(hub.request(E::Op::Ledger, params, error));
+  CHECK(hub.take_unsent(8).size() == 1);
+  CHECK(hub.ledger_pending());
+  const std::vector<std::uint8_t> garbage = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+  const std::uint64_t bad_before = hub.stats().bad;
+  REQUIRE(hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::LedgerPage), garbage));
+  CHECK_FALSE(hub.ledger_pending());
+  CHECK(hub.stats().bad == bad_before + 1);
+  CHECK(hub.stats().ledger_pages == 3);  // a bad page is not counted as one
+  CHECK(hub.ledger().size() == 3);       // and it does not wipe the rows already shown
+  CHECK(hub.request(E::Op::Ledger, params, error));
+  CHECK(error.empty());
 }

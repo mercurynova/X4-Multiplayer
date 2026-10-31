@@ -1722,6 +1722,32 @@
       "fields": {"TradeId":{"Hi":139,"Lo":46}}
     },
     {
+      "file": "0x0816_LedgerRequest.bin",
+      "kind": "frame",
+      "size": 80,
+      "sha256": "2ae9d90ef548d88e55b8b133f3a97ef767c3491e7a17094270ec6a9eb6245d46",
+      "msgType": 2070,
+      "msgName": "LedgerRequest",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 72,
+      "fields": {"Before":"01J000000000000000000A0","Limit":20,"RequestKey":{"Hi":148,"Lo":49}}
+    },
+    {
+      "file": "0x0817_LedgerPage.bin",
+      "kind": "frame",
+      "size": 336,
+      "sha256": "a4395488dd1b160b6e3f584373bce4e7ced9d377cb046e394652d52f04834dd6",
+      "msgType": 2071,
+      "msgName": "LedgerPage",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 328,
+      "fields": {"Detail":"","More":true,"Reason":0,"RequestKey":{"Hi":148,"Lo":49},"Rows":[{"Actor":3,"AtUs":1700000000000000,"Delta":1200,"Id":"01J000000000000000000A1","Kind":19,"Note":"for the fuel","RefId":42,"RefType":"transfer","Reversed":false,"Wallet":{"Kind":0,"OwnerId":3}},{"Actor":0,"AtUs":1699999999000000,"Delta":-500,"Id":"01J000000000000000000A0","Kind":2,"Note":"","RefId":0,"RefType":"","Reversed":true,"Wallet":{"Kind":2,"OwnerId":1}}],"Status":0}
+    },
+    {
       "file": "repl_moving_ship.bin",
       "kind": "replication-entries",
       "size": 25,

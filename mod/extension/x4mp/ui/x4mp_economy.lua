@@ -75,21 +75,19 @@ local LEDGER_KIND = { [0] = 586, [1] = 587, [2] = 588, [3] = 589, [4] = 590, [5]
 
 local function ledgerKind(kind) return T(LEDGER_KIND[tonumber(kind) or -1] or 606) end
 
---- the server stamps microseconds since the epoch; a line shows the local wall clock
-local function clock(at_us)
-	local secs = math.floor((tonumber(at_us) or 0) / 1000000)
-	if secs <= 0 then return "?" end
-	if type(os) == "table" and type(os.date) == "function" then
-		local ok, text = pcall(os.date, "%H:%M", secs)
-		if ok and type(text) == "string" then return text end
-	end
-	return tostring(secs)
+--- the time a row shows: the hub formats it on the player's own clock, because this Lua has no os.date at all (os is nil)
+local function clock(row)
+	local at = type(row.at) == "string" and row.at or ""
+	if at ~= "" then return at end
+	-- a snapshot from an older DLL carries only the raw stamp: show seconds rather than a wrong hour
+	local secs = math.floor((tonumber(row.at_us) or 0) / 1000000)
+	return secs > 0 and tostring(secs) or "?"
 end
 
 --- one ledger row as one line: "12:04  Transfer  +1 200, from player 3"
 local function ledgerLine(row)
 	local delta = tonumber(row.delta) or 0
-	local text = T(607, clock(row.at_us), ledgerKind(row.kind), (delta < 0 and "-" or "+") .. money(math.abs(delta)))
+	local text = T(607, clock(row), ledgerKind(row.kind), (delta < 0 and "-" or "+") .. money(math.abs(delta)))
 	if (tonumber(row.actor) or 0) > 0 then text = text .. ", " .. T(561, tostring(row.actor)) end
 	if row.reversed then text = text .. ", " .. T(608) end
 	if type(row.note) == "string" and row.note ~= "" then text = text .. ", " .. row.note end

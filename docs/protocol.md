@@ -1518,6 +1518,12 @@ Also changed by ADR-036: `CreditDelta` gains `seq`; `WalletUpdate` gains
 Not on the wire as a message: the `Manifest` file (`.x4mf`), which is transferred with
 the save-transfer messages.
 
+A new `MsgType` has to be added in five places, or the mod will refuse the first frame that carries it and drop the
+connection with `UnknownMessageType`: the `.fbs` id, a golden vector under `protocol/testdata/` (plus its `index.json`
+row), the C++ catalog `protocol/cpp/src/message_table.inc` (kept sorted, checked by `protocol/cpp/tests/test_wire.cpp`),
+the C# `MessageRegistry.Table.cs` and `MessagePolicy.cs` (`X4MP.Protocol.Tests` asserts that every id has a sample frame
+and a vector). §4.8 of [m5-exit-report.md](m5-exit-report.md) is the time this was missed.
+
 ---
 
 ## 21. Sequence diagrams
