@@ -230,6 +230,8 @@ local function buildMain(_, rows)
 		rows[#rows + 1] = { type = "button", id = "join", text = T(2), active = true, onClick = function() S.go("join") end }
 	end
 	rows[#rows + 1] = { type = "button", id = "appearance", text = T(900), active = true, onClick = function() S.openAppearance() end }
+	-- M5-32: the dedicated server screen. It is reachable without a session, because starting the server is what makes a session possible.
+	rows[#rows + 1] = { type = "button", id = "server", text = T(614), active = true, onClick = function() S.go("server") end }
 	-- M5-29: the economy screen. It needs a session (the server owns the books), so it sits next to the other in-session rows.
 	if S.connectionActive() then
 		rows[#rows + 1] = { type = "button", id = "economy", text = T(576), active = true, onClick = function() S.go("economy") end }
@@ -254,7 +256,15 @@ local function buildJoin(st, rows)
 	rows[#rows + 1] = text(T(13), "inactive")
 	-- M2-09: host option. The admin password only exists while the toggle is on; it is cleared after the send and when the window closes.
 	rows[#rows + 1] = { type = "button", id = "host", text = T(16, st.host and T(17) or T(18)), active = not busy,
-		onClick = function() st.host = not st.host if not st.host then st.adminPassword = "" end S.render() end }
+		onClick = function()
+			st.host = not st.host
+			if st.host and st.adminPassword == "" and type(X4MPServer) == "table" and type(X4MPServer.state) == "table" then
+				-- the server this game started refuses any other proof, so its own password is the useful default
+				st.adminPassword = tostring(X4MPServer.state.admin_password or "")
+			end
+			if not st.host then st.adminPassword = "" end
+			S.render()
+		end }
 	if st.host then
 		rows[#rows + 1] = { type = "edit", id = "adminpassword", label = T(19), value = st.adminPassword, hidden = true, maxChars = 128,
 			description = T(19), onChange = function(v) st.adminPassword = v end }
@@ -431,8 +441,21 @@ local function buildEconomy(st, rows)
 	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
 end
 
-local builders = { main = buildMain, join = buildJoin, status = buildStatus, appearance = buildAppearance, economy = buildEconomy }
-local titles = { main = 1, join = 2, status = 11, appearance = 900, economy = 576 }
+-- M5-32: the dedicated server screen. The server module owns the state and the verb; this file only registers the screen, so the
+-- chat command and the window can never drift apart. The module loads after this file (ui.xml), so it is looked up at build time.
+local function buildServer(st, rows)
+	local V = rawget(_G, "X4MPServer")
+	if type(V) ~= "table" or type(V.screenRows) ~= "function" then
+		rows[#rows + 1] = text(T(632), "warning")
+	else
+		V.screenRows(rows, st)
+	end
+	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
+end
+
+local builders = { main = buildMain, join = buildJoin, status = buildStatus, appearance = buildAppearance, economy = buildEconomy,
+	server = buildServer }
+local titles = { main = 1, join = 2, status = 11, appearance = 900, economy = 576, server = 614 }
 
 function S.buildModel()
 	local st = S.initState()

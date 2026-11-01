@@ -36,11 +36,12 @@ They are listed in §4.
 
 | Gate | Command | Result |
 |---|---|---|
-| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **683 tests, 0 failed** (4 skipped: the real-server/game smokes 663, 664, 674, 683), 97.8 s |
+| Mod build | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\build.ps1 -Config relwithdebinfo` | builds; **691 tests, 0 failed** (4 skipped: the real-server/game smokes 663, 664, 674, 683), 68.3 s |
 | Mod unit binary, wallet only | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[wallet]"` | **550 assertions in 16 test cases**, all passed |
 | Mod unit binary, economy client | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[economy_client]"` | **173 assertions in 8 test cases**, all passed |
 | Mod unit binary, settlement | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[settlement]"` | **69 assertions in 7 test cases**, all passed |
-| Lua | `python mod\tests\lua\run_lupa.py` | **304 passed, 0 failed** (301 before the three ledger cases; 293 before the offer-notice and screen cases) |
+| Mod unit binary, server launcher | `mod\build\msvc-x64-relwithdebinfo\x4mp_host_tests.exe "[server]"` | **94 assertions in 8 test cases**, all passed; one of them starts a real process through `CreateProcessW` (M5-32) |
+| Lua | `python mod\tests\lua\run_lupa.py` | **315 passed, 0 failed** (304 before the eleven server-screen cases) |
 | Deploy | `powershell -NoProfile -ExecutionPolicy Bypass -File mod\tools\deploy.ps1` | `Deployed.`; prints `x4mp is in use (x4mp_live.dll); merging over the running installation` while the game runs |
 | `X4MP.Core.Tests` | `dotnet test server\tests\X4MP.Core.Tests\X4MP.Core.Tests.csproj` | **1381 passed, 0 failed** (the two ledger module cases are new) |
 | `X4MP.Server.Tests` | `dotnet test server\tests\X4MP.Server.Tests\X4MP.Server.Tests.csproj` | **602 passed, 1 failed, 1 skipped** (`SaveTransferTests.TwoHundredMegabyteSaveGoesFromTheAuthorityToThreeClients`). The failure is `FakeNodeLiveTests.SingleClientAndAuthorityPrintWelcomeAndRtt`: its 1 s live run never reaches the first report window on this box, so the log has no `rtt=`. A worktree of clean `56b999a` fails the same assertion alone, so it predates this wave |
@@ -389,6 +390,42 @@ no rows, so the list stayed at two and `more` stayed false (`requests=3 ... ledg
 `ledger_pages` to 3. Thirty open/close cycles left `X4MPMenu.frame == nil` every time. The offer notice was raised by
 hand (`X4MPEconomy.onNotice`) and produced the two chat lines with texts 571-574, and `X4MPHud.economyText()` answered
 `ждут ответа: 1` for one incoming trade; the cross-player raise itself is a two-PC item.
+
+## 4.9 M5-32: the game starts its own server
+
+M5-32 asked for a dedicated server that can be started from inside X4, by a player who has neither a terminal nor a .NET
+install. It is `mod/native/features/server` (`server_process` = Win32, `server_launcher` = the plan and the state machine,
+`server_feature` = the bridge) plus `ui/x4mp_server.lua`, the `Выделенный сервер` screen and `/mp server start|stop|status`.
+
+**The bundle is a folder publish, and that is not a preference.** A `--self-contained` publish of the server runs on a
+machine with no runtime, but the single-file flavour cannot be built here (central package management rejects the
+`Microsoft.NET.ILLink.Tasks` the flag pulls in, `NU1009`), and **ReadyToRun produces an executable that fail-fasts**
+(`0xC0000602`, no output at all, `coreclr.dll` named in the event log) while the same publish with
+`-p:PublishReadyToRun=false` starts normally. `mod/tools/deploy.ps1 -WithServer` publishes
+`--self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=false -p:SkipWebBuild=true` into
+`out\server-win-x64` (360 files, about 115 MB, web GUI embedded) and merges it into `<X4>\extensions\x4mp\server`. The
+first attempt shipped the stale ReadyToRun folder, and the menu reported exactly what happened:
+`server: exited port=47780 error=the server exited with code -1073740286, see ...\server-console.log`, with an empty log.
+
+**Two defects the in-game run found.** `CreateProcessW` refused the spawn with `ERROR_INVALID_PARAMETER` (87) as soon as
+the launcher passed an environment block: the call was missing **`CREATE_UNICODE_ENVIRONMENT`**, so Windows read the
+UTF-16 block as ANSI. The new real-process test reproduces it outside the game (a `powershell.exe -Command exit 7` child
+with two overrides), which is why the case is in `test_server_feature.cpp` and not only in a comment. The second: the
+node gateway authenticates an authority join against **`X4MP:Net:AdminPassword`**, not against the `admin` user in the
+database, so a server started without that variable refuses the very game that started it - the first join ended
+`rejected detail=authentication failed`, `conn 100: refused with "AuthFailed"`. The launcher now generates a 20-character
+password once, keeps it in `<data_dir>\admin-password.txt`, passes it as `X4MP__Net__AdminPassword`, shows it on the
+screen and fills it into the join form's host field.
+
+**Run in game on 2026-11-02** (game pid 19924, no session, nothing on the ports): the screen showed
+`Состояние сервера: работает | PID 14216, порт 47780, слушает | Порт админ-панели 47790 | Каталог данных:
+...\X4MP\server-data | Журнал: ...\logs\server-console.log | Админ-пароль: o5JjbCoXaxm2WQGpRkW8`, with
+`server_start=false`, `server_stop=true`; `server-console.log` had `Database ready at schema version 8`,
+`Now listening on: http://0.0.0.0:47780` and `47790`, and both ports answered for pid 14216. The join with the generated
+password was admitted (`admitted Admin (player 1) as Authority, Client, Admin`, session
+`Idle -> WaitingForAuthority -> AuthorityLoading -> Running (first checkpoint stored)`) and the mod reported
+`state=ingame role=authority players=1`; the host toggle in the join form prefilled `o5JjbCoXaxm2WQGpRkW8` by itself.
+Stopping closed both ports, and closing the game while the server ran left no `x4mp-server` process (`auto_stop`).
 
 ## 5. What M5 needs next
 

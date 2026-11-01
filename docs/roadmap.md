@@ -59,7 +59,10 @@ line fails, answering `AssetTransferConfirm` and `TradeQuery` from the journal. 
 `WareMove` is refused because the cargo shim reports no per-operation result. **The ledger list and the window are done as
 well**: `LedgerRequest`/`LedgerPage` (0x0816/0x0817) answer one page of the transactions the requester may see,
 `/mp ledger [more]` and the economy screen browse it, an incoming offer raises `x4mp.economy_notice` and shows as a
-toast, a chat line and the HUD badge, and the standalone window releases its frame handle on every path. The remaining W7
+toast, a chat line and the HUD badge, and the standalone window releases its frame handle on every path. **M5-32 is done
+too**: the extension ships the dedicated server itself (`<extension>/server`, a 360-file self-contained folder publish),
+and `features/server` starts, watches and stops it from the menu screen or `/mp server start|stop|status` - a hidden
+process, its own node ports, a generated admin password, and `auto_stop` on game exit. The remaining W7
 work is M5-27 (needs the two-node run), and acceptance items 2-7, the two-node halves of 10 and 12 still need a second
 game node.
 [in-game-session-8.md](in-game-session-8.md) is the

@@ -66,6 +66,18 @@ struct DiagConfig {
   bool operator==(const DiagConfig&) const = default;
 };
 
+// M5-32: the dedicated server the game can start itself (features/server). The bundle ships inside the extension
+// (<extension>/server/x4mp-server.exe), so a player never installs .NET and never opens a terminal.
+// x4mp.json: {"server": {"exe": "", "data_dir": "", "port": 47780, "auto_stop": true}}.
+struct ServerConfig {
+  std::string exe;       // empty: <extension>/server/x4mp-server.exe, then <extension>/server/x4mp-server
+  std::string data_dir;  // empty: <LocalAppData>/X4MP/server-data (the database, the session saves and the logs live there)
+  int port = 47780;      // the node TCP port; the launcher also probes it to say "listening"
+  bool auto_stop = true;  // stop the server this game started when the game exits, so a second start finds the ports free
+  std::string admin_password;  // empty: generated once and kept in <data_dir>/admin-password.txt
+  bool operator==(const ServerConfig&) const = default;
+};
+
 struct Config {
   std::string server_host = "127.0.0.1";
   int tcp_port = 47780;
@@ -87,6 +99,7 @@ struct Config {
   std::vector<std::pair<std::string, log::Level>> log_categories;
   LaunchRequest launch;
   DiagConfig diag;  // M3-23
+  ServerConfig server;  // M5-32
 };
 
 struct Diagnostic {

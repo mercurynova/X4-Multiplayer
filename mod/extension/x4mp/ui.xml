@@ -21,6 +21,8 @@
      native has no money getter of its own).
      M5-29/30 added x4mp_economy.lua (the economy screen and the /mp commands: loans and trades from topic x4mp.economy, every
      action sent as verb x4mp.economy; it needs x4mp_chat.lua for the system lines, so it loads after it).
+     M5-32 added x4mp_server.lua (the dedicated server screen and the /mp server commands: it starts and stops the server the
+     extension ships; it loads after x4mp_economy.lua because the chat adapter gives every /mp line to the economy module first).
      Later tasks must not edit this file.
      __X4MP_USER (userdata storage, not in the save): { version, lastAddress, lastName }; never the password. -->
 <addon name="x4mp">
@@ -47,6 +49,7 @@
     <file name="ui/x4mp_events.lua" />
     <file name="ui/x4mp_money.lua" />
     <file name="ui/x4mp_economy.lua" />
+    <file name="ui/x4mp_server.lua" />
     <dependency name="ego_detailmonitorHelper" />
     <savedvariable name="__X4MP_USER" storage="userdata" />
   </environment>

@@ -110,7 +110,7 @@ add_library(x4mp_host STATIC
   ${X4MP_FEATURE_SOURCES})
 target_include_directories(x4mp_host PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native")
 target_compile_features(x4mp_host PUBLIC cxx_std_23)
-target_link_libraries(x4mp_host PUBLIC x4mp_core x4mp_game shell32 ole32)
+target_link_libraries(x4mp_host PUBLIC x4mp_core x4mp_game shell32 ole32 ws2_32)  # ws2_32: features/server probes the server's port
 set_target_properties(x4mp_host PROPERTIES CXX_EXTENSIONS OFF)
 x4mp_set_warnings(x4mp_host)
 
@@ -131,7 +131,8 @@ if(X4MP_TESTS)
     tests/test_statics.cpp
     tests/test_wallet.cpp
   tests/test_economy_client.cpp
-  tests/test_settlement.cpp)
+  tests/test_settlement.cpp
+  tests/test_server_feature.cpp)  # test_server_feature: M5-32, the launcher that starts the bundled server
   target_link_libraries(x4mp_host_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
   x4mp_set_warnings(x4mp_host_tests)
   catch_discover_tests(x4mp_host_tests TEST_PREFIX "host." PROPERTIES TIMEOUT 60)

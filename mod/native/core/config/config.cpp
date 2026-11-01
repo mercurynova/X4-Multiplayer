@@ -29,19 +29,19 @@ void bad(Diags& diags, std::string_view source, std::string_view key, std::strin
 // Each reader returns true when the key was present and valid (out updated). Present-but-invalid reports an
 // Error naming the key and leaves `out` alone, so the previous layer's value (or the default) survives.
 bool read_string(const Json& doc, std::string_view key, bool allow_empty, std::string& out, std::string_view source,
-                 Diags& diags) {
+                 Diags& diags, std::string_view shown_key = {}) {
   const auto it = doc.find(std::string(key));
   if (it == doc.end()) return false;
   if (it->is_string() && (allow_empty || !it->get_ref<const std::string&>().empty())) {
     out = it->get<std::string>();
     return true;
   }
-  bad(diags, source, key, allow_empty ? "must be a string" : "must be a non-empty string");
+  bad(diags, source, shown_key.empty() ? key : shown_key, allow_empty ? "must be a string" : "must be a non-empty string");
   return false;
 }
 
 bool read_int(const Json& doc, std::string_view key, long long lo, long long hi, long long& out, std::string_view source,
-              Diags& diags) {
+              Diags& diags, std::string_view shown_key = {}) {
   const auto it = doc.find(std::string(key));
   if (it == doc.end()) return false;
   if (it->is_number_integer()) {
@@ -51,7 +51,8 @@ bool read_int(const Json& doc, std::string_view key, long long lo, long long hi,
       return true;
     }
   }
-  bad(diags, source, key, "must be an integer in " + std::to_string(lo) + ".." + std::to_string(hi));
+  bad(diags, source, shown_key.empty() ? key : shown_key,
+      "must be an integer in " + std::to_string(lo) + ".." + std::to_string(hi));
   return false;
 }
 
@@ -113,6 +114,28 @@ void apply_diag(DiagConfig& d, const Json& doc, std::string_view source, Diags& 
   }
 }
 
+// M5-32: {"server": {"exe": "...", "data_dir": "...", "port": 47780, "auto_stop": true}} - the dedicated server the game
+// starts itself (features/server). Keys are reported as "server.<name>" so a diagnostic names the key the file shows.
+void apply_server(ServerConfig& s, const Json& doc, std::string_view source, Diags& diags) {
+  const auto it = doc.find("server");
+  if (it == doc.end()) return;
+  if (!it->is_object()) {
+    bad(diags, source, "server", "must be an object of exe, data_dir, port and auto_stop");
+    return;
+  }
+  const Json& o = *it;
+  read_string(o, "exe", true, s.exe, source, diags, "server.exe");
+  read_string(o, "data_dir", true, s.data_dir, source, diags, "server.data_dir");
+  if (long long v = 0; read_int(o, "port", 1, 65535, v, source, diags, "server.port")) s.port = static_cast<int>(v);
+  read_bool(o, "auto_stop", s.auto_stop, source, diags, "server.auto_stop");
+  read_string(o, "admin_password", true, s.admin_password, source, diags, "server.admin_password");
+  for (auto cit = o.begin(); cit != o.end(); ++cit) {
+    const std::string& key = cit.key();
+    if (key == "exe" || key == "data_dir" || key == "port" || key == "auto_stop") continue;
+    add(diags, log::Level::Warn, "config " + std::string(source) + ": unknown key 'server." + key + "' ignored");
+  }
+}
+
 void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& diags) {
   read_string(doc, "server_host", false, cfg.server_host, source, diags);
   if (long long v = 0; read_int(doc, "tcp_port", 1, 65535, v, source, diags)) cfg.tcp_port = static_cast<int>(v);
@@ -154,8 +177,9 @@ void apply_user(Config& cfg, const Json& doc, std::string_view source, Diags& di
     }
   }
   apply_diag(cfg.diag, doc, source, diags);
+  apply_server(cfg.server, doc, source, diags);
   warn_unknown(doc,
-               {"diag", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "diag.team_self_relation_100", "diag.team_move_respawn", "diag.avatars_inert_once",
+               {"diag", "server", "diag.takeover_keep_original", "diag.takeover_off", "diag.ghosts_off", "diag.janitor_off", "diag.team_self_relation_100", "diag.team_move_respawn", "diag.avatars_inert_once",
                 "diag.dress_no_radar_no_known", "diag.no_set_faction_known", "diag.takeover_mode_reown", "diag.takeover_keep_own_ship", "diag.hints_off", "diag.hints_all_speeds", "diag.engine_guard_off",
                 "diag.ghost_attention_activate", "server_host", "tcp_port", "log_level", "log_file", "log_rate_limit", "player_name", "password",
                 "outbox_byte_cap", "frame_budget_us", "log_categories", "selftest", "last_address", "last_name",  // last_*: remembered Join fields (M3-07)
@@ -310,6 +334,12 @@ std::string describe(const Config& c) {
   out += std::string("password=") + (c.password.empty() ? "<unset>" : "<redacted>") + "\n";
   out += "outbox_byte_cap=" + std::to_string(c.outbox_byte_cap) + "\n";
   out += "frame_budget_us=" + std::to_string(c.frame_budget_us) + "\n";
+  out += "server.exe=" + (c.server.exe.empty() ? "<extension>" : c.server.exe) + "\n";
+  out += "server.data_dir=" + (c.server.data_dir.empty() ? "<default>" : c.server.data_dir) + "\n";
+  out += "server.port=" + std::to_string(c.server.port) + "\n";
+  out += std::string("server.auto_stop=") + (c.server.auto_stop ? "true" : "false") + "\n";
+  // Never the value: describe() lands in logs and bug reports.
+  out += std::string("server.admin_password=") + (c.server.admin_password.empty() ? "<generated>" : "<set>") + "\n";
   for (const auto& [name, level] : c.log_categories) out += "log_category." + name + "=" + log::level_name(level) + "\n";
   if (c.diag.any()) {
     out += std::string("diag.takeover_keep_original=") + (c.diag.takeover_keep_original ? "true" : "false") + "\n";

@@ -269,6 +269,31 @@
     <t id="611">Load the ledger</t>
     <t id="612">Older entries</t>
     <t id="613">Ledger requested</t>
+    <t id="614">Dedicated server</t>
+    <t id="615">Server state: %s</t>
+    <t id="616">stopped</t>
+    <t id="617">starting</t>
+    <t id="618">running</t>
+    <t id="619">exited</t>
+    <t id="620">PID %d, port %d, %s</t>
+    <t id="621">listening</t>
+    <t id="622">not listening</t>
+    <t id="623">Admin GUI port %d</t>
+    <t id="624">Data directory: %s</t>
+    <t id="625">Log: %s</t>
+    <t id="626">The server stops with the game.</t>
+    <t id="627">The server keeps running after the game closes.</t>
+    <t id="628">Error: %s</t>
+    <t id="629">Start server</t>
+    <t id="630">Stop server</t>
+    <t id="631">Refresh status</t>
+    <t id="632">No server status yet. Refresh to read it.</t>
+    <t id="633">Use /mp server start, /mp server stop or /mp server status.</t>
+    <t id="634">Server %s, pid %d, port %d, %s, data directory %s, log %s</t>
+    <t id="635">The server command was not sent.</t>
+    <t id="636">unknown</t>
+    <t id="637">Admin password: %s</t>
+    <t id="638">The password is also kept in %s</t>
     <t id="967">and %d more</t>
   </page>
 </language>

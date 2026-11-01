@@ -5,7 +5,7 @@ background is in [server-design.md](server-design.md) (sections 1.4, 1.5, 2.9, 4
 [dev-setup.md](dev-setup.md) (section 7). To try a server without X4, use the load/test tool described in
 [fakenode.md](fakenode.md).
 
-Contents: 1 Install · 2 First run and login · 3 Data directory · 4 Ports and firewall · 5 Networks (LAN, VPN,
+Contents: 1 Install · 1a Start from the game · 2 First run and login · 3 Data directory · 4 Ports and firewall · 5 Networks (LAN, VPN,
 allow-list) · 6 Windows service and systemd · 7 Configuration · 8 GUI pages · 9 Backups · 10 Logs · 11 Troubleshooting.
 
 ## 1. Install and publish
@@ -36,6 +36,42 @@ Options: `--data-dir <dir>` (alias `--data`), `--port <n>` (HTTP port, default 4
 `service install`), `--name <service name>` (service verbs, default `X4MP`). Both `--opt value` and `--opt=value` work.
 Anything else is passed to ASP.NET Core, which also takes configuration as `--Section:Key=value` (for example
 `--X4MP:Net:MaxPlayers=16`) and `--urls`.
+
+## 1a. Starting the server from the game
+
+A player does not need a terminal. The extension ships its own copy of the server, and the menu starts it:
+
+1. In game, open the X4MP window and press **Выделенный сервер** on the main screen. The screen is reachable without a
+   session, because starting the server is what makes a session possible.
+2. **Запустить сервер** starts `extensions/x4mp/server/x4mp-server.exe`. The state goes `запускается` and then
+   `работает` once the node port answers; the screen shows the pid, both ports, the data folder, the log and the admin
+   password.
+3. Join the server this game started: the join form's host toggle fills in the admin password the launcher generated.
+4. **Остановить сервер** stops it. It also stops when the game exits, unless `server.auto_stop` is false.
+
+The same three actions are on the chat command: `/mp server start`, `/mp server stop`, `/mp server status` (`/mp server`
+alone asks for the status).
+
+What the launcher decides, and where it lives:
+
+| Thing | Default | Where it comes from |
+|---|---|---|
+| Executable | `<extension>/server/x4mp-server.exe` | `server.exe` in `x4mp.json`, relative to the extension |
+| Data folder | `%LocalAppData%\X4MP\server-data` | `server.data_dir` |
+| Node port | 47780 (UDP 47781), GUI 47790 | `server.port`; the GUI port is the node port plus ten |
+| Console log | `%LocalAppData%\X4MP\logs\server-console.log` | always, so a windowless process leaves a trace |
+| Admin password | generated once, kept in `<data_dir>/admin-password.txt` | `server.admin_password` overrides it |
+
+The server is started hidden, with its own process group and with the node ports in its environment
+(`X4MP__Net__NodeTcpEndpoint`, `X4MP__Net__UdpPort`, `X4MP__Net__AdminPassword`), so it needs no config file and does not
+inherit the game's. Without an admin password the gateway refuses the authority join, which is why one is always
+generated.
+
+The bundle itself is a **folder** publish (`dotnet publish ... --self-contained true -p:PublishSingleFile=false
+-p:PublishReadyToRun=false`), 360 files and about 115 MB, inside the extension: it runs on a machine with no .NET
+installed. `mod/tools/deploy.ps1 -WithServer` builds and copies it, and a plain `deploy.ps1` copies an already built
+bundle. Single-file publishing is not used here: the repo's central package management rejects the ILLink task it pulls
+in, and ReadyToRun produces an executable that fail-fasts with `0xC0000602` on this machine.
 
 ## 2. First run and first login
 

@@ -37,6 +37,7 @@
 #include "features/wallet/wallet_feature.h"
 #include "features/economy_client/economy_client_feature.h"
 #include "features/settlement/settlement_feature.h"
+#include "features/server/server_feature.h"
 
 namespace x4mp::host {
 
@@ -63,6 +64,7 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::wallet::WalletFeature>());  // M5-22: the x4mp.money poll into wallet_hub; after economy, which will book its changes upward (M5-23)
   registry.add(std::make_unique<x4mp::features::economy_client::EconomyClientFeature>());  // M5-29/30: the x4mp.economy verb and the EconomyResult/LoanStatus/TradeStatus/TradeResult snapshot, after wallet so the screen sees the balance
   registry.add(std::make_unique<x4mp::features::settlement::SettlementFeature>());  // M5-31: the authority's side of an escrowed trade - AssetTransferOrder in, AssetTransferConfirm out, a journal on disk so a restart can still answer TradeQuery
+  registry.add(std::make_unique<x4mp::features::server::ServerFeature>());  // M5-32: the menu starts and stops the dedicated server this game ships; no world state, so its place in the order only matters for shutdown
   registry.add(std::make_unique<x4mp::features::StatsFeature>());  // last: its frame cost sample covers the earlier features
 }
 

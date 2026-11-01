@@ -16,16 +16,21 @@
   Also copy x4mp.pdb next to the dll (crash analysis).
 .PARAMETER SkipX4Native
   Do not (re)install the vendored X4Native; only update x4mp.
+.PARAMETER WithServer
+  Publish the self-contained server bundle (server\src\X4MP.Server, win-x64, no .NET needed on the player's machine)
+  into out\server-win-x64 and ship it as <X4>\extensions\x4mp\server\. That is what the in-game menu starts.
 .EXAMPLE
   .\deploy.ps1 -WhatIf
   .\deploy.ps1 -X4Dir "D:\SteamLibrary\steamapps\common\X4 Foundations"
+  .\deploy.ps1 -WithServer
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
   [string]$X4Dir,
   [ValidateSet('debug', 'release', 'relwithdebinfo')][string]$Config = 'relwithdebinfo',
   [switch]$WithPdb,
-  [switch]$SkipX4Native
+  [switch]$SkipX4Native,
+  [switch]$WithServer
 )
 $ErrorActionPreference = 'Stop'
 $modDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -117,6 +122,21 @@ function Install-Folder([string]$source, [string]$dest) {
   if ($skipped -gt 0) { Write-Host "deploy: $skipped file(s) left as loaded; restart X4 to pick them up" }
 }
 
+$repoRoot = Split-Path $modDir -Parent
+$serverBundle = Join-Path $repoRoot 'out\server-win-x64'
+
+# M5-32: the extension ships the dedicated server itself, so a player needs no .NET install and no terminal. The bundle
+# is a folder publish: single-file cannot be built here (central package management rejects ILLink), and ReadyToRun
+# produces an exe that fail-fasts on this machine (0xC0000602), so both are off.
+if ($WithServer) {
+  Write-Host "server    : publishing the self-contained bundle to $serverBundle"
+  $proj = Join-Path $repoRoot 'server\src\X4MP.Server\X4MP.Server.csproj'
+  & dotnet publish $proj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false `
+    -p:PublishReadyToRun=false -p:SkipWebBuild=true -p:DebugType=none -o $serverBundle
+  if ($LASTEXITCODE -ne 0) { throw 'dotnet publish of the server bundle failed.' }
+  if (-not (Test-Path (Join-Path $serverBundle 'x4mp-server.exe'))) { throw "x4mp-server.exe is missing from $serverBundle" }
+}
+
 if ($PSCmdlet.ShouldProcess($extRoot, 'Install x4mp (and X4Native)')) {
   if (-not (Test-Path $extRoot)) { New-Item -ItemType Directory -Path $extRoot | Out-Null }
 
@@ -127,6 +147,25 @@ if ($PSCmdlet.ShouldProcess($extRoot, 'Install x4mp (and X4Native)')) {
   if ($WithPdb) {
     $pdb = [IO.Path]::ChangeExtension($dll, '.pdb')
     if (Test-Path $pdb) { Copy-Item $pdb (Join-Path $destMp 'native\x4mp.pdb') -Force }
+  }
+
+  # Ship the bundle whenever one was published, not only on -WithServer: publishing is slow and a plain deploy must still
+  # bring an already built bundle along, otherwise the extension keeps whatever it had.
+  if (Test-Path (Join-Path $serverBundle 'x4mp-server.exe')) {
+    # Merge, never wipe: a server this game started is running from this folder and holds its exe open.
+    $destServer = Join-Path $destMp 'server'
+    New-Item -ItemType Directory -Force -Path $destServer | Out-Null
+    $bundleRoot = (Resolve-Path $serverBundle).Path.TrimEnd('\')
+    $copied = 0
+    Get-ChildItem -Path $bundleRoot -Recurse -File | ForEach-Object {
+      $relative = $_.FullName.Substring($bundleRoot.Length + 1)
+      $target = Join-Path $destServer $relative
+      $parent = Split-Path -Parent $target
+      if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+      try { Copy-Item -Path $_.FullName -Destination $target -Force -ErrorAction Stop; $copied++ }
+      catch { Write-Host "deploy: skipped server\$relative (in use by a running server)" }
+    }
+    Write-Host "deploy: server bundle at $destServer ($copied files)"
   }
 
   if (-not $SkipX4Native) {
