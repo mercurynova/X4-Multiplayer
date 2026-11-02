@@ -627,8 +627,22 @@ allowlist. The nonce is single use and lives 120 s; the HMAC headers are `X-X4MP
 comes from the authority, falling back to the configured supported build. Three tests in
 `JoinManifestTests.cs` cover the open server, the rule/class/Workshop-id mapping and the
 gated flow (missing headers, wrong proof, replay, and a successful join with the session
-name). The next task is M6-X2, which needs the `x4mp-launcher.exe` shell that does not exist
-yet.
+name).
+
+**Status 2026-11-02 (M6-X2): the launcher shell, the scan and the plan are in.** `launcher/`
+holds three projects: `X4MP.Launcher.Core` (portable, no WPF: install and profile discovery,
+the tolerant `content.xml` parser, the extension scanner ported from
+`mod/native/core/mods/mods.cpp`, the profile overrides, the join-manifest client and the
+planner), `X4MP.Launcher` (the WPF window, `x4mp-launcher.exe`) and
+`X4MP.Launcher.Core.Tests` (60 tests, all against temporary trees and a stub HTTP handler, so
+no display and no game are needed). The Core references `X4MP.Protocol` on purpose: the
+allowlist, the `ws_` Workshop id rule and the Nexus/Workshop URL builders are the server's
+code, not a second copy that can drift. The plan uses id, version and class only because the
+manifest carries no content hash, and a mod that is not installed never produces a toggle.
+Nothing is written yet: the window only reports what would have to change, so `content.xml`
+and the player's original mod set are untouched until M6-X3. `launcher/X4MP.Launcher.sln` is
+deliberately separate from `X4MP.sln`, which also builds on Linux; a new `launcher` CI job
+builds and tests it on windows-latest.
 
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses

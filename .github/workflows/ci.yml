@@ -47,6 +47,7 @@ jobs:
       mod: ${{ steps.f.outputs.mod }}
       e2e: ${{ steps.f.outputs.e2e }}
       e2e_win: ${{ steps.f.outputs.e2e_win }}
+      launcher: ${{ steps.f.outputs.launcher }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -87,12 +88,15 @@ jobs:
           # E2E (M1-C1): the ubuntu jobs (swarm, Playwright) need the server, web, FakeNode, protocol or the script itself;
           # the windows headless-client job also needs the mod. mod/spikes/** alone triggers nothing.
           e2e=$(has '^(server/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$|Directory\..*\.props$|global\.json$)')
+          # The launcher (M6-X2) is Windows-only and references X4MP.Protocol, so a protocol change or a
+          # repo-wide build property change has to rebuild it as well.
+          launcher=$(has '^(launcher/|server/src/X4MP\.Protocol/|protocol/|tools/flatc/|Directory\..*\.props$|global\.json$)')
           if echo "$files" | grep -Ev '^mod/spikes/' | grep -Eq '^mod/'; then e2e_win=true; else e2e_win=$(has '^(server/src/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$|tools/session[234]/)'); fi
           if [ "$EVENT" = "push" ]; then e2e=true; e2e_win=true; fi   # a push to main always runs the whole E2E
-          if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; e2e_win=true; fi
+          if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; e2e_win=true; launcher=true; fi
           {
             echo "web=$web"; echo "dotnet=$dotnet"; echo "protocol_cpp=$protocol_cpp"
-            echo "mod=$mod"; echo "e2e=$e2e"; echo "e2e_win=$e2e_win"
+            echo "mod=$mod"; echo "e2e=$e2e"; echo "e2e_win=$e2e_win"; echo "launcher=$launcher"
           } | tee -a "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------------------------
@@ -179,6 +183,44 @@ jobs:
         with:
           name: test-results-${{ matrix.os }}
           path: TestResults
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------------------------
+  # The desktop launcher (M6-X2). WPF cannot build on Linux, so it stays out of X4MP.sln and gets
+  # its own windows-latest job. It shares X4MP.Protocol with the server, which is why a protocol
+  # change lands here too.
+  # ---------------------------------------------------------------------------------------------
+  launcher:
+    needs: changes
+    if: needs.changes.outputs.launcher == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Fetch flatc (Windows)
+        shell: pwsh
+        run: tools/flatc/fetch-flatc.ps1
+      - run: dotnet restore launcher/X4MP.Launcher.sln --locked-mode
+      - run: dotnet build launcher/X4MP.Launcher.sln -c Release --no-restore -warnaserror
+      - run: dotnet test launcher/X4MP.Launcher.sln -c Release --no-build --logger "trx;LogFileName=results.trx" --results-directory launcher/TestResults
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-test-results
+          path: launcher/TestResults
           if-no-files-found: ignore
           retention-days: 7
 

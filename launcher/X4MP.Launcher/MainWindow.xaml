@@ -1,0 +1,57 @@
+<Window x:Class="X4MP.Launcher.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="X4MP launcher" Height="620" Width="1020" WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="X4MP launcher" FontSize="22" FontWeight="SemiBold" />
+            <TextBlock Margin="0,4,0,0" Foreground="#555555" TextWrapping="Wrap"
+                       Text="Checks what this server runs and what your game is missing. Nothing is downloaded and no file is changed in this build." />
+        </StackPanel>
+
+        <Grid Grid.Row="1" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock VerticalAlignment="Center" Text="Server" />
+            <TextBox x:Name="ServerBox" Grid.Column="1" Margin="8,0,16,0" Padding="6,4" Text="http://localhost:47790" />
+            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="Join password" />
+            <PasswordBox x:Name="PasswordBox" Grid.Column="3" Margin="8,0,16,0" Padding="6,4" />
+            <Button x:Name="CheckButton" Grid.Column="4" Padding="20,5" Content="Check" Click="OnCheck" />
+        </Grid>
+
+        <TextBlock x:Name="SessionBlock" Grid.Row="2" Margin="0,12,0,0" FontWeight="SemiBold" TextWrapping="Wrap" />
+
+        <TextBlock x:Name="StatusBlock" Grid.Row="3" Margin="0,6,0,10" TextWrapping="Wrap"
+                   Text="Enter the address the server showed you, then press Check." />
+
+        <ListView x:Name="PlanList" Grid.Row="4">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Action" Width="80" DisplayMemberBinding="{Binding ActionText}" />
+                    <GridViewColumn Header="Mod" Width="320" DisplayMemberBinding="{Binding Name}" />
+                    <GridViewColumn Header="Class" Width="90" DisplayMemberBinding="{Binding Class}" />
+                    <GridViewColumn Header="Rule" Width="80" DisplayMemberBinding="{Binding Rule}" />
+                    <GridViewColumn Header="Version" Width="140" DisplayMemberBinding="{Binding VersionText}" />
+                    <GridViewColumn Header="Notes" Width="260" DisplayMemberBinding="{Binding Notes}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock Grid.Row="5" Margin="0,10,0,0" Foreground="#666666"
+                   Text="This window only reports what would have to change. Applying the plan comes in the next milestone." />
+    </Grid>
+</Window>

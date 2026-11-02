@@ -389,6 +389,15 @@ Wire contract (implemented in M6-X1, `server/src/X4MP.Server/Join/`):
 
 ### 4.2 Launcher flow (C#, `x4mp-launcher.exe`, ships in the mod zip)
 
+**Status 2026-11-02 (M6-X2): steps 1-3 are implemented; steps 4-8 are not yet.** The logic is
+`launcher/X4MP.Launcher.Core` (no UI, so it is tested without a display): install and profile
+discovery, the `content.xml` parser, a port of `mod/native/core/mods/mods.cpp` for the three
+sources, the profile overrides, the join-manifest client and the planner. `launcher/X4MP.Launcher`
+is the WPF window; it shows the plan and writes no file. The Core references `X4MP.Protocol`, so
+the allowlist, the `ws_` id rule and the link normalisation are the server's own code rather than
+a copy. The manifest carries no content hash, so the plan uses id, version and class only and the
+launcher never hashes files.
+
 1. Read `x4mp.json` / last server; fetch the manifest.
 2. **Scan** the three sources (§1.1) and the profile `content.xml` (newest
    `<steam-id>` folder, or ask if several). Build the local `ExtensionInfo` list the same

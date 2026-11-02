@@ -15,6 +15,7 @@ below. The repo is the only memory that follows you between computers.
 | [`../mod/docs/known-issues.md`](../mod/docs/known-issues.md) | Bugs found on the two-instance stand: the spurious `money: send refused` at every start (cause chain + proposed fix), the 60 s reconnect grace versus a 2–3 minute game boot, and the things that look like bugs but are not |
 | [`../tools/check-env.ps1`](../tools/check-env.ps1) | One command that checks this machine against dev-setup.md |
 | [`../installer/`](../installer/) | Player tools: `Install.bat`, `Check Install.bat`, `Collect Logs.bat`, `Uninstall.bat`, and `Test-Installer.ps1`, which drives all four against a fake game tree in `%TEMP%` (`guard.installer` ctest) |
+| [`../launcher/`](../launcher/) | `x4mp-launcher.exe` (WPF, M6-X2): scans the three extension sources and the newest profile, fetches the server's mod manifest and shows the enable/disable/install plan; nothing is written yet |
 | [`../CLAUDE.md`](../CLAUDE.md) | Project context + working agreements for Claude sessions |
 
 ## Design (what we're building)
