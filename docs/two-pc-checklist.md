@@ -243,7 +243,9 @@ X4MP__Admin__AllowRemote=true
 
 **What is checked.** That a transfer moves two wallets, that the pool commands work in `PerPlayer` mode, and that a loan and a trade finish with an answer from the other side.
 
-**Preparation.** Both players in the same team. For the pool commands the server is started with `Economy:CreditMode=PerPlayer`.
+**Preparation.** Both players in the same team. The server is started with `Economy:CreditMode=PerPlayer` — for **all** the steps, not only the pool ones: with the default `Auto` a single-team session shares one wallet, so every transfer and loan between the two players is refused `SameWallet` (KI-3 in [`../mod/docs/known-issues.md`](../mod/docs/known-issues.md)). The setting goes into the bundle's `appsettings.json`; the menu launcher passes only the `X4MP__Net__*` values.
+
+**Offers today come from a fake node.** The mod can answer a **trade** (`/mp accept`), but it cannot create a loan offer or a trade proposal and cannot accept or decline a **loan** offer (KI-4). So for steps 5 and 9 the offering side is `out\fakenode\X4MP.FakeNode.exe client --server <A address>:47780 --name Offer --economy casual --mod-build x4mp --extensions <the authority's list>`; a bare bot is refused first `ModVersionMismatch`, then `ExtensionsMismatch`. The notice itself — toast, chat line, hint, HUD badge — is what the player sees, and that part does work.
 
 **Steps.**
 
@@ -251,11 +253,11 @@ X4MP__Admin__AllowRemote=true
 2. On both machines type `/mp` and compare the wallets.
 3. On B type `/mp deposit 50000`, then `/mp withdraw 20000`.
 4. On A type `/mp loans` and `/mp repay <id> 5000`.
-5. On A offer a trade, on B type `/mp trades`, then `/mp accept <id>`.
+5. Start the fake node so that it proposes a trade, on B type `/mp trades`, then `/mp accept <id>`.
 6. On both machines look at the `[economy_client]` line in the log.
 7. On B type `/mp ledger`, then `/mp ledger more`.
 8. Open the economy window on B and press «Загрузить журнал» (load ledger), then «Более старые записи» (older entries).
-9. On A offer a loan while B is in game and see what B sees with no windows open.
+9. Start the fake node so that it offers a loan while B is in game, and see what B sees with no windows open — a toast, the chat line and the HUD badge. Answering it is not possible from the game yet (KI-4).
 
 **Expected result.** After the transfer B is down 10000, A is up 10000, and both machines show the same total; `/mp` prints the line `Экономика: <режим>, кошелёк <сумма>, долг пула <сумма>`; in `PerPlayer` mode the deposit and the withdrawal go through, in shared mode they must return `EconomyStatus::Rejected` with the reason `NotApplicableInSharedMode`; after `/mp repay` the loan changes state to `repaid`; after `/mp accept` the trade reaches `completed`. In the log on both machines: `[economy_client] requests=<N> sent=<N> sendfail=0 results=<N> rejected=<N> loans=<N> trades=<N> trade_results=<N> ledger_pages=<N> bad=0 notices=<N> self=<id> linked=<N>`.
 

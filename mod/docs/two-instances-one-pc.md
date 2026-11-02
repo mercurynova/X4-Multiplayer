@@ -382,10 +382,13 @@ millisecond range means the mod itself is not what slows the game down.
 
 ## 14. Known issues seen on this stand
 
-Both entries that were found on this stand are fixed as of 2026-11-02: the spurious
+Both entries that were found on this stand first are fixed as of 2026-11-02: the spurious
 `money: send refused` at every start, and the reconnect grace that was shorter than a boot — the
-default is 300 s now, so a restart of both instances resumes instead of rejoining. What still looks
-like a bug but is not, and the fixes themselves: [`known-issues.md`](known-issues.md).
+default is 300 s now, so a restart of both instances resumes instead of rejoining. The stand's
+later run found two more that are **open**: every transfer and loan between two players of one
+team is refused `SameWallet` unless the server runs `Economy:CreditMode=PerPlayer`, and the mod
+cannot create an offer or answer a loan offer. All four, plus what looks like a bug but is not:
+[`known-issues.md`](known-issues.md).
 
 ## 15. Related
 

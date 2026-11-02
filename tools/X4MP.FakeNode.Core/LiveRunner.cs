@@ -690,6 +690,7 @@ public static partial class LiveRunner
             PlayerName = plan.Name,
             PlayerKey = DeriveKey(o.Seed, plan.Name),
             Password = o.Password,
+            ModBuild = o.ModBuild,
             ExtensionList = extensions,
             RequestedRoles = plan.Role,
             ClientCaps = (o.Udp ? (ulong)Capability.UdpRealtime : 0) | (ulong)Capability.OnFootPresence,

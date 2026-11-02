@@ -11,6 +11,8 @@ Severity is about the cost to a player or to a bug report, not about the amount 
 |---|---|---|---|
 | KI-1 | `money: send refused` / `send money failed: no_api` printed on every start | Low (log noise, but as `[=ERROR=]`) | **Fixed** 2026-11-02, see below |
 | KI-2 | Reconnect grace (60 s, and 120 s for the authority) is shorter than an X4 boot (2–3 min), so a restart never resumes | Medium (every restart costs a manual re-join) | **Fixed** 2026-11-02, default is now 300 s |
+| KI-3 | Every transfer, pool move and loan between two players in the same team is refused as `SameWallet`, because the default `CreditMode=Auto` gives a one-team session one wallet | High (the whole economy is unusable in the normal two-player case, and nothing says why) | Open, workaround below |
+| KI-4 | Offers are receive-only: the mod cannot create a loan offer or a trade proposal, and cannot accept or decline a loan offer | High (the checklist's own step 9 cannot be performed by a player) | Open, not yet in the plan |
 | — | Log rotation, timer-restart messages, restricted-function errors | Not bugs | Explained below so they stop being re-reported |
 
 ## KI-1: spurious money send at startup
@@ -122,6 +124,73 @@ a comment next to it. The authority slot keeps the longer of the two windows, so
 restart. The tests that had the old number baked in now either pin the window they exercise
 (60 s in `SessionActorTests`, which tests the arithmetic) or read the configured default
 (`NodeGatewayTests`, `SessionActorIntegrationTests`).
+
+## KI-3: the economy is dead in the normal two-player case
+
+**What happens.** Two players join, land in team 1 (the default), and every `/mp send`,
+`/mp deposit`, `/mp withdraw` and every loan offer comes back refused as `SameWallet` — "both
+players use the same wallet". The ledger stays empty and nothing explains it. On the stand a
+fake client sent nine `Donate` and two `LoanOffer` requests and the server rejected all eleven:
+
+```
+economy(casual): clients=1 requests=11 ok=0 rejected=11 skipped=3 sent=[Donate=9,LoanOffer=2] rejects=[SameWallet=11]
+```
+
+The transfer path itself is fine — the refusal is about the wallet, not the payload.
+
+**Why.** `CreditMode` defaults to `Auto` (`server/src/X4MP.Core/Economy/EconomyOptions.cs:30-31`),
+and `Auto` resolves to Shared when the session has a single team. In Shared mode the wallet is
+per team, so a move between two members of that team is a move to yourself:
+`EconomyService.Transfers.cs:33-34,127`, `EconomyService.Loans.cs:99,214,297` and
+`EconomyService.Trades.cs:822` all answer `EconomyReject.SameWallet`.
+
+**Workaround.** Run the session with `Economy:CreditMode=PerPlayer`. The launcher passes only the
+three `X4MP__Net__*` values (`native/features/server/server_launcher.cpp:89-94`), so the setting has
+to be in the bundle's `appsettings.json`:
+
+```json
+  "X4MP": {
+    "Economy": {
+      "CreditMode": "PerPlayer"
+    }
+  }
+```
+
+Verified on the stand: with that file the same bot request produced a real loan offer, a ledger
+row and the offer notice described in `../../docs/m5-exit-report.md` section 4.9.
+
+**Suggestion.** Either make `PerPlayer` the default when the session has one team, or put the
+reason into the refusal ("players share one wallet — start the server with
+`Economy:CreditMode=PerPlayer`"). The rejection is correct; it just reads as a broken feature.
+
+## KI-4: a player cannot offer, accept or decline anything
+
+**What happens.** The economy screen and `/mp` commands can move money, deposit into the pool,
+repay and forgive a loan, and accept or cancel **a trade**. They cannot
+
+- create a loan offer or a trade proposal, and
+- accept or decline a **loan** offer.
+
+**Evidence.** The verb takes exactly these ops (`ui/x4mp_economy.lua:5`, `E.send` at `:183-193`):
+`send|deposit|withdraw|repay|forgive|accept|cancel`. The native half encodes only
+`credit_transfer`, `pool_deposit`, `pool_withdraw`, `loan_repay`, `loan_forgive`,
+`trade_accept`, `trade_cancel` and `ledger_request`
+(`native/features/economy_client/economy_wire.h:199-260`) — there is no `LoanOffer`,
+`LoanRespond` or `TradeProposal` encoder. `Op::Accept` maps to `encode_trade_accept`
+(`economy_client_hub.cpp:312-326`), and `/mp accept` / `/mp decline` resolve their argument
+through `resolveTrade` (`x4mp_economy.lua:246-259`), which scans trades only. So the hint the
+notice prints for a **loan** offer, `Ответ: /mp accept 000001 или /mp decline 000001` (`T(574)`,
+printed by `E.onNotice` at `:527`), answers "no such offer" (`T(531)`).
+
+That is why the checklist's step 9 ("on A offer a loan while B is in game") cannot be performed
+as written: on the stand the offer had to come from `X4MP.FakeNode.exe` with `--economy casual`.
+
+**Suggestion.** The server is already waiting for it — `EconomyModule.Loans.cs:15` dispatches
+`LoanRespond` and `EconomyService.Loans.cs:247` publishes `"LoanAccept"`. What is missing is one
+encoder in `economy_wire.h`, one op in `economy_client_hub.cpp`, the matching branch in
+`x4mp_economy.lua` (`resolveId`, which already scans loans *and* trades, is the right resolver),
+and an "offer"/"accept" row on the economy screen. `LoanOffer` and `TradeProposal` are the bigger
+half: they also need a form to pick an amount and a partner.
 
 ## Not bugs (checked, do not re-report)
 

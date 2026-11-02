@@ -427,18 +427,47 @@ password was admitted (`admitted Admin (player 1) as Authority, Client, Admin`, 
 `state=ingame role=authority players=1`; the host toggle in the join form prefilled `o5JjbCoXaxm2WQGpRkW8` by itself.
 Stopping closed both ports, and closing the game while the server ran left no `x4mp-server` process (`auto_stop`).
 
+**Run on the two-instance stand, 2026-11-02.** One PC, two full game instances
+([`../mod/docs/two-instances-one-pc.md`](../mod/docs/two-instances-one-pc.md)): the server was started
+from the authority's menu (`X4MPServer.start()` → `running pid=10808`, ports 47780 and 47790 owned by
+that pid), the authority joined with the generated password (`player 1 (Host) joined as Authority,
+Client, Admin`, `WaitingForAuthority -> AuthorityLoading`), the second instance joined as a client and
+both reached `state=ingame ... players=2`. Stopping the server from the same screen gave a graceful
+shutdown (`StartupBanner shutdown complete`) and both games survived it. So the whole M5-32 loop —
+start, play, stop — works from inside the game, not only from a terminal.
+
+A `X4MP.FakeNode.exe client` joined the same live session as player 3 and then 5 once it claimed the
+right build and extension list (`--mod-build x4mp` plus `--extensions` with the authority's exact
+eleven entries; a bare bot is refused `ModVersionMismatch`, then `ExtensionsMismatch`). Its welcome
+line read `resume_grace=300s` — the first live proof that the republished bundle carries the new
+reconnect default from KI-2. That bot is also what finally produced a **cross-player offer notice**:
+`Новое предложение займа 000001 от игрока 5, сумма 903 кр.` followed by
+`Ответ: /mp accept 000001 или /mp decline 000001` in the authority's chat, with the loan row
+`borrower=1 lender=5 principal=903 repay_total=930` in its snapshot.
+
+Two things that run found, both written up in [`../mod/docs/known-issues.md`](../mod/docs/known-issues.md):
+with the default `CreditMode=Auto` a single-team session shares one wallet, so every transfer and loan
+between the two players is refused `SameWallet` (the stand needed `Economy:CreditMode=PerPlayer`); and
+**offers are receive-only in the mod** — it cannot create a loan offer or a trade proposal, and cannot
+accept or decline a loan offer, so the checklist's step 9 can only be run with a fake node as the
+offering side. The server half is ready for both (`LoanRespond` is dispatched and `LoanAccept` is
+published); the missing pieces are encoders and screen rows.
+
 ## 5. What M5 needs next
 
-1. A **two-node** sitting (two PCs, or one PC plus `out\fakenode\X4MP.FakeNode.exe client`) to fill AC 2-7, the UI half
-   of 9 (red targeting on both sides, allied within 2 s, `admin_only` switch moving the avatar) and the two-node halves
-   of 10 and 12. The run sheet is [in-game-session-9.md](in-game-session-9.md); the per-mechanic checklist is
-   [two-pc-checklist.md](two-pc-checklist.md).
+1. A **two-node** sitting (two PCs, one PC with two instances — the stand, already run once, §4.9 — or one PC plus
+   `out\fakenode\X4MP.FakeNode.exe client`) to fill AC 2-7, the UI half of 9 (red targeting on both sides, allied
+   within 2 s, `admin_only` switch moving the avatar) and the two-node halves of 10 and 12. The run sheet is
+   [in-game-session-9.md](in-game-session-9.md); the per-mechanic checklist is
+   [two-pc-checklist.md](two-pc-checklist.md); the stand recipe is
+   [`../mod/docs/two-instances-one-pc.md`](../mod/docs/two-instances-one-pc.md).
 2. **W7 remainder**: M5-27 needs that two-node run; M5-29/M5-30 are **implemented, green and run in game on one node**
    (step S10, §4.6) - what is left of them is the two-player half: a transfer to a teammate, a pool move in PerPlayer
    mode, and a loan or a trade answered by the other side. **M5-31 is implemented** too (§4.7): the authority settles the
-   asset side behind a journal and compensates in reverse; its two-node acceptance is a ship for credits. The mod now
-   encodes every request and decodes every answer `protocol/schema/economy.fbs` carries for a player, and it settles the
-   assets those answers escrow.
+   asset side behind a journal and compensates in reverse; its two-node acceptance is a ship for credits. The mod
+   encodes the requests a player can send today — transfer, pool deposit and withdraw, loan repay and forgive, trade
+   accept and cancel, ledger — and decodes every answer `protocol/schema/economy.fbs` carries; offers are still
+   receive-only on the mod side, see §4.9 and KI-4 in [`../mod/docs/known-issues.md`](../mod/docs/known-issues.md).
 3. ~~`x4mp_ui_standalone.lua` re-enabled only after its close path gets the same re-entrancy guard~~ - **done on
    2026-10-30**: `menu.display()` and `menu.onCloseElement` are guarded, the delayed reopen is dropped during a save
    load, the module is enabled in both `ui.xml` files, and the save-load crash no longer reproduces

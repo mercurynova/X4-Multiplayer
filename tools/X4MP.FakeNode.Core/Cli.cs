@@ -105,6 +105,9 @@ public sealed record CliOptions
     /// <summary>swarm: also start one authority node.</summary>
     public bool WithAuthority { get; init; }
     public string? Password { get; init; }
+    // The string the node claims as its mod build. The server compares it with the authority's when ModBuildStrict is on,
+    // which is the default, so a bot that wants to sit in a real game's session must claim that game's build ("x4mp").
+    public string ModBuild { get; init; } = "fakenode";
 
     /// <summary>client/swarm: the extension report every client sends in <c>ClientHello.extension_list</c> (the authority uses <see cref="AuthorityExtensions"/>) (<c>--extensions file.json</c>, see <see cref="ExtensionListFile"/>); null = none.</summary>
     public IReadOnlyList<ExtensionInfoT>? Extensions { get; init; }
@@ -377,6 +380,7 @@ public static class CliParser
           --duration N         live commands: exit after N seconds (default: run until Ctrl+C; alias --seconds)
           --with-authority     swarm: also connect one authority node
           --password PW        session password
+          --mod-build ID       the mod build this node claims in ClientHello (default fakenode; use x4mp to join a real game's authority, which ModBuildStrict compares against)
           --extensions FILE    client/swarm (clients only): report the extensions listed in this JSON file in ClientHello (array of {id,name,version,source,enabled,workshopId,classHint,...})
           --extensions-preset vanilla|modded|mismatch   client/swarm: built-in extension report (mismatch: bot i differs from modded in one way, cycling); verifies each bot's outcome against the authority's list
           --authority-extensions FILE|vanilla|modded    the authority's own extension report (--extensions applies to clients only)
@@ -655,6 +659,8 @@ public static class CliParser
                 return (o with { NamePrefix = value }, null);
             case "password":
                 return (o with { Password = value }, null);
+            case "mod-build":
+                return (o with { ModBuild = value }, null);
             case "extensions":
                 var (list, error) = ExtensionListFile.Load(value);
                 return list is null ? (o, error) : (o with { Extensions = list }, null);
