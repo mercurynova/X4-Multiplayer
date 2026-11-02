@@ -142,6 +142,13 @@ jobs:
           Copy-Item -Recurse -Force "$x4n/x4native/*" $n
           Copy-Item "$x4n/LICENSE" "$n/LICENSE"
           Copy-Item "$x4n/VERSION" "$n/VERSION"
+          # The four tools a player runs: the .bat files sit at the top of the zip, the PowerShell
+          # behind them in installer\. They find the payload next to themselves. The test script
+          # stays in the repo: it needs a checkout to build its fake tree from.
+          Copy-Item installer/*.bat $root
+          New-Item -ItemType Directory -Force "$root/installer" | Out-Null
+          Copy-Item installer/Common.ps1, installer/Install.ps1, installer/CheckInstall.ps1, `
+            installer/CollectLogs.ps1, installer/Uninstall.ps1 "$root/installer"
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "$root/*" -DestinationPath "dist/x4mp-mod-$tag.zip"
       - uses: actions/upload-artifact@v4

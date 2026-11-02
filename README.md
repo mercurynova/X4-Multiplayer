@@ -3,9 +3,9 @@
 [![CI](https://github.com/mercurynova/X4-Multiplayer/actions/workflows/ci.yml/badge.svg)](https://github.com/mercurynova/X4-Multiplayer/actions/workflows/ci.yml)
 
 > [!WARNING]
-> **This project is unfinished and NOT playable.** There is no release, no installer and no
-> working in-game mod yet. Please don't download it expecting to play: it won't work, and it
-> may change completely at any time. There is no support.
+> **This project is unfinished and NOT playable.** There is no release and no working in-game mod
+> yet. Please don't download it expecting to play: it won't work, and it may change completely at
+> any time. There is no support.
 
 X4MP is a from-scratch attempt at letting several players share one X4: Foundations universe.
 One player's game simulates the universe; every game connects to a standalone server, which
@@ -35,6 +35,14 @@ dotnet build
 dotnet test
 dotnet run --project server/src/X4MP.Server
 ```
+
+## Player tools
+
+`installer/` holds the four tools a player will run once there is a release: `Install.bat`,
+`Check Install.bat` (one verdict on whether the mod can run here), `Collect Logs.bat` (a zip to send
+with a report) and `Uninstall.bat`. They find the game through Steam, copy the two extension folders,
+unblock the files Windows marked, and never touch a save. They are plain Windows PowerShell 5.1 and
+are tested against a fake game tree by `installer/Test-Installer.ps1` (the `guard.installer` ctest).
 
 ## Not affiliated with Egosoft
 

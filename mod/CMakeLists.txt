@@ -235,6 +235,10 @@ if(X4MP_TESTS)
       COMMAND ${_ps} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-no-raw-remove.ps1" -Root "${CMAKE_CURRENT_SOURCE_DIR}/native")
     add_test(NAME guard.packaging
       COMMAND ${_ps} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-packaging.ps1" -ModDir "${CMAKE_CURRENT_SOURCE_DIR}" -Build "${X4MP_GAME_BUILD_PIN}")
+    # The player-facing tools: install, check, collect logs, uninstall, driven against a fake X4 tree.
+    add_test(NAME guard.installer
+      COMMAND ${_ps} "${CMAKE_CURRENT_SOURCE_DIR}/../installer/Test-Installer.ps1")
+    set_tests_properties(guard.installer PROPERTIES TIMEOUT 600)
   else()
     message(WARNING "PowerShell not found: the guard.* tests are not registered")
   endif()

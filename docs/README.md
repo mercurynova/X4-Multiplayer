@@ -14,6 +14,7 @@ below. The repo is the only memory that follows you between computers.
 | [`../mod/docs/two-instances-one-pc.md`](../mod/docs/two-instances-one-pc.md) | Two X4 instances on one PC (authority + client): second install via hard links, the single-instance mutex patch, two profiles, `config.xml` keys, portable mod state, x4mcp port, launch commands with timings, side-by-side window layout, one-shot `launch.json`, verification commands, troubleshooting |
 | [`../mod/docs/known-issues.md`](../mod/docs/known-issues.md) | Bugs found on the two-instance stand: the spurious `money: send refused` at every start (cause chain + proposed fix), the 60 s reconnect grace versus a 2–3 minute game boot, and the things that look like bugs but are not |
 | [`../tools/check-env.ps1`](../tools/check-env.ps1) | One command that checks this machine against dev-setup.md |
+| [`../installer/`](../installer/) | Player tools: `Install.bat`, `Check Install.bat`, `Collect Logs.bat`, `Uninstall.bat`, and `Test-Installer.ps1`, which drives all four against a fake game tree in `%TEMP%` (`guard.installer` ctest) |
 | [`../CLAUDE.md`](../CLAUDE.md) | Project context + working agreements for Claude sessions |
 
 ## Design (what we're building)

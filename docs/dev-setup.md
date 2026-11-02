@@ -81,9 +81,9 @@ folder must ship with the mod, or the MD hooks silently do nothing.
 | DLCs | The same set on every machine in a session | Dev machine has: Split Vendetta (`ego_dlc_split`), Cradle of Humanity (`ego_dlc_terran`), Tides of Avarice (`ego_dlc_pirate`), Kingdom End (`ego_dlc_boron`), Timelines (`ego_dlc_timelines`), Hyperion Pack (`ego_dlc_mini_01`), Envoy Pack (`ego_dlc_mini_02`). The handshake compares the extension list. |
 | Protected UI mode | **OFF** | Settings → Extensions. Without this, X4Native's Lua can't load the DLL. |
 | VC++ 2015–2022 x64 redistributable | installed | `winget install Microsoft.VCRedist.2015+.x64` (the mod DLL may link statically; X4Native needs it) |
-| Mark-of-the-Web | stripped from downloaded mod files | `Get-ChildItem -Recurse <mod dir> \| Unblock-File`. The installer/Check Install will do this (M6). |
+| Mark-of-the-Web | stripped from downloaded mod files | `Get-ChildItem -Recurse <mod dir> \| Unblock-File`. `installer\Install.bat` does it for every file it copies; `Check Install.bat` reports any that slipped through. |
 | Third-party mods | **disabled** during dev/testing, **except** the compatibility pass (below) | Mods come from three places: `<X4 install>\extensions\`, `Documents\Egosoft\X4\extensions\` and the Steam Workshop folder (`<steam library>\steamapps\workshop\content\392160\<id>\`, id `ws_<id>`). Enable state is per profile in `Documents\Egosoft\X4\<steamid>\content.xml`. Disable them in-game (Settings → Extensions) or unsubscribe. `tools/check-env.ps1` lists all three and flags stale `content.xml` entries. |
-| Mod install location | `<X4 install>\extensions\x4mp\` (and vendored `x4native\`) | until the M6 installer exists, the dev build script copies them there |
+| Mod install location | `<X4 install>\extensions\x4mp\` (and vendored `x4native\`) | `installer\Install.bat` copies both, from a release zip or from a checkout; `mod\tools\deploy.ps1` is the developer path and does the same plus the local-state switches |
 
 ### Paths (dev machine; yours may differ)
 
@@ -105,6 +105,23 @@ Consider pausing OneDrive during sessions.
 
 The mod reads its config from a **file**, not environment variables, because Steam
 relaunches X4 and drops the environment (see `requirements.md` PIT list).
+
+### Player tools (`installer\`)
+
+Four tools, shipped at the top of the release zip with the PowerShell behind them in `installer\`:
+
+| Tool | What it does |
+|---|---|
+| `Install.bat` | Finds X4 through Steam (or takes a folder), copies `extensions\x4mp` and `extensions\x4native` from the package, unblocks the files Windows marked, checks that the dll is a real x64 PE, and prints the three settings to change |
+| `Check Install.bat` | One verdict for an existing install: game build, required files, version_db key `900-611726`, X4Native VERSION hashes, Mark-of-the-Web, Protected UI, enabled extensions, VC++ runtime, server bundle, writable log folder, ports. Exit code 1 means the mod cannot work; `-JsonPath` writes the problems as JSON for a report |
+| `Collect Logs.bat` | Zips the mod log, settings, newest profile and server config to the Desktop with the machine details in `README.txt`; `admin-password.txt` and `x4mp.db` are never included |
+| `Uninstall.bat` | Deletes the two extension folders, and with `-RemoveData` also `%LOCALAPPDATA%\X4MP`; saves, profiles and screenshots are untouched |
+
+They are plain Windows PowerShell 5.1 and ASCII only, and they work from a checkout as well as from
+the zip: `Install.ps1` then finds `mod\extension\x4mp` and the newest `mod\build\**\x4mp.dll`, and
+`-Source` points at any other package root. `installer\Test-Installer.ps1` builds a fake game tree in
+`%TEMP%`, installs into it, breaks one thing at a time and checks that the verdict flips; it is the
+`guard.installer` ctest, so `ctest -R guard.installer` covers all four tools.
 
 ### Compatibility pass (before each mod release)
 
