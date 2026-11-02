@@ -122,4 +122,6 @@ namespace X4MP.Server.Api;
 [JsonSerializable(typeof(SelfTestDto))]
 [JsonSerializable(typeof(SelfTestRowDto))]
 [JsonSerializable(typeof(List<UnboundRejectionDto>))]
+[JsonSerializable(typeof(JoinNonceDto))]
+[JsonSerializable(typeof(JoinModManifestDto))]
 internal sealed partial class ApiJsonContext : JsonSerializerContext;

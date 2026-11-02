@@ -616,6 +616,20 @@ M6 exit adds: "Starting a session through the launcher with one mod to enable an
 disable needs no manual Settings → Extensions change, and the player's original mod set is
 back after X4 exits."
 
+**Status 2026-11-02: M6-X1 is done and tested.** `GET /api/v1/join/nonce` and
+`GET /api/v1/join/mod-manifest` are live on 47790 (`server/src/X4MP.Server/Join/`, DTOs in
+`Api/JoinDtos.cs`). The manifest is built from `ModPolicyEvaluator.EffectiveEntries` — the
+same list the join verdict uses — so a `Required` mod the admin switched off is published as
+`Blocked`, and the class of every mod is resolved against the authority's report and the
+allowlist. The nonce is single use and lives 120 s; the HMAC headers are `X-X4MP-Nonce`,
+`X-X4MP-Player-Key`, `X-X4MP-Proof`; denials are 401 `JoinAuthRequired`,
+`JoinNonceExpired` or `JoinAuthFailed`, and an attempt always spends its nonce. `gameBuild`
+comes from the authority, falling back to the configured supported build. Three tests in
+`JoinManifestTests.cs` cover the open server, the rule/class/Workshop-id mapping and the
+gated flow (missing headers, wrong proof, replay, and a successful join with the session
+name). The next task is M6-X2, which needs the `x4mp-launcher.exe` shell that does not exist
+yet.
+
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
 `TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the

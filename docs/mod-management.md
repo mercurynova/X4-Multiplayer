@@ -365,6 +365,28 @@ proves the password with the same HMAC construction as PROTO §4.3 (nonce from
 `GET /api/v1/join/nonce`). The manifest has no secrets; it is only gated so a stranger on
 the LAN can't enumerate it. The launcher re-validates every link (§3.6).
 
+Wire contract (implemented in M6-X1, `server/src/X4MP.Server/Join/`):
+
+- `GET /api/v1/join/nonce` → `{ "nonce": "<64 hex>", "passwordRequired": true,
+  "expiresInSeconds": 120 }`. A nonce is single use and dies after 120 s; at most 2048 are
+  pending at once.
+- With `passwordRequired: true` the manifest call carries three headers, each 32 bytes as
+  64 hex characters: `X-X4MP-Nonce`, `X-X4MP-Player-Key`, `X-X4MP-Proof`, where
+  `Proof = HMAC-SHA256(SHA-256(password), nonce || player_key)`.
+- Denials are RFC 7807 with `code`: `JoinAuthRequired` (a header is missing or malformed),
+  `JoinNonceExpired` (unknown, already spent, or older than 120 s), `JoinAuthFailed` (wrong
+  proof). Any attempt spends the nonce, so a retry needs a fresh one.
+- `mods` is `ModPolicyEvaluator.EffectiveEntries`, the same list the join check enforces, so
+  the manifest can't drift from the verdict: a `Required` entry the admin switched off is
+  published as `Blocked` with `enabled: false`, and an entry inherited from the authority's
+  own extensions is `Required` and `enabled: true`. `class` is resolved per mod against the
+  authority's report and the allowlist, never copied from the policy alone.
+- Both endpoints live on the admin port and sit behind its source-IP allow-list
+  (`X4MP:Admin:AllowedNetworks`, loopback and private ranges by default). A session on the
+  LAN needs no extra configuration; a server that admits players from the internet has to let
+  their ranges reach 47790 as well, otherwise the launcher gets `403 NetworkNotAllowed`
+  before the HMAC gate is even consulted.
+
 ### 4.2 Launcher flow (C#, `x4mp-launcher.exe`, ships in the mod zip)
 
 1. Read `x4mp.json` / last server; fetch the manifest.
@@ -584,7 +606,7 @@ CREATE TABLE mod_catalog (                           -- server-wide memory of li
 | `GET /sessions/{sid}/mods/save-requirements` | Viewer | | `SavePatchDto[]` |
 | `GET /players/{id}/extensions` | Viewer | `?limit=` | `ExtensionReportDto[]` |
 | `GET /mod-catalog` / `PUT /mod-catalog/{extId}` | Viewer / Admin | | catalog |
-| `GET /join/mod-manifest`, `GET /join/nonce` (phase 2) | anon / HMAC | | §4.1 |
+| `GET /join/mod-manifest`, `GET /join/nonce` (phase 2, live) | anon / HMAC | `X-X4MP-Nonce`, `X-X4MP-Player-Key`, `X-X4MP-Proof` | §4.1 |
 
   All admin writes are audited and bump `policy.version` (pushed as `ModPolicyChanged`).
 - **SignalR**: `ModPolicyChanged(ModPolicyDto)`, `PlayerModsReported(playerId, summary)`

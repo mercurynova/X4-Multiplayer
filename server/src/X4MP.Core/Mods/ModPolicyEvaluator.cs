@@ -40,10 +40,6 @@ public sealed record ModEvaluation(ModVerdict Verdict, ModPolicyViolationT? Viol
 /// </summary>
 public static class ModPolicyEvaluator
 {
-    private sealed record Rule(
-        string Id, string Name, ModRule Effective, ExtensionClass Class, VersionRule VersionRule, string Version, byte[] Hash,
-        string NexusUrl, ulong WorkshopId, string Notes);
-
     public static ModEvaluation Evaluate(
         IReadOnlyList<ExtensionInfoT> player, ModPolicyT policy, IReadOnlyList<ExtensionInfoT>? authority)
     {
@@ -55,7 +51,7 @@ public static class ModPolicyEvaluator
             return ModEvaluation.Admitted;
         }
 
-        var rules = BuildRules(policy, authority);
+        var rules = EffectiveEntries(policy, authority);
         var have = new Dictionary<string, ExtensionInfoT>(StringComparer.Ordinal);
         foreach (var p in player)
         {
@@ -77,7 +73,7 @@ public static class ModPolicyEvaluator
             var cls = ExtensionReports.Classify(rule.Id, p, rule.Class);
             bool isDlc = cls == ExtensionClass.Dlc;
             bool library = ExtensionReports.IsAllowlisted(rule.Id);
-            switch (rule.Effective)
+            switch (rule.Rule)
             {
                 case ModRule.Required:
                     if (p is null)
@@ -220,9 +216,14 @@ public static class ModPolicyEvaluator
         return string.Join("; ", parts);
     }
 
-    private static List<Rule> BuildRules(ModPolicyT policy, IReadOnlyList<ExtensionInfoT>? authority)
+    /// <summary>
+    /// The effective list for this session: explicit entries (a Required entry the admin switched off becomes Blocked) followed by the
+    /// implicit Required entries the authority's own Dlc and Sim extensions add. Empty when AuthorityDefines has no authority yet.
+    /// </summary>
+    public static List<EffectiveModRule> EffectiveEntries(ModPolicyT policy, IReadOnlyList<ExtensionInfoT>? authority)
     {
-        var rules = new List<Rule>();
+        ArgumentNullException.ThrowIfNull(policy);
+        var rules = new List<EffectiveModRule>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var e in policy.Entries ?? [])
         {
@@ -232,9 +233,10 @@ public static class ModPolicyEvaluator
             }
 
             var effective = e.Rule == ModRule.Required && !e.Enabled ? ModRule.Blocked : e.Rule;
-            rules.Add(new Rule(
-                e.Id, e.Name ?? string.Empty, effective, e.ModClass, e.VersionRule, e.Version ?? string.Empty, e.ContentHash?.ToArray() ?? [],
-                e.NexusUrl ?? string.Empty, e.WorkshopId != 0 ? e.WorkshopId : ModLinks.WorkshopIdOf(e.Id), e.Notes ?? string.Empty));
+            rules.Add(new EffectiveModRule(
+                e.Id, e.Name ?? string.Empty, effective, e.Enabled, e.ModClass, e.VersionRule, e.Version ?? string.Empty,
+                e.ContentHash?.ToArray() ?? [], e.NexusUrl ?? string.Empty, e.WorkshopId != 0 ? e.WorkshopId : ModLinks.WorkshopIdOf(e.Id),
+                e.Notes ?? string.Empty));
         }
 
         if (authority is not null)
@@ -245,9 +247,10 @@ public static class ModPolicyEvaluator
                 var cls = ExtensionReports.Classify(a.Id, a);
                 if ((cls == ExtensionClass.Dlc || (simToo && cls == ExtensionClass.Sim)) && seen.Add(a.Id))
                 {
-                    rules.Add(new Rule(
-                        a.Id, a.Name ?? string.Empty, ModRule.Required, cls, VersionRule.Exact, a.Version ?? string.Empty, a.ContentHash?.ToArray() ?? [],
-                        string.Empty, a.WorkshopId != 0 ? a.WorkshopId : ModLinks.WorkshopIdOf(a.Id), string.Empty));
+                    rules.Add(new EffectiveModRule(
+                        a.Id, a.Name ?? string.Empty, ModRule.Required, true, cls, VersionRule.Exact, a.Version ?? string.Empty,
+                        a.ContentHash?.ToArray() ?? [], string.Empty, a.WorkshopId != 0 ? a.WorkshopId : ModLinks.WorkshopIdOf(a.Id),
+                        string.Empty));
                 }
             }
         }
@@ -255,7 +258,7 @@ public static class ModPolicyEvaluator
         return rules;
     }
 
-    private static bool Satisfies(Rule rule, ExtensionInfoT p, ExtensionClass cls)
+    private static bool Satisfies(EffectiveModRule rule, ExtensionInfoT p, ExtensionClass cls)
     {
         if (rule.VersionRule == VersionRule.Any)
         {
@@ -327,7 +330,7 @@ public static class ModPolicyEvaluator
         return 0;
     }
 
-    private static ModRefT Ref(Rule r, ExtensionInfoT? p) => new()
+    private static ModRefT Ref(EffectiveModRule r, ExtensionInfoT? p) => new()
     {
         Id = r.Id,
         Name = !string.IsNullOrEmpty(r.Name) ? r.Name : !string.IsNullOrEmpty(p?.Name) ? p!.Name : r.Id,
