@@ -183,6 +183,31 @@ public class ModPlannerTests
         Assert.Empty(plan);
     }
 
+    [Fact]
+    public void AProfileEntryForAnExtensionThatIsNotInstalledIsReportedAndLeftAlone()
+    {
+        using var tree = new TempTree();
+
+        var plan = ModPlanner.Plan(Manifest(), [], Profile(tree, ("gone", true)));
+
+        var stale = Assert.Single(plan);
+        Assert.Equal(PlanAction.Stale, stale.Action);
+        Assert.Equal("gone", stale.Id);
+        Assert.Equal("Stale", stale.ActionText);
+        Assert.Contains("not installed", stale.Notes, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AModTheServerListsAndTheProfileHoldsButNothingInstalledIsOnlyMissing()
+    {
+        using var tree = new TempTree();
+
+        var plan = ModPlanner.Plan(Manifest(Mod("gone")), [], Profile(tree, ("gone", true)));
+
+        var item = Assert.Single(plan);
+        Assert.Equal(PlanAction.Missing, item.Action);
+    }
+
     private static JoinManifest Manifest(params JoinMod[] mods) =>
         new("Friday Run", 7, "900-611726", "AllowClientOnly", [.. mods]);
 

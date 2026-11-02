@@ -10,6 +10,7 @@ public enum PlanAction
     Disable,
     VersionMismatch,
     Missing,
+    Stale,
 }
 
 /// <summary>One line of the plan. A mod can produce two lines: a version mismatch and the toggle it also needs.</summary>
@@ -32,6 +33,7 @@ public sealed record PlanItem(
         PlanAction.Enable => "Enable",
         PlanAction.Disable => "Disable",
         PlanAction.VersionMismatch => "Version",
+        PlanAction.Stale => "Stale",
         _ => "Install",
     };
 
@@ -45,7 +47,8 @@ public sealed record PlanItem(
 
 /// <summary>
 /// Turns a manifest and the local scan into the plan docs/mod-management.md 4.2 step 3 describes: toggle only
-/// installed mods, report missing ones with their links, and report version mismatches without touching files.
+/// installed mods, report missing ones with their links, report version mismatches without touching files, and report
+/// profile entries that point at an extension no longer installed.
 /// </summary>
 public static class ModPlanner
 {
@@ -105,6 +108,19 @@ public static class ModPlanner
             items.Add(new PlanItem(PlanAction.Disable, extension.Id, extension.DisplayName, nameof(ModClassHint.Sim), string.Empty,
                 string.Empty, extension.Version, extension.WorkshopId, null, "Not in the server's mod set",
                 extension.HasNativeDll, extension.ReplacesBaseGame));
+        }
+
+        // A profile entry whose extension is not installed is reported and left alone: the player may have moved the
+        // folder, and a stale line is harmless until the game writes its own list again.
+        var stale = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in profile.Entries)
+        {
+            if (entry.Id.Length == 0) continue;
+            if (byId.ContainsKey(entry.Id) || inSession.Contains(entry.Id) || AlwaysOn.Contains(entry.Id)) continue;
+            if (!stale.Add(entry.Id)) continue;
+
+            items.Add(new PlanItem(PlanAction.Stale, entry.Id, entry.Id, nameof(ModClassHint.Unknown), string.Empty,
+                string.Empty, null, 0, null, "In your profile but not installed", false, false));
         }
 
         items.Sort(static (a, b) =>

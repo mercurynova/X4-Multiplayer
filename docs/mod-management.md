@@ -389,14 +389,30 @@ Wire contract (implemented in M6-X1, `server/src/X4MP.Server/Join/`):
 
 ### 4.2 Launcher flow (C#, `x4mp-launcher.exe`, ships in the mod zip)
 
-**Status 2026-11-02 (M6-X2): steps 1-3 are implemented; steps 4-8 are not yet.** The logic is
+**Status 2026-11-02 (M6-X2, M6-X3): steps 1-3 and 5, 7, 8 are implemented; step 4 (trust
+prompts) and step 6 (`launch.json` and starting X4 through Steam) are not yet.** The logic is
 `launcher/X4MP.Launcher.Core` (no UI, so it is tested without a display): install and profile
 discovery, the `content.xml` parser, a port of `mod/native/core/mods/mods.cpp` for the three
-sources, the profile overrides, the join-manifest client and the planner. `launcher/X4MP.Launcher`
-is the WPF window; it shows the plan and writes no file. The Core references `X4MP.Protocol`, so
-the allowlist, the `ws_` id rule and the link normalisation are the server's own code rather than
+sources, the profile overrides, the join-manifest client, the planner, and the applier/restorer.
+`launcher/X4MP.Launcher` is the WPF window. The Core references `X4MP.Protocol`, so the
+allowlist, the `ws_` id rule and the link normalisation are the server's own code rather than
 a copy. The manifest carries no content hash, so the plan uses id, version and class only and the
 launcher never hashes files.
+
+Apply and restore are byte-surgical. `ProfileContentEditor` finds each `<extension>` element
+through the same tolerant scanner and rewrites only the `enabled` value in place, inserting the
+attribute or the whole element when needed; every other byte (line endings, indentation, unknown
+attributes, comments, stale entries) is left alone. `ProfileWriter` copies `content.xml` to
+`x4mp\profile-backups\content.<utc>.xml` (the newest 10 are kept), writes
+`pending-restore.json` (server, the original file flags and the original text of each changed
+element) before the file itself, and replaces the file through a temp file and
+`File.Move(overwrite: true)` with five 100 ms retries for OneDrive and antivirus. Restore is
+conservative: it puts the stored text back only while the file still holds what the launcher
+wrote, so a change the player made in game is reported and left alone; a profile that had no
+`content.xml` is created and removed again; a UTF-8 BOM is preserved. "Keep this mod set"
+deletes the journal instead of restoring. A journal left behind by a crashed launcher is
+restored when the next window starts, and a two-second watcher restores when an X4 process that
+was seen running exits.
 
 1. Read `x4mp.json` / last server; fetch the manifest.
 2. **Scan** the three sources (§1.1) and the profile `content.xml` (newest

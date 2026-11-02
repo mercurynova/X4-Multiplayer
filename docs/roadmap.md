@@ -634,15 +634,36 @@ holds three projects: `X4MP.Launcher.Core` (portable, no WPF: install and profil
 the tolerant `content.xml` parser, the extension scanner ported from
 `mod/native/core/mods/mods.cpp`, the profile overrides, the join-manifest client and the
 planner), `X4MP.Launcher` (the WPF window, `x4mp-launcher.exe`) and
-`X4MP.Launcher.Core.Tests` (60 tests, all against temporary trees and a stub HTTP handler, so
-no display and no game are needed). The Core references `X4MP.Protocol` on purpose: the
+`X4MP.Launcher.Core.Tests` (60 tests at M6-X2, 83 after M6-X3, all against temporary trees and
+a stub HTTP handler, so no display and no game are needed). The Core references `X4MP.Protocol` on purpose: the
 allowlist, the `ws_` Workshop id rule and the Nexus/Workshop URL builders are the server's
 code, not a second copy that can drift. The plan uses id, version and class only because the
 manifest carries no content hash, and a mod that is not installed never produces a toggle.
-Nothing is written yet: the window only reports what would have to change, so `content.xml`
-and the player's original mod set are untouched until M6-X3. `launcher/X4MP.Launcher.sln` is
+At this point the window only reported what would have to change, so `content.xml` and the
+player's original mod set were still untouched. `launcher/X4MP.Launcher.sln` is
 deliberately separate from `X4MP.sln`, which also builds on Linux; a new `launcher` CI job
 builds and tests it on windows-latest.
+
+**Status 2026-11-02 (M6-X3): apply and restore are in, so the plan can be carried out.** The
+writing is `ProfileContentEditor` plus `ProfileWriter` in `X4MP.Launcher.Core`. The editor is
+byte-surgical: it locates each `<extension>` element with the same tolerant scanner the parser
+uses, changes only the `enabled` value in place (or inserts the attribute, or the whole element
+before `</content>`), and copies every other byte, so CRLF files stay CRLF, comments and stale
+entries stay where they were. `ProfileWriter` backs the profile up to
+`x4mp\profile-backups\content.<utc>.xml`, keeps the newest ten, writes `pending-restore.json`
+before the content file, and replaces the file through a temp file and `File.Move(overwrite)`
+with five 100 ms retries for OneDrive and antivirus; the journal records the server, whether
+the file existed, whether it had a BOM, and the original text of every element it changed.
+Restore puts that text back only while the file still holds what the launcher wrote, so an entry
+the player changed in game is skipped and reported; a profile that had no `content.xml` is
+created on apply and removed again on restore, so the round trip is byte-identical. The window
+gained **Apply this plan**, **Restore my original mods** and **Keep this mod set** (which deletes
+the journal instead of restoring), restores a journal left by a crashed launcher on start, and
+watches the process table every two seconds to restore when an X4 that it saw running exits.
+`ProfileWriterTests` covers the identical round trip, the refusal while X4 runs, the skipped
+in-game change, the created-then-removed profile, the 12-to-10 backup prune, a plan with no
+toggles, the removed inserted entry, the BOM and keep-this-set; the launcher suite is 83 tests,
+all green.
 
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses

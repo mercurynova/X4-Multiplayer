@@ -8,6 +8,9 @@ internal sealed record XmlTag(string Name, IReadOnlyDictionary<string, string> A
     public string? Get(string key) => Attributes.TryGetValue(key, out var value) ? value : null;
 }
 
+/// <summary>Where a tag sits in the text it was read from: <paramref name="Start"/> is its '&lt;', <paramref name="End"/> is exclusive.</summary>
+internal readonly record struct XmlTagSpan(int Start, int End, XmlTag Tag);
+
 /// <summary>
 /// A deliberately tolerant reader for the tags of content.xml: comments, processing instructions, doctype
 /// declarations and end tags are skipped, only quoted attribute values are accepted, and a malformed tag ends the
@@ -21,7 +24,13 @@ internal static class XmlTagReader
         ("&amp;", '&'), ("&lt;", '<'), ("&gt;", '>'), ("&quot;", '"'), ("&apos;", '\''),
     ];
 
-    public static IEnumerable<XmlTag> Read(string text)
+    public static IEnumerable<XmlTag> Read(string text) => ReadSpans(text).Select(span => span.Tag);
+
+    /// <summary>
+    /// The same scan, but each tag is reported with its position, so a caller can replace exactly one tag and keep
+    /// every other byte of the file as it was. <see cref="XmlTagSpan.End"/> is exclusive.
+    /// </summary>
+    public static IEnumerable<XmlTagSpan> ReadSpans(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
         int position = 0;
@@ -49,7 +58,7 @@ internal static class XmlTagReader
             var (tag, next) = ReadTag(text, open);
             if (tag is null) yield break;
             position = next;
-            yield return tag;
+            yield return new XmlTagSpan(open, next, tag);
         }
     }
 

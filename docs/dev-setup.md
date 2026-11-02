@@ -131,13 +131,17 @@ Linux; the launcher is Windows-only):
 | Project | What it is |
 |---|---|
 | `X4MP.Launcher.Core` | Install and profile discovery, `content.xml` parsing, the extension scanner (a port of `mod/native/core/mods/mods.cpp`), profile overrides, the join-manifest client and the planner. No WPF, so the tests need no display |
-| `X4MP.Launcher` | The WPF window, `x4mp-launcher.exe`; M6-X2 only shows the plan and writes nothing |
-| `X4MP.Launcher.Core.Tests` | 60 xunit tests built on temporary game trees and a stub `HttpMessageHandler` |
+| `X4MP.Launcher` | The WPF window, `x4mp-launcher.exe`: check the session, apply the plan, restore, keep this set |
+| `X4MP.Launcher.Core.Tests` | 83 xunit tests built on temporary game trees and a stub `HttpMessageHandler` |
 
 ```powershell
 dotnet build launcher\X4MP.Launcher.sln -c Release
 dotnet test  launcher\X4MP.Launcher.sln -c Release --no-build
 ```
+
+Apply and Restore call `ProfileWriter`; the byte-identical round trip, the refusal while X4 runs,
+the backup prune and the journal handling are covered by `ProfileWriterTests`, so no game is
+needed.
 
 `X4MP.Launcher.Core` references `X4MP.Protocol`, so a build needs flatc exactly as the server
 does (run `tools\flatc\fetch-flatc.ps1` once). Do not add the launcher to `X4MP.sln`: the
