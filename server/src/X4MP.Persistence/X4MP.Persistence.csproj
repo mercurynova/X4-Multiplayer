@@ -1,5 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    The server publishes for win-x64 and linux-x64, and the RID propagates to every project it
+    references, so a publish writes RID sections into this lock file. Declared here as well, so a
+    plain restore and the locked restore in CI expect exactly those sections.
+  -->
+  <PropertyGroup>
+    <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
