@@ -13,10 +13,11 @@ page, the REST API, backups — read [`server-admin.md`](server-admin.md) in the
 |---|---|---|
 | `x4mp-server-<tag>-win-x64.zip`, `...-linux-x64.tar.gz` | one self-contained executable | you run the server on its own machine or VPS |
 | `x4mp-server-<tag>-win-x64-bundle.zip` | a folder of files | you are wiring the server into the mod by hand |
-| `x4mp-mod-<tag>.zip` | the mod, the native extension and the server bundle | **the normal install**: unzip into the X4 folder |
+| `x4mp-mod-<tag>.zip` | the mod, the native extension, the server bundle, the launcher and the player scripts | **the normal install**: unzip into the X4 folder |
 
-The last one is the usual path: the server bundle lands in `<X4>\extensions\x4mp\server`, and the
-in-game menu starts it. Nothing else needs unpacking.
+The last one is the usual path: the server bundle lands in `<X4>\extensions\x4mp\server`, the
+in-game menu starts it, and `x4mp-launcher.exe` sits at the top of the zip for the player who
+has to change their mods before joining. Nothing else needs unpacking.
 
 ## Running the standalone server
 

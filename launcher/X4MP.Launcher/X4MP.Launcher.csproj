@@ -7,7 +7,16 @@
     <AssemblyName>x4mp-launcher</AssemblyName>
     <RootNamespace>X4MP.Launcher</RootNamespace>
     <ApplicationIcon />
+    <!-- Declared so the lock file carries the win-x64 runtime entries: publishing with the win-x64
+         profile then never rewrites packages.lock.json (the same rule as X4MP.Server). -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The SDK adds this implicitly for a self-contained single-file publish, and central package
+         management refuses an implicit version. Declared here as X4MP.Server does. -->
+    <PackageReference Include="Microsoft.NET.ILLink.Tasks" PrivateAssets="all" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\X4MP.Launcher.Core\X4MP.Launcher.Core.csproj" />

@@ -108,7 +108,8 @@ relaunches X4 and drops the environment (see `requirements.md` PIT list).
 
 ### Player tools (`installer\`)
 
-Four tools, shipped at the top of the release zip with the PowerShell behind them in `installer\`:
+Four tools, shipped at the top of the release zip with the PowerShell behind them in `installer\`
+(the launcher exe sits next to them):
 
 | Tool | What it does |
 |---|---|
@@ -147,6 +148,17 @@ needed.
 does (run `tools\flatc\fetch-flatc.ps1` once). Do not add the launcher to `X4MP.sln`: the
 ubuntu `dotnet` job builds that solution and a WPF project would fail there. The `launcher` CI
 job builds and tests it on windows-latest.
+
+The release builds the exe players run:
+
+```powershell
+dotnet publish launcher\X4MP.Launcher -c Release -p:PublishProfile=win-x64
+```
+
+`win-x64.pubxml` makes it one self-contained file, `out\launcher-win-x64\x4mp-launcher.exe`
+(about 65 MB, no .NET install needed on the player's machine; trimming and ReadyToRun are off
+so the WPF window keeps working). The `launcher` job in `release.yml` publishes it and the `mod`
+job copies it to the top of `x4mp-mod-<tag>.zip`, next to the `.bat` scripts.
 
 ### Compatibility pass (before each mod release)
 

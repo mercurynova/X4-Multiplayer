@@ -642,7 +642,9 @@ manifest carries no content hash, and a mod that is not installed never produces
 At this point the window only reported what would have to change, so `content.xml` and the
 player's original mod set were still untouched. `launcher/X4MP.Launcher.sln` is
 deliberately separate from `X4MP.sln`, which also builds on Linux; a new `launcher` CI job
-builds and tests it on windows-latest.
+builds and tests it on windows-latest. The release builds what a player runs: the `launcher` job
+publishes `win-x64.pubxml`, a self-contained single-file `x4mp-launcher.exe` (about 65 MB, no
+.NET install needed), and the `mod` job puts that exe at the top of `x4mp-mod-<tag>.zip`.
 
 **Status 2026-11-02 (M6-X3): apply and restore are in, so the plan can be carried out.** The
 writing is `ProfileContentEditor` plus `ProfileWriter` in `X4MP.Launcher.Core`. The editor is

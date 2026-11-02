@@ -399,6 +399,12 @@ allowlist, the `ws_` id rule and the link normalisation are the server's own cod
 a copy. The manifest carries no content hash, so the plan uses id, version and class only and the
 launcher never hashes files.
 
+It ships as one file: `dotnet publish launcher\X4MP.Launcher -c Release -p:PublishProfile=win-x64`
+produces a self-contained single-file `x4mp-launcher.exe` (about 65 MB, so a machine without
+.NET can start it; trimming and ReadyToRun are off to keep the WPF window working). The
+`launcher` job in `release.yml` publishes it on windows-latest, and the `mod` job unpacks it at
+the top of `x4mp-mod-<tag>.zip`, next to `Install.bat`.
+
 Apply and restore are byte-surgical. `ProfileContentEditor` finds each `<extension>` element
 through the same tolerant scanner and rewrites only the `enabled` value in place, inserting the
 attribute or the whole element when needed; every other byte (line endings, indentation, unknown

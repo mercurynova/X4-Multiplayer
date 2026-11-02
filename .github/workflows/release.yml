@@ -1,6 +1,6 @@
 # Release (M0-16, finished in M6): on a `v*` tag, build the win-x64 and linux-x64 single-file servers,
-# the in-game bundle the mod starts from inside X4, and the mod package; write SHA256SUMS and create a
-# DRAFT GitHub release. Not run on any PR; first real use is the first tag. TODO: SBOM (CycloneDX) per
+# the Windows launcher, the in-game bundle the mod starts from inside X4, and the mod package; write
+# SHA256SUMS and create a DRAFT GitHub release. Not run on any PR; first real use is the first tag. TODO: SBOM (CycloneDX) per
 # server-design 7.2 — it needs a tool step, not a project dependency, so it was left for the first
 # tagged run to prove.
 name: Release
@@ -93,8 +93,38 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # The launcher a player runs before X4: x4mp-launcher.exe, single-file and self-contained so a
+  # machine with no .NET install can start it. WPF, so windows-latest only; it lives outside
+  # X4MP.sln for the same reason.
+  launcher:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      # X4MP.Protocol generates its flatbuffers types at build time, and the launcher references it.
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Fetch flatc (Windows)
+        shell: pwsh
+        run: tools/flatc/fetch-flatc.ps1
+      - run: dotnet publish launcher/X4MP.Launcher -c Release -p:PublishProfile=win-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-win-x64
+          path: out/launcher-win-x64/x4mp-launcher.exe
+          if-no-files-found: error
+          retention-days: 3
+
   mod:
-    needs: [server]
+    needs: [server, launcher]
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -125,6 +155,12 @@ jobs:
       - name: Unpack the server bundle
         shell: pwsh
         run: Expand-Archive -Path (Get-ChildItem out/bundle-zip/*.zip).FullName -DestinationPath out/server-win-x64 -Force
+      # The exe that reads the server's manifest and switches mods on or off. It sits at the top of
+      # the zip, next to the installer scripts, because it is the second thing a player runs.
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-win-x64
+          path: out/launcher
       - name: Package mod
         shell: pwsh
         run: |
@@ -146,6 +182,7 @@ jobs:
           # behind them in installer\. They find the payload next to themselves. The test script
           # stays in the repo: it needs a checkout to build its fake tree from.
           Copy-Item installer/*.bat $root
+          Copy-Item out/launcher/x4mp-launcher.exe $root
           New-Item -ItemType Directory -Force "$root/installer" | Out-Null
           Copy-Item installer/Common.ps1, installer/Install.ps1, installer/CheckInstall.ps1, `
             installer/CollectLogs.ps1, installer/Uninstall.ps1 "$root/installer"
