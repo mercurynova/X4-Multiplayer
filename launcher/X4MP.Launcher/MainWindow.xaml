@@ -39,15 +39,25 @@
         <TextBlock x:Name="StatusBlock" Grid.Row="3" Margin="0,6,0,10" TextWrapping="Wrap"
                    Text="Enter the address the server showed you, then press Check." />
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,0,0,10">
-            <Button x:Name="ApplyButton" Padding="16,5" Content="Apply this plan" Click="OnApply" IsEnabled="False" />
-            <Button x:Name="RestoreButton" Padding="16,5" Margin="8,0,0,0" Content="Restore my original mods"
-                    Click="OnRestore" IsEnabled="False" />
-            <CheckBox x:Name="KeepCheckBox" Margin="20,0,0,0" VerticalAlignment="Center"
-                      Content="Keep this mod set after I quit X4" />
+        <StackPanel Grid.Row="4" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="ApplyButton" Padding="16,5" Content="Apply this plan" Click="OnApply" IsEnabled="False" />
+                <Button x:Name="RestoreButton" Padding="16,5" Margin="8,0,0,0" Content="Restore my original mods"
+                        Click="OnRestore" IsEnabled="False" />
+                <CheckBox x:Name="KeepCheckBox" Margin="20,0,0,0" VerticalAlignment="Center"
+                          Content="Keep this mod set after I quit X4" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock VerticalAlignment="Center" Foreground="#555555" Text="Missing a mod? Select its row, open the page, subscribe, then:" />
+                <Button x:Name="CheckAgainButton" Padding="16,5" Margin="12,0,0,0" Content="Check again" Click="OnCheck" />
+                <Button x:Name="WorkshopButton" Padding="16,5" Margin="8,0,0,0" Content="Open Workshop page"
+                        Click="OnOpenWorkshop" IsEnabled="False" />
+                <Button x:Name="NexusButton" Padding="16,5" Margin="8,0,0,0" Content="Open Nexus page"
+                        Click="OnOpenNexus" IsEnabled="False" />
+            </StackPanel>
         </StackPanel>
 
-        <ListView x:Name="PlanList" Grid.Row="5">
+        <ListView x:Name="PlanList" Grid.Row="5" SelectionChanged="OnPlanSelectionChanged">
             <ListView.View>
                 <GridView>
                     <GridViewColumn Header="Action" Width="80" DisplayMemberBinding="{Binding ActionText}" />
@@ -61,6 +71,6 @@
         </ListView>
 
         <TextBlock Grid.Row="6" Margin="0,10,0,0" Foreground="#666666" TextWrapping="Wrap"
-                   Text="Apply writes the profile's content.xml and keeps a backup in x4mp\profile-backups. X4 must be closed. If the launcher is closed while X4 runs, the next start restores your mods." />
+                   Text="Apply writes the profile's content.xml and keeps a backup in x4mp\profile-backups. X4 must be closed. If the launcher is closed while X4 runs, the next start restores your mods. The launcher opens only Steam Workshop and Nexus Mods pages, and only when you press one of those buttons." />
     </Grid>
 </Window>

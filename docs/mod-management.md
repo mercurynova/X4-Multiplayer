@@ -389,8 +389,8 @@ Wire contract (implemented in M6-X1, `server/src/X4MP.Server/Join/`):
 
 ### 4.2 Launcher flow (C#, `x4mp-launcher.exe`, ships in the mod zip)
 
-**Status 2026-11-02 (M6-X2, M6-X3): steps 1-3 and 5, 7, 8 are implemented; step 4 (trust
-prompts) and step 6 (`launch.json` and starting X4 through Steam) are not yet.** The logic is
+**Status 2026-11-02 (M6-X2..M6-X4): steps 1-5, 7 and 8 are implemented; step 6 (`launch.json`
+and starting X4 through Steam) is not yet.** The logic is
 `launcher/X4MP.Launcher.Core` (no UI, so it is tested without a display): install and profile
 discovery, the `content.xml` parser, a port of `mod/native/core/mods/mods.cpp` for the three
 sources, the profile overrides, the join-manifest client, the planner, and the applier/restorer.
@@ -413,6 +413,18 @@ wrote, so a change the player made in game is reported and left alone; a profile
 deletes the journal instead of restoring. A journal left behind by a crashed launcher is
 restored when the next window starts, and a two-second watcher restores when an X4 process that
 was seen running exits.
+
+Step 4 lives in the window, not in Core: the first plan for an address that is not yet known asks
+whether to trust that server, shows its session name and the normalised address, and says that
+nothing is downloaded; a Yes is remembered in `%LOCALAPPDATA%\X4MP\launcher\trusted-servers.json`,
+a No keeps the plan visible but disables **Apply** until that server is trusted. An Apply that
+would switch on a mod carrying native code or replacing game files asks a second time and names
+those mods and why. Missing rows enable **Open Workshop page** and **Open Nexus page**; both go
+through `ExternalLinks`, which accepts only `steam://url/CommunityFilePage/<n>`, the matching
+`https://steamcommunity.com/sharedfiles/filedetails/?id=<n>` fallback and
+`https://www.nexusmods.com/x4foundations/mods/<n>`, so no other URL from a manifest can be opened.
+**Check again** runs the scan again, so a Workshop item subscribed in Steam shows up as installed
+without restarting the launcher.
 
 1. Read `x4mp.json` / last server; fetch the manifest.
 2. **Scan** the three sources (§1.1) and the profile `content.xml` (newest

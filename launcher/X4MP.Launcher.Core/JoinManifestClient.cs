@@ -152,21 +152,16 @@ public sealed class JoinManifestClient(HttpClient http)
 
     private static Uri BaseUri(string address)
     {
-        if (string.IsNullOrWhiteSpace(address))
+        try
         {
-            throw new JoinClientException("NoAddress", "Enter the server address, for example 192.168.1.20:47790.");
+            return ServerAddress.Normalise(address);
         }
-
-        var text = address.Trim();
-        if (!text.Contains("://", StringComparison.Ordinal)) text = "http://" + text;
-        if (!text.EndsWith('/')) text += "/";
-        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        catch (ArgumentException error)
         {
-            throw new JoinClientException("BadAddress", "That is not a server address. Use host:port, for example 192.168.1.20:47790.");
+            // The same function builds the trust key, so a server that answers is always remembered under one name.
+            var code = string.IsNullOrWhiteSpace(address) ? "NoAddress" : "BadAddress";
+            throw new JoinClientException(code, error.Message);
         }
-
-        return uri;
     }
 
     private static bool TryFromHex(string? hex, out byte[] bytes)

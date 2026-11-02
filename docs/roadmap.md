@@ -665,6 +665,22 @@ in-game change, the created-then-removed profile, the 12-to-10 backup prune, a p
 toggles, the removed inserted entry, the BOM and keep-this-set; the launcher suite is 83 tests,
 all green.
 
+**Status 2026-11-02 (M6-X4): trust and links are in; starting X4 itself (step 6) is not.** The
+window asks on first contact with a server that it is about to switch mods for, names the session
+and the normalised address, and remembers a Yes in
+`%LOCALAPPDATA%\X4MP\launcher\trusted-servers.json`; until then the plan stays visible and
+**Apply** is disabled. Before an Apply that would enable a mod with `has_native_dll` or
+`replaces_basegame`, a second box lists those mods and the reason, so a mod that runs native code
+or replaces part of the interface cannot be switched on with a single click. Missing rows enable
+**Open Workshop page** and **Open Nexus page**, and both go through `ExternalLinks`, whose three
+patterns are the only URLs the launcher will start: the `steam://url/CommunityFilePage/<n>` form,
+the `steamcommunity.com/sharedfiles/filedetails/?id=<n>` https fallback and
+`nexusmods.com/x4foundations/mods/<n>`. **Check again** re-runs the scan, so a Workshop item
+subscribed in Steam is picked up without restarting the launcher. `ServerAddress` keeps one
+normal form for both the HTTP client and the trust key (scheme added when missing, host
+lowercased, path and query dropped), and `TrustStoreTests`, `ExternalLinksTests` and
+`ServerAddressTests` cover the new pieces; the launcher suite is 121 tests, all green.
+
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
 `TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the

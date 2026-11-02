@@ -1,6 +1,9 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using X4MP.Launcher.Core;
 
@@ -14,10 +17,12 @@ namespace X4MP.Launcher;
 public partial class MainWindow : Window
 {
     private readonly DispatcherTimer _watcher = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly TrustStore _trust = TrustStore.Load(TrustStore.DefaultPath);
     private IReadOnlyList<PlanItem>? _plan;
     private X4Profile? _profile;
     private string _sessionName = string.Empty;
     private bool _sawGameRunning;
+    private bool _trusted = true;
 
     public MainWindow()
     {
@@ -41,6 +46,7 @@ public partial class MainWindow : Window
     private async void OnCheck(object sender, RoutedEventArgs e)
     {
         CheckButton.IsEnabled = false;
+        CheckAgainButton.IsEnabled = false;
         SessionBlock.Text = string.Empty;
         StatusBlock.Text = "Checking...";
         try
@@ -52,6 +58,7 @@ public partial class MainWindow : Window
             PlanList.ItemsSource = _plan;
             SessionBlock.Text = result.SessionLine;
             StatusBlock.Text = result.Summary;
+            _trusted = EnsureTrusted(ServerBox.Text.Trim());
         }
         catch (JoinClientException error)
         {
@@ -80,11 +87,14 @@ public partial class MainWindow : Window
         finally
         {
             CheckButton.IsEnabled = true;
+            CheckAgainButton.IsEnabled = true;
             UpdateButtons();
         }
 
         void Show(string text)
         {
+            _plan = null;
+            _trusted = true;
             PlanList.ItemsSource = null;
             StatusBlock.Text = text;
         }
@@ -94,6 +104,20 @@ public partial class MainWindow : Window
     {
         if (_plan is null || _profile is null)
         {
+            return;
+        }
+
+        if (!_trusted && !EnsureTrusted(ServerBox.Text.Trim()))
+        {
+            return;
+        }
+
+        var risky = _plan
+            .Where(item => item.Action == PlanAction.Enable && (item.HasNativeDll || item.ReplacesBaseGame))
+            .ToList();
+        if (risky.Count > 0 && !ConfirmRisky(risky))
+        {
+            StatusBlock.Text = "Nothing was changed.";
             return;
         }
 
@@ -181,6 +205,107 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnPlanSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var item = PlanList.SelectedItem as PlanItem;
+        WorkshopButton.IsEnabled = item is { Action: PlanAction.Missing, WorkshopId: > 0 };
+        NexusButton.IsEnabled = item is { Action: PlanAction.Missing } && !string.IsNullOrEmpty(item.NexusUrl);
+    }
+
+    private void OnOpenWorkshop(object sender, RoutedEventArgs e)
+    {
+        if (PlanList.SelectedItem is PlanItem { Action: PlanAction.Missing } item
+            && Open(ExternalLinks.WorkshopOpen(item.WorkshopId)))
+        {
+            StatusBlock.Text = "Subscribe to the mod in Steam, then press Check again.";
+        }
+    }
+
+    private void OnOpenNexus(object sender, RoutedEventArgs e)
+    {
+        if (PlanList.SelectedItem is PlanItem { Action: PlanAction.Missing } item
+            && Open(ExternalLinks.NexusPage(item.NexusUrl)))
+        {
+            StatusBlock.Text = "Install the mod from Nexus as it says on the page, then press Check again.";
+        }
+    }
+
+    /// <summary>Opens a page only when it passes the whitelist in <see cref="ExternalLinks"/>.</summary>
+    private bool Open(string? url)
+    {
+        if (!ExternalLinks.IsAllowed(url))
+        {
+            StatusBlock.Text = "The launcher opens only Steam Workshop and Nexus Mods pages.";
+            return false;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url!) { UseShellExecute = true });
+            return true;
+        }
+        catch (Win32Exception error)
+        {
+            StatusBlock.Text = "Windows could not open the page: " + error.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// First contact with a server: say exactly what it wants to change, and remember the answer per address. A plan
+    /// without a toggle changes nothing, so it never needs a prompt.
+    /// </summary>
+    private bool EnsureTrusted(string address)
+    {
+        if (_plan is null || !_plan.Any(item => item.Action is PlanAction.Enable or PlanAction.Disable))
+        {
+            return true;
+        }
+
+        if (_trust.IsTrusted(address))
+        {
+            return true;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            "This server wants to change which of your installed mods are enabled.\n\n"
+            + $"Server: {_sessionName}\nAddress: {ServerAddress.Key(address)}\n\n"
+            + "Nothing is downloaded. The launcher edits only your profile's content.xml and puts it back when X4 exits.\n\n"
+            + "Trust this server from now on?",
+            "First contact with this server",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (answer != MessageBoxResult.Yes)
+        {
+            StatusBlock.Text += " The plan is shown, but it will not be applied until you trust this server.";
+            return false;
+        }
+
+        _trust.Trust(address);
+        return true;
+    }
+
+    /// <summary>A mod that runs code or replaces game files gets a second, explicit yes.</summary>
+    private bool ConfirmRisky(IReadOnlyList<PlanItem> risky)
+    {
+        var lines = risky.Select(item =>
+            $"  - {item.Name}: {Why(item)}").ToList();
+        var text = "This session needs mods that can run code or change the game itself:\n\n"
+            + string.Join("\n", lines)
+            + "\n\nEnable them anyway?";
+        return MessageBox.Show(this, text, "Mods that change the game", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+            == MessageBoxResult.Yes;
+
+        static string Why(PlanItem item) => (item.HasNativeDll, item.ReplacesBaseGame) switch
+        {
+            (true, true) => "contains native code and replaces game files",
+            (true, false) => "contains native code",
+            _ => "replaces part of the game's interface",
+        };
+    }
+
     private void OnWatcherTick(object? sender, EventArgs e)
     {
         if (X4Process.IsRunning())
@@ -221,7 +346,7 @@ public partial class MainWindow : Window
 
     private void UpdateButtons()
     {
-        ApplyButton.IsEnabled = _plan is not null && _profile is not null
+        ApplyButton.IsEnabled = _trusted && _plan is not null && _profile is not null
             && _plan.Any(item => item.Action is PlanAction.Enable or PlanAction.Disable);
         RestoreButton.IsEnabled = _profile is not null && ProfileWriter.HasPendingRestore(_profile);
     }
