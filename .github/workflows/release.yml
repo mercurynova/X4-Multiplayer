@@ -1,7 +1,8 @@
-# Release skeleton (M0-16): on a `v*` tag, build the win-x64 and linux-x64 single-file servers and the mod
-# package, write SHA256SUMS and create a DRAFT GitHub release. Not run on any PR; first real use is the
-# first tag. TODO: README-server.md, appsettings.json in the server zips, SBOM (CycloneDX) per
-# server-design 7.2.
+# Release (M0-16, finished in M6): on a `v*` tag, build the win-x64 and linux-x64 single-file servers,
+# the in-game bundle the mod starts from inside X4, and the mod package; write SHA256SUMS and create a
+# DRAFT GitHub release. Not run on any PR; first real use is the first tag. TODO: SBOM (CycloneDX) per
+# server-design 7.2 — it needs a tool step, not a project dependency, so it was left for the first
+# tagged run to prove.
 name: Release
 
 on:
@@ -48,20 +49,52 @@ jobs:
         run: tools/flatc/fetch-flatc.ps1
       # Release configuration builds the web GUI (npm ci + npm run build) and embeds it.
       - run: dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=${{ matrix.rid }}
-      - name: Package
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
           New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item docs/README-server.md "out/${{ matrix.rid }}/README.md"
           Compress-Archive -Path "out/${{ matrix.rid }}/*" -DestinationPath "dist/x4mp-server-$tag-${{ matrix.rid }}.zip"
+      # tar.gz, not zip: a zip built on Windows carries no executable bit, so a Linux player would
+      # have to chmod +x the server before the first start.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp docs/README-server.md "out/${{ matrix.rid }}/README.md"
+          tar -czf "dist/x4mp-server-${GITHUB_REF_NAME}-${{ matrix.rid }}.tar.gz" -C "out/${{ matrix.rid }}" .
+      # The copy the mod starts from inside the game. It cannot be the single-file exe above: that one
+      # is fine from a shell but has never been proven inside X4, and an R2R image dies there with
+      # 0xC0000602 before it can print anything. See win-x64-bundle.pubxml.
+      - name: Publish the in-game bundle (Windows)
+        if: runner.os == 'Windows'
+        run: dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=win-x64-bundle
+      - name: Package the in-game bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive -Path "out/server-win-x64/*" -DestinationPath "dist/x4mp-server-$tag-win-x64-bundle.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: server-${{ matrix.rid }}
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: server-bundle-win-x64
+          path: dist/*-bundle.zip
           if-no-files-found: error
           retention-days: 3
 
   mod:
+    needs: [server]
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -83,6 +116,15 @@ jobs:
         shell: pwsh
         run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
       - run: powershell -NoProfile -File mod/build.ps1 -Config release
+      # The bundle the in-game menu starts (<X4>\extensions\x4mp\server). It ships inside the mod zip,
+      # so one unzip gives a player both halves and the launcher finds the executable where it looks.
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-bundle-win-x64
+          path: out/bundle-zip
+      - name: Unpack the server bundle
+        shell: pwsh
+        run: Expand-Archive -Path (Get-ChildItem out/bundle-zip/*.zip).FullName -DestinationPath out/server-win-x64 -Force
       - name: Package mod
         shell: pwsh
         run: |
@@ -94,6 +136,7 @@ jobs:
           New-Item -ItemType Directory -Force "$ext/native" | Out-Null
           Copy-Item -Recurse -Force mod/extension/x4mp/* $ext
           Copy-Item mod/build/msvc-x64-release/x4mp.dll "$ext/native/x4mp.dll"
+          Copy-Item -Recurse -Force out/server-win-x64 "$ext/server"
           $n = "$root/extensions/x4native"
           New-Item -ItemType Directory -Force $n | Out-Null
           Copy-Item -Recurse -Force "$x4n/x4native/*" $n
@@ -121,7 +164,7 @@ jobs:
           merge-multiple: true
       - name: SHA256SUMS
         working-directory: dist
-        run: sha256sum ./*.zip | sed 's|\./||' | tee SHA256SUMS
+        run: sha256sum ./*.zip ./*.tar.gz | sed 's|\./||' | tee SHA256SUMS
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -119,10 +119,12 @@ memory: restarting the server clears it. The values are `X4MP:Admin:LoginMaxPerW
 Resolved in this order:
 
 1. `--data-dir <dir>`
-2. configuration key `X4MP:DataDir` (appsettings or `X4MP__DataDir`)
-3. environment variable `X4MP_DATA_DIR` (fine for the server; the no-env-var rule is for the game mod only)
-4. `%ProgramData%\X4MP` when running as a Windows service (`--service`)
-5. `data/` next to the exe in a console
+2. environment variable `X4MP_DATA_DIR` (fine for the server; the no-env-var rule is for the game mod only)
+3. `%ProgramData%\X4MP` when running as a Windows service (`--service`)
+4. `data/` next to the exe in a console
+
+There is no configuration key for it: `DataDirResolver` reads the argument and the environment
+variable only, so putting `X4MP:DataDir` in `appsettings.json` does nothing.
 
 What is in it:
 
