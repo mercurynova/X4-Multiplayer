@@ -29,4 +29,16 @@ public static class ServerAddress
 
     /// <summary>The key a server is remembered under: the normalised address without a trailing path.</summary>
     public static string Key(string? address) => Normalise(address).ToString();
+
+    /// <summary>
+    /// The address the mod is given in <c>launch.json</c>: host and port only, because the mod speaks its own
+    /// protocol rather than HTTP and has no scheme to read. The port is always written out, even 80 or 443, since
+    /// the mod's own default is a different one.
+    /// </summary>
+    public static string HostAndPort(string? address)
+    {
+        var uri = Normalise(address);
+        var host = uri.HostNameType == UriHostNameType.IPv6 ? "[" + uri.IdnHost + "]" : uri.IdnHost;
+        return $"{host}:{uri.Port}";
+    }
 }

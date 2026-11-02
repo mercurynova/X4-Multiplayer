@@ -389,8 +389,7 @@ Wire contract (implemented in M6-X1, `server/src/X4MP.Server/Join/`):
 
 ### 4.2 Launcher flow (C#, `x4mp-launcher.exe`, ships in the mod zip)
 
-**Status 2026-11-02 (M6-X2..M6-X4): steps 1-5, 7 and 8 are implemented; step 6 (`launch.json`
-and starting X4 through Steam) is not yet.** The logic is
+**Status 2026-11-02 (M6-X2..M6-X5): steps 1-8 are implemented.** The logic is
 `launcher/X4MP.Launcher.Core` (no UI, so it is tested without a display): install and profile
 discovery, the `content.xml` parser, a port of `mod/native/core/mods/mods.cpp` for the three
 sources, the profile overrides, the join-manifest client, the planner, and the applier/restorer.
@@ -431,6 +430,19 @@ through `ExternalLinks`, which accepts only `steam://url/CommunityFilePage/<n>`,
 `https://www.nexusmods.com/x4foundations/mods/<n>`, so no other URL from a manifest can be opened.
 **Check again** runs the scan again, so a Workshop item subscribed in Steam shows up as installed
 without restarting the launcher.
+
+Step 6 is `LaunchFile` in the Core plus one button. **Start X4** is enabled once the plan has
+nothing left to do, either because the check found no changes or because Apply just carried them
+out. It writes `launch.json` to the folder the mod reads: `<X4>\extensions\x4mp` when that folder
+holds `x4mp.json` or `x4mp.portable` (a portable or zipped install), otherwise
+`%LOCALAPPDATA%\X4MP`. The file is compact JSON with `server` as `host:port` — the mod adds the
+scheme — the player's name from the **Your name in game** box, the join password when one was
+typed, and `expires_utc` ten minutes ahead, written as UTF-8 without a BOM so the mod's parser and
+the PowerShell tool agree. Only then does the launcher open `steam://rungameid/392160`, through the
+same `ExternalLinks` gate as every other link. The mod reads the request at startup, joins, and
+deletes the file: a second start without pressing the button joins nothing, and a request that
+has expired is ignored when the mod reads it. The window says where the file was written, so a
+portable install that the launcher guessed wrong is visible instead of silent.
 
 1. Read `x4mp.json` / last server; fetch the manifest.
 2. **Scan** the three sources (§1.1) and the profile `content.xml` (newest

@@ -54,4 +54,15 @@ public class ServerAddressTests
             ServerAddress.Key("192.168.1.20:47790"),
             ServerAddress.Key("HTTP://192.168.1.20:47790/somewhere"));
     }
+
+    [Theory]
+    [InlineData("192.168.1.20:47790", "192.168.1.20:47790")]
+    [InlineData("http://localhost:47790/api/v1/join/mod-manifest", "localhost:47790")]
+    [InlineData("https://Example.COM", "example.com:443")]
+    [InlineData("http://example.com", "example.com:80")]
+    [InlineData("http://[::1]:47790", "[::1]:47790")]
+    public void TheModGetsAHostAndAPortWithoutAScheme(string address, string expected)
+    {
+        Assert.Equal(expected, ServerAddress.HostAndPort(address));
+    }
 }

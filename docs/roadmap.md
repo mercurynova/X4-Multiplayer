@@ -695,6 +695,17 @@ admin port, hostname and any reverse-proxy prefix are the ones the GUI was reach
 The panel needs no new endpoint: it names the one M6-X1 added. The web suite is 184 tests plus
 one skipped, all green; `tsc -b` and `vite build` are clean.
 
+**Status 2026-11-02 (step 6 of `docs/mod-management.md` 4.2): the launcher can start the
+game.** `LaunchFile` in `X4MP.Launcher.Core` writes the one-shot `launch.json` the mod already
+knew how to read, and the window gained a **Start X4** button that is enabled only when the plan
+has nothing left to do. The request goes to `<X4>\extensions\x4mp` on a portable install (the
+folder holding `x4mp.json` or `x4mp.portable`) and to `%LOCALAPPDATA%\X4MP` otherwise, carries
+`server` as `host:port`, the player's name, the join password when typed and an expiry ten minutes
+ahead, in UTF-8 without a BOM. Only after the file is written does the launcher open
+`steam://rungameid/392160`, through the same `ExternalLinks` allowlist as the mod pages. The mod
+consumes and deletes the file at startup, so nothing joins twice. The launcher suite is 142
+tests, all green; the publish profile and the release zip are unchanged.
+
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
 `TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the

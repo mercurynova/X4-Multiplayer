@@ -19,6 +19,15 @@ public static partial class ExternalLinks
     [GeneratedRegex(@"^https://www\.nexusmods\.com/x4foundations/mods/\d{1,20}/?$", RegexOptions.CultureInvariant)]
     private static partial Regex NexusWebPattern();
 
+    [GeneratedRegex(@"^steam://rungameid/392160$", RegexOptions.CultureInvariant)]
+    private static partial Regex SteamGamePattern();
+
+    /// <summary>
+    /// X4: Foundations in Steam. A constant rather than anything a server sends, because starting the game is the
+    /// launcher's own act; it still goes through <see cref="IsAllowed"/> so there is one gate for every link.
+    /// </summary>
+    public const string SteamGame = "steam://rungameid/392160";
+
     public static string? WorkshopSteam(ulong workshopId) =>
         workshopId > 0 ? ModLinks.WorkshopSteamUrl(workshopId) : null;
 
@@ -36,6 +45,7 @@ public static partial class ExternalLinks
         if (string.IsNullOrWhiteSpace(url)) return false;
         return WorkshopSteamPattern().IsMatch(url)
             || WorkshopWebPattern().IsMatch(url)
-            || NexusWebPattern().IsMatch(url);
+            || NexusWebPattern().IsMatch(url)
+            || SteamGamePattern().IsMatch(url);
     }
 }

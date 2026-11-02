@@ -27,11 +27,20 @@
                 <ColumnDefinition Width="220" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <TextBlock VerticalAlignment="Center" Text="Server" />
             <TextBox x:Name="ServerBox" Grid.Column="1" Margin="8,0,16,0" Padding="6,4" Text="http://localhost:47790" />
             <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="Join password" />
             <PasswordBox x:Name="PasswordBox" Grid.Column="3" Margin="8,0,16,0" Padding="6,4" />
             <Button x:Name="CheckButton" Grid.Column="4" Padding="20,5" Content="Check" Click="OnCheck" />
+            <TextBlock Grid.Row="1" Margin="0,10,0,0" VerticalAlignment="Center" Text="Your name in game" />
+            <TextBox x:Name="NameBox" Grid.Row="1" Grid.Column="1" Margin="8,10,16,0" Padding="6,4" />
+            <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3" Margin="0,10,0,0" VerticalAlignment="Center"
+                       Foreground="#555555" TextWrapping="Wrap"
+                       Text="The name other players see. Start X4 writes the join request the mod reads once at startup." />
         </Grid>
 
         <TextBlock x:Name="SessionBlock" Grid.Row="2" Margin="0,12,0,0" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -46,6 +55,9 @@
                         Click="OnRestore" IsEnabled="False" />
                 <CheckBox x:Name="KeepCheckBox" Margin="20,0,0,0" VerticalAlignment="Center"
                           Content="Keep this mod set after I quit X4" />
+                <Button x:Name="StartButton" Padding="16,5" Margin="20,0,0,0" Content="Start X4"
+                        Click="OnStart" IsEnabled="False"
+                        ToolTip="Writes the join request and asks Steam to start the game. Apply the plan first if there is one." />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                 <TextBlock VerticalAlignment="Center" Foreground="#555555" Text="Missing a mod? Select its row, open the page, subscribe, then:" />
@@ -71,6 +83,6 @@
         </ListView>
 
         <TextBlock Grid.Row="6" Margin="0,10,0,0" Foreground="#666666" TextWrapping="Wrap"
-                   Text="Apply writes the profile's content.xml and keeps a backup in x4mp\profile-backups. X4 must be closed. If the launcher is closed while X4 runs, the next start restores your mods. The launcher opens only Steam Workshop and Nexus Mods pages, and only when you press one of those buttons." />
+                   Text="Apply writes the profile's content.xml and keeps a backup in x4mp\profile-backups. X4 must be closed. If the launcher is closed while X4 runs, the next start restores your mods. Start X4 writes one join request for the mod to read at startup and deletes it once it is read; the launcher opens only Steam Workshop, Nexus Mods and the game's own Steam page, and only when you press a button." />
     </Grid>
 </Window>

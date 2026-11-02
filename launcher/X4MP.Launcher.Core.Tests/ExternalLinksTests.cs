@@ -56,4 +56,21 @@ public class ExternalLinksTests
     {
         Assert.False(ExternalLinks.IsAllowed(url), url ?? "(null)");
     }
+
+    [Fact]
+    public void TheGameItselfIsTheOneSteamPageTheLauncherMayOpen()
+    {
+        Assert.True(ExternalLinks.IsAllowed(ExternalLinks.SteamGame));
+        Assert.Equal("steam://rungameid/392160", ExternalLinks.SteamGame);
+    }
+
+    [Theory]
+    [InlineData("steam://rungameid/392161")]
+    [InlineData("steam://rungameid/392160/extra")]
+    [InlineData("steam://rungameid/")]
+    [InlineData("steam://install/392160")]
+    public void NoOtherSteamCommandIsAllowed(string url)
+    {
+        Assert.False(ExternalLinks.IsAllowed(url));
+    }
 }

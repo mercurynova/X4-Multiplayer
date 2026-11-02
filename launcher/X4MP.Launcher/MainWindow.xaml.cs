@@ -20,9 +20,11 @@ public partial class MainWindow : Window
     private readonly TrustStore _trust = TrustStore.Load(TrustStore.DefaultPath);
     private IReadOnlyList<PlanItem>? _plan;
     private X4Profile? _profile;
+    private GameInstall? _install;
     private string _sessionName = string.Empty;
     private bool _sawGameRunning;
     private bool _trusted = true;
+    private bool _readyToStart;
 
     public MainWindow()
     {
@@ -36,6 +38,7 @@ public partial class MainWindow : Window
     {
         _profile = FindProfile();
         _sawGameRunning = X4Process.IsRunning();
+        NameBox.Text = Environment.UserName;
         if (_profile is not null && ProfileWriter.HasPendingRestore(_profile))
         {
             StatusBlock.Text = "The mod set of a previous session is still pending: X4's exit restores it automatically, or press Restore now.";
@@ -54,7 +57,9 @@ public partial class MainWindow : Window
             var result = await Task.Run(() => CheckAsync(ServerBox.Text.Trim(), PasswordBox.Password));
             _plan = result.Plan;
             _profile = result.Profile ?? _profile;
+            _install = result.Install;
             _sessionName = result.SessionName;
+            _readyToStart = _plan.Count == 0;
             PlanList.ItemsSource = _plan;
             SessionBlock.Text = result.SessionLine;
             StatusBlock.Text = result.Summary;
@@ -95,6 +100,7 @@ public partial class MainWindow : Window
         {
             _plan = null;
             _trusted = true;
+            _readyToStart = false;
             PlanList.ItemsSource = null;
             StatusBlock.Text = text;
         }
@@ -143,6 +149,7 @@ public partial class MainWindow : Window
 
             StatusBlock.Text = text;
             _plan = null;
+            _readyToStart = true;
             PlanList.ItemsSource = null;
         }
         catch (InvalidOperationException error)
@@ -344,11 +351,62 @@ public partial class MainWindow : Window
         UpdateButtons();
     }
 
+    /// <summary>
+    /// Starts X4 with one join request: the mod reads <c>launch.json</c> at startup, joins, and deletes the file, so a
+    /// second start without this button joins nothing. The request is written before Steam is asked, because the game
+    /// can reach the loading screen before the window would get a chance to write anything else.
+    /// </summary>
+    private void OnStart(object sender, RoutedEventArgs e)
+    {
+        var name = NameBox.Text.Trim();
+        if (name.Length == 0)
+        {
+            StatusBlock.Text = "Enter the name other players will see, then press Start X4.";
+            NameBox.Focus();
+            return;
+        }
+
+        try
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var directory = LaunchFile.DirectoryFor(_install, localAppData);
+            var file = LaunchFile.Write(
+                directory,
+                ServerBox.Text.Trim(),
+                name,
+                PasswordBox.Password,
+                DateTimeOffset.UtcNow.AddMinutes(LaunchFile.LifetimeMinutes));
+
+            if (!Open(ExternalLinks.SteamGame))
+            {
+                return;
+            }
+
+            StatusBlock.Text = $"Wrote {file}. Steam is starting X4; the mod joins {ServerAddress.HostAndPort(ServerBox.Text)} "
+                + $"as {name} and deletes the request once it has read it. It is valid for {LaunchFile.LifetimeMinutes} minutes.";
+        }
+        catch (ArgumentException error)
+        {
+            StatusBlock.Text = error.Message;
+        }
+        catch (IOException error)
+        {
+            StatusBlock.Text = "The join request could not be written: " + error.Message;
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            StatusBlock.Text = "Windows denied access to the join request: " + error.Message;
+        }
+
+        UpdateButtons();
+    }
+
     private void UpdateButtons()
     {
         ApplyButton.IsEnabled = _trusted && _plan is not null && _profile is not null
             && _plan.Any(item => item.Action is PlanAction.Enable or PlanAction.Disable);
         RestoreButton.IsEnabled = _profile is not null && ProfileWriter.HasPendingRestore(_profile);
+        StartButton.IsEnabled = _readyToStart;
     }
 
     private static X4Profile? FindProfile()
@@ -396,7 +454,8 @@ public partial class MainWindow : Window
             $"Session \"{manifest.Session}\", policy v{manifest.PolicyVersion}, game build {manifest.GameBuild}",
             manifest.Session,
             summary,
-            profile);
+            profile,
+            install);
     }
 
     private sealed record CheckResult(
@@ -404,5 +463,6 @@ public partial class MainWindow : Window
         string SessionLine,
         string SessionName,
         string Summary,
-        X4Profile? Profile);
+        X4Profile? Profile,
+        GameInstall Install);
 }
