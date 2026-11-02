@@ -490,6 +490,14 @@ reports `update`. Nexus mods never auto-update.
 Players → player detail gains a **Mods** tab: that player's full report (source, enabled,
 version, hash, DLL/UI flags) with the diff against the session highlighted.
 
+As built (M6-X5), the page's per-player lines read `In sync` when the report was judged by the
+current policy and `Launcher sync needed (v5 to v7)` when an older one judged it, so an admin
+sees whose launcher has not re-checked since the policy changed; a violating report still says
+`Differs` with its violation list. A **Launcher** panel sits between Players and Rejections and
+shows the manifest address for `x4mp-launcher.exe` — `new URL('api/v1/join/mod-manifest',
+window.location.origin)`, i.e. the host, port and any proxy prefix the GUI was reached on — with
+a **Copy address** button and the reminder that the launcher asks for the join password itself.
+
 ---
 
 ## 5. Phase 3: modded-game support (backlog)

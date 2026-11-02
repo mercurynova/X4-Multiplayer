@@ -343,6 +343,35 @@ describe('Mods page', () => {
     await waitFor(() => expect(calls.some((c) => c.url === '/api/v1/mods/import-from-authority')).toBe(true));
     expect(JSON.parse(calls.find((c) => c.url === '/api/v1/mods/import-from-authority')!.body ?? '{}')).toEqual({ merge: true });
   });
+
+  it('shows the launcher address and copies it', async () => {
+    setup({});
+    const address = new URL('api/v1/join/mod-manifest', window.location.origin).toString();
+    expect(await screen.findByTestId('manifest-url')).toHaveTextContent(address);
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      await userEvent.click(screen.getByRole('button', { name: 'Copy address' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(address));
+      expect(await screen.findByText('Copied.')).toBeInTheDocument();
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  it('tells an in-sync player apart from one whose launcher is behind the policy', async () => {
+    setup({
+      state: state({
+        players: [
+          player(1, 'Alice', { isAuthority: true }),
+          player(2, 'Bob', { status: 'Violates', outcome: 'Rejected', violation, reportPolicyVersion: 5 }),
+        ],
+      }),
+    });
+    expect(await screen.findByText('In sync')).toBeInTheDocument();
+    expect(screen.getByText('Launcher sync needed (v5 to v7)')).toBeInTheDocument();
+  });
 });
 
 describe('mods state helpers', () => {

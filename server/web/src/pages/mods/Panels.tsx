@@ -9,8 +9,10 @@ const HIDDEN = 'Players’ mod lists are hidden from your role (ModListHidden). 
 
 function statusText(p: PlayerModStatusDto, policyVersion: number) {
   if (p.status === 'NoReport') return 'No report yet';
-  if (p.status === 'Matches') return 'Matches';
-  return p.reportPolicyVersion < policyVersion ? 'Differs (policy changed since the join)' : 'Differs';
+  if (p.status === 'Matches') return 'In sync';
+  return p.reportPolicyVersion < policyVersion
+    ? `Launcher sync needed (v${p.reportPolicyVersion} to v${policyVersion})`
+    : 'Differs';
 }
 
 /** Per-player status against the current policy, with the full violation lists and a link to the report history. */
@@ -49,6 +51,41 @@ export function PlayersPanel({ players, policyVersion, hidden }: { players: Play
         </ul>
       )}
       {open && <PlayerReportsDialog playerId={open.playerId} name={open.name} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+/** The address a player pastes into the launcher. A session with a join password asks for it there too. */
+export function LauncherPanel() {
+  const [copied, setCopied] = useState<string | null>(null);
+  const address = new URL('api/v1/join/mod-manifest', window.location.origin).toString();
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied('Copied.');
+    } catch {
+      setCopied('Could not copy: select the address and press Ctrl+C.');
+    }
+  }
+
+  return (
+    <div className="panel" aria-label="Launcher">
+      <h2>Launcher</h2>
+      <p className="muted">
+        Players paste this address into <code>x4mp-launcher.exe</code>. A session with a join password asks for it in
+        the launcher. The launcher opens only Steam Workshop and Nexus Mods pages, changes only the profile&apos;s
+        content.xml, and writes nothing until the player presses Apply.
+      </p>
+      <p>
+        <code data-testid="manifest-url">{address}</code>
+      </p>
+      <p>
+        <button type="button" onClick={() => void copy()}>
+          Copy address
+        </button>
+        {copied && <span className="muted"> {copied}</span>}
+      </p>
     </div>
   );
 }

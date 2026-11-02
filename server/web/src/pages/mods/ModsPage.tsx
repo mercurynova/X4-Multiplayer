@@ -4,7 +4,7 @@ import type { ModCatalogEntryDto, ModEntryDto } from '../../generated/generated'
 import { CatalogDialog, EntryDialog } from './EntryDialog';
 import { EntriesTable } from './EntriesTable';
 import { ImportDialog } from './ImportDialog';
-import { CatalogPanel, PlayersPanel, RejectionsPanel } from './Panels';
+import { CatalogPanel, LauncherPanel, PlayersPanel, RejectionsPanel } from './Panels';
 import { PolicyCard } from './PolicyCard';
 import { useMods } from './useMods';
 import '../players/players.css';
@@ -73,6 +73,7 @@ export function ModsPage() {
       </div>
 
       <PlayersPanel players={state.players} policyVersion={policy.version} hidden={state.playersHidden} />
+      <LauncherPanel />
       <RejectionsPanel players={state.players} rejections={rejections} />
       <CatalogPanel catalog={catalog} canEdit={canEdit} onEdit={(entry) => setForm({ kind: 'catalog', entry })} onAdd={(prefill) => setForm({ kind: 'add', prefill })} />
 

@@ -681,6 +681,18 @@ normal form for both the HTTP client and the trust key (scheme added when missin
 lowercased, path and query dropped), and `TrustStoreTests`, `ExternalLinksTests` and
 `ServerAddressTests` cover the new pieces; the launcher suite is 121 tests, all green.
 
+**Status 2026-11-02 (M6-X5): the Mods page speaks the launcher's language.** The per-player
+status no longer says "Matches" or "Differs (policy changed since the join)" but `In sync` when
+the report was judged by the current policy, and `Launcher sync needed (v{report} to v{policy})`
+when it was judged by an older one, so an admin can read a stale launcher off the page without
+opening the report history; `Differs` stays for a report that violates the current policy. A new
+**Launcher** panel between Players and Rejections shows the address to paste into
+`x4mp-launcher.exe` — `new URL('api/v1/join/mod-manifest', window.location.origin)`, so the
+admin port, hostname and any reverse-proxy prefix are the ones the GUI was reached on — with a
+**Copy address** button and a sentence that the join password is asked by the launcher itself.
+The panel needs no new endpoint: it names the one M6-X1 added. The web suite is 184 tests plus
+one skipped, all green; `tsc -b` and `vite build` are clean.
+
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
 `TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the
