@@ -148,7 +148,9 @@ public class SessionActorIntegrationTests
         var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
 
         var boss = await JoinAsync(net, new NodeClientOptions { PlayerName = "Boss", PlayerKey = key, RequestedRoles = Role.Authority | Role.Client });
-        Assert.Equal(120, boss.Welcome.ResumeGraceS);
+        // The authority slot keeps the longer of the two windows: the reconnect grace (300 s by default) wins over the
+        // authority grace (120 s), so a game that needs minutes to boot still finds its own session on the way back.
+        Assert.Equal(300, boss.Welcome.ResumeGraceS);
         var snap = await fixture.Actor.GetSnapshotAsync();
         Assert.Equal(SessionPhase.AuthorityLoading, snap.Phase);
         Assert.True((await fixture.Actor.ApplyAsync(SessionTrigger.CheckpointStored)).Applied);

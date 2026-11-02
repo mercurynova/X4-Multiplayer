@@ -53,7 +53,7 @@ public class SessionActorTests
         Assert.True(alice.Accepted);
         Assert.False(alice.Welcome.Resumed);
         Assert.Equal(1000, alice.Welcome.HeartbeatIntervalMs);
-        Assert.Equal(60, alice.Welcome.ResumeGraceS);
+        Assert.Equal((ushort)rig.Net.ResumeGraceSeconds, alice.Welcome.ResumeGraceS);
 
         // After Welcome: SessionState, the full roster, then the first Ping.
         var types = alice.Connection.Sent.Select(f => f.Type).ToArray();
@@ -425,7 +425,7 @@ public class SessionActorTests
     public async Task ResumeInsideTheGraceKeepsTheRowAndResetsBaselines()
     {
         var module = new RecordingModule();
-        await using var rig = new ActorRig(modules: module);
+        await using var rig = new ActorRig(net: new NetOptions { ResumeGraceSeconds = 60 }, modules: module);
         var alice = await rig.JoinAsync("Alice");
         await rig.BringInGameAsync(alice);
 
@@ -469,7 +469,7 @@ public class SessionActorTests
     [Fact]
     public async Task ResumeAfterTheGraceIsRefusedAndTheSlotIsGone()
     {
-        await using var rig = new ActorRig();
+        await using var rig = new ActorRig(net: new NetOptions { ResumeGraceSeconds = 60 });
         var alice = await rig.JoinAsync("Alice");
         await DropAsync(rig, alice);
 
@@ -495,7 +495,7 @@ public class SessionActorTests
     [InlineData(60.0, false)]
     public async Task ResumeWindowEdge(double secondsAfterDrop, bool accepted)
     {
-        await using var rig = new ActorRig();
+        await using var rig = new ActorRig(net: new NetOptions { ResumeGraceSeconds = 60 });
         var alice = await rig.JoinAsync("Alice");
         await DropAsync(rig, alice);
         await rig.AdvanceAsync(TimeSpan.FromSeconds(secondsAfterDrop));
@@ -567,7 +567,7 @@ public class SessionActorTests
     public async Task AuthorityDropGoesAuthorityLostAndBackToRunningOnResume()
     {
         var module = new RecordingModule();
-        await using var rig = new ActorRig(modules: module);
+        await using var rig = new ActorRig(net: new NetOptions { ResumeGraceSeconds = 60 }, modules: module);
         var boss = await RunningSessionAsync(rig);
         var bob = await rig.JoinAsync("Bob");
 
@@ -663,7 +663,7 @@ public class SessionActorTests
     [Fact]
     public async Task AuthorityLoadingDropResumesInPlaceAndFailsBackAfterTheGrace()
     {
-        await using var rig = new ActorRig();
+        await using var rig = new ActorRig(net: new NetOptions { ResumeGraceSeconds = 60 });
         var boss = await rig.JoinAuthorityAsync();
         await DropAsync(rig, boss);
         Assert.Equal(SessionPhase.AuthorityLoading, await PhaseAsync(rig)); // loading survives a reload

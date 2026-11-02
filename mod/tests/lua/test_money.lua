@@ -119,6 +119,16 @@ test("money: a refused send is retried, not lost", function()
 	eq(moneyOf(2).value, 99)
 end)
 
+test("money: a poll before the bridge has an API neither reads nor logs an error", function()
+	local M = setup(function() return 321 end)
+	local before = #env.debug -- the load itself may log; the poll must not add a line
+	_G.__X4NATIVE_API = nil -- native init has not happened yet
+	_G.GetPlayerMoney = function() error("the balance must not be read without an API") end
+	M.poll()
+	eq(M.skipped, 1, "the poll waits for the API instead of sending")
+	eq(#env.debug, before, "the wait must not reach the game log as an error")
+end)
+
 test("money: a negative balance is a real reading", function()
 	local value = 100
 	local M = setup(function() return value end)

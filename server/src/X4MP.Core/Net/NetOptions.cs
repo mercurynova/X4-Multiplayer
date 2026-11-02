@@ -138,8 +138,11 @@ public sealed record NetOptions
     [Setting("Maximum players", Min = 1, Max = 64)]
     public int MaxPlayers { get; set; } = 8;
 
+    // 300 s, not 60: an X4 client needs 160-195 s to reach the main menu on a normal machine (measured on the
+    // two-instance stand, 2026-11-02), so a 60 s window closed before the first window could even reconnect and every
+    // restart ended the session instead of resuming it. The authority slot uses max(this, AuthorityGraceSeconds).
     [Setting("Reconnect grace (s)", Min = 5, Max = 600)]
-    public int ResumeGraceSeconds { get; set; } = 60;
+    public int ResumeGraceSeconds { get; set; } = 300;
 
     /// <summary>Capability bits the server advertises (<see cref="X4MP.Proto.Capability"/>).</summary>
     public ulong ServerCaps { get; set; } =

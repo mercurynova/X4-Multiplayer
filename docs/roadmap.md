@@ -30,12 +30,12 @@ own criteria are in-game numbers, so M4 stays open until [in-game-session-7.md](
 criterion there names the log line the number comes from, and [m4-exit-report.md](m4-exit-report.md) section 2 is the
 table it fills.
 
-**M5 status (2026-10-31): waves 1-8 code-complete on the mod side - M5-28, the economy client (M5-29/M5-30), the
-authority settlement (M5-31), the ledger list and the economy window done, auditor clean; acceptance pending a two-node
-session.**
+**M5 status (2026-11-02): waves 1-8 code-complete on the mod side - M5-28, the economy client (M5-29/M5-30), the
+authority settlement (M5-31), the ledger list and the economy window done, M5-32 (the game starts its own server)
+done, auditor clean; acceptance pending a two-node session.**
 [m5-plan.md](m5-plan.md) splits the milestone into eight waves (M5-01..M5-34). W1-W6 (M5-01..M5-26) are merged and every
-CI gate is green: `ctest` **683** (679 passed, 4 skipped), Lua **304**, `x4mp_host_tests "[wallet]"` 550 assertions in 16
-cases, `"[economy_client]"` 158 in 8 and `"[settlement]"` 69 in 7. The server half shipped in M1 (ledger, credit modes, transfers, loans, escrowed trades, auditor, admin REST,
+CI gate is green: `ctest` **691** (687 passed, 4 skipped), Lua **316**, `x4mp_host_tests "[wallet]"` 550 assertions in 16
+cases, `"[economy_client]"` 173 in 8, `"[settlement]"` 69 in 7 and `"[server]"` 94 in 8. The server half shipped in M1 (ledger, credit modes, transfers, loans, escrowed trades, auditor, admin REST,
 teams, `RelayModule`), so M5 is a detection-and-apply milestone on the mod side. Session 8 ran the authority half in
 game - events, presence, HUD, teams, chat wrappers, the 152-sector map, checkpoints and wallet reconciliation - and
 found four real defects: two `0xc00000fd` stack overflows (the money timer re-arming itself inside the helper flush,

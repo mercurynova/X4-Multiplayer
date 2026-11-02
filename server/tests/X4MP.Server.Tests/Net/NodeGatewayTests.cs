@@ -44,7 +44,7 @@ public class NodeGatewayTests
         Assert.NotEqual(0ul, welcome.ResumeToken!.Value.Lo | welcome.ResumeToken.Value.Hi);
         Assert.False(welcome.Resumed);
         Assert.Equal((uint)net.Gateway!.AdmittedNodes[0].Connection.Id.Value, welcome.ConnId);
-        Assert.Equal(60, welcome.ResumeGraceS);
+        Assert.Equal((ushort)net.Options.ResumeGraceSeconds, welcome.ResumeGraceS);
         Assert.Equal(0, welcome.UdpPort);
         Assert.Single(net.Gateway.AdmittedNodes);
     }

@@ -51,6 +51,12 @@ function O.poll()
 		O.skipped = O.skipped + 1 -- the start menu has no player and no balance
 		return
 	end
+	-- Before native init the bridge has no API, and a send from here is refused with an error line in a healthy game log.
+	-- Nothing is lost by waiting: the next tick retries, and a join into a running session still reads at load.
+	if type(B) ~= "table" or type(B.getApi) ~= "function" or B.getApi() == nil then
+		O.skipped = O.skipped + 1
+		return
+	end
 	local v = read()
 	if v == nil then
 		O.bad = O.bad + 1

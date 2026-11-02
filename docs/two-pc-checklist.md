@@ -1,26 +1,26 @@
-# Чек-лист приёмочных проверок на двух ПК
+# Two-PC acceptance checklist
 
-Этот файл — рабочий лист для сессии на двух машинах. Он разбит на механики, и у каждой механики один и тот же набор полей: что проверяем, что нужно подготовить, шаги, ожидаемый результат в виде строки, которую надо процитировать, где смотреть и что приложить, если не совпало.
+This file is the working sheet for a sitting on two machines. It is split by mechanic, and every mechanic has the same set of fields: what is checked, what has to be prepared, the steps, the expected result as a line that must be quoted, where to look and what to attach when it does not match.
 
-Пошаговый сценарий запуска стенда лежит отдельно в `docs/in-game-session-9.md` — здесь только проверки механик. Правило одно: шаг считается пройденным, когда строка процитирована из лога. «Выглядело правильно» доказательством не является.
+The step-by-step scenario for starting the stand lives separately in `docs/in-game-session-9.md` — this file is only the mechanic checks. One rule: a step is passed when the line has been quoted from the log. "It looked right" is not evidence.
 
-Роли на стенде:
+Roles on the stand:
 
-- **ПК A** — authority и сервер. На нём же лежит сейв сессии.
-- **ПК B** — клиент. Он ничего не хранит, всё приходит с A.
+- **PC A** — the authority and the server. The session save also lives here.
+- **PC B** — the client. It stores nothing; everything comes from A.
 
-## 0. Подготовка стенда
+## 0. Preparing the stand
 
-**Что проверяем.** Что обе машины запускают один и тот же код и что порты между ними открыты.
+**What is checked.** That both machines run the same code and that the ports between them are open.
 
-**Подготовка.** Обе машины в одной сети. На A собран свежий сервер, на обеих развёрнут мод.
+**Preparation.** Both machines on the same network. A has a fresh server build, the mod is deployed on both.
 
-**Шаги.**
+**Steps.**
 
-1. На обеих машинах выполнить `git rev-parse HEAD` — хеши должны совпадать.
-2. На обеих машинах сравнить `extensions\x4mp\native\x4mp.dll` по размеру и времени — файлы должны быть идентичны.
-3. На A собрать сервер: `dotnet build server\src\X4MP.Server -c Release -o out\win-x64 -p:SkipWebBuild=true`. Флаг обязателен на этой машине: Node 18 не собирает React-интерфейс, а серверу он не нужен.
-4. На A открыть порты. Профиль сети на этой машине `Public`, поэтому правило с `-Profile Private` не сработает:
+1. On both machines run `git rev-parse HEAD` — the hashes must match.
+2. On both machines compare `extensions\x4mp\native\x4mp.dll` by size and timestamp — the files must be identical.
+3. On A build the server: `dotnet build server\src\X4MP.Server -c Release -o out\win-x64 -p:SkipWebBuild=true`. The flag is mandatory on this machine: Node 18 does not build the React interface, and the server does not need it.
+4. On A open the ports. The network profile on this machine is `Public`, so a rule with `-Profile Private` will not work:
 
 ```powershell
 New-NetFirewallRule -DisplayName 'X4MP game tcp' -Direction Inbound -Protocol TCP -LocalPort 47780 -Profile Any -RemoteAddress LocalSubnet -Action Allow
@@ -28,8 +28,8 @@ New-NetFirewallRule -DisplayName 'X4MP game udp' -Direction Inbound -Protocol UD
 New-NetFirewallRule -DisplayName 'X4MP api'      -Direction Inbound -Protocol TCP -LocalPort 47790 -Profile Any -RemoteAddress LocalSubnet -Action Allow
 ```
 
-5. На B проверить доступность: `Test-NetConnection <адрес A> -Port 47780` — `TcpTestSucceeded : True`.
-6. На A запустить сервер с окружением:
+5. On B check reachability: `Test-NetConnection <A address> -Port 47780` — `TcpTestSucceeded : True`.
+6. On A start the server with the environment:
 
 ```
 X4MP__Net__NodeTcpEndpoint=0.0.0.0:47780
@@ -43,280 +43,280 @@ X4MP__Economy__CreditMode=PerPlayer
 X4MP__Admin__AllowRemote=true
 ```
 
-`CreditMode=PerPlayer` нужен только для проверки команд пула в разделе 10. Если стенд идёт в общем режиме, команды `/mp deposit` и `/mp withdraw` обязаны вернуть отказ, и это тоже проверка.
+`CreditMode=PerPlayer` is only needed for the pool command checks in section 10. If the stand runs in shared mode, the commands `/mp deposit` and `/mp withdraw` must refuse, and that is a check too.
 
-**Ожидаемый результат.** `git rev-parse HEAD` на A и B совпадает; `Test-NetConnection` даёт `TcpTestSucceeded : True`; в `server.out.log` есть строка запуска и `Now listening on: http://0.0.0.0:47790`.
+**Expected result.** `git rev-parse HEAD` matches on A and B; `Test-NetConnection` gives `TcpTestSucceeded : True`; `server.out.log` has the start-up line and `Now listening on: http://0.0.0.0:47790`.
 
-**Где смотреть.** Консоль и `server.out.log` на A, `x4mp.log` на обеих машинах. Полный путь к логу мода — `%LOCALAPPDATA%\X4MP\logs\x4mp.log`, то есть `C:\Users\<имя>\AppData\Local\X4MP\logs\x4mp.log`; это не папка `Documents`. Рядом лежат `x4mp.json` и журнал расчётов `settlement.json`.
+**Where to look.** The console and `server.out.log` on A, `x4mp.log` on both machines. The full mod log path is `%LOCALAPPDATA%\X4MP\logs\x4mp.log`, that is `C:\Users\<name>\AppData\Local\X4MP\logs\x4mp.log`; this is not the `Documents` folder. `x4mp.json` and the settlement journal `settlement.json` sit next to it.
 
-**Если не совпало.** Приложить вывод `git rev-parse HEAD`, размеры `x4mp.dll` с обеих машин, `Get-NetFirewallProfile` и хвост `server.out.log`.
+**If it does not match.** Attach the output of `git rev-parse HEAD`, the sizes of `x4mp.dll` from both machines, `Get-NetFirewallProfile` and the tail of `server.out.log`.
 
-## 1. Подключение и состав сессии
+## 1. Joining and the session roster
 
-**Что проверяем.** Что B входит в сессию A, видит ростер и что команды чата отвечают.
+**What is checked.** That B joins A's session, sees the roster, and that the chat commands answer.
 
-**Подготовка.** Стенд из раздела 0, на A загружен сейв сессии, A подключён как authority.
+**Preparation.** The stand from section 0, a session save loaded on A, A joined as authority.
 
-**Шаги.**
+**Steps.**
 
-1. На A в экране Join указать адрес сервера, имя, роль authority и админский пароль, нажать Connect.
-2. На B в экране Join указать тот же адрес и своё имя, нажать Connect.
-3. На A в админском интерфейсе расставить обоих игроков по командам — режим `AdminAssign` сам никого не распределяет.
-4. На обеих машинах ввести в чат `/who`.
-5. На обеих машинах ввести в чат `/ping`.
+1. On A, in the Join screen, enter the server address, the name, the authority role and the admin password, then press Connect.
+2. On B, in the Join screen, enter the same address and your own name, then press Connect.
+3. On A, in the admin interface, assign both players to teams — the `AdminAssign` mode does not assign anyone by itself.
+4. On both machines type `/who` in chat.
+5. On both machines type `/ping` in chat.
 
-**Ожидаемый результат.** В `server.out.log` на A: `player 1 (...) joined as Authority, Client, Admin`, затем `player 2 (...) joined as Client`, затем `session <id>: ... -> Running (first checkpoint stored)` и `teams: applied seq=1 slots=2 relations=...`. В чате на обеих машинах `/who` показывает две строки игроков, `/ping` отвечает строкой вида `Пинг: <N> мс, сервер <адрес>, состояние ingame`.
+**Expected result.** In `server.out.log` on A: `player 1 (...) joined as Authority, Client, Admin`, then `player 2 (...) joined as Client`, then `session <id>: ... -> Running (first checkpoint stored)` and `teams: applied seq=1 slots=2 relations=...`. In the chat on both machines `/who` shows two player rows, `/ping` answers with a line of the form `Пинг: <N> мс, сервер <адрес>, состояние ingame`.
 
-**Где смотреть.** `server.out.log` на A, окно чата и `x4mp.log` на обеих машинах.
+**Where to look.** `server.out.log` on A, the chat window and `x4mp.log` on both machines.
 
-**Если не совпало.** Приложить хвост `server.out.log`, ответы `/who` и `/ping` с обеих машин и `x4mp.log` с момента подключения.
+**If it does not match.** Attach the tail of `server.out.log`, the `/who` and `/ping` answers from both machines and `x4mp.log` from the moment of joining.
 
-## 1a. Сервер запускается из игры
+## 1a. The server starts from the game
 
-**Что проверяем.** Что сервер поднимается и останавливается из меню, без консоли, и что в него же входит authority.
+**What is checked.** That the server starts and stops from the menu, without a console, and that the authority joins that same server.
 
-**Подготовка.** Ни один `x4mp-server` не запущен, порты 47780/47781/47790 свободны, расширение собрано с `-WithServer`.
+**Preparation.** No `x4mp-server` running, ports 47780/47781/47790 free, the extension built with `-WithServer`.
 
-**Шаги.**
+**Steps.**
 
-1. В игре открыть окно X4MP и на главном экране нажать «Выделенный сервер».
-2. Нажать «Запустить сервер» и дождаться состояния «работает».
-3. Проверить на экране pid, оба порта, каталог данных, журнал и админ-пароль.
-4. Вернуться на экран Join, включить host и убедиться, что админский пароль подставился сам, затем нажать Connect.
-5. Нажать «Остановить сервер».
-6. Запустить сервер снова и закрыть игру.
+1. In game, open the X4MP window and on the main screen press «Выделенный сервер» (dedicated server).
+2. Press «Запустить сервер» (start server) and wait for the state «работает» (running).
+3. On the screen check the pid, both ports, the data folder, the log and the admin password.
+4. Go back to the Join screen, enable host and confirm that the admin password filled itself in, then press Connect.
+5. Press «Остановить сервер» (stop server).
+6. Start the server again and close the game.
 
-**Ожидаемый результат.** После шага 2 в `%LocalAppData%\X4MP\logs\server-console.log` появляются `Database ready at schema version 8`, `Now listening on: http://0.0.0.0:47790` и `47780`; в `server.out.log` на шаге 4 — `admitted <имя> (player 1) as Authority, Client, Admin` и `-> Running (first checkpoint stored)`; на шаге 5 оба порта закрываются, процесса `x4mp-server` нет; на шаге 6 после выхода из игры процесса `x4mp-server` тоже нет, потому что `auto_stop` включён.
+**Expected result.** After step 2, `%LocalAppData%\X4MP\logs\server-console.log` contains `Database ready at schema version 8`, `Now listening on: http://0.0.0.0:47790` and `47780`; in `server.out.log` at step 4 — `admitted <имя> (player 1) as Authority, Client, Admin` and `-> Running (first checkpoint stored)`; at step 5 both ports close and there is no `x4mp-server` process; at step 6, after the game exits, there is no `x4mp-server` process either, because `auto_stop` is on.
 
-**Где смотреть.** Экран «Выделенный сервер», `%LocalAppData%\X4MP\logs\server-console.log`, список процессов, `x4mp.log` со строкой `[host] server: starting pid=... port=47780`.
+**Where to look.** The «Выделенный сервер» screen, `%LocalAppData%\X4MP\logs\server-console.log`, the process list, `x4mp.log` with the line `[host] server: starting pid=... port=47780`.
 
-**Если не совпало.** Если состояние сразу `exited` с кодом `-1073740286`, значит в расширение попала сборка с ReadyToRun: пересобрать бандл с `-p:PublishReadyToRun=false` и повторить деплой. Если authority получает `authentication failed`, на экране должен быть тот же пароль, что в `<каталог данных>\admin-password.txt`.
+**If it does not match.** If the state is `exited` straight away with code `-1073740286`, the extension picked up a build with ReadyToRun: rebuild the bundle with `-p:PublishReadyToRun=false` and deploy again. If the authority gets `authentication failed`, the screen must show the same password as in `<data folder>\admin-password.txt`.
 
-## 2. NPC-корабль-призрак и его уничтожение
+## 2. The NPC ghost ship and its destruction
 
-**Что проверяем.** Что корабль NPC, созданный на A, виден на B и что попадание с B убивает его на A без расхождения.
+**What is checked.** That an NPC ship created on A is visible on B and that a hit from B kills it on A with no divergence.
 
-**Подготовка.** Оба игрока в одной системе, корабль NPC заспавнен на A.
+**Preparation.** Both players in the same system, the NPC ship spawned on A.
 
-**Шаги.**
+**Steps.**
 
-1. На A заспавнить NPC-корабль и дождаться, пока он появится в ростере сущностей.
-2. На B найти корабль визуально и убедиться, что он движется так же, как на A.
-3. На B атаковать корабль до уничтожения.
-4. Дождаться исчезновения корабля на обеих машинах.
+1. On A spawn an NPC ship and wait until it appears in the entity roster.
+2. On B find the ship visually and confirm that it moves the same way as on A.
+3. On B attack the ship until it is destroyed.
+4. Wait for the ship to disappear on both machines.
 
-**Ожидаемый результат.** На A в `x4mp.log`: `authority: net <N> killed by player <id> (name ...)`. На B счётчик исчезнувших призраков увеличивается в течение 500 мс, корабль пропадает из мира на обеих машинах.
+**Expected result.** On A in `x4mp.log`: `authority: net <N> killed by player <id> (name ...)`. On B the disappeared-ghost counter increases within 500 ms, and the ship vanishes from the world on both machines.
 
-**Где смотреть.** `x4mp.log` на A и B, HUD-счётчики призраков.
+**Where to look.** `x4mp.log` on A and B, the HUD ghost counters.
 
-**Если не совпало.** Приложить строку `authority: net ... killed` с A, хвост `x4mp.log` с B и указать, через сколько секунд корабль исчез.
+**If it does not match.** Attach the `authority: net ... killed` line from A, the tail of `x4mp.log` from B, and state after how many seconds the ship disappeared.
 
-## 3. Смерть и возврат без дубликата призрака
+## 3. Death and return without a duplicate ghost
 
-**Что проверяем.** Что после смерти и переподключения игрока не появляется второй корабль-призрак.
+**What is checked.** That after a player dies and reconnects a second ghost ship does not appear.
 
-**Подготовка.** Стенд из раздела 1, оба игрока в игре.
+**Preparation.** The stand from section 1, both players in game.
 
-**Шаги.**
+**Steps.**
 
-1. На B уничтожить свой корабль и дождаться смерти.
-2. На B переподключиться к сессии.
-3. На A и B посчитать корабли B в мире.
+1. On B destroy your own ship and wait for the death.
+2. On B reconnect to the session.
+3. On A and B count B's ships in the world.
 
-**Ожидаемый результат.** На A в `x4mp.log` одна строка о выходе и одна о возврате игрока, в мире ровно один корабль B; на B счётчик призраков не растёт после возврата.
+**Expected result.** On A `x4mp.log` has one line about the player leaving and one about the return, the world has exactly one ship of B; on B the ghost counter does not grow after the return.
 
-**Где смотреть.** `x4mp.log` на обеих машинах, ростер игроков.
+**Where to look.** `x4mp.log` on both machines, the player roster.
 
-**Если не совпало.** Приложить строки входа и выхода с A и счётчик призраков с B до и после переподключения.
+**If it does not match.** Attach the join and leave lines from A and the ghost counter from B before and after the reconnect.
 
-## 4. Продажа 500 единиц товара
+## 4. Selling 500 units of a ware
 
-**Что проверяем.** Что продажа груза, сделанная на B, применяется на authority и что склад станции сходится.
+**What is checked.** That a cargo sale made on B is applied on the authority and that the station stock adds up.
 
-**Подготовка.** У B есть груз, у станции есть спрос на этот товар.
+**Preparation.** B has cargo, the station has demand for that ware.
 
-**Шаги.**
+**Steps.**
 
-1. На B продать 500 единиц товара.
-2. На A дождаться строки о применении.
-3. На обеих машинах сверить остаток на станции и в трюме.
+1. On B sell 500 units of the ware.
+2. On A wait for the line about the application.
+3. On both machines compare the station stock and the cargo hold.
 
-**Ожидаемый результат.** На A в `x4mp.log`: `authority: trade at net <N> ware '<ware>' x500 applied to component <id> (applied=... deferred=... dropped=... unknown=... stock ops=...)`, где `applied` не ноль и `dropped=0`. В той же сессии `[perf] stats: ... mod_p95=... mod_max=...` — `mod_max` держится ниже 2 мс.
+**Expected result.** On A in `x4mp.log`: `authority: trade at net <N> ware '<ware>' x500 applied to component <id> (applied=... deferred=... dropped=... unknown=... stock ops=...)`, where `applied` is not zero and `dropped=0`. In the same session `[perf] stats: ... mod_p95=... mod_max=...` — `mod_max` stays below 2 ms.
 
-**Где смотреть.** `x4mp.log` на обеих машинах, окно торговли станции.
+**Where to look.** `x4mp.log` on both machines, the station trade window.
 
-**Если не совпало.** Приложить строку `authority: trade ...` с A и `[perf] stats` с обеих машин.
+**If it does not match.** Attach the `authority: trade ...` line from A and `[perf] stats` from both machines.
 
-## 5. Станция, построенная клиентом
+## 5. A station built by the client
 
-**Что проверяем.** Что станция, построенная на B, получает идентификатор на A и остаётся одной и той же сущностью на обеих машинах.
+**What is checked.** That a station built on B gets its identifier on A and stays the same entity on both machines.
 
-**Подготовка.** У B есть строительный корабль или право на постройку.
+**Preparation.** B has a construction ship or the right to build.
 
-**Шаги.**
+**Steps.**
 
-1. На B начать и завершить постройку станции.
-2. На A дождаться строки о привязке.
-3. Сверить позицию и владельца станции на обеих машинах.
+1. On B start and finish building a station.
+2. On A wait for the binding line.
+3. Compare the position and the owner of the station on both machines.
 
-**Ожидаемый результат.** На обеих машинах в `x4mp.log`: `builds: station '<macro>' bound to net <N> (component <id>)`, идентификаторы совпадают, станция стоит в одной точке.
+**Expected result.** On both machines in `x4mp.log`: `builds: station '<macro>' bound to net <N> (component <id>)`, the identifiers match, the station stands at one point.
 
-**Где смотреть.** `x4mp.log` на обеих машинах, карта.
+**Where to look.** `x4mp.log` on both machines, the map.
 
-**Если не совпало.** Приложить обе строки `builds: station ...` и скриншоты карты с координатами.
+**If it does not match.** Attach both `builds: station ...` lines and map screenshots with coordinates.
 
-## 6. Захват корабля и перезагрузка сейва
+## 6. Capturing a ship and reloading the save
 
-**Что проверяем.** Что захват, сделанный на B, попадает в контрольную точку и переживает перезагрузку.
+**What is checked.** That a capture made on B reaches the checkpoint and survives a reload.
 
-**Подготовка.** Рядом с B есть корабль, который можно захватить.
+**Preparation.** A capturable ship near B.
 
-**Шаги.**
+**Steps.**
 
-1. На B захватить корабль.
-2. На A дождаться контрольной точки.
-3. На A перезагрузить сейв сессии и снова подключиться.
-4. Проверить владельца корабля на обеих машинах.
+1. On B capture the ship.
+2. On A wait for the checkpoint.
+3. On A reload the session save and join again.
+4. Check the ship owner on both machines.
 
-**Ожидаемый результат.** На обеих машинах строка `capture: ...`, на A `authority: checkpoint <id> stored`, после перезагрузки корабль принадлежит той же команде, что и до неё.
+**Expected result.** On both machines the line `capture: ...`, on A `authority: checkpoint <id> stored`; after the reload the ship belongs to the same team as before.
 
-**Где смотреть.** `x4mp.log` на обеих машинах, `server.out.log` на A.
+**Where to look.** `x4mp.log` on both machines, `server.out.log` on A.
 
-**Если не совпало.** Приложить строки `capture:` и `checkpoint ... stored`, а также владельца корабля до и после перезагрузки.
+**If it does not match.** Attach the `capture:` and `checkpoint ... stored` lines, plus the ship owner before and after the reload.
 
-## 7. Урон по NPC от игрока
+## 7. Player damage to an NPC
 
-**Что проверяем.** Что урон, нанесённый на B по NPC, доходит до authority. Это растянутая проверка: если она не проходит, приёмка не блокируется, но результат нужно записать.
+**What is checked.** That damage dealt to an NPC on B reaches the authority. This is a stretched check: if it fails, acceptance is not blocked, but the result has to be recorded.
 
-**Подготовка.** NPC-корабль в зоне видимости B.
+**Preparation.** An NPC ship within B's sight.
 
-**Шаги.**
+**Steps.**
 
-1. На B нанести урон NPC, не убивая его.
-2. На A посмотреть состояние того же корабля.
+1. On B deal damage to the NPC without killing it.
+2. On A look at the state of the same ship.
 
-**Ожидаемый результат.** Значение прочности на A уменьшилось на ту же величину; в `x4mp.log` на A есть строка о применённом уроне.
+**Expected result.** The hull value on A dropped by the same amount; `x4mp.log` on A has a line about the applied damage.
 
-**Где смотреть.** `x4mp.log` на обеих машинах, информация о корабле.
+**Where to look.** `x4mp.log` on both machines, the ship information.
 
-**Если не совпало.** Приложить прочность корабля на обеих машинах до и после и хвост логов.
+**If it does not match.** Attach the ship hull on both machines before and after and the log tails.
 
-## 8. Отношения команд: красная подсветка, союз и передача владельца
+## 8. Team relations: red highlight, ally and owner transfer
 
-**Что проверяем.** Что враждебные команды видят друг друга красными, союзные — за две секунды, и что админ может передать владельца только в режиме `admin_only`.
+**What is checked.** That hostile teams see each other in red, allied ones within two seconds, and that an admin can transfer an owner only in `admin_only` mode.
 
-**Подготовка.** Два игрока в разных командах, `DefaultRelation=Hostile`.
+**Preparation.** Two players in different teams, `DefaultRelation=Hostile`.
 
-**Шаги.**
+**Steps.**
 
-1. На A и B посмотреть цвет меток друг друга.
-2. На A через админский интерфейс перевести B в союзную команду.
-3. Замерить, через сколько секунд метка на A перестала быть красной.
-4. На A попробовать передать владельца корабля другому игроку.
+1. On A and B look at the colour of each other's markers.
+2. On A, through the admin interface, move B to an allied team.
+3. Measure after how many seconds the marker on A stopped being red.
+4. On A try to transfer the ship owner to the other player.
 
-**Ожидаемый результат.** До перевода обе метки красные; после перевода обе метки союзные в пределах двух секунд; передача владельца проходит только при `admin_only` и отклоняется иначе, с отказом в логе.
+**Expected result.** Before the move both markers are red; after it both markers are allied within two seconds; the owner transfer goes through only with `admin_only` and is refused otherwise, with a refusal in the log.
 
-**Где смотреть.** Экран, `x4mp.log` на обеих машинах, `server.out.log` на A.
+**Where to look.** The screen, `x4mp.log` on both machines, `server.out.log` on A.
 
-**Если не совпало.** Приложить время перевода и время смены цвета, скриншоты меток, строку отказа из лога.
+**If it does not match.** Attach the time of the move and the time of the colour change, screenshots of the markers, the refusal line from the log.
 
-## 9. Экономика: задержка, одновременные покупки, исправление правкой сейва
+## 9. Economy: latency, simultaneous purchases, repair after a save edit
 
-**Что проверяем.** Что баланс догоняет сервер в пределах секунды, что две одновременные покупки в общем режиме не создают денег и что правка сейва руками исправляется в пределах 30 секунд.
+**What is checked.** That the balance catches up with the server within a second, that two simultaneous purchases in shared mode do not create money, and that a hand edit of the save is corrected within 30 seconds.
 
-**Подготовка.** `CreditMode=Shared` на сервере, оба игрока в игре.
+**Preparation.** `CreditMode=Shared` on the server, both players in game.
 
-**Шаги.**
+**Steps.**
 
-1. На A и B одновременно купить один и тот же товар на сумму, близкую к остатку.
-2. Сверить баланс на обеих машинах.
-3. На A изменить баланс в сейве вручную и перезагрузить сейв.
-4. Дождаться сверки и снова сверить баланс.
+1. On A and B at the same time buy the same ware for an amount close to the remaining balance.
+2. Compare the balance on both machines.
+3. On A change the balance in the save by hand and reload the save.
+4. Wait for the reconciliation and compare the balance again.
 
-**Ожидаемый результат.** Баланс на обеих машинах одинаков и приходит в норму в пределах одной секунды; при одновременных покупках одна проходит, вторая отклоняется с причиной `InsufficientFunds`, суммарный баланс не растёт; после ручной правки баланс возвращается к значению реестра в пределах 30 секунд.
+**Expected result.** The balance on both machines is the same and comes back to normal within one second; with simultaneous purchases one goes through and the second is refused with the reason `InsufficientFunds`, the total balance does not grow; after the manual edit the balance returns to the ledger value within 30 seconds.
 
-**Где смотреть.** HUD-блок кошелька на обеих машинах, `x4mp.log`, `server.out.log` на A.
+**Where to look.** The wallet HUD block on both machines, `x4mp.log`, `server.out.log` on A.
 
-**Если не совпало.** Приложить балансы до и после каждого шага с обеих машин и строки сверки из `server.out.log`.
+**If it does not match.** Attach the balances before and after each step from both machines and the reconciliation lines from `server.out.log`.
 
-## 10. Экономика между игроками: перевод, пул, заём, сделка
+## 10. Economy between players: transfer, pool, loan, trade
 
-**Что проверяем.** Что перевод двигает два кошелька, что в режиме `PerPlayer` работают команды пула, и что заём и сделка завершаются ответом второй стороны.
+**What is checked.** That a transfer moves two wallets, that the pool commands work in `PerPlayer` mode, and that a loan and a trade finish with an answer from the other side.
 
-**Подготовка.** Оба игрока в одной команде. Для команд пула сервер запущен с `Economy:CreditMode=PerPlayer`.
+**Preparation.** Both players in the same team. For the pool commands the server is started with `Economy:CreditMode=PerPlayer`.
 
-**Шаги.**
+**Steps.**
 
-1. На B ввести `/mp send <имя A> 10000 проверка`.
-2. На обеих машинах ввести `/mp` и сверить кошельки.
-3. На B ввести `/mp deposit 50000`, затем `/mp withdraw 20000`.
-4. На A ввести `/mp loans` и `/mp repay <id> 5000`.
-5. На A предложить сделку, на B ввести `/mp trades`, затем `/mp accept <id>`.
-6. На обеих машинах посмотреть строку `[economy_client]` в логе.
-7. На B ввести `/mp ledger`, затем `/mp ledger more`.
-8. Открыть окно экономики на B и нажать «Загрузить журнал», затем «Более старые записи».
-9. На A предложить заём, пока B в игре, и посмотреть, что видит B без открытых окон.
+1. On B type `/mp send <A name> 10000 проверка`.
+2. On both machines type `/mp` and compare the wallets.
+3. On B type `/mp deposit 50000`, then `/mp withdraw 20000`.
+4. On A type `/mp loans` and `/mp repay <id> 5000`.
+5. On A offer a trade, on B type `/mp trades`, then `/mp accept <id>`.
+6. On both machines look at the `[economy_client]` line in the log.
+7. On B type `/mp ledger`, then `/mp ledger more`.
+8. Open the economy window on B and press «Загрузить журнал» (load ledger), then «Более старые записи» (older entries).
+9. On A offer a loan while B is in game and see what B sees with no windows open.
 
-**Ожидаемый результат.** После перевода у B минус 10000, у A плюс 10000, на обеих машинах одинаковый итог; `/mp` печатает строку `Экономика: <режим>, кошелёк <сумма>, долг пула <сумма>`; в режиме `PerPlayer` вклад и снятие проходят, в общем режиме они обязаны вернуть `EconomyStatus::Rejected` с причиной `NotApplicableInSharedMode`; заём после `/mp repay` меняет состояние на `repaid`; сделка после `/mp accept` доходит до `completed`. В логе на обеих машинах: `[economy_client] requests=<N> sent=<N> sendfail=0 results=<N> rejected=<N> loans=<N> trades=<N> trade_results=<N> ledger_pages=<N> bad=0 notices=<N> self=<id> linked=<N>`.
+**Expected result.** After the transfer B is down 10000, A is up 10000, and both machines show the same total; `/mp` prints the line `Экономика: <режим>, кошелёк <сумма>, долг пула <сумма>`; in `PerPlayer` mode the deposit and the withdrawal go through, in shared mode they must return `EconomyStatus::Rejected` with the reason `NotApplicableInSharedMode`; after `/mp repay` the loan changes state to `repaid`; after `/mp accept` the trade reaches `completed`. In the log on both machines: `[economy_client] requests=<N> sent=<N> sendfail=0 results=<N> rejected=<N> loans=<N> trades=<N> trade_results=<N> ledger_pages=<N> bad=0 notices=<N> self=<id> linked=<N>`.
 
-**Журнал и уведомления.** `/mp ledger` просит страницу и, когда она приходит, печатает `Журнал, сначала новые` и по строке на транзакцию вида `12:04  Перевод  +10 000, от игрока 2`; строки идут от новых к старым, откаченная транзакция помечена `сторнировано`, а если сервер сказал, что старых записей больше, добавляется `Есть более старые записи: /mp ledger more`. `/mp ledger more` просит следующую страницу по курсору самой старой строки, ничего не повторяя. Окно экономики показывает те же строки, кнопка «Загрузить журнал» просит свежую страницу, «Более старые записи» — следующую и активна только тогда, когда сервер сказал, что они есть. Предложение займа или сделки от A показывает B без открытых окон: всплывающее уведомление, строка `Новое предложение займа ...` или `Новое предложение сделки ...` в чате, подсказка `Ответ: /mp accept <id> или /mp decline <id>` и счётчик на бейдже HUD `ждут ответа: <N>`; повтор того же предложения второй раз не всплывает. Если сессия рвётся ровно в момент `/mp ledger`, а в `x4mp.log` стоит `invalid inbound frame: UnknownMessageType`, значит на машинах разные сборки: сверьте время `extensions\x4mp\native\x4mp.dll` на обеих.
+**Ledger and notices.** `/mp ledger` asks for a page and, when it arrives, prints `Журнал, сначала новые` and one line per transaction of the form `12:04  Перевод  +10 000, от игрока 2`; the lines run from newest to oldest, a rolled-back transaction is marked `сторнировано`, and if the server said there are older records, `Есть более старые записи: /mp ledger more` is added. `/mp ledger more` asks for the next page by the cursor of the oldest line, repeating nothing. The economy window shows the same lines, the «Загрузить журнал» button asks for a fresh page, «Более старые записи» for the next one, and it is active only when the server said there are some. A loan or trade offer from A reaches B with no windows open: a toast, the line `Новое предложение займа ...` or `Новое предложение сделки ...` in the chat, the hint `Ответ: /mp accept <id> или /mp decline <id>` and a counter on the HUD badge `ждут ответа: <N>`; a repeat of the same offer does not pop up a second time. If the session drops exactly at the moment of `/mp ledger` and `x4mp.log` shows `invalid inbound frame: UnknownMessageType`, the machines run different builds: compare the timestamp of `extensions\x4mp\native\x4mp.dll` on both.
 
-**Где смотреть.** Окно чата и HUD на обеих машинах, `x4mp.log`, `server.out.log` на A.
+**Where to look.** The chat window and the HUD on both machines, `x4mp.log`, `server.out.log` on A.
 
-**Если не совпало.** Приложить вывод всех `/mp` команд с обеих машин, строку `[economy_client]` и хвост `server.out.log`.
+**If it does not match.** Attach the output of all `/mp` commands from both machines, the `[economy_client]` line and the tail of `server.out.log`.
 
-## 11. Расчёт сделки на authority: корабль за кредиты
+## 11. Settlement on the authority: a ship for credits
 
-**Что проверяем.** Что обмен «корабль за кредиты» проходит целиком или не проходит вовсе: обе стороны заморожены, корабль меняет владельца, кредиты переходят, остатков нет.
+**What is checked.** That the "ship for credits" exchange either completes entirely or does not happen at all: both sides frozen, the ship changes owner, the credits move, nothing is left over.
 
-**Подготовка.** У A есть корабль, у B есть кредиты; оба в одной системе; `AllowAssetTransfer=true`, `TradeScope=Anyone`, `TradeRequiresProximity=false`.
+**Preparation.** A has a ship, B has credits; both in the same system; `AllowAssetTransfer=true`, `TradeScope=Anyone`, `TradeRequiresProximity=false`.
 
-**Шаги.**
+**Steps.**
 
-1. На A предложить сделку: отдать корабль, получить кредиты.
-2. На B принять сделку через `/mp trades`, затем `/mp accept <id>`.
-3. На обеих машинах посмотреть владельца корабля и балансы.
-4. На A посмотреть строку `[settlement]` в логе.
+1. On A offer a trade: give the ship, receive the credits.
+2. On B accept the trade via `/mp trades`, then `/mp accept <id>`.
+3. On both machines look at the ship owner and the balances.
+4. On A look at the `[settlement]` line in the log.
 
-**Ожидаемый результат.** Корабль принадлежит команде B, кредиты списаны у B и зачислены A, эскроу пусто. В логе на A: `settlement: order <id> line 0 component <id> '<старый владелец>' -> '<новый владелец>'`, затем `settlement: trade=<id> applied=1 compensated=0 state=applied` и итоговая строка `[settlement] orders=1 applied=1 compensated=0 refused=0 needs_admin=0 queries=<N> duplicates=0 sendfail=0 bad=0`.
+**Expected result.** The ship belongs to team B, the credits are debited from B and credited to A, the escrow is empty. In the log on A: `settlement: order <id> line 0 component <id> '<старый владелец>' -> '<новый владелец>'`, then `settlement: trade=<id> applied=1 compensated=0 state=applied` and the summary line `[settlement] orders=1 applied=1 compensated=0 refused=0 needs_admin=0 queries=<N> duplicates=0 sendfail=0 bad=0`.
 
-Важно: владелец меняется на команду, а не на игрока. Корабль переходит к команде B, персонального владения в этой версии нет.
+Important: the owner changes to a team, not to a player. The ship goes to team B; there is no personal ownership in this version.
 
-**Где смотреть.** `x4mp.log` на A, `server.out.log` на A, окно сделки на обеих машинах.
+**Where to look.** `x4mp.log` on A, `server.out.log` on A, the trade window on both machines.
 
-**Если не совпало.** Приложить все строки `settlement:` с A, строку `[settlement]`, владельца корабля до и после и балансы обеих сторон.
+**If it does not match.** Attach all `settlement:` lines from A, the `[settlement]` line, the ship owner before and after and the balances of both sides.
 
-## 12. Откат при сбое посередине
+## 12. Rollback on a mid-way failure
 
-**Что проверяем.** Что при сбое на второй операции первая отменяется и остатков не остаётся.
+**What is checked.** That when the second operation fails, the first is cancelled and nothing is left over.
 
-**Подготовка.** Вручную на двух реальных ПК этот сбой не воспроизвести: в сервере нет настройки для искусственного отказа, такая инъекция есть только у аудитора.
+**Preparation.** This failure cannot be reproduced by hand on two real PCs: the server has no setting for an artificial refusal, that injection exists only in the auditor.
 
-**Шаги.** Ручных шагов нет. Доказательство берётся из двух источников:
+**Steps.** There are no manual steps. The evidence comes from two sources:
 
-1. Юнит-тесты мода: `x4mp_host_tests.exe "[settlement]"` — семь случаев, включая откат и запись в журнал.
-2. Аудитор: прогон `--trade --trade-fail 10 --trade-timeout 5 --verify` на FakeNode, где в инвариантах видно `trades=[...RolledBack=...]` и `ledger-sum=0`.
+1. Mod unit tests: `x4mp_host_tests.exe "[settlement]"` — seven cases, including the rollback and the journal write.
+2. Auditor: a run of `--trade --trade-fail 10 --trade-timeout 5 --verify` on FakeNode, where the invariants show `trades=[...RolledBack=...]` and `ledger-sum=0`.
 
-**Ожидаемый результат.** `All tests passed (69 assertions in 7 test cases)`; в инвариантах аудитора `RolledBack` больше нуля и `ledger-sum=0`.
+**Expected result.** `All tests passed (69 assertions in 7 test cases)`; in the auditor invariants `RolledBack` is greater than zero and `ledger-sum=0`.
 
-**Где смотреть.** Вывод тестов и отчёт аудитора, раздел 4.5 в `docs/m5-exit-report.md`.
+**Where to look.** The test output and the auditor report, section 4.5 in `docs/m5-exit-report.md`.
 
-**Если не совпало.** Приложить вывод тестов и инварианты аудитора.
+**If it does not match.** Attach the test output and the auditor invariants.
 
-## Итоговая таблица
+## Summary table
 
-| Раздел | Механика | Приёмка | Результат | Строка-доказательство |
+| Section | Mechanic | Acceptance | Result | Evidence line |
 |---|---|---|---|---|
-| 0 | Подготовка стенда | — | | |
-| 1 | Подключение и состав сессии | S0 | | |
-| 2 | NPC-корабль и уничтожение | AC 2, 3 | | |
-| 3 | Смерть и возврат без дубликата | AC 4 | | |
-| 4 | Продажа 500 единиц | AC 5 | | |
-| 5 | Станция, построенная клиентом | AC 6 | | |
-| 6 | Захват и перезагрузка | AC 7 | | |
-| 7 | Урон по NPC | AC 8 | | |
-| 8 | Отношения команд | AC 9 | | |
-| 9 | Экономика и сверка | AC 10 | | |
-| 10 | Экономика между игроками | AC 11 | | |
-| 11 | Расчёт на authority | AC 12 | | |
-| 12 | Откат при сбое | AC 12 | | |
+| 0 | Stand preparation | — | | |
+| 1 | Joining and the session roster | S0 | | |
+| 2 | NPC ship and destruction | AC 2, 3 | | |
+| 3 | Death and return without a duplicate | AC 4 | | |
+| 4 | Selling 500 units | AC 5 | | |
+| 5 | Station built by the client | AC 6 | | |
+| 6 | Capture and reload | AC 7 | | |
+| 7 | Damage to an NPC | AC 8 | | |
+| 8 | Team relations | AC 9 | | |
+| 9 | Economy and reconciliation | AC 10 | | |
+| 10 | Economy between players | AC 11 | | |
+| 11 | Settlement on the authority | AC 12 | | |
+| 12 | Rollback on failure | AC 12 | | |
