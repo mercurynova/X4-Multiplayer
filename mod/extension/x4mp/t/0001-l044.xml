@@ -114,7 +114,7 @@
     <t id="567">Trade %s: %s, %s, gives %s, wants %s</t>
     <t id="568">No player named %s</t>
     <t id="569">Unknown /mp command: %s</t>
-    <t id="570">/mp shows the economy; /mp send player credits, deposit, withdraw, loans, trades, ledger, accept id, decline id, repay id credits, forgive id</t>
+    <t id="570">/mp shows the economy; /mp send player credits, offer player credits [repay] [days], deposit, withdraw, loans, trades, ledger, accept id, decline id, repay id credits, forgive id</t>
     <t id="520">Players in this session</t>
     <t id="521">online</t>
     <t id="522">offline</t>
@@ -295,5 +295,7 @@
     <t id="637">Admin password: %s</t>
     <t id="638">The password is also kept in %s</t>
     <t id="967">and %d more</t>
+    <t id="968">Offer a loan</t>
+    <t id="969">The repayment cannot be smaller than the loan.</t>
   </page>
 </language>

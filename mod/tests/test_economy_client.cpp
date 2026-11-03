@@ -443,3 +443,118 @@ TEST_CASE("economy_client: a ledger page replaces the list, a cursor page append
   CHECK(hub.request(E::Op::Ledger, params, error));
   CHECK(error.empty());
 }
+
+TEST_CASE("economy_client: a loan offer carries the principal, the repayment and the term", "[economy_client]") {
+  E::EconomyClientHub hub;
+  hub.reset();
+  hub.set_self(7);
+  hub.seed_key(1);
+
+  E::RequestParams params;
+  params.to_player = 3;
+  params.amount = 50000;
+  params.repay_total = 60000;
+  params.due_in_s = 3 * 24 * 60 * 60;
+  params.auto_repay_pct = 25;
+  params.memo = "for the fleet";
+  std::string error;
+  REQUIRE(hub.request(E::Op::LoanOffer, params, error));
+  CHECK(error.empty());
+
+  const std::vector<E::OutFrame> frames = hub.take_unsent(8);
+  REQUIRE(frames.size() == 1);
+  CHECK(frames[0].type == static_cast<std::uint16_t>(P::MsgType::LoanOffer));
+  CHECK(frames[0].op == E::Op::LoanOffer);
+  CHECK(frames[0].key.lo == 2);
+  CHECK(frames[0].key.hi == 7);
+
+  flatbuffers::Verifier verifier(frames[0].bytes.data(), frames[0].bytes.size());
+  REQUIRE(verifier.VerifyBuffer<P::LoanOffer>(nullptr));
+  const P::LoanOffer* offer = flatbuffers::GetRoot<P::LoanOffer>(frames[0].bytes.data());
+  REQUIRE(offer != nullptr);
+  CHECK(offer->borrower() == 3);
+  CHECK(offer->principal() == 50000);
+  CHECK(offer->repay_total() == 60000);
+  CHECK(offer->due_in_s() == 3u * 24u * 60u * 60u);
+  CHECK(offer->offer_ttl_s() == 300u);  // the server default: the player sets the term, not how long the offer stands
+  CHECK(offer->auto_repay_pct() == 25);
+  REQUIRE(offer->memo() != nullptr);
+  CHECK(std::string(offer->memo()->str()) == "for the fleet");
+}
+
+TEST_CASE("economy_client: an offer the server would refuse never leaves the node", "[economy_client]") {
+  E::EconomyClientHub hub;
+  hub.reset();
+  hub.set_self(7);
+  hub.seed_key(1);
+
+  E::RequestParams params;
+  params.to_player = 3;
+  params.amount = 1000;
+  std::string error;
+
+  // The lender's own return: an interest-free offer when no repayment is named.
+  REQUIRE(hub.request(E::Op::LoanOffer, params, error));
+  const std::vector<E::OutFrame> frames = hub.take_unsent(8);
+  REQUIRE(frames.size() == 1);
+  const P::LoanOffer* offer = flatbuffers::GetRoot<P::LoanOffer>(frames[0].bytes.data());
+  REQUIRE(offer != nullptr);
+  CHECK(offer->repay_total() == 1000);
+
+  params.repay_total = 500;
+  CHECK_FALSE(hub.request(E::Op::LoanOffer, params, error));
+  CHECK(error.find("repayment") != std::string::npos);
+
+  params.repay_total = 0;
+  params.to_player = 0;
+  CHECK_FALSE(hub.request(E::Op::LoanOffer, params, error));
+  CHECK(error == "no borrower");
+
+  params.to_player = 7;
+  CHECK_FALSE(hub.request(E::Op::LoanOffer, params, error));
+  CHECK(error.find("yourself") != std::string::npos);
+
+  params.to_player = 3;
+  params.amount = 0;
+  CHECK_FALSE(hub.request(E::Op::LoanOffer, params, error));
+  CHECK(error.find("positive") != std::string::npos);
+  CHECK(hub.take_unsent(8).empty());  // nothing was queued by the refusals
+}
+
+TEST_CASE("economy_client: the borrower answers an offer with the same frame shape for yes and no", "[economy_client]") {
+  E::EconomyClientHub hub;
+  hub.reset();
+  hub.set_self(7);
+  hub.seed_key(1);
+
+  E::RequestParams params;
+  params.id = id_of(11, 7);
+  params.accept = true;
+  std::string error;
+  REQUIRE(hub.request(E::Op::LoanRespond, params, error));
+  CHECK(error.empty());
+
+  const std::vector<E::OutFrame> frames = hub.take_unsent(8);
+  REQUIRE(frames.size() == 1);
+  CHECK(frames[0].type == static_cast<std::uint16_t>(P::MsgType::LoanRespond));
+  flatbuffers::Verifier verifier(frames[0].bytes.data(), frames[0].bytes.size());
+  REQUIRE(verifier.VerifyBuffer<P::LoanRespond>(nullptr));
+  const P::LoanRespond* yes = flatbuffers::GetRoot<P::LoanRespond>(frames[0].bytes.data());
+  REQUIRE(yes != nullptr);
+  CHECK(yes->loan_id() != nullptr);
+  CHECK(yes->loan_id()->lo() == 11);
+  CHECK(yes->loan_id()->hi() == 7);
+  CHECK(yes->accept());
+
+  params.accept = false;
+  REQUIRE(hub.request(E::Op::LoanRespond, params, error));
+  const std::vector<E::OutFrame> no_frames = hub.take_unsent(8);
+  REQUIRE(no_frames.size() == 1);
+  const P::LoanRespond* no = flatbuffers::GetRoot<P::LoanRespond>(no_frames[0].bytes.data());
+  REQUIRE(no != nullptr);
+  CHECK_FALSE(no->accept());
+
+  params.id = E::Id128Value{};
+  CHECK_FALSE(hub.request(E::Op::LoanRespond, params, error));
+  CHECK(error == "no loan id");
+}

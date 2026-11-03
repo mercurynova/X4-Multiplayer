@@ -706,6 +706,22 @@ ahead, in UTF-8 without a BOM. Only after the file is written does the launcher 
 consumes and deletes the file at startup, so nothing joins twice. The launcher suite is 142
 tests, all green; the publish profile and the release zip are unchanged.
 
+**Status 2026-11-03 (KI-4, the loan half): a player can offer a loan and answer one.**
+`mod/docs/known-issues.md` found that offers were receive-only: the economy screen could
+accept a trade but could not create a loan offer, and `/mp accept` on a loan notice answered
+"no such offer". The economy client now has `Op::LoanOffer` and `Op::LoanRespond`, encoded by
+`encode_loan_offer` and `encode_loan_respond` (`economy_wire.h:258` and `:269`) and validated
+before a frame leaves the node the same way `EconomyService.Loans.cs:63-86` validates it; the
+chat gained `/mp offer <player> <credits> [repay] [days] [memo]` and `/mp accept` / `/mp
+decline` now answer a loan offer before falling back to trades; the screen gained an **Offer a
+loan** button next to **Send credits**, and the help text names `offer`. Three Catch2 cases
+(`test_economy_client.cpp:447`, `:485`, `:524`) and five Lua tests
+(`tests/lua/test_economy.lua:448-500`) cover the new path; ctest is 694 of 695 with the known
+timing-sensitive `guard.installer` flake passing on its own, and the Lua suite is 321 tests.
+**Open:** trade proposals still need a form that picks the asset half, because `CheckShape`
+(`EconomyService.Trades.cs:882`) accepts only a trade with exactly one credits item and at
+least one ware or ship.
+
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
 `TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the

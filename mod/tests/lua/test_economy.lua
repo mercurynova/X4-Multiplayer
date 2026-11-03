@@ -440,3 +440,67 @@ test("economy: the screen shows the ledger and offers the next page only when on
 	eq(body.before, "01J000000000000000000A0")
 end)
 
+--- a loan offered to us: the borrower answers it, not the trade resolver
+local LOAN_OFFER = '{"v":1,"self":1,"loans":[{"id":"00000000000000aa:0000000000000002","lender":2,"borrower":1,' ..
+	'"state":0,"principal":4000,"repay_total":4400,"repaid":0,"forgiven":0,"created_us":1,"due_us":2,"memo":"",' ..
+	'"mine":true,"i_lend":false}],"trades":[],"last":{}}'
+
+test("economy: /mp offer names the borrower and carries the loan", function()
+	fresh()
+	players({ { id = 1, name = "Me" }, { id = 2, name = "Bob" } }, 1)
+	X4MPChat.handleCommand("mp", "offer Bob 5000")
+	local body = sent()
+	eq(body.op, "loan_offer")
+	eq(body.to, 2)
+	eq(body.amount, 5000)
+	eq(body.repay_total, 5000, "an offer without a named repayment is interest-free")
+	eq(body.due, 0)
+end)
+
+test("economy: /mp offer takes a repayment and a term in days", function()
+	fresh()
+	players({ { id = 1, name = "Me" }, { id = 2, name = "Bob" } }, 1)
+	X4MPChat.handleCommand("mp", "offer Bob 5000 6000 3")
+	local body = sent()
+	eq(body.amount, 5000)
+	eq(body.repay_total, 6000)
+	eq(body.due, 3 * 86400, "days are turned into the seconds the frame carries")
+end)
+
+test("economy: an offer that asks for less than it lends is refused before it is sent", function()
+	fresh()
+	players({ { id = 1, name = "Me" }, { id = 2, name = "Bob" } }, 1)
+	X4MPChat.handleCommand("mp", "offer Bob 5000 4000")
+	eq(#env.raisedNamed("x4mp.economy"), 0)
+	truthy(all():find("cannot be smaller", 1, true), all())
+end)
+
+test("economy: /mp accept and /mp decline answer a loan offer with loan_respond", function()
+	fresh()
+	env.fire("x4mp.economy", LOAN_OFFER)
+	X4MPChat.handleCommand("mp", "accept 0000aa")
+	local body = sent()
+	eq(body.op, "loan_respond")
+	eq(body.id, "00000000000000aa:0000000000000002")
+	truthy(body.accept, "accept must say yes")
+
+	lines = {}
+	X4MPChat.handleCommand("mp", "decline 0000aa")
+	body = sent()
+	eq(body.op, "loan_respond")
+	eq(body.accept, false)
+end)
+
+test("economy: the screen offers a loan as well as a transfer", function()
+	fresh()
+	players({ { id = 1, name = "Me" }, { id = 2, name = "Bob" } }, 1)
+	env.fire("x4mp.economy", SNAPSHOT)
+	local model, ui = screen()
+	ui.amount = "700"
+	rowById(model, "economy_offer").onClick()
+	local body = sent()
+	eq(body.op, "loan_offer")
+	eq(body.to, 2)
+	eq(body.amount, 700)
+end)
+

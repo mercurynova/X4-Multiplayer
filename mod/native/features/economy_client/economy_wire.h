@@ -168,6 +168,22 @@ struct LoanActionData {
   std::int64_t amount = 0;  // repay: credits to pay; forgive: 0 = the rest
 };
 
+struct LoanOfferData {
+  Id128Value key;
+  std::uint16_t borrower = 0;
+  std::int64_t principal = 0;    // escrowed when the offer is made
+  std::int64_t repay_total = 0;  // principal + interest, >= principal
+  std::uint32_t due_in_s = 0;    // seconds after acceptance, 0 = no due date
+  std::uint8_t auto_repay_pct = 0;
+  std::string memo;
+};
+
+struct LoanRespondData {
+  Id128Value key;
+  Id128Value loan_id;
+  bool accept = false;
+};
+
 struct TradeAcceptData {
   Id128Value key;
   Id128Value trade_id;
@@ -235,6 +251,26 @@ inline P::Id128 to_wire(const Id128Value& id) { return P::Id128(id.lo, id.hi); }
   const P::Id128 key = detail::to_wire(data.key);
   const P::Id128 loan = detail::to_wire(data.loan_id);
   const auto req = P::CreateLoanForgive(fbb, &key, &loan, data.amount);
+  fbb.Finish(req);
+  return detail::finish(fbb);
+}
+
+[[nodiscard]] inline std::vector<std::uint8_t> encode_loan_offer(const LoanOfferData& data) {
+  flatbuffers::FlatBufferBuilder fbb(128);
+  const P::Id128 key = detail::to_wire(data.key);
+  const auto memo = data.memo.empty() ? flatbuffers::Offset<flatbuffers::String>() : fbb.CreateString(data.memo);
+  // The ttl is the server's default (economy.fbs:96); the player sets the term, not how long the offer stands.
+  const auto req = P::CreateLoanOffer(fbb, &key, data.borrower, data.principal, data.repay_total, data.due_in_s, 300,
+                                      data.auto_repay_pct, memo);
+  fbb.Finish(req);
+  return detail::finish(fbb);
+}
+
+[[nodiscard]] inline std::vector<std::uint8_t> encode_loan_respond(const LoanRespondData& data) {
+  flatbuffers::FlatBufferBuilder fbb(96);
+  const P::Id128 key = detail::to_wire(data.key);
+  const P::Id128 loan = detail::to_wire(data.loan_id);
+  const auto req = P::CreateLoanRespond(fbb, &key, &loan, data.accept);
   fbb.Finish(req);
   return detail::finish(fbb);
 }

@@ -2,7 +2,9 @@
 --
 -- The server decides every economy action; this module only asks and shows. The native half (features/economy_client) publishes
 -- topic x4mp.economy {"v":1,"self":<id>,"loans":[...],"trades":[...],"last":{...},"last_trade":{...}} on every change, and takes
--- verb x4mp.economy {"op":"send|deposit|withdraw|repay|forgive|accept|cancel","to":<id>,"amount":<credits>,"id":"<lo:hi>",...}.
+-- verb x4mp.economy {"op":"send|deposit|withdraw|repay|forgive|accept|cancel|loan_offer|loan_respond","to":<id>,
+-- "amount":<credits>,"id":"<lo:hi>",...}. "loan_offer" takes amount, repay_total, due (seconds) and memo; "loan_respond"
+-- takes id and accept.
 --
 -- The screen is the HUD's economy block plus these chat commands, because the standalone menu renderer is disabled while its
 -- close path is being fixed (docs/in-game-session-8.md 8.5): a team can see the wallet, the pool debt, the open loans and the
@@ -184,7 +186,8 @@ end
 function E.send(op, params)
 	if type(B) ~= "table" or type(B.send) ~= "function" then return false, "no bridge" end
 	local body = { op = op }
-	for _, key in ipairs({ "to", "amount", "id", "version", "asset", "memo", "limit", "before" }) do
+	for _, key in ipairs({ "to", "amount", "id", "version", "asset", "memo", "limit", "before",
+		"repay_total", "due", "auto", "accept" }) do
 		if params and params[key] ~= nil then body[key] = params[key] end
 	end
 	local ok, err = B.send("economy", body)
@@ -253,6 +256,20 @@ local function resolveTrade(text)
 		end
 	end
 	if raw:match("^[0-9a-fA-F]+:[0-9a-fA-F]+$") then return { id = raw } end
+	return nil
+end
+
+--- the loan offer a command named, but only one this node may answer: state Offered and the borrower is us
+local function resolveLoanOffer(text)
+	local raw = trim(text)
+	if raw == "" then return nil end
+	local s = E.snapshot
+	if type(s) ~= "table" then return nil end
+	for _, row in ipairs(s.loans or {}) do
+		if row.state == 0 and row.borrower == s.self and (tostring(row.id) == raw or shortId(row.id) == raw:lower()) then
+			return row
+		end
+	end
 	return nil
 end
 
@@ -348,6 +365,11 @@ function E.screenRows(rows, st)
 		button("economy_send", T(581), true, function()
 			local n = credits()
 			if n then E.send("send", { to = target.id, amount = n }) end
+		end)
+		-- an interest-free loan of the amount in the box: the borrower answers it with /mp accept
+		button("economy_offer", T(968), true, function()
+			local n = credits()
+			if n then E.send("loan_offer", { to = target.id, amount = n }) end
 		end)
 	end
 
@@ -451,13 +473,35 @@ function E.command(param)
 		local n = amount(rest)
 		if not n then say(T(530)) else E.send(cmd, { amount = n }) end
 	elseif cmd == "accept" or cmd == "decline" then
-		local row = resolveTrade(rest)
-		if not row then
-			say(T(531, tostring(rest)))
-		elseif cmd == "accept" then
-			E.send("accept", { id = row.id, version = tonumber(row.version) or 0 })
+		local loan = resolveLoanOffer(rest)
+		if loan then
+			E.send("loan_respond", { id = loan.id, accept = cmd == "accept" })
 		else
-			E.send("cancel", { id = row.id })
+			local row = resolveTrade(rest)
+			if not row then
+				say(T(531, tostring(rest)))
+			elseif cmd == "accept" then
+				E.send("accept", { id = row.id, version = tonumber(row.version) or 0 })
+			else
+				E.send("cancel", { id = row.id })
+			end
+		end
+	elseif cmd == "offer" then
+		local name, tail = rest:match("^(%S+)%s+(.+)$")
+		local principal, more = tostring(tail or ""):match("^(%d+)%s*(.*)$")
+		local repayText, dueText, memo = tostring(more or ""):match("^(%d*)%s*(%d*)%s*(.*)$")
+		local id = name and playerId(name) or nil
+		local n = principal and amount(principal) or nil
+		local repay = repayText and repayText ~= "" and tonumber(repayText) or n
+		local days = dueText and dueText ~= "" and tonumber(dueText) or 0
+		if not id then
+			say(T(568, tostring(name or "")))
+		elseif not n then
+			say(T(530))
+		elseif repay and repay < n then
+			say(T(969))
+		else
+			E.send("loan_offer", { to = id, amount = n, repay_total = repay, due = (days or 0) * 86400, memo = trim(memo) })
 		end
 	elseif cmd == "repay" then
 		local idText, value = rest:match("^(%S+)%s+(%S+)$")

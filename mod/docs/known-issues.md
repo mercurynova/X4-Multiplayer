@@ -12,7 +12,7 @@ Severity is about the cost to a player or to a bug report, not about the amount 
 | KI-1 | `money: send refused` / `send money failed: no_api` printed on every start | Low (log noise, but as `[=ERROR=]`) | **Fixed** 2026-11-02, see below |
 | KI-2 | Reconnect grace (60 s, and 120 s for the authority) is shorter than an X4 boot (2–3 min), so a restart never resumes | Medium (every restart costs a manual re-join) | **Fixed** 2026-11-02, default is now 300 s |
 | KI-3 | Every transfer, pool move and loan between two players in the same team is refused as `SameWallet`, because the default `CreditMode=Auto` gives a one-team session one wallet | High (the whole economy is unusable in the normal two-player case, and nothing says why) | Open, workaround below |
-| KI-4 | Offers are receive-only: the mod cannot create a loan offer or a trade proposal, and cannot accept or decline a loan offer | High (the checklist's own step 9 cannot be performed by a player) | Open, not yet in the plan |
+| KI-4 | Offers were receive-only: the mod could not create a loan offer or a trade proposal, and could not accept or decline a loan offer | High (the checklist's own step 9 could not be performed by a player) | **Loans fixed** 2026-11-03; trade proposals still open, see below |
 | — | Log rotation, timer-restart messages, restricted-function errors | Not bugs | Explained below so they stop being re-reported |
 
 ## KI-1: spurious money send at startup
@@ -163,34 +163,59 @@ row and the offer notice described in `../../docs/m5-exit-report.md` section 4.9
 reason into the refusal ("players share one wallet — start the server with
 `Economy:CreditMode=PerPlayer`"). The rejection is correct; it just reads as a broken feature.
 
-## KI-4: a player cannot offer, accept or decline anything
+## KI-4: offers were receive-only
 
-**What happens.** The economy screen and `/mp` commands can move money, deposit into the pool,
-repay and forgive a loan, and accept or cancel **a trade**. They cannot
+**What happened.** The economy screen and `/mp` commands could move money, deposit into the
+pool, repay and forgive a loan, and accept or cancel **a trade**. They could not
 
 - create a loan offer or a trade proposal, and
 - accept or decline a **loan** offer.
 
-**Evidence.** The verb takes exactly these ops (`ui/x4mp_economy.lua:5`, `E.send` at `:183-193`):
-`send|deposit|withdraw|repay|forgive|accept|cancel`. The native half encodes only
-`credit_transfer`, `pool_deposit`, `pool_withdraw`, `loan_repay`, `loan_forgive`,
+**Evidence (before the fix).** The verb took exactly these ops (`ui/x4mp_economy.lua:5`,
+`E.send` at `:183-193`): `send|deposit|withdraw|repay|forgive|accept|cancel`. The native half
+encoded only `credit_transfer`, `pool_deposit`, `pool_withdraw`, `loan_repay`, `loan_forgive`,
 `trade_accept`, `trade_cancel` and `ledger_request`
-(`native/features/economy_client/economy_wire.h:199-260`) — there is no `LoanOffer`,
-`LoanRespond` or `TradeProposal` encoder. `Op::Accept` maps to `encode_trade_accept`
-(`economy_client_hub.cpp:312-326`), and `/mp accept` / `/mp decline` resolve their argument
+(`native/features/economy_client/economy_wire.h:199-260`) — there was no `LoanOffer`,
+`LoanRespond` or `TradeProposal` encoder. `Op::Accept` mapped to `encode_trade_accept`
+(`economy_client_hub.cpp:312-326`), and `/mp accept` / `/mp decline` resolved their argument
 through `resolveTrade` (`x4mp_economy.lua:246-259`), which scans trades only. So the hint the
 notice prints for a **loan** offer, `Ответ: /mp accept 000001 или /mp decline 000001` (`T(574)`,
-printed by `E.onNotice` at `:527`), answers "no such offer" (`T(531)`).
+printed by `E.onNotice` at `:527`), answered "no such offer" (`T(531)`).
 
-That is why the checklist's step 9 ("on A offer a loan while B is in game") cannot be performed
-as written: on the stand the offer had to come from `X4MP.FakeNode.exe` with `--economy casual`.
+That is why the checklist's step 9 ("on A offer a loan while B is in game") could not be
+performed as written: on the stand the offer had to come from `X4MP.FakeNode.exe` with
+`--economy casual`.
 
-**Suggestion.** The server is already waiting for it — `EconomyModule.Loans.cs:15` dispatches
-`LoanRespond` and `EconomyService.Loans.cs:247` publishes `"LoanAccept"`. What is missing is one
-encoder in `economy_wire.h`, one op in `economy_client_hub.cpp`, the matching branch in
-`x4mp_economy.lua` (`resolveId`, which already scans loans *and* trades, is the right resolver),
-and an "offer"/"accept" row on the economy screen. `LoanOffer` and `TradeProposal` are the bigger
-half: they also need a form to pick an amount and a partner.
+**Fixed 2026-11-03 (loans).** The lender now makes an offer and the borrower answers it, both
+from chat and from the screen:
+
+- `native/features/economy_client/economy_wire.h:171-187` declares `LoanOfferData` and
+  `LoanRespondData`; `:258` and `:269` encode them with `P::CreateLoanOffer` and
+  `P::CreateLoanRespond`. The offer always carries the server's `offer_ttl_s` default (300 s):
+  the player chooses the term, not how long the offer stands.
+- `Op::LoanOffer` and `Op::LoanRespond` exist in the enum (`economy_client_hub.h:29`), in
+  `op_name` (`economy_client_hub.cpp:64-65`), in `parse_op` (`:79-80`), and as two cases in
+  `request()` (`:339` and `:358`). They repeat the server's own checks before a frame leaves the
+  node (`EconomyService.Loans.cs:63-86`): a borrower, not yourself, a positive principal,
+  `repay_total >= principal`, `auto_repay_pct <= 100`.
+- `RequestParams` gained `repay_total`, `due_in_s`, `auto_repay_pct` and `accept`
+  (`economy_client_hub.h:35-50`), and `parse_request` reads the JSON keys `repay_total`, `due`,
+  `auto` and `accept` (`economy_client_feature.cpp:68-81`).
+- `ui/x4mp_economy.lua`: `E.send` forwards the four new keys (`:187`); `/mp offer <player>
+  <credits> [repay] [days] [memo]` sends `loan_offer` (`:485`); `resolveLoanOffer` (`:260`)
+  finds an offer the borrower may answer, and `/mp accept` / `/mp decline` send `loan_respond`
+  before falling back to the trade resolvers (`:472-474`); the screen has an "Offer a loan"
+  button next to "Send credits" (`:366`, text `T(968)`), and an offer that asks for less than it
+  lends is refused with `T(969)`.
+- Help text `T(570)` in both languages names `offer`.
+
+**Still open (trade proposals).** The server accepts a proposal only in one shape:
+`CheckShape` (`EconomyService.Trades.cs:882`) requires **exactly one credits item and at least
+one non-credits asset** per trade. A credits-only proposal is therefore illegal, and the mod has
+no asset picker yet: a proposal needs a ware (with its source container) or a ship, chosen from
+the player's own property. `TradeProposal` also needs `ttl_s` and, for ships, the
+`TradeShipsEnabled` gate. Until that form exists, a trade proposal still has to come from
+`X4MP.FakeNode.exe`; the accept/decline half of trades has always worked and is unchanged.
 
 ## Not bugs (checked, do not re-report)
 

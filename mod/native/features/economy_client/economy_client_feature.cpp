@@ -65,6 +65,20 @@ bool parse_request(std::string_view body, Op& op, RequestParams& params) {
   if (const auto it = j.find("before"); it != j.end() && it->is_string()) {
     params.before = it->get<std::string>();
   }
+  if (const auto it = j.find("repay_total"); it != j.end() && it->is_number_integer()) {
+    params.repay_total = it->get<std::int64_t>();
+  }
+  if (const auto it = j.find("due"); it != j.end() && it->is_number_unsigned()) {
+    params.due_in_s = it->get<std::uint32_t>();
+  }
+  if (const auto it = j.find("auto"); it != j.end() && it->is_number_unsigned()) {
+    const std::uint64_t percent = it->get<std::uint64_t>();
+    if (percent > 100) return false;
+    params.auto_repay_pct = static_cast<std::uint8_t>(percent);
+  }
+  if (const auto it = j.find("accept"); it != j.end() && it->is_boolean()) {
+    params.accept = it->get<bool>();
+  }
   return true;
 }
 

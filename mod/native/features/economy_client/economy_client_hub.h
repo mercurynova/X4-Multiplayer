@@ -3,7 +3,7 @@
 // docs/mod-design.md 12.5-12.7).
 //
 // The server owns the books. This hub does three things and decides nothing:
-//   1. turns a Lua request (send credits, pool deposit/withdraw, loan repay/forgive, trade accept/cancel) into the frame the
+//   1. turns a Lua request (send credits, pool deposit/withdraw, loan offer/respond/repay/forgive, trade accept/cancel) into the frame the
 //      server expects, with a request key that is unique for this node;
 //   2. keeps the last answer to each request key plus every LoanStatus and TradeStatus the server sent, so the screen can show
 //      live data without asking anybody;
@@ -26,21 +26,25 @@
 
 namespace x4mp::features::economy_client {
 
-enum class Op : std::uint8_t { Send = 0, Deposit, Withdraw, Repay, Forgive, Accept, Cancel, Ledger };
+enum class Op : std::uint8_t { Send = 0, Deposit, Withdraw, Repay, Forgive, Accept, Cancel, Ledger, LoanOffer, LoanRespond };
 
 [[nodiscard]] const char* op_name(Op op) noexcept;
 // "send", "deposit", ... -> Op. False on anything else.
 [[nodiscard]] bool parse_op(std::string_view name, Op& out) noexcept;
 
 struct RequestParams {
-  std::uint16_t to_player = 0;       // Send
+  std::uint16_t to_player = 0;       // Send, LoanOffer
   std::int64_t amount = 0;           // Send, Deposit, Withdraw, Repay, Forgive
-  Id128Value id;                     // Repay, Forgive, Accept, Cancel
+  Id128Value id;                     // Repay, Forgive, Accept, Cancel, LoanRespond
   std::uint32_t version = 0;         // Accept: the version the player saw
   std::uint32_t receive_into_asset = 0;  // Accept: 0 = the default destination
-  std::string memo;                  // Send
+  std::string memo;                  // Send, LoanOffer
   std::uint16_t limit = 0;           // Ledger: 0 = the server default (50)
   std::string before;                // Ledger: ULID cursor; empty = from the newest
+  std::int64_t repay_total = 0;      // LoanOffer: principal + interest; 0 = no interest
+  std::uint32_t due_in_s = 0;        // LoanOffer: seconds after acceptance, 0 = no due date
+  std::uint8_t auto_repay_pct = 0;   // LoanOffer: 0 = the borrower repays by hand
+  bool accept = false;               // LoanRespond: true = the borrower takes the offer
 };
 
 // One frame waiting for the link: what to send and the key it was booked under (for the log line and the retry order).

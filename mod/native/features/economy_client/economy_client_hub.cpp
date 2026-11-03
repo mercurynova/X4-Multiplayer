@@ -61,6 +61,8 @@ const char* op_name(Op op) noexcept {
     case Op::Accept: return "accept";
     case Op::Cancel: return "cancel";
     case Op::Ledger: return "ledger";
+    case Op::LoanOffer: return "loan_offer";
+    case Op::LoanRespond: return "loan_respond";
   }
   return "?";
 }
@@ -74,6 +76,8 @@ bool parse_op(std::string_view name, Op& out) noexcept {
   if (name == "accept") { out = Op::Accept; return true; }
   if (name == "cancel" || name == "decline") { out = Op::Cancel; return true; }
   if (name == "ledger") { out = Op::Ledger; return true; }
+  if (name == "loan_offer") { out = Op::LoanOffer; return true; }
+  if (name == "loan_respond") { out = Op::LoanRespond; return true; }
   return false;
 }
 
@@ -330,6 +334,35 @@ bool EconomyClientHub::request(Op op, const RequestParams& p, std::string& error
       data.trade_id = p.id;
       frame.type = static_cast<std::uint16_t>(P::MsgType::TradeCancel);
       frame.bytes = encode_trade_cancel(data);
+      break;
+    }
+    case Op::LoanOffer: {
+      if (p.to_player == 0) { error = "no borrower"; break; }
+      if (p.to_player == self_) { error = "cannot offer a loan to yourself"; break; }
+      if (p.amount <= 0) { error = "amount must be positive"; break; }
+      const std::int64_t repay_total = p.repay_total > 0 ? p.repay_total : p.amount;
+      if (repay_total < p.amount) { error = "the repayment cannot be smaller than the loan"; break; }
+      if (p.auto_repay_pct > 100) { error = "the automatic repayment must be 0 to 100 percent"; break; }
+      LoanOfferData data;
+      data.key = key;
+      data.borrower = p.to_player;
+      data.principal = p.amount;
+      data.repay_total = repay_total;
+      data.due_in_s = p.due_in_s;
+      data.auto_repay_pct = p.auto_repay_pct;
+      data.memo = p.memo;
+      frame.type = static_cast<std::uint16_t>(P::MsgType::LoanOffer);
+      frame.bytes = encode_loan_offer(data);
+      break;
+    }
+    case Op::LoanRespond: {
+      if (p.id.empty()) { error = "no loan id"; break; }
+      LoanRespondData data;
+      data.key = key;
+      data.loan_id = p.id;
+      data.accept = p.accept;
+      frame.type = static_cast<std::uint16_t>(P::MsgType::LoanRespond);
+      frame.bytes = encode_loan_respond(data);
       break;
     }
     case Op::Ledger: {
