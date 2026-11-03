@@ -124,7 +124,7 @@ public sealed partial class EconomyService
         to = EffectiveWallet(toPlayer);
         if (from == to)
         {
-            return EconomyActionResult.Rejected(EconomyReject.SameWallet, "both players use the same wallet");
+            return EconomyActionResult.Rejected(EconomyReject.SameWallet, SameWalletDetail);
         }
 
         if (from.Kind == WalletKind.TeamShared && options.SharedWalletSpend == SharedWalletSpendPolicy.LeaderOnly

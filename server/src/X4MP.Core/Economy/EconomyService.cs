@@ -76,6 +76,14 @@ public interface IIncomeSplitter
 /// </summary>
 public sealed partial class EconomyService
 {
+    /// <summary>
+    /// The refusal a player meets in a single-team session: with <c>CreditMode=Auto</c> one team has one wallet, so a move
+    /// between two of its members has no destination. The detail names the setting that changes it, because the reason alone
+    /// ("SameWallet") reads as a broken feature (mod/docs/known-issues.md KI-3).
+    /// </summary>
+    internal const string SameWalletDetail =
+        "both players use the same wallet; set Economy:CreditMode=PerPlayer to give every player their own";
+
     private readonly EconomyLedger _ledger;
     private readonly IEconomyStore _store;
     private readonly ITeamDirectory? _teams;

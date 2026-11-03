@@ -320,6 +320,23 @@ public sealed class EconomyActionsTests
     }
 
     [Fact]
+    public void SameWalletRefusalNamesTheSettingThatGivesEachPlayerAWallet()
+    {
+        // KI-3: with the default CreditMode=Auto a one-team session has one wallet, so a move between two of its members has no
+        // destination. The reason is right; the detail is what the mod prints after "refused", so it has to say what to change.
+        var kit = Kit(members: OneTeam, teams: [1]);
+        kit.Fund(1, 500);
+
+        var transfer = kit.Service.Transfer(1, "a", 2, 10);
+        Assert.Equal(EconomyReject.SameWallet, transfer.Reason);
+        Assert.Contains("CreditMode=PerPlayer", transfer.Detail);
+
+        var loan = kit.Service.OfferLoan(1, "b", 2, 100, 100, 0, 300, 0);
+        Assert.Equal(EconomyReject.SameWallet, loan.Reason);
+        Assert.Contains("CreditMode=PerPlayer", loan.Detail);
+    }
+
+    [Fact]
     public void SharedModeDonationsBetweenTeamsMoveTheTeamWalletsAndHonourTheSpendPolicy()
     {
         var kit = Kit(o =>

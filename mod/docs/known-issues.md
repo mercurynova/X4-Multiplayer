@@ -11,7 +11,7 @@ Severity is about the cost to a player or to a bug report, not about the amount 
 |---|---|---|---|
 | KI-1 | `money: send refused` / `send money failed: no_api` printed on every start | Low (log noise, but as `[=ERROR=]`) | **Fixed** 2026-11-02, see below |
 | KI-2 | Reconnect grace (60 s, and 120 s for the authority) is shorter than an X4 boot (2–3 min), so a restart never resumes | Medium (every restart costs a manual re-join) | **Fixed** 2026-11-02, default is now 300 s |
-| KI-3 | Every transfer, pool move and loan between two players in the same team is refused as `SameWallet`, because the default `CreditMode=Auto` gives a one-team session one wallet | High (the whole economy is unusable in the normal two-player case, and nothing says why) | Open, workaround below |
+| KI-3 | Every transfer, pool move and loan between two players in the same team is refused as `SameWallet`, because the default `CreditMode=Auto` gives a one-team session one wallet | High (the whole economy is unusable in the normal two-player case) | **Explained** 2026-11-03: the refusal names `Economy:CreditMode=PerPlayer`; the default stays, workaround below |
 | KI-4 | Offers were receive-only: the mod could not create a loan offer or a trade proposal, and could not accept or decline a loan offer | High (the checklist's own step 9 could not be performed by a player) | **Loans fixed** 2026-11-03; trade proposals still open, see below |
 | — | Log rotation, timer-restart messages, restricted-function errors | Not bugs | Explained below so they stop being re-reported |
 
@@ -162,6 +162,23 @@ row and the offer notice described in `../../docs/m5-exit-report.md` section 4.9
 **Suggestion.** Either make `PerPlayer` the default when the session has one team, or put the
 reason into the refusal ("players share one wallet — start the server with
 `Economy:CreditMode=PerPlayer`"). The rejection is correct; it just reads as a broken feature.
+
+**Explained 2026-11-03 (the second half of the suggestion).** The default stays: a one-team
+session sharing one wallet is a documented design decision (`docs/mod-design.md:2267`,
+`docs/architecture.md:223`), not an accident, and flipping it would move every existing
+single-team ledger to a different layout. What changed is what the player reads. A new constant
+`EconomyService.SameWalletDetail` (`server/src/X4MP.Core/Economy/EconomyService.cs:79-86`) is
+the detail of every `SameWallet` refusal — transfer (`EconomyService.Transfers.cs:127`), loan
+offer/accept/repay (`EconomyService.Loans.cs:99`, `:214`, `:297`) and trade
+(`EconomyService.Trades.cs:822`) — and it says: "both players use the same wallet; set
+Economy:CreditMode=PerPlayer to give every player their own". The mod already prints the detail
+next to the reason (`ui/x4mp_economy.lua:146`, `T(564)`), and the screen header already says
+whether the wallet is shared (`:122`, `T(558)`). `SameWalletRefusalNamesTheSettingThatGivesEachPlayerAWallet`
+(`server/tests/X4MP.Core.Tests/Economy/EconomyActionsTests.cs`) pins both the transfer and the
+loan detail; `X4MP.Core.Tests` is 1382 passed, 0 failed.
+
+Still a workaround, not a cure: on a one-team default session the transfer, pool and loan
+actions fail until the server is started with `Economy:CreditMode=PerPlayer`.
 
 ## KI-4: offers were receive-only
 

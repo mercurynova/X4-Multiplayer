@@ -819,7 +819,7 @@ public sealed partial class EconomyService
 
         if (EffectiveWallet(trade.Initiator) == EffectiveWallet(trade.Counterparty))
         {
-            return TradeActionResult.Rejected(EconomyReject.SameWallet, "both players use the same wallet");
+            return TradeActionResult.Rejected(EconomyReject.SameWallet, SameWalletDetail);
         }
 
         var shape = CheckShape(trade, options);
