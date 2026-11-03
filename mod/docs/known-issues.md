@@ -216,13 +216,13 @@ from chat and from the screen:
   node (`EconomyService.Loans.cs:63-86`): a borrower, not yourself, a positive principal,
   `repay_total >= principal`, `auto_repay_pct <= 100`.
 - `RequestParams` gained `repay_total`, `due_in_s`, `auto_repay_pct` and `accept`
-  (`economy_client_hub.h:35-50`), and `parse_request` reads the JSON keys `repay_total`, `due`,
+  (`economy_client_hub.h:35-48`), and `parse_request` reads the JSON keys `repay_total`, `due`,
   `auto` and `accept` (`economy_client_feature.cpp:68-81`).
-- `ui/x4mp_economy.lua`: `E.send` forwards the four new keys (`:187`); `/mp offer <player>
-  <credits> [repay] [days] [memo]` sends `loan_offer` (`:485`); `resolveLoanOffer` (`:260`)
+- `ui/x4mp_economy.lua`: `E.send` forwards the four new keys (`:189-190`); `/mp offer <player>
+  <credits> [repay] [days] [memo]` sends `loan_offer` (`:489`); `resolveLoanOffer` (`:263`)
   finds an offer the borrower may answer, and `/mp accept` / `/mp decline` send `loan_respond`
-  before falling back to the trade resolvers (`:472-474`); the screen has an "Offer a loan"
-  button next to "Send credits" (`:366`, text `T(968)`), and an offer that asks for less than it
+  before falling back to the trade resolvers (`:476-478`); the screen has an "Offer a loan"
+  button next to "Send credits" (`:370`, text `T(968)`), and an offer that asks for less than it
   lends is refused with `T(969)`.
 - Help text `T(570)` in both languages names `offer`.
 
