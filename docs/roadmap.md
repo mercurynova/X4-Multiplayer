@@ -805,7 +805,9 @@ The three M6 exit criteria that do not need a human now have scripts, and runnin
 - `tools/soak.ps1` is the 4-hour soak harness: a server on a throwaway data dir plus
   `fakenode swarm --clients 3 --with-authority --disconnect-every 120 --reload-every 300 --verify`, sampling working set,
   private bytes, handles and threads against `/healthz`, then a verdict against the < 5% growth budget of
-  `server-design.md:2108`.
+  `server-design.md:2108`. `.github/workflows/nightly.yml` now runs a 20-minute slice of the same script on
+  windows-latest (3 clients, samples every 30 s, a 120 s warm-up), so the leak budget is checked every night and not only
+  on the day the release was rehearsed.
 - `tools/launcher-clickthrough.ps1` drives the WPF launcher through UI Automation on the interactive desktop (it never
   presses Apply, Restore or Start X4) and reads the session line, the status summary and the plan rows back.
 
@@ -821,7 +823,6 @@ The three M6 exit criteria that do not need a human now have scripts, and runnin
   and neither Apply, Restore nor Start X4 was pressed.
 
 **Bugs those scripts found:**
-
 
 1. `installer/CheckInstall.ps1` reported `[blocker] The Visual C++ runtime is missing: vcruntime140_1.dll` whenever the
    check ran under a 32-bit host: a 32-bit `ctest` (the one `mod/build.ps1` puts first on `PATH` after importing vcvars)

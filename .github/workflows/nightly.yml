@@ -3,6 +3,9 @@
 # ~20k entities) against it, writes a JSON + markdown report and FAILS when a budget in
 # server/tests/X4MP.LoadTests/budgets.json is exceeded. It also runs the wall-clock tests excluded from CI
 # (xUnit trait Category=Perf).
+# The soak job is the nightly slice of the M6 exit run: 3 clients with reconnects and reloads for 20 minutes,
+# the server's memory and handle count against the 5% budget of server-design 2.12. The full 4-hour run is
+# `tools/soak.ps1 -Minutes 240` on a machine of your own; tools/soak.ps1 is the same script.
 name: Nightly load
 
 on:
@@ -97,5 +100,54 @@ jobs:
           path: |
             load-report
             TestResults
+          if-no-files-found: ignore
+          retention-days: 30
+
+  soak:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - name: Cache flatc
+        uses: actions/cache@v4
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Fetch flatc
+        shell: pwsh
+        run: tools/flatc/fetch-flatc.ps1
+      - run: dotnet restore --locked-mode
+      # The web GUI is not part of a soak run, so the server is published without it: that keeps npm out of the job.
+      - name: Publish the server and FakeNode
+        shell: pwsh
+        run: |
+          dotnet publish server/src/X4MP.Server -c Release -p:PublishProfile=win-x64 -p:SkipWebBuild=true
+          dotnet publish tools/X4MP.FakeNode -c Release -o out/fakenode
+      - name: Soak (3 clients, reconnects and reloads, 20 minutes)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools/soak.ps1 `
+            -Minutes 20 -SampleSeconds 30 -WarmupSeconds 120 `
+            -ServerExe out/win-x64/x4mp-server.exe `
+            -FakeNodeExe out/fakenode/X4MP.FakeNode.exe `
+            -Out out/soak
+      - name: Report in the job summary
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path out/soak/report.md) {
+            Get-Content out/soak/report.md | Out-File -Append -Encoding utf8 "$env:GITHUB_STEP_SUMMARY"
+          }
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-report
+          path: out/soak
           if-no-files-found: ignore
           retention-days: 30
