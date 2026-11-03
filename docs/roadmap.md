@@ -718,9 +718,16 @@ loan** button next to **Send credits**, and the help text names `offer`. Three C
 (`test_economy_client.cpp:447`, `:485`, `:524`) and five Lua tests
 (`tests/lua/test_economy.lua:448-500`) cover the new path; ctest is 694 of 695 with the known
 timing-sensitive `guard.installer` flake passing on its own, and the Lua suite is 321 tests.
-**Open:** trade proposals still need a form that picks the asset half, because `CheckShape`
-(`EconomyService.Trades.cs:882`) accepts only a trade with exactly one credits item and at
-least one ware or ship.
+**Open:** trade proposals. `CheckShape` (`EconomyService.Trades.cs:882-940`) accepts only a trade
+with exactly one credits item plus a ware or a ship, and neither asset kind can be completed from
+the mod today: a ware line is refused by the authority ("a ware move is not settled by the
+authority in v1", `mod/native/features/settlement/settlement_feature.cpp:138-141`) and the game
+exports only cargo readers (`mod/native/game/game_api.cpp:48-49`); a ship a player flies is refused
+at propose time (`EconomyService.Trades.cs:967-970`), and a parked fleet ship — which the authority
+*would* transfer (`settlement_feature.cpp:179-189`) — cannot be named, because the mod knows only
+its own avatar's net id (`selfship_hub.h:56-57`) and has no ship inventory with net ids. Closing
+this needs a cargo write export or a per-player ship inventory; the details are in
+`mod/docs/known-issues.md` KI-4.
 
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
