@@ -729,6 +729,17 @@ its own avatar's net id (`selfship_hub.h:56-57`) and has no ship inventory with 
 this needs a cargo write export or a per-player ship inventory; the details are in
 `mod/docs/known-issues.md` KI-4.
 
+**Status 2026-11-03 (the release package, first local check).** The zip the release workflow builds
+was assembled locally from the same inputs (`.github/workflows/release.yml:164-190`) and inspected:
+107.8 MB, 431 files, every path `Install.ps1` verifies is present, and `Test-Installer.ps1` is
+correctly left out. The check found one real bug in the documented install path: `docs/README-server.md:16`
+tells the player to unzip into the X4 folder, where the payload and the destination are the same
+directory, and `installer/Install.ps1` removed the destination before copying into it — the install
+exited 1 and `CheckInstall.ps1` reported seven blockers. `Copy-Tree` now recognises that case
+("Already in place"), both documented layouts install and pass the check, and
+`installer/Test-Installer.ps1` gained a section 8 that installs a package already in the game folder
+(36 checks). `guard.installer` passes in 16.46 s.
+
 **M1-T3 notes (team fan-out):** deltas go to InGame and AwaitingTeam nodes; a node that is still loading gets a full
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
 `TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the
