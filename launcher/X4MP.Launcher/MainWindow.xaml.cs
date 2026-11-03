@@ -52,9 +52,13 @@ public partial class MainWindow : Window
         CheckAgainButton.IsEnabled = false;
         SessionBlock.Text = string.Empty;
         StatusBlock.Text = "Checking...";
+        // Read the controls here, on the UI thread: inside Task.Run they would be touched from a pool thread and WPF
+        // throws "The calling thread cannot access this object because a different thread owns it".
+        var address = ServerBox.Text.Trim();
+        var password = PasswordBox.Password;
         try
         {
-            var result = await Task.Run(() => CheckAsync(ServerBox.Text.Trim(), PasswordBox.Password));
+            var result = await Task.Run(() => CheckAsync(address, password));
             _plan = result.Plan;
             _profile = result.Profile ?? _profile;
             _install = result.Install;

@@ -789,6 +789,50 @@ with net ids, which does not exist (`native/game/avatars_api.h:17-29` lists team
 ids only). Closing this needs three things, in this order: a player asset list, a game-side order
 export, and a rename export.
 
+### Implementation notes: M6 release rehearsal, soak and launcher click-through (2026-11-03)
+
+The three M6 exit criteria that do not need a human now have scripts, and running them found two real bugs.
+
+- `tools/release-local.ps1` mirrors `.github/workflows/release.yml` on this machine: three server publishes (`win-x64`,
+  `win-x64-bundle`, `linux-x64` + `tar -czf`), the launcher publish, `mod/build.ps1 -Config release` with ctest, the
+  `pkg/x4mp-mod-<tag>` layout, the zip and a `SHA256SUMS` in `sha256sum` format. Only `gh release create` is left to the
+  workflow, since it needs a push. It refuses a dll that does not carry `X4MP-Download`, which is what catches a stale
+  release tree. First full run: `dist/x4mp-mod-v0.0.0-local.zip` 108.3 MB (435 files, 180.6 MB unpacked), server zips
+  74.9 MB and 49.7 MB, linux tarball 56.6 MB, 5 lines of checksums.
+- `tools/verify-release.ps1` treats the zip as a player would: 53 checks over the payload list, the 64-bit PE of the dll,
+  the checksums, then a real `Install.ps1`/`CheckInstall.ps1`/`Uninstall.ps1` cycle in a fake X4 tree (READY, no blocker,
+  saves and profiles untouched).
+- `tools/soak.ps1` is the 4-hour soak harness: a server on a throwaway data dir plus
+  `fakenode swarm --clients 3 --with-authority --disconnect-every 120 --reload-every 300 --verify`, sampling working set,
+  private bytes, handles and threads against `/healthz`, then a verdict against the < 5% growth budget of
+  `server-design.md:2108`.
+- `tools/launcher-clickthrough.ps1` drives the WPF launcher through UI Automation on the interactive desktop (it never
+  presses Apply, Restore or Start X4) and reads the session line, the status summary and the plan rows back.
+
+**Runs so far (2026-11-03):**
+
+- Release: `dist/x4mp-mod-v0.0.0-local.zip` 108.3 MB, `tools/verify-release.ps1` → `all 53 checks passed`, including a
+  full install/check/uninstall cycle that reported READY and left the saves and profiles alone.
+- Soak rehearsal (`tools/soak.ps1 -Minutes 6 -SampleSeconds 10`): 37 samples over 360 s, `fakenode swarm --verify` exit 0,
+  every `/healthz` 200, working set 214.2 → 221.1 MB (+3.2%, budget 5%), handles 715 → 725 (+10, budget +64). The
+  4-hour run then started from the same script.
+- Launcher click-through: 8 of 8 checks, session line `Session "X4MP Server", policy v1, game build 900-611726`, the plan
+  showed the one change the server expected (disable the stray `X4MCP` extension), Apply stayed disabled before the check
+  and neither Apply, Restore nor Start X4 was pressed.
+
+**Bugs those scripts found:**
+
+
+1. `installer/CheckInstall.ps1` reported `[blocker] The Visual C++ runtime is missing: vcruntime140_1.dll` whenever the
+   check ran under a 32-bit host: a 32-bit `ctest` (the one `mod/build.ps1` puts first on `PATH` after importing vcvars)
+   starts a 32-bit PowerShell, which sees `System32` through WOW64 redirection, where the x64 runtime dll is absent. The
+   check now asks for `Sysnative` when `[Environment]::Is64BitProcess` is false. `installer/Test-Installer.ps1` gained a
+   regression section that runs the check under `SysWOW64\WindowsPowerShell` (39 checks now, was 36).
+2. The launcher's Check button read `ServerBox.Text` and `PasswordBox.Password` *inside* `Task.Run`, so WPF threw "The
+   calling thread cannot access this object because a different thread owns it" and the status line showed that raw .NET
+   message instead of the plan. The two values are now read on the UI thread before the task starts
+   (`MainWindow.xaml.cs:49-60`).
+
 ### Implementation notes: M1-E3 (donate, transfer, pool actions)
 
 - `EconomyService.Transfer/Donate` (new `TxKind.Transfer`, `LedgerReason.Transfer/Donation`); the pool actions share the

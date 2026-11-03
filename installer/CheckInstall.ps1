@@ -223,7 +223,10 @@ if ($accounts.Count -eq 0) {
 
 # 6. The Windows pieces the dll needs.
 Write-Head 'Windows'
-$sys = Join-Path $env:SystemRoot 'System32'
+# The dll is x64, so the x64 runtime is the one that matters. A 32-bit PowerShell sees System32 through WOW64
+# redirection (where vcruntime140_1.dll does not exist) and would report a false blocker: Sysnative is the 64-bit
+# view for a 32-bit process.
+$sys = if ([Environment]::Is64BitProcess) { Join-Path $env:SystemRoot 'System32' } else { Join-Path $env:SystemRoot 'Sysnative' }
 $missingCpp = @()
 foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
   if (-not (Test-Path -LiteralPath (Join-Path $sys $dll))) { $missingCpp += $dll }

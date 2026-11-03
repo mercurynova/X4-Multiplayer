@@ -45,11 +45,12 @@ function Check([bool]$Ok, [string]$What) {
   }
 }
 
-function Run([string]$ScriptPath, [string[]]$ScriptArgs) {
+function Run([string]$ScriptPath, [string[]]$ScriptArgs, [string]$HostExe = '') {
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
+  $exe = if ($HostExe) { $HostExe } else { $PowerShell }
   try {
-    $out = (& $PowerShell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @ScriptArgs 2>&1 | Out-String)
+    $out = (& $exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @ScriptArgs 2>&1 | Out-String)
     $code = $LASTEXITCODE
   } finally {
     $ErrorActionPreference = $prev
@@ -152,6 +153,20 @@ try {
   if (Test-Path -LiteralPath $jsonPath) {
     $report = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
     Check (@($report.problems | Where-Object { $_.severity -eq 'blocker' }).Count -eq 0) 'check: the report has no blocker'
+  }
+
+  # ---- 3b. The same check under a 32-bit host.
+  # ctest started from an x86 process launches a 32-bit powershell, which sees System32 through WOW64 redirection. The
+  # x64 runtime dlls it needs are not there, so the check must ask for Sysnative instead of reporting a false blocker.
+  Write-Host ''
+  Write-Host 'check, 32-bit host'
+  $ps32 = Join-Path $env:SystemRoot 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
+  if (Test-Path -LiteralPath $ps32) {
+    $r = Run $CheckScript @('-GameDir', $game, '-AccountRoot', $data, '-NoPause') $ps32
+    Expect '32-bit check' $r 0 'READY'
+    Check (-not $r.Out.Contains('Visual C++ runtime is missing')) '32-bit check: no false VC++ blocker'
+  } else {
+    Write-Host '  skip (no 32-bit PowerShell on this machine)'
   }
 
   # ---- 4. Protected UI on: the one setting that silently stops every mod.
