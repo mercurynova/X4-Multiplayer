@@ -11,6 +11,7 @@
 
 #include "core/session/session.h"
 #include "fake_server.h"
+#include "http_test_server.h"
 
 using namespace x4mp::session;
 using namespace fake;
@@ -103,7 +104,7 @@ TEST_CASE("session: handshake sends ClientHello first with the C# HMAC proof, th
   CHECK(h->player_name()->str() == "Tester");
   CHECK(h->game_build()->str() == "900-611726");
   CHECK(h->platform()->str() == "win64");
-  CHECK(h->client_caps() == 0x3);
+  CHECK(h->client_caps() == 0x803);  // bits 0-1 from the test options (UdpRealtime, GhostRender) + bit 11 SaveHttp (always)
   CHECK(static_cast<std::uint8_t>(h->requested_roles()) == 2);
   CHECK(h->player_key()->size() == 32);
   CHECK((*h->player_key())[0] == 0xA0);
@@ -484,5 +485,107 @@ TEST_CASE("session: an existing, matching save is not downloaded again", "[sessi
   REQUIRE(p.until([&] { return p.find(SessionEvent::Kind::SaveReady) != nullptr; }));
   const auto ready = c1.read_frame_of(T(MsgType::SaveReady));
   CHECK(ready.has_value());
+  s.stop();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// save download over the HTTP fallback (cap SaveHttp, protocol.md 6.4)
+// ---------------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("session: a save offered over HTTP arrives without a SaveDownloadRequest", "[session][save][http]") {
+  TempDir dir("sess_http");
+  const auto data = make_data(kChunk * 3 + 123);
+  const auto sha = *x4mp::crypto::sha256(data);
+  const std::vector<std::uint8_t> sha_v(sha.begin(), sha.end());
+
+  HttpServer http(data, /*honour_range=*/true, /*forced_status=*/0, "tok");
+  Listener server;
+  auto opt = base_options(server);
+  opt.save_dir = dir.path;
+  Session s(opt);
+  REQUIRE(s.start());
+  Pump p{s, {}};
+  Conn c1 = server.accept();
+  REQUIRE(do_server_hello(c1, false).has_value());
+  c1.send(welcome(3, 0x77, 0x88, false));
+  c1.send(save_info(sha_v, data.size(), "x4mp_http.xml.gz", http.url("/files/saves/sess"), "", "tok"));
+
+  REQUIRE(p.until([&] { return p.find(SessionEvent::Kind::SaveReady) != nullptr; }));
+  CHECK(p.count(SessionEvent::Kind::SaveFailed) == 0);
+  CHECK(s.save_ready());
+
+  // The Bulk lane stayed idle: nothing the client sent up to SaveReady was a SaveDownloadRequest.
+  bool saw_ready = false;
+  for (int i = 0; i < 40 && !saw_ready; ++i) {
+    const auto f = c1.read_frame();
+    if (!f) break;
+    CHECK(f->type != T(MsgType::SaveDownloadRequest));
+    saw_ready = f->type == T(MsgType::SaveReady);
+  }
+  CHECK(saw_ready);
+
+  const auto final_path = dir.path / "x4mp_http.xml.gz";
+  REQUIRE(std::filesystem::exists(final_path));
+  std::ifstream in(final_path, std::ios::binary);
+  const std::vector<std::uint8_t> got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  CHECK(got == data);
+  CHECK_FALSE(std::filesystem::exists(final_path.string() + ".part"));
+
+  const auto requests = http.requests();
+  REQUIRE(requests.size() == 1);
+  CHECK(requests[0].line() == "GET /files/saves/sess HTTP/1.1");
+  CHECK(requests[0].header("authorization") == "X4MP-Download tok");
+  s.stop();
+}
+
+TEST_CASE("session: an HTTP save the server refuses falls back to the in-band download", "[session][save][http]") {
+  TempDir dir("sess_http_fallback");
+  const auto data = make_data(kChunk * 2 + 7);
+  const auto sha = *x4mp::crypto::sha256(data);
+  const std::vector<std::uint8_t> sha_v(sha.begin(), sha.end());
+
+  HttpServer http(data, /*honour_range=*/true, /*forced_status=*/404);  // HTTP says "not here"
+  Listener server;
+  auto opt = base_options(server);
+  opt.save_dir = dir.path;
+  Session s(opt);
+  REQUIRE(s.start());
+  Pump p{s, {}};
+  Conn c1 = server.accept();
+  REQUIRE(do_server_hello(c1, false).has_value());
+  c1.send(welcome(3, 0x77, 0x88, false));
+  c1.send(save_info(sha_v, data.size(), "x4mp_http_fallback.xml.gz", http.url("/files/saves/gone"), "", "tok"));
+
+  // The HTTP attempt fails first (fast: the loopback server answers at once); the session then asks over the Bulk lane,
+  // from zero. Frames are drained only while readable, so a blocking read never starves the poll() loop.
+  REQUIRE(wait_until([&] {
+    s.poll(p.all);
+    return http.requests().size() == 1 && s.save_progress().state == DownloadState::Requesting;
+  }));
+  std::optional<std::uint64_t> off;
+  REQUIRE(wait_until([&] {
+    s.poll(p.all);
+    while (c1.readable()) {
+      const auto f = c1.read_frame();
+      if (!f) return false;
+      if (f->type == T(MsgType::SaveDownloadRequest)) {
+        off = flatbuffers::GetRoot<X4MP::Proto::SaveDownloadRequest>(f->payload.data())->offset();
+        return true;
+      }
+    }
+    return false;
+  }));
+  REQUIRE(off.has_value());
+  CHECK(*off == 0);
+  send_chunks(c1, 1, data, 0, data.size());
+
+  REQUIRE(p.until([&] { return p.find(SessionEvent::Kind::SaveReady) != nullptr; }));
+  CHECK(p.count(SessionEvent::Kind::SaveFailed) == 0);
+  const auto final_path = dir.path / "x4mp_http_fallback.xml.gz";
+  REQUIRE(std::filesystem::exists(final_path));
+  std::ifstream in(final_path, std::ios::binary);
+  const std::vector<std::uint8_t> got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  CHECK(got == data);
+  CHECK(http.requests().size() == 1);
   s.stop();
 }

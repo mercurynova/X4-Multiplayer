@@ -172,7 +172,11 @@ struct SaveInfo {  // SessionSaveInfo
   std::string local_file_name;  // "x4mp_<sha12>.xml.gz"
   std::vector<std::uint8_t> manifest_sha256;
   std::uint64_t manifest_size = 0;
+  // HTTP fallback (cap SaveHttp, protocol.md 6.4): empty when the server did not offer it. The token is sent as
+  // "Authorization: X4MP-Download <token>" and dies with the session; a rejoin gets a fresh SessionSaveInfo.
   std::string http_url;
+  std::string manifest_http_url;
+  std::string download_token;
 };
 
 // Parsers over buffers the net layer already ran through the FlatBuffers Verifier. nullopt on null/empty input.

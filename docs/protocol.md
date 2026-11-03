@@ -376,7 +376,9 @@ Notes:
      resume, send the request again with the current offset.
    - **HTTP (cap `SaveHttp`, fallback):** `GET /files/saves/{sha256}` on :47790 with
      `Authorization: X4MP-Download <token>`, `Range`, `If-Range` and `ETag = sha256`.
-     Tokens last 1 h and are bound to the player.
+     Tokens last 1 h and are bound to the player. A node that sees `http_url` tries it
+     first; if the fetch fails (port closed, 401/404, cut), it sends the in-band
+     `SaveDownloadRequest` for the same file from the bytes already in `.part`.
 4. Same for the manifest.
 5. The node writes `.part`, verifies SHA-256, renames the file, and sends `SaveReady`.
    The server moves the node to `Loading`. Progress is reported through `LoadStatus` (at
@@ -1711,8 +1713,12 @@ A unit test asserts that every `MsgType` has an entry.
 - Winsock non-blocking sockets plus `WSAPoll` on one network thread, with SPSC queues to
   and from the main thread.
 - BCrypt for SHA-256 and HMAC.
-- In-band save transfer, so no HTTP stack is needed. WinHTTP is used only if `SaveHttp`
-  is enabled.
+- In-band save transfer; `SaveHttp` adds a small HTTP/1.1 client of our own
+  (`core/session/save_http.cpp`: plain HTTP, no TLS, no WinHTTP) that runs on its own
+  thread over a second connection. It resumes with `Range`/`If-Range` from the same
+  `.part` file, and any HTTP failure quietly retries that file in-band, so a broken
+  :47790 can never block a join. A relative `http_url` resolves against the connected
+  host on `HttpPort`.
 - Networking code stays free of X4 headers so it can be unit-tested.
 
 **Spec rules worth table-driven tests:**

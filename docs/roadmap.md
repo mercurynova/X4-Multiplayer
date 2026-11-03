@@ -755,6 +755,30 @@ registry and refuses a plan that would move the authority's player while Running
 covers the refusal and the unchanged member list; the fake authority emits one `EntityChange` per
 reassigned asset (`FakeAuthority.cs:506-529`).
 
+### Implementation notes: M6 HTTP save fallback (2026-11-03)
+
+The last implementable M6 line is in: a node can now fetch the session save over plain HTTP instead of the Bulk lane.
+
+- The mod advertises `Capability.SaveHttp` (bit 11) in `ClientHello` (`session.cpp`, next to the UdpRealtime bit), reads
+  `http_url`, `manifest_http_url` and `download_token` from `SessionSaveInfo` and stores them per download job.
+- `mod/native/core/session/save_http.{h,cpp}` is a self-contained HTTP/1.1 client: its own worker thread and socket,
+  `GET <path>` with `Authorization: X4MP-Download <token>`, `Range: bytes=<n>-` + `If-Range: "<sha256>"` when a `.part`
+  exists, `Content-Range` checked against the offset, `200` accepted as "the server ignored Range" (restart from zero),
+  `401/403/404/416` reported as protocol errors. It writes the same `.part`, hashes incrementally, renames on a match and
+  deletes the part on a mismatch — identical guarantees to the in-band downloader. No TLS, no WinHTTP, no exceptions
+  crossing the API; `cancel()` shuts the socket down so it returns quickly.
+- A relative `http_url` resolves against `SessionOptions.endpoint.host` on `HttpPort` (47790); an absolute one keeps its
+  own host/port. `https://` is refused with a clear message ("the mod talks plain HTTP to its server").
+- HTTP is a fallback, never the only road: on any failure the session logs `save: HTTP download failed (...), retrying
+  in-band`, drops the url from the retried job (keeping it would re-arm HTTP forever on a dead port) and re-queues the
+  same file, so the in-band downloader resumes from the bytes already in `.part`. `save_progress()` reports the active
+  transport, and `stop()`, `unload_for_reload()` and a fresh `Welcome` cancel both downloaders.
+- Tests: `mod/tests/test_save_http.cpp` covers URL parsing, a fresh download, a resume, a complete part verified with no
+  request, a wrong SHA-256, 401/404 and bad specs against `fake::HttpServer` (a loopback HTTP/1.1 listener in
+  `mod/tests/http_test_server.h`); `test_session_handshake.cpp` adds a session that reaches `SaveReady` with **no**
+  `SaveDownloadRequest` on the wire and one where a 404 falls back to the in-band request at offset 0. `core.*` is
+  152/152; full ctest 708/708 with the 4 live tests skipped.
+
 **Team asset commands (M6 leftover), 2026-11-03:** not implementable end to end. `AssetOrder`,
 `AssetRename` and `AssetGift` are members of the `IntentBody` union inside `Intent`
 (`events.fbs:73-76`), not message types of their own, so nothing registers them in

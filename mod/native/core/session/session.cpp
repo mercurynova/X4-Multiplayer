@@ -12,6 +12,7 @@
 #include "core/crypto/crypto.h"
 #include "core/log/log.h"
 #include "core/session/manifest_cleanup.h"
+#include "core/session/save_http.h"
 #include "message_ids_generated.h"
 #include "session_generated.h"
 #include "x4mp/wire.h"
@@ -213,6 +214,8 @@ std::optional<SaveInfo> parse_save_info(std::span<const std::uint8_t> payload) {
   s.manifest_sha256 = bytes(i->manifest_sha256());
   s.manifest_size = i->manifest_size();
   s.http_url = str(i->http_url());
+  s.manifest_http_url = str(i->manifest_http_url());
+  s.download_token = str(i->download_token());
   return s;
 }
 
@@ -230,6 +233,7 @@ struct Session::Impl {
   SessionOptions opt;
   net::NetClient net;
   SaveDownloader downloader;
+  HttpSaveDownloader http_downloader;
   ExtensionSnapshot ext;
 
   // Net-thread-owned handshake state (initialised before the thread starts, then only the hook touches it).
@@ -246,11 +250,26 @@ struct Session::Impl {
   // Main-thread state.
   bool started = false;
   bool was_in_session = false;
-  std::deque<DownloadSpec> jobs;
+  // One download at a time. A job carries the HTTP url the server offered (empty = in-band only); a refused or
+  // unreachable HTTP fetch falls back to the same .part file over the in-band lane.
+  struct Job {
+    DownloadSpec spec;
+    std::string http_url;
+    std::string http_token;
+  };
+  std::deque<Job> jobs;
+  Job current;
+  bool http_active = false;
   bool job_active = false;
   std::optional<SaveInfo> save_info;
   std::chrono::steady_clock::time_point last_progress_emit{};
   std::uint64_t last_progress_bytes = ~std::uint64_t{0};
+
+  void cancel_downloads() {
+    http_active = false;
+    http_downloader.cancel();
+    downloader.cancel();
+  }
 
   // ---------------------------------------------------------------------------------------------------------------
   // net thread
@@ -430,6 +449,8 @@ bool Session::start() {
   // Capability UdpRealtime (bit 0, common.fbs): advertised unless the lane is switched off. The server only offers a udp_port
   // to nodes that advertise it. impl_->opt.client_caps is what the ClientHello reads.
   if (nopt.udp.mode != net::UdpMode::Off) impl_->opt.client_caps |= std::uint64_t{1};
+  // Capability SaveHttp (bit 11): this build can fetch the session save over plain HTTP instead of the Bulk lane.
+  impl_->opt.client_caps |= std::uint64_t{1} << 11;
   Impl* impl = impl_.get();
   nopt.frame_hook = [impl](std::uint16_t type, wire::Lane lane, std::span<const std::uint8_t> payload,
                            net::HookContext& ctx) { impl->on_net_frame(type, lane, payload, ctx); };
@@ -444,7 +465,9 @@ net::SendResult Session::send(wire::Lane lane, std::uint16_t type, std::span<con
 }
 
 net::NetStatus Session::net_status() const noexcept { return impl_->net.status(); }
-DownloadProgress Session::save_progress() const { return impl_->downloader.progress(); }
+DownloadProgress Session::save_progress() const {
+  return impl_->http_active ? impl_->http_downloader.progress() : impl_->downloader.progress();
+}
 void Session::reconnect_now() { impl_->net.reconnect_now(); }
 void Session::set_udp_block(bool block) { impl_->net.set_udp_block(block); }
 
@@ -473,7 +496,7 @@ void Session::stop() {
   if (impl_->opt.stash != nullptr) clear_intent(*impl_->opt.stash);
   impl_->net.set_goodbye_code(net::kDisconnectClientQuit);
   impl_->net.stop();
-  impl_->downloader.cancel();
+  impl_->cancel_downloads();
   impl_->started = false;
   state_ = State::Disconnected;
 }
@@ -483,7 +506,7 @@ void Session::unload_for_reload() {
   impl_->net.set_goodbye_code(net::kDisconnectClientReload);
   impl_->net.stop();  // joins the net thread (best-effort Disconnect(ClientReload) on a live connection)
   if (impl_->opt.stash != nullptr) (void)save_intent(*impl_->opt.stash, make_intent());  // after the join: net_resume is race-free
-  impl_->downloader.cancel();
+  impl_->cancel_downloads();
   impl_->started = false;
   state_ = State::Disconnected;
 }
@@ -494,14 +517,17 @@ bool Session::download_save(const SaveInfo& info) {
   if (im.save_info && im.save_info->sha256 == info.sha256 && (im.job_active || save_ready_)) return true;  // already on it
   im.save_info = info;
   save_ready_ = false;
+  im.cancel_downloads();
   im.jobs.clear();
+  im.current = Impl::Job{};
   im.job_active = true;
   const std::string name = info.local_file_name.empty()
                                ? "x4mp_" + crypto::to_hex(std::span<const std::uint8_t>(info.sha256).first(6)) + ".xml.gz"
                                : std::filesystem::path(info.local_file_name).filename().string();  // no path components from the wire
   const auto save_path = im.opt.save_dir / name;
   if (!Impl::file_matches(save_path, info.size, info.sha256)) {
-    im.jobs.push_back(DownloadSpec{TransferKind::Save, info.sha256, info.size, save_path});
+    im.jobs.push_back(Impl::Job{DownloadSpec{TransferKind::Save, info.sha256, info.size, save_path},
+                                 info.http_url, info.download_token});
   }
   // Close-out A item 7: the manifests of earlier joins are of no use any more (one piled up per join); only this session save's is kept.
   const bool has_manifest = info.manifest_sha256.size() == crypto::kSha256Size && info.manifest_size > 0;
@@ -512,7 +538,8 @@ bool Session::download_save(const SaveInfo& info) {
   if (has_manifest) {
     const auto mpath = im.opt.save_dir / Impl::manifest_name(info.manifest_sha256);
     if (!Impl::file_matches(mpath, info.manifest_size, info.manifest_sha256)) {
-      im.jobs.push_back(DownloadSpec{TransferKind::Manifest, info.manifest_sha256, info.manifest_size, mpath});
+      im.jobs.push_back(Impl::Job{DownloadSpec{TransferKind::Manifest, info.manifest_sha256, info.manifest_size, mpath},
+                                   info.manifest_http_url, info.download_token});
     }
   }
   return true;
@@ -588,8 +615,9 @@ void Session::poll(std::vector<SessionEvent>& out) {
           save_ready_ = false;  // a fresh join starts over: SessionSaveInfo follows
           im.save_info.reset();
           im.jobs.clear();
+          im.current = Impl::Job{};
           im.job_active = false;
-          im.downloader.cancel();
+          im.cancel_downloads();
         }
         im.was_in_session = false;
       }
@@ -639,11 +667,11 @@ void Session::poll(std::vector<SessionEvent>& out) {
 
   // ---- download orchestration ----
   if (im.job_active) {
-    for (int guard = 0; guard < 4 && im.job_active; ++guard) {
-      const DownloadProgress p = im.downloader.progress();
+    for (int guard = 0; guard < 6 && im.job_active; ++guard) {
+      const DownloadProgress p = im.http_active ? im.http_downloader.progress() : im.downloader.progress();
       const bool busy = p.state == DownloadState::Requesting || p.state == DownloadState::Receiving;
       if (busy) {
-        im.request_if_welcomed();
+        if (!im.http_active) im.request_if_welcomed();
         const auto now = std::chrono::steady_clock::now();
         if (p.bytes_done != im.last_progress_bytes &&
             now - im.last_progress_emit >= std::chrono::milliseconds(250)) {
@@ -657,6 +685,19 @@ void Session::poll(std::vector<SessionEvent>& out) {
         break;
       }
       if (p.state == DownloadState::Failed) {
+        if (im.http_active) {
+          // SaveHttp is a fallback, not the only road: an unreachable HTTP port or a refused token must not fail a join.
+          // The part file stays, so the in-band lane resumes from the same offset. The url is dropped from the retried
+          // job: with it kept, the next arm would try HTTP again and a permanently broken port would loop forever.
+          X4MP_LOGW("save: HTTP download failed ({}: {}), retrying in-band", to_string(p.error), p.detail);
+          im.http_active = false;
+          im.http_downloader.cancel();
+          Impl::Job retry = im.current;
+          retry.http_url.clear();
+          im.jobs.push_front(std::move(retry));
+          im.current = Impl::Job{};
+          continue;
+        }
         SessionEvent ev;
         ev.kind = SessionEvent::Kind::SaveFailed;
         ev.progress = p;
@@ -664,14 +705,33 @@ void Session::poll(std::vector<SessionEvent>& out) {
         out.push_back(std::move(ev));
         im.send_load_failed(p.error == DownloadError::HashMismatch ? std::uint16_t{50} : std::uint16_t{51}, ev.text);
         im.jobs.clear();
+        im.current = Impl::Job{};
         im.job_active = false;
         break;
       }
       // Idle (nothing armed yet) or Completed: arm the next job, or finish.
+      if (im.http_active) {
+        im.http_active = false;
+        im.http_downloader.cancel();
+      }
       if (!im.jobs.empty()) {
-        const DownloadSpec spec = im.jobs.front();
+        im.current = im.jobs.front();
         im.jobs.pop_front();
-        (void)im.downloader.begin(spec);  // failure shows as Failed on the next loop turn
+        if (!im.current.http_url.empty()) {
+          HttpSpec hs;
+          hs.kind = im.current.spec.kind;
+          hs.sha256 = im.current.spec.sha256;
+          hs.size = im.current.spec.size;
+          hs.final_path = im.current.spec.final_path;
+          hs.token = im.current.http_token;
+          std::string error;
+          if (parse_http_target(im.current.http_url, im.opt.endpoint.host, hs.target, error)) {
+            im.http_active = im.http_downloader.begin(hs);
+          } else {
+            X4MP_LOGW("save: HTTP fallback unavailable ({}), using the in-band download", error);
+          }
+        }
+        if (!im.http_active) (void)im.downloader.begin(im.current.spec);  // failure shows as Failed on the next loop turn
         im.last_progress_bytes = ~std::uint64_t{0};
         continue;
       }

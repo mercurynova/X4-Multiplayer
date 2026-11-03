@@ -97,18 +97,27 @@ inline std::vector<std::uint8_t> disconnect(std::uint16_t code, std::uint32_t re
   return frame(T(MsgType::Disconnect), Lane::Control, to_vec(fbb));
 }
 
-inline std::vector<std::uint8_t> save_info(const std::vector<std::uint8_t>& sha, std::uint64_t size, const std::string& file) {
+inline std::vector<std::uint8_t> save_info(const std::vector<std::uint8_t>& sha, std::uint64_t size, const std::string& file,
+                                           const std::string& http_url = {},
+                                           const std::string& manifest_http_url = {},
+                                           const std::string& download_token = {}) {
   flatbuffers::FlatBufferBuilder fbb;
   const X4MP::Proto::Id128 ck(5, 6);
   const auto sha_v = fbb.CreateVector(sha);
   const auto name = fbb.CreateString("test save");
   const auto fn = fbb.CreateString(file);
+  const auto http = fbb.CreateString(http_url);
+  const auto manifest_http = fbb.CreateString(manifest_http_url);
+  const auto token = fbb.CreateString(download_token);
   X4MP::Proto::SessionSaveInfoBuilder b(fbb);
   b.add_checkpoint_id(&ck);
   b.add_sha256(sha_v);
   b.add_size(size);
   b.add_display_name(name);
   b.add_local_file_name(fn);
+  b.add_http_url(http);
+  b.add_manifest_http_url(manifest_http);
+  b.add_download_token(token);
   fbb.Finish(b.Finish());
   return frame(T(MsgType::SessionSaveInfo), Lane::Control, to_vec(fbb));
 }
@@ -153,6 +162,13 @@ class Conn {
     s_ = INVALID_SOCKET;
   }
   [[nodiscard]] bool valid() const { return s_ != INVALID_SOCKET; }
+  // True when at least one byte can be read without blocking (WSAPoll with a 0 ms budget by default).
+  [[nodiscard]] bool readable(int timeout_ms = 0) const {
+    WSAPOLLFD p{};
+    p.fd = s_;
+    p.events = POLLRDNORM;
+    return ::WSAPoll(&p, 1, timeout_ms) > 0;
+  }
 
   void send(const std::vector<std::uint8_t>& bytes) {
     std::size_t off = 0;
