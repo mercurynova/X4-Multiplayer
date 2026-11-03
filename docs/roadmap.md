@@ -748,8 +748,23 @@ exited 1 and `CheckInstall.ps1` reported seven blockers. `Copy-Tree` now recogni
 TeamTable/TeamRelations/SessionSettings copy when it reaches InGame. Refusing the authority's own move while Running uses
 `TeamRejectReason.SessionRunningRestricted` (REST maps it to 409 in M1-T5). `TeamModule.EconomySettings` + `PushSettings()` let the
 economy supply its half of `SessionSettings`; `TeamModule.ResyncPlayer` is wired to `ReplicationModule.Resync` by `AddTeams`.
-Open: `ApplyPresetAsync` does not yet guard the authority's membership while Running; the fake authority records
-`ReassignPlayerAssets` but does not emit `EntityChange` (M1-F3).
+Resolved 2026-11-03: both of those are done. `ApplyPresetAsync` dry-runs the preset on a copy of the
+registry and refuses a plan that would move the authority's player while Running
+(`TeamModule.Admin.cs:173-182`, with `AuthorityMoveDetail` as the reason), and
+`ApplyingAPresetThatWouldMoveTheAuthoritysPlayerIsRefusedWhileRunning` (`TeamFollowUpTests.cs:48`)
+covers the refusal and the unchanged member list; the fake authority emits one `EntityChange` per
+reassigned asset (`FakeAuthority.cs:506-529`).
+
+**Team asset commands (M6 leftover), 2026-11-03:** not implementable end to end. `AssetOrder`,
+`AssetRename` and `AssetGift` are members of the `IntentBody` union inside `Intent`
+(`events.fbs:73-76`), not message types of their own, so nothing registers them in
+`MessageRegistry`; the mod has no sender for any of them, and the game exports it binds have no
+order or rename call at all (`mod/native/game/game_api.h`), only `set_component_owner`, which is
+enough for a gift but not for an order or a rename. A gift also needs a per-player asset inventory
+with net ids, which does not exist (`native/game/avatars_api.h:17-29` lists team ships with local
+ids only). Closing this needs three things, in this order: a player asset list, a game-side order
+export, and a rename export.
+
 ### Implementation notes: M1-E3 (donate, transfer, pool actions)
 
 - `EconomyService.Transfer/Donate` (new `TxKind.Transfer`, `LedgerReason.Transfer/Donation`); the pool actions share the
@@ -793,7 +808,10 @@ Open: `ApplyPresetAsync` does not yet guard the authority's membership while Run
 - Schema (append-only): `EconomyReject` + `SameWallet`, `RequestIdReuse`, `OutOfRange`; `LoanState` + `Withdrawn`. The M1-E3 transfer/donate code and the M1-E4 loan code now answer `SameWallet`/`RequestIdReuse`; the loan module sends `Withdrawn`.
 - New settings: `TradeScope` (Allied), `TradeShipsEnabled`, `MaxOpenTradesPerPlayer` (5), `TradeRequiresProximity` (true), `TradeExecuteTimeoutSeconds` (30), `TradeQueryIntervalSeconds` (10); the first three are pushed in `EconomySettings`.
 - FakeNode: `--trade` (clients sell team ships to peers every 5 s, accept incoming offers, retry a dropped accept), authority `--trade-fail PCT` (order fails, compensated) and `--trade-timeout PCT` (confirm withheld; 80% of those were applied; a third never answer a query so they end InDoubt), summary lines `trade:` and `trade-authority:`; clients keep ghost owners in step with `EntityChange`. Swarm run: PerPlayer credit mode (one team resolves Auto to Shared, which is `SameWallet`), `TradeRequiresProximity=false`, 2 s / 1 s trade timeline; see `TradeLiveTests`.
-- Open: wares have no live in-game path yet (the fake only trades ships); stations rejected; REST/GUI (M1-E6/E7); `max_open_offers_per_player` (loans + trades together) is not enforced.
+- Open: stations rejected; REST/GUI (M1-E6/E7); `max_open_offers_per_player` (loans + trades together) is not
+  enforced. Wares are no longer fake-only: since 2026-11-03 the mod proposes a ware-for-credits trade
+  (`/mp propose`) and the authority settles the `WareMove` line through the MD actions shim
+  (`mod/extension/x4mp/md/x4mp_actions.xml:23-40`); `X4MP.FakeNode.exe` remains the only way to trade a ship.
 
 ### Implementation notes: M1-E6 (economy admin REST + hub)
 
