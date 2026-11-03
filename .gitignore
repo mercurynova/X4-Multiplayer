@@ -49,3 +49,6 @@ Thumbs.db
 
 # Local screen recordings of in-game sessions (large, personal; never committed)
 /Video Recordings/
+
+# ctest run from the repo root by mistake
+/Testing/

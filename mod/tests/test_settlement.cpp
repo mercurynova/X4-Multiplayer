@@ -44,6 +44,19 @@ std::vector<std::uint8_t> order_with_one_line(std::uint64_t lo, std::uint64_t hi
   return finish(fbb);
 }
 
+// One AssetTransferOrder with one ware line, packed as BuildOrder does for a TradeItemKind.Ware item.
+std::vector<std::uint8_t> order_with_ware_line(std::uint32_t from, std::uint32_t to, std::uint32_t ware_ref,
+                                               std::int64_t amount) {
+  flatbuffers::FlatBufferBuilder fbb(128);
+  const P::Id128 trade(40, 41);
+  std::vector<flatbuffers::Offset<P::AssetTransferLine>> lines;
+  lines.push_back(P::CreateAssetTransferLine(fbb, P::AssetTransferKind::WareMove, from, 0, 7, ware_ref, amount, to));
+  const auto vector = fbb.CreateVector(lines);
+  const auto order = P::CreateAssetTransferOrder(fbb, &trade, vector, 15000);
+  fbb.Finish(order);
+  return finish(fbb);
+}
+
 // A journal path that does not collide with a real session: the test owns it and removes it at the end.
 std::filesystem::path journal_path(const char* name) {
   const std::filesystem::path path = std::filesystem::temp_directory_path() / (std::string("x4mp_settlement_test_") + name + ".json");
@@ -75,6 +88,19 @@ TEST_CASE("settlement: an asset transfer order decodes what the server packs", "
   CHECK_FALSE(S::decode_asset_transfer_order(rubbish, broken));
   CHECK(broken.lines.empty());
   CHECK_FALSE(S::decode_asset_transfer_order(std::vector<std::uint8_t>{1, 2}, broken));
+}
+
+TEST_CASE("settlement: a ware line carries the source, the ware and the destination", "[settlement]") {
+  const std::vector<std::uint8_t> bytes = order_with_ware_line(500, 600, 0x1234u, 200);
+  S::OrderView order;
+  REQUIRE(S::decode_asset_transfer_order(bytes, order));
+  REQUIRE(order.lines.size() == 1);
+  const S::LineView& line = order.lines[0];
+  CHECK(line.is_ware());
+  CHECK(line.asset == 500);       // the hold the goods leave
+  CHECK(line.dest_asset == 600);  // the hold they arrive in
+  CHECK(line.ware_ref == 0x1234u);
+  CHECK(line.amount == 200);
 }
 
 TEST_CASE("settlement: a confirm carries the outcome the server reads", "[settlement]") {
