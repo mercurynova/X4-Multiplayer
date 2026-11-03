@@ -51,7 +51,7 @@ const policy: EconomyPolicyDto = {
   creditMode: 'Auto', effectiveCreditMode: 'PerPlayer', startingCredits: 100_000, teamPoolEnabled: true, poolWithdrawPolicy: 'AnyMember',
   poolWithdrawDailyLimitPerPlayer: 0, sharedWalletSpend: 'AnyMember', donateScope: 'Teammates', allowAlliedTransfers: false, loanScope: 'Teammates',
   tradeScope: 'Allied', tradeShipsEnabled: true, maxOpenTradesPerPlayer: 5, tradeRequiresProximity: true, tradeExecuteTimeoutSeconds: 30,
-  tradeQueryIntervalSeconds: 10, maxOpenLoansPerPlayer: 5, maxLoanPrincipal: 1_000_000, maxLoanInterestBp: 5000, offerDefaultTtlMinutes: 30,
+  tradeQueryIntervalSeconds: 10, maxOpenLoansPerPlayer: 5, maxOpenOffersPerPlayer: 10, maxLoanPrincipal: 1_000_000, maxLoanInterestBp: 5000, offerDefaultTtlMinutes: 30,
   maxSingleTransfer: 1_000_000, auditIntervalSeconds: 60,
 };
 

@@ -47,6 +47,7 @@ const groups: { title: string; fields: Field[] }[] = [
       { key: 'maxLoanPrincipal', label: 'Max loan', kind: 'number' },
       { key: 'maxLoanInterestBp', label: 'Max interest (basis points)', kind: 'number', hint: '100 bp = 1 %' },
       { key: 'maxOpenLoansPerPlayer', label: 'Open loans per player', kind: 'number' },
+      { key: 'maxOpenOffersPerPlayer', label: 'Open offers per player', kind: 'number', hint: 'loans and trades share this budget' },
       { key: 'maxOpenTradesPerPlayer', label: 'Open trades per player', kind: 'number' },
       { key: 'offerDefaultTtlMinutes', label: 'Offer lifetime (minutes)', kind: 'number' },
       { key: 'tradeExecuteTimeoutSeconds', label: 'Trade execute timeout (s)', kind: 'number' },

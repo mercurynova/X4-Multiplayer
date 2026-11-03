@@ -595,6 +595,24 @@ public sealed class LoanTests
     }
 
     [Fact]
+    public void LoansAndTradesShareOneOpenOfferBudget()
+    {
+        var kit = Kit(o => o.MaxOpenOffersPerPlayer = 2);
+        kit.Fund(2, 5000);
+        Offer(kit, "a", 1, 2, 100, 100);
+        Assert.True(kit.Service.OfferLoan(2, "b", 1, 100, 100, 0, 300, 0).Ok); // one for each side
+
+        Assert.Equal(2, kit.Service.OpenOffersOf(1));
+        Assert.Equal(2, kit.Service.OpenLoanCount(1)); // the per-kind limit is five, so this is the combined one
+
+        var third = kit.Service.OfferLoan(1, "c", 2, 100, 100, 0, 300, 0);
+
+        Assert.Equal(EconomyReject.TooManyOpen, third.Reason);
+        Assert.Contains("together", third.Detail);
+        Assert.Equal(2, kit.Service.OpenLoanCount(1));
+    }
+
+    [Fact]
     public void ARunningLoanKeepsUsingASlotUntilItIsClosed()
     {
         var kit = Kit(o => o.MaxOpenLoansPerPlayer = 1);

@@ -87,6 +87,10 @@ public sealed record EconomyOptions
     [Setting("Open loans per player (lender and borrower)", Scope = SettingScope.Live, PushToNodes = true, Min = 1, Max = 255)]
     public int MaxOpenLoansPerPlayer { get; set; } = 5;
 
+    /// <summary>Open offers (loans plus trade proposals) a player may be part of at once, whichever kind they are.</summary>
+    [Setting("Open offers per player (loans and trades)", Scope = SettingScope.Live, Min = 1, Max = 255)]
+    public int MaxOpenOffersPerPlayer { get; set; } = 10;
+
     [Setting("Largest loan principal", Scope = SettingScope.Live, Min = 1, Max = 1_000_000_000_000)]
     public long MaxLoanPrincipal { get; set; } = 1_000_000_000_000;
 

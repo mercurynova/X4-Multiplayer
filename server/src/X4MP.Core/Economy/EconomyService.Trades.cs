@@ -78,6 +78,9 @@ public sealed partial class EconomyService
     /// <summary>Open trades a player is a party to.</summary>
     public int OpenTradesOf(int player) => _trades.Values.Count(t => t.IsOpen && (t.Initiator == player || t.Counterparty == player));
 
+    /// <summary>Loans and trades share one budget: an offer is an offer whether it carries money or goods.</summary>
+    public int OpenOffersOf(int player) => OpenLoanCount(player) + OpenTradesOf(player);
+
     // ------------------------------------------------------------------ start and recovery
 
     /// <summary>
@@ -181,6 +184,14 @@ public sealed partial class EconomyService
             {
                 return TradeActionResult.Rejected(
                     EconomyReject.TooManyOpen, party == player ? "you have too many open trades" : "the counterparty has too many open trades");
+            }
+
+            if (OpenOffersOf(party) >= options.MaxOpenOffersPerPlayer)
+            {
+                var limit = options.MaxOpenOffersPerPlayer.ToString(CultureInfo.InvariantCulture);
+                return TradeActionResult.Rejected(EconomyReject.TooManyOpen, party == player
+                    ? $"you already have {limit} open offers, loans and trades together"
+                    : $"the counterparty already has {limit} open offers, loans and trades together");
             }
         }
 

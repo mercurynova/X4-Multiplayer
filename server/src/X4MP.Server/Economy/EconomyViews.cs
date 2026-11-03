@@ -112,7 +112,7 @@ internal sealed class EconomyViews(
             o.CreditMode.ToString(), effective.ToString(), o.StartingCredits, o.TeamPoolEnabled, o.PoolWithdrawPolicy.ToString(),
             o.PoolWithdrawDailyLimitPerPlayer, o.SharedWalletSpend.ToString(), o.DonateScope.ToString(), o.AllowAlliedTransfers, o.LoanScope.ToString(),
             o.TradeScope.ToString(), o.TradeShipsEnabled, o.MaxOpenTradesPerPlayer, o.TradeRequiresProximity, o.TradeExecuteTimeoutSeconds,
-            o.TradeQueryIntervalSeconds, o.MaxOpenLoansPerPlayer, o.MaxLoanPrincipal, o.MaxLoanInterestBp, o.OfferDefaultTtlMinutes, o.MaxSingleTransfer,
+            o.TradeQueryIntervalSeconds, o.MaxOpenLoansPerPlayer, o.MaxOpenOffersPerPlayer, o.MaxLoanPrincipal, o.MaxLoanInterestBp, o.OfferDefaultTtlMinutes, o.MaxSingleTransfer,
             o.AuditIntervalSeconds);
     }
 

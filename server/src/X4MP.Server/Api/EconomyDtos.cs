@@ -83,7 +83,7 @@ public sealed record EconomyPolicyDto(
     string CreditMode, string EffectiveCreditMode, long StartingCredits, bool TeamPoolEnabled, string PoolWithdrawPolicy,
     long PoolWithdrawDailyLimitPerPlayer, string SharedWalletSpend, string DonateScope, bool AllowAlliedTransfers, string LoanScope,
     string TradeScope, bool TradeShipsEnabled, int MaxOpenTradesPerPlayer, bool TradeRequiresProximity, int TradeExecuteTimeoutSeconds,
-    int TradeQueryIntervalSeconds, int MaxOpenLoansPerPlayer, long MaxLoanPrincipal, int MaxLoanInterestBp, int OfferDefaultTtlMinutes,
+    int TradeQueryIntervalSeconds, int MaxOpenLoansPerPlayer, int MaxOpenOffersPerPlayer, long MaxLoanPrincipal, int MaxLoanInterestBp, int OfferDefaultTtlMinutes,
     long MaxSingleTransfer, int AuditIntervalSeconds);
 
 /// <summary>
@@ -95,7 +95,7 @@ public sealed record EconomyPolicyPatch(
     string? CreditMode, long? StartingCredits, bool? TeamPoolEnabled, string? PoolWithdrawPolicy, long? PoolWithdrawDailyLimitPerPlayer,
     string? SharedWalletSpend, string? DonateScope, bool? AllowAlliedTransfers, string? LoanScope, string? TradeScope, bool? TradeShipsEnabled,
     int? MaxOpenTradesPerPlayer, bool? TradeRequiresProximity, int? TradeExecuteTimeoutSeconds, int? TradeQueryIntervalSeconds,
-    int? MaxOpenLoansPerPlayer, long? MaxLoanPrincipal, int? MaxLoanInterestBp, int? OfferDefaultTtlMinutes, long? MaxSingleTransfer,
+    int? MaxOpenLoansPerPlayer, int? MaxOpenOffersPerPlayer, long? MaxLoanPrincipal, int? MaxLoanInterestBp, int? OfferDefaultTtlMinutes, long? MaxSingleTransfer,
     int? AuditIntervalSeconds, bool? Confirm, string? Reason);
 
 /// <summary>A wallet's balance before and after a migration.</summary>

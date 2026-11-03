@@ -297,6 +297,7 @@ export interface EconomyPolicyDto {
   tradeExecuteTimeoutSeconds: number;
   tradeQueryIntervalSeconds: number;
   maxOpenLoansPerPlayer: number;
+  maxOpenOffersPerPlayer: number;
   maxLoanPrincipal: number;
   maxLoanInterestBp: number;
   offerDefaultTtlMinutes: number;
@@ -321,6 +322,7 @@ export interface EconomyPolicyPatch {
   tradeExecuteTimeoutSeconds: number | null;
   tradeQueryIntervalSeconds: number | null;
   maxOpenLoansPerPlayer: number | null;
+  maxOpenOffersPerPlayer: number | null;
   maxLoanPrincipal: number | null;
   maxLoanInterestBp: number | null;
   offerDefaultTtlMinutes: number | null;

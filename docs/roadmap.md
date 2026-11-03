@@ -808,10 +808,13 @@ export, and a rename export.
 - Schema (append-only): `EconomyReject` + `SameWallet`, `RequestIdReuse`, `OutOfRange`; `LoanState` + `Withdrawn`. The M1-E3 transfer/donate code and the M1-E4 loan code now answer `SameWallet`/`RequestIdReuse`; the loan module sends `Withdrawn`.
 - New settings: `TradeScope` (Allied), `TradeShipsEnabled`, `MaxOpenTradesPerPlayer` (5), `TradeRequiresProximity` (true), `TradeExecuteTimeoutSeconds` (30), `TradeQueryIntervalSeconds` (10); the first three are pushed in `EconomySettings`.
 - FakeNode: `--trade` (clients sell team ships to peers every 5 s, accept incoming offers, retry a dropped accept), authority `--trade-fail PCT` (order fails, compensated) and `--trade-timeout PCT` (confirm withheld; 80% of those were applied; a third never answer a query so they end InDoubt), summary lines `trade:` and `trade-authority:`; clients keep ghost owners in step with `EntityChange`. Swarm run: PerPlayer credit mode (one team resolves Auto to Shared, which is `SameWallet`), `TradeRequiresProximity=false`, 2 s / 1 s trade timeline; see `TradeLiveTests`.
-- Open: stations rejected; REST/GUI (M1-E6/E7); `max_open_offers_per_player` (loans + trades together) is not
-  enforced. Wares are no longer fake-only: since 2026-11-03 the mod proposes a ware-for-credits trade
-  (`/mp propose`) and the authority settles the `WareMove` line through the MD actions shim
-  (`mod/extension/x4mp/md/x4mp_actions.xml:23-40`); `X4MP.FakeNode.exe` remains the only way to trade a ship.
+- Open: stations rejected; REST/GUI (M1-E6/E7). Wares are no longer fake-only: since 2026-11-03 the mod
+  proposes a ware-for-credits trade (`/mp propose`) and the authority settles the `WareMove` line through
+  the MD actions shim (`mod/extension/x4mp/md/x4mp_actions.xml:23-40`); `X4MP.FakeNode.exe` remains the
+  only way to trade a ship. `max_open_offers_per_player` is enforced since 2026-11-03: loans and trades
+  share one budget (`Economy.MaxOpenOffersPerPlayer`, default 10), a request over it is `TooManyOpen`
+  with a detail that names the combined limit, and the number is in the REST policy DTOs and the
+  client's policy tab.
 
 ### Implementation notes: M1-E6 (economy admin REST + hub)
 

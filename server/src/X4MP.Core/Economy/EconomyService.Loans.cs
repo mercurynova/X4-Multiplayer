@@ -121,6 +121,20 @@ public sealed partial class EconomyService
             return LoanResult.Rejected(EconomyReject.TooManyOpen, $"at most {options.MaxOpenLoansPerPlayer.ToString(CultureInfo.InvariantCulture)} open loans per player");
         }
 
+        // Loans and trades share one budget (Economy.MaxOpenOffersPerPlayer), so a player who already holds ten
+        // proposals cannot open an eleventh of either kind.
+        if (OpenOffersOf(lenderId) >= options.MaxOpenOffersPerPlayer)
+        {
+            return LoanResult.Rejected(EconomyReject.TooManyOpen,
+                $"you already have {options.MaxOpenOffersPerPlayer.ToString(CultureInfo.InvariantCulture)} open offers, loans and trades together");
+        }
+
+        if (OpenOffersOf(borrowerId) >= options.MaxOpenOffersPerPlayer)
+        {
+            return LoanResult.Rejected(EconomyReject.TooManyOpen,
+                $"the borrower already has {options.MaxOpenOffersPerPlayer.ToString(CultureInfo.InvariantCulture)} open offers, loans and trades together");
+        }
+
         if (_ledger.BalanceOf(from) < principal)
         {
             return LoanResult.Rejected(EconomyReject.InsufficientFunds);

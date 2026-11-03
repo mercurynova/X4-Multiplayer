@@ -394,6 +394,28 @@ public sealed class EconomyTradeTests
     }
 
     [Fact]
+    public void LoansAndTradesShareOneOpenOfferBudget()
+    {
+        var kit = new TradeKit(o => o.MaxOpenOffersPerPlayer = 3);
+        Assert.True(kit.Sell(1, 2, TradeKit.ShipOfOne, 1).Ok);
+        Assert.True(kit.Sell(1, 2, TradeKit.CommonShip, 1).Ok);
+        Assert.True(kit.Service.OfferLoan(1, "loan", 2, 100, 100, 0, 300, 0).Ok);
+
+        Assert.Equal(2, kit.Service.OpenTradesOf(1));
+        Assert.Equal(1, kit.Service.OpenLoanCount(1));
+        Assert.Equal(3, kit.Service.OpenOffersOf(1)); // the per-kind limits are five each; this is the combined one
+
+        var trade = kit.Sell(1, 2, TradeKit.CargoShipOfOne, 1);
+        var loan = kit.Service.OfferLoan(1, "second", 2, 100, 100, 0, 300, 0);
+
+        Assert.Equal(EconomyReject.TooManyOpen, trade.Reason);
+        Assert.Equal(EconomyReject.TooManyOpen, loan.Reason);
+        Assert.Contains("together", trade.Detail);
+        Assert.Contains("together", loan.Detail);
+        Assert.Equal(3, kit.Service.OpenOffersOf(1));
+    }
+
+    [Fact]
     public void SameWalletInSharedModeIsRejected()
     {
         var kit = new TradeKit(o => o.CreditMode = CreditMode.Shared);
