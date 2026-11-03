@@ -558,3 +558,70 @@ TEST_CASE("economy_client: the borrower answers an offer with the same frame sha
   CHECK_FALSE(hub.request(E::Op::LoanRespond, params, error));
   CHECK(error == "no loan id");
 }
+
+TEST_CASE("economy_client: a proposal asks for credits and offers a ware from the hold", "[economy_client]") {
+  E::EconomyClientHub hub;
+  hub.reset();
+  hub.set_self(7);
+  hub.seed_key(1);
+
+  E::RequestParams params;
+  params.to_player = 3;
+  params.amount = 1200;  // the credits asked for
+  params.ware = "energycells";
+  params.ware_ref = 0x1234;
+  params.ware_amount = 200;
+  params.source_asset = 42;  // the hold the ware leaves
+  std::string error;
+  REQUIRE(hub.request(E::Op::TradePropose, params, error));
+  CHECK(error.empty());
+
+  const std::vector<E::OutFrame> frames = hub.take_unsent(8);
+  REQUIRE(frames.size() == 1);
+  CHECK(frames[0].type == static_cast<std::uint16_t>(P::MsgType::TradeProposal));
+  CHECK(frames[0].op == E::Op::TradePropose);
+
+  flatbuffers::Verifier verifier(frames[0].bytes.data(), frames[0].bytes.size());
+  REQUIRE(verifier.VerifyBuffer<P::TradeProposal>(nullptr));
+  const P::TradeProposal* proposal = flatbuffers::GetRoot<P::TradeProposal>(frames[0].bytes.data());
+  REQUIRE(proposal != nullptr);
+  CHECK(proposal->counterparty() == 3);
+  CHECK(proposal->ttl_s() == 0u);  // 0 lets the server pick its default
+
+  REQUIRE(proposal->give() != nullptr);
+  REQUIRE(proposal->give()->size() == 1);
+  const P::TradeItem* give = proposal->give()->Get(0);
+  REQUIRE(give != nullptr);
+  CHECK(give->kind() == P::TradeItemKind::Ware);
+  CHECK(give->ware_ref() == 0x1234u);
+  CHECK(give->amount() == 200);
+  CHECK(give->asset() == 42u);
+
+  REQUIRE(proposal->want() != nullptr);
+  REQUIRE(proposal->want()->size() == 1);
+  const P::TradeItem* want = proposal->want()->Get(0);
+  REQUIRE(want != nullptr);
+  CHECK(want->kind() == P::TradeItemKind::Credits);
+  CHECK(want->amount() == 1200);
+
+  // The refusals the server would answer anyway: a ware it cannot name, a hold nobody told us about, no credits asked.
+  params.ware_ref = 0;
+  CHECK_FALSE(hub.request(E::Op::TradePropose, params, error));
+  CHECK(error == "no ware");
+
+  params.ware_ref = 0x1234;
+  params.source_asset = 0;
+  CHECK_FALSE(hub.request(E::Op::TradePropose, params, error));
+  CHECK(error.find("hold") != std::string::npos);
+
+  params.source_asset = 42;
+  params.amount = 0;
+  CHECK_FALSE(hub.request(E::Op::TradePropose, params, error));
+  CHECK(error.find("credits") != std::string::npos);
+
+  params.amount = 1200;
+  params.to_player = 7;
+  CHECK_FALSE(hub.request(E::Op::TradePropose, params, error));
+  CHECK(error.find("yourself") != std::string::npos);
+  CHECK(hub.take_unsent(8).empty());
+}

@@ -5,8 +5,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include "features/economy/economy_hub.h"
 #include "features/economy_client/economy_client_hub.h"
 #include "features/events/events_hub.h"
+#include "features/selfship/selfship_hub.h"
 #include "host/host_log.h"
 
 namespace x4mp::features::economy_client {
@@ -78,6 +80,19 @@ bool parse_request(std::string_view body, Op& op, RequestParams& params) {
   }
   if (const auto it = j.find("accept"); it != j.end() && it->is_boolean()) {
     params.accept = it->get<bool>();
+  }
+  if (const auto it = j.find("ware"); it != j.end() && it->is_string()) {
+    params.ware = it->get<std::string>();
+    if (params.ware.size() > 64) params.ware.resize(64);
+  }
+  if (const auto it = j.find("qty"); it != j.end() && it->is_number_integer()) {
+    params.ware_amount = it->get<std::int64_t>();
+  }
+  if (op == Op::TradePropose) {
+    // The two values the hub must not know: the ware's ref (a game hash) and own hold (a net id the join gave us).
+    if (params.ware.empty() || params.ware_amount <= 0) return false;
+    params.ware_ref = economy::ware_ref_of(params.ware);
+    params.source_asset = static_cast<std::uint32_t>(selfship::selfship_hub().own_net_id());
   }
   return true;
 }

@@ -3,7 +3,10 @@
 #include <chrono>
 #include <utility>
 
+#include "features/economy/economy_hub.h"
 #include "features/events/events_hub.h"
+#include "features/ghosts/ghost_core.h"
+#include "features/ghosts/ghost_hub.h"
 #include "features/settlement/settlement_wire.h"
 #include "features/teams/team_hub.h"
 #include "game/safe_remove.h"
@@ -21,6 +24,25 @@ constexpr std::int64_t kLogUs = 30'000'000;
 std::int64_t now_us() {
   using namespace std::chrono;
   return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+// The actions shim takes the ware id the game knows ("energycells"); the order carries the FNV-1a ref of the macro. The
+// session string table is the bridge, and it is the same table the client hashed to build that ref.
+std::string ware_name(std::uint32_t ref) {
+  if (ghosts::GhostCore* core = ghosts::ghost_hub().core()) {
+    const std::string_view text = core->strings.value(ref);
+    if (!text.empty()) return std::string(text);
+  }
+  return std::string();
+}
+
+// A ware line is only worth queuing when the source really holds it: the shim has no result to read back in v1.
+bool holds(const game::GameApi& g, std::uint64_t component, std::uint32_t ref, std::int64_t amount) {
+  std::int64_t total = 0;
+  for (const game::CargoPod& pod : g.cargo(component)) {
+    if (economy::ware_ref_of(pod.ware) == ref) total += pod.amount;
+  }
+  return total >= amount;
 }
 
 }  // namespace
@@ -130,14 +152,38 @@ bool SettlementHub::handle_order(host::HostContext& ctx, std::span<const std::ui
   // Precheck everything before the first change: a refusal here has nothing to undo.
   std::vector<std::string> old_owner;
   std::vector<std::string> new_owner;
+  std::vector<std::string> ware_names;
   old_owner.reserve(order.lines.size());
   new_owner.reserve(order.lines.size());
   for (std::size_t i = 0; i < order.lines.size(); ++i) {
     const LineView& line = order.lines[i];
     const auto at = static_cast<std::int16_t>(i);
     if (line.is_ware()) {
-      refuse(at, "a ware move is not settled by the authority in v1");
-      return true;
+      const std::string ware = ware_name(line.ware_ref);
+      if (ware.empty()) {
+        refuse(at, "the ware is not in the session table");
+        return true;
+      }
+      if (line.asset == 0 || !ctx.game.is_valid_component(line.asset)) {
+        refuse(at, "the ware source is not a valid component");
+        return true;
+      }
+      if (line.dest_asset == 0 || !ctx.game.is_valid_component(line.dest_asset)) {
+        refuse(at, "the ware destination is not a valid component");
+        return true;
+      }
+      if (line.amount <= 0 || line.amount > 2'000'000'000) {
+        refuse(at, "the ware amount is out of range");
+        return true;
+      }
+      if (!holds(ctx.game, line.asset, line.ware_ref, line.amount)) {
+        refuse(at, "the source does not hold that many");
+        return true;
+      }
+      ware_names.push_back(ware);
+      old_owner.push_back(std::string());
+      new_owner.push_back(std::string());
+      continue;
     }
     if (line.asset == 0) {
       refuse(at, "the line names no asset");
@@ -178,6 +224,18 @@ bool SettlementHub::handle_order(host::HostContext& ctx, std::span<const std::ui
   std::int16_t failed = -1;
   for (std::size_t i = 0; i < order.lines.size(); ++i) {
     const LineView& line = order.lines[i];
+    if (line.is_ware()) {
+      // Two shim lines: the source loses the ware, the destination gains it. exact= caps at what is there, so the read that
+      // follows is the only proof - there is no result to wait for in v1 (x4mp_actions.xml:12-15).
+      economy::economy_hub().queue(
+          economy::CargoOp{line.asset, ware_names[i], -static_cast<std::int32_t>(line.amount)});
+      economy::economy_hub().queue(
+          economy::CargoOp{line.dest_asset, ware_names[i], static_cast<std::int32_t>(line.amount)});
+      applied = static_cast<std::uint32_t>(i + 1);
+      X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "settlement: order {} line {} ware '{}' x{} {} -> {}", trade, i, ware_names[i],
+                line.amount, line.asset, line.dest_asset);
+      continue;
+    }
     if (!ctx.game.set_component_owner(line.asset, new_owner[i].c_str())) {
       failed = static_cast<std::int16_t>(i);
       entry.error = "the game refused the owner change";
@@ -205,6 +263,12 @@ bool SettlementHub::handle_order(host::HostContext& ctx, std::span<const std::ui
   for (std::uint32_t i = applied; i > 0; --i) {
     const std::size_t index = static_cast<std::size_t>(i - 1);
     const LineView& line = order.lines[index];
+    if (line.is_ware()) {
+      economy::economy_hub().queue(
+          economy::CargoOp{line.dest_asset, ware_names[index], -static_cast<std::int32_t>(line.amount)});
+      economy::economy_hub().queue(economy::CargoOp{line.asset, ware_names[index], static_cast<std::int32_t>(line.amount)});
+      continue;
+    }
     if (!ctx.game.set_component_owner(line.asset, old_owner[index].c_str()) ||
         ctx.game.owner_faction(line.asset) != old_owner[index]) {
       undone = false;

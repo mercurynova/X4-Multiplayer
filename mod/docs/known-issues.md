@@ -12,7 +12,7 @@ Severity is about the cost to a player or to a bug report, not about the amount 
 | KI-1 | `money: send refused` / `send money failed: no_api` printed on every start | Low (log noise, but as `[=ERROR=]`) | **Fixed** 2026-11-02, see below |
 | KI-2 | Reconnect grace (60 s, and 120 s for the authority) is shorter than an X4 boot (2–3 min), so a restart never resumes | Medium (every restart costs a manual re-join) | **Fixed** 2026-11-02, default is now 300 s |
 | KI-3 | Every transfer, pool move and loan between two players in the same team is refused as `SameWallet`, because the default `CreditMode=Auto` gives a one-team session one wallet | High (the whole economy is unusable in the normal two-player case) | **Explained** 2026-11-03: the refusal names `Economy:CreditMode=PerPlayer`; the default stays, workaround below |
-| KI-4 | Offers were receive-only: the mod could not create a loan offer or a trade proposal, and could not accept or decline a loan offer | High (the checklist's own step 9 could not be performed by a player) | **Loans fixed** 2026-11-03; trade proposals open, blocked by the settlement and export limits below |
+| KI-4 | Offers were receive-only: the mod could not create a loan offer or a trade proposal, and could not accept or decline a loan offer | High (the checklist's own step 9 could not be performed by a player) | **Fixed** 2026-11-03: loans and ware-for-credits proposals both work; ships still need an inventory, see below |
 | — | Log rotation, timer-restart messages, restricted-function errors | Not bugs | Explained below so they stop being re-reported |
 
 ## KI-1: spurious money send at startup
@@ -226,40 +226,35 @@ from chat and from the screen:
   lends is refused with `T(969)`.
 - Help text `T(570)` in both languages names `offer`.
 
-**Still open (trade proposals), and the mod alone cannot close it.** The server accepts a proposal
-in exactly one shape: `CheckShape` (`EconomyService.Trades.cs:882-940`) wants **exactly one
-credits item and at least one non-credits asset** per trade. Whether the accepting half could
-then finish the job is decided further down the pipeline, and the two asset kinds fail in
-different places:
+**Fixed 2026-11-03 (trade proposals).** The mod now proposes the one shape the server accepts:
+credits asked for, a ware handed over from the player's own hold.
 
-- **Ware.** `CheckAssets` (`EconomyService.Trades.cs:942-1005`) needs the source container in the
-  world mirror with enough cargo in it, and the accept path turns the item into an
-  `AssetTransferKind.WareMove` line (`EconomyService.Trades.cs:437-470`). The authority that
-  receives that order refuses every ware line outright: "a ware move is not settled by the
-  authority in v1" (`native/features/settlement/settlement_feature.cpp:138-141`). That is not a
-  policy that can be lifted from this side, either: the game exports the mod binds are cargo
-  *readers* only (`GetNumCargo`, `GetCargo` — `native/game/game_api.cpp:48-49`), so there is no
-  way to move a ware between containers.
-- **Ship.** `CheckAssets` refuses a ship a player is flying ("a ship a player is flying cannot be
-  traded", `EconomyService.Trades.cs:967-970`) and needs `DenyGive` to allow the giver
-  (`:972-976`). A parked fleet ship owned by the player can pass both, provided the ownership
-  policy lets the player give it away (`MirrorTradeWorld.DenyGive` at `:64-74`), and an owner
-  change *is*
-  something the authority settles (`native/features/settlement/settlement_feature.cpp:179-189`,
-  undone in reverse order at `:203-219`; the precheck refuses only player-guarded assets at
-  `:154-157`). But the mod cannot name one: it knows the net id of the player's own avatar ship
-  only (`native/features/selfship/selfship_hub.h:56-57`), and the server refuses that ship for
-  trade (`IsPlayerShip`, `EconomyService.Trades.cs:967`); the only ship inventory export
-  (`native/game/avatars_api.h:17-29`) lists ships of the `x4mp_team_*` factions with local
-  component ids and serves the avatars binder, not a trade picker. There is no local-component
-  to net-id map for anything else the player owns.
+- **The write path was there all along.** Wares move through the MD actions shim, not through a
+  game export: `md/x4mp_actions.xml:23-40` runs `add_cargo` / `remove_cargo exact=` for every line
+  of `event.param3`, and the native half reaches it by queueing `economy::CargoOp` and letting the
+  economy feature raise `x4mp.actions` (`native/features/economy/economy_feature.cpp:201-228`).
+  That is the same route station trades already use (`docs/mod-design.md:2432-2444`).
+- **The authority settles ware lines now.**
+  `native/features/settlement/settlement_feature.cpp` replaced the blanket refusal with validation
+  (the ware must be in the session string table, both components valid, `0 < amount`, and the
+  source must really hold that many), then queues a `-amount` op on the source and `+amount` on the
+  destination; the undo path queues the same pair in reverse. There is no result to read back in
+  v1, which is why the precheck reads the hold first and the shim's `exact=` caps at what is there.
+- **The proposal itself.** `Op::TradePropose` (`native/features/economy_client/economy_client_hub.cpp`)
+  rejects what the server would reject anyway and encodes `encode_trade_proposal`
+  (`economy_wire.h`); the ware ref is the FNV-1a of the macro (`economy::ware_ref_of`, the same hash
+  the client already sends for cargo), and the source asset is the player's own ship net id
+  (`selfship_hub().own_net_id()`).
+- **Chat and texts.** `/mp propose <player> <ware> <amount> <credits> [memo]`, with `T(970)` naming
+  the syntax and help `T(570)` extended in both languages.
+- **Tests.** One Catch2 case for the frame shape and the refusals, two Lua cases for the command;
+  `ctest -R economy_client` is 12 of 12 and the Lua suite is 323 tests.
 
-So a proposal the mod could build today would either be refused at propose time or die at
-settlement after both players had accepted, with the credits locked in escrow until the rollback.
-That is worse than the honest gap, which is why the trade half stays open. Closing it needs one of
-two new capabilities: a cargo write export for wares, or a per-player ship inventory with net ids
-for ships. Until then a trade proposal still has to come from `X4MP.FakeNode.exe`; the
-accept/decline half of trades has always worked and is unchanged.
+What the trade half still cannot do: propose a **ship** (the mod has no player-ship inventory with
+net ids — `native/game/avatars_api.h:17-29` lists team ships with local ids only), and cross-sector
+trades when `TradeRequiresProximity` is on (`EconomyService.Trades.cs:1007-1011` wants both assets
+in one known sector). The `event.param3` nesting note in `md/x4mp_actions.xml:17-18` is still
+marked `[VERIFY]` in game; on the stand the trade path is exercised through the fake node.
 
 ## Not bugs (checked, do not re-report)
 

@@ -196,6 +196,26 @@ struct TradeCancelData {
   Id128Value trade_id;
 };
 
+// One side's contribution of a proposal (economy.fbs:141). A ware line names the container it leaves (`asset`); a credits
+// line names none, because credits live in a wallet and not in a hold.
+struct TradeItemData {
+  std::uint8_t kind = 0;  // 0 credits, 1 ware, 2 ship
+  std::int64_t amount = 0;
+  std::uint32_t ware_ref = 0;
+  std::uint32_t asset = 0;
+};
+
+// The proposal the mod can build today: the giver's own hold against credits. `CheckShape`
+// (EconomyService.Trades.cs:882) demands exactly one credits item, so both lists are filled here and never by the caller.
+struct TradeProposalData {
+  Id128Value key;
+  std::uint16_t counterparty = 0;
+  TradeItemData give{};  // the ware, from the giver's ship
+  TradeItemData want{};  // the credits
+  std::uint32_t ttl_s = 0;  // 0 = the server default (300)
+  std::string memo;
+};
+
 struct LedgerRequestData {
   Id128Value key;
   std::uint16_t limit = 0;  // 0 = the server default (50); the server clamps 1..200
@@ -289,6 +309,24 @@ inline P::Id128 to_wire(const Id128Value& id) { return P::Id128(id.lo, id.hi); }
   const P::Id128 key = detail::to_wire(data.key);
   const P::Id128 trade = detail::to_wire(data.trade_id);
   const auto req = P::CreateTradeCancel(fbb, &key, &trade);
+  fbb.Finish(req);
+  return detail::finish(fbb);
+}
+
+// A trade the mod proposes: one ware out of the giver's hold for credits. The vectors carry exactly one item each because the
+// server refuses anything else (CheckShape, EconomyService.Trades.cs:882-940): one credits item, at least one asset.
+[[nodiscard]] inline std::vector<std::uint8_t> encode_trade_proposal(const TradeProposalData& data) {
+  flatbuffers::FlatBufferBuilder fbb(192);
+  const P::Id128 key = detail::to_wire(data.key);
+  const auto give = P::CreateTradeItem(fbb, static_cast<P::TradeItemKind>(data.give.kind), data.give.amount,
+                                       data.give.ware_ref, data.give.asset);
+  const auto want = P::CreateTradeItem(fbb, static_cast<P::TradeItemKind>(data.want.kind), data.want.amount,
+                                       data.want.ware_ref, data.want.asset);
+  const std::vector<flatbuffers::Offset<P::TradeItem>> give_items{give};
+  const std::vector<flatbuffers::Offset<P::TradeItem>> want_items{want};
+  const auto memo = data.memo.empty() ? flatbuffers::Offset<flatbuffers::String>() : fbb.CreateString(data.memo);
+  const auto req = P::CreateTradeProposal(fbb, &key, data.counterparty, fbb.CreateVector(give_items),
+                                          fbb.CreateVector(want_items), data.ttl_s, memo);
   fbb.Finish(req);
   return detail::finish(fbb);
 }

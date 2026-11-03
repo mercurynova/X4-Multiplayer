@@ -187,7 +187,7 @@ function E.send(op, params)
 	if type(B) ~= "table" or type(B.send) ~= "function" then return false, "no bridge" end
 	local body = { op = op }
 	for _, key in ipairs({ "to", "amount", "id", "version", "asset", "memo", "limit", "before",
-		"repay_total", "due", "auto", "accept" }) do
+		"repay_total", "due", "auto", "accept", "ware", "qty" }) do
 		if params and params[key] ~= nil then body[key] = params[key] end
 	end
 	local ok, err = B.send("economy", body)
@@ -502,6 +502,21 @@ function E.command(param)
 			say(T(969))
 		else
 			E.send("loan_offer", { to = id, amount = n, repay_total = repay, due = (days or 0) * 86400, memo = trim(memo) })
+		end
+	elseif cmd == "propose" then
+		-- I hand over a ware from my own hold and ask for credits: the one shape the server's CheckShape accepts.
+		local name, tail = rest:match("^(%S+)%s+(.+)$")
+		local ware, rest2 = tostring(tail or ""):match("^(%S+)%s+(.+)$")
+		local qty, credits, memo = tostring(rest2 or ""):match("^(%d+)%s+(%d+)%s*(.*)$")
+		local id = name and playerId(name) or nil
+		local units = qty and amount(qty) or nil
+		local n = credits and amount(credits) or nil
+		if not id then
+			say(T(568, tostring(name or "")))
+		elseif not ware or not units or not n then
+			say(T(970))
+		else
+			E.send("trade_propose", { to = id, ware = ware, qty = units, amount = n, memo = trim(memo) })
 		end
 	elseif cmd == "repay" then
 		local idText, value = rest:match("^(%S+)%s+(%S+)$")

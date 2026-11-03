@@ -63,6 +63,7 @@ const char* op_name(Op op) noexcept {
     case Op::Ledger: return "ledger";
     case Op::LoanOffer: return "loan_offer";
     case Op::LoanRespond: return "loan_respond";
+    case Op::TradePropose: return "trade_propose";
   }
   return "?";
 }
@@ -78,6 +79,7 @@ bool parse_op(std::string_view name, Op& out) noexcept {
   if (name == "ledger") { out = Op::Ledger; return true; }
   if (name == "loan_offer") { out = Op::LoanOffer; return true; }
   if (name == "loan_respond") { out = Op::LoanRespond; return true; }
+  if (name == "trade_propose") { out = Op::TradePropose; return true; }
   return false;
 }
 
@@ -363,6 +365,28 @@ bool EconomyClientHub::request(Op op, const RequestParams& p, std::string& error
       data.accept = p.accept;
       frame.type = static_cast<std::uint16_t>(P::MsgType::LoanRespond);
       frame.bytes = encode_loan_respond(data);
+      break;
+    }
+    case Op::TradePropose: {
+      // The shape the server accepts (CheckShape, EconomyService.Trades.cs:882-940): one credits item and one asset.
+      if (p.to_player == 0) { error = "no counterparty"; break; }
+      if (p.to_player == self_) { error = "cannot trade with yourself"; break; }
+      if (p.amount <= 0) { error = "the credits must be positive"; break; }
+      if (p.ware.empty() || p.ware_ref == 0) { error = "no ware"; break; }
+      if (p.ware_amount <= 0) { error = "the ware amount must be positive"; break; }
+      if (p.source_asset == 0) { error = "your hold is not known yet"; break; }
+      TradeProposalData data;
+      data.key = key;
+      data.counterparty = p.to_player;
+      data.give.kind = static_cast<std::uint8_t>(P::TradeItemKind::Ware);
+      data.give.amount = p.ware_amount;
+      data.give.ware_ref = p.ware_ref;
+      data.give.asset = p.source_asset;
+      data.want.kind = static_cast<std::uint8_t>(P::TradeItemKind::Credits);
+      data.want.amount = p.amount;
+      data.memo = p.memo;
+      frame.type = static_cast<std::uint16_t>(P::MsgType::TradeProposal);
+      frame.bytes = encode_trade_proposal(data);
       break;
     }
     case Op::Ledger: {

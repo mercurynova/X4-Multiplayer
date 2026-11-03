@@ -718,16 +718,20 @@ loan** button next to **Send credits**, and the help text names `offer`. Three C
 (`test_economy_client.cpp:447`, `:485`, `:524`) and five Lua tests
 (`tests/lua/test_economy.lua:448-500`) cover the new path; ctest is 694 of 695 with the known
 timing-sensitive `guard.installer` flake passing on its own, and the Lua suite is 321 tests.
-**Open:** trade proposals. `CheckShape` (`EconomyService.Trades.cs:882-940`) accepts only a trade
-with exactly one credits item plus a ware or a ship, and neither asset kind can be completed from
-the mod today: a ware line is refused by the authority ("a ware move is not settled by the
-authority in v1", `mod/native/features/settlement/settlement_feature.cpp:138-141`) and the game
-exports only cargo readers (`mod/native/game/game_api.cpp:48-49`); a ship a player flies is refused
-at propose time (`EconomyService.Trades.cs:967-970`), and a parked fleet ship — which the authority
-*would* transfer (`settlement_feature.cpp:179-189`) — cannot be named, because the mod knows only
-its own avatar's net id (`selfship_hub.h:56-57`) and has no ship inventory with net ids. Closing
-this needs a cargo write export or a per-player ship inventory; the details are in
-`mod/docs/known-issues.md` KI-4.
+**Status 2026-11-03 (KI-4, the trade half): a player can propose a trade from the mod.** The one
+shape `CheckShape` accepts (`EconomyService.Trades.cs:882-940`) is credits asked for plus a ware
+handed over, and that is what `/mp propose <player> <ware> <amount> <credits> [memo]` builds:
+`Op::TradePropose` (`mod/native/features/economy_client/economy_client_hub.cpp`) encodes
+`encode_trade_proposal` (`economy_wire.h`) with the ware ref from `economy::ware_ref_of` and the
+source container from the player's own ship net id. The authority now settles a ware line instead
+of refusing it: `mod/native/features/settlement/settlement_feature.cpp` validates the line (ware in
+the session string table, both components, the source really holds that many) and queues a
+`-amount` / `+amount` pair of `CargoOp`s, which the economy feature raises as `x4mp.actions` and
+`md/x4mp_actions.xml:23-40` applies with `add_cargo` / `remove_cargo exact=` — the same route
+station trades use. Undo queues the reverse pair. One Catch2 case and two Lua cases cover it;
+`ctest -R economy_client` is 12 of 12 and the Lua suite is 323 tests. Still out of reach: a
+**ship** proposal (no player-ship inventory with net ids) and cross-sector trades when
+`TradeRequiresProximity` is on (`EconomyService.Trades.cs:1007-1011`).
 
 **Status 2026-11-03 (the release package, first local check).** The zip the release workflow builds
 was assembled locally from the same inputs (`.github/workflows/release.yml:164-190`) and inspected:
