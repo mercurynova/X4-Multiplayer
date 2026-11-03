@@ -117,6 +117,11 @@ public sealed partial class EconomyModule
 
     private void SendLoanResult(SessionNode node, Id128T key, LoanResult result)
     {
+        if (!result.Ok)
+        {
+            NoteRejected(node, "loan", result.Reason, result.Detail);
+        }
+
         if (node.Connection is null || Service is not { } service)
         {
             return;

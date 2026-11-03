@@ -58,6 +58,15 @@ public sealed record GameEventOccurred(DateTimeOffset At, long? Session, string 
     long? ISectorScoped.SectorId => SectorId;
 }
 
+/// <summary>A player request the economy refused. The log used to hold only state changes and completed actions, so a
+/// refusal was visible to the sender alone; this row makes it part of the session record.</summary>
+public sealed record EconomyRequestRejected(
+    DateTimeOffset At, long? Session, long? PlayerId, string Op, string Reason, string? Detail)
+    : DomainEvent(At, Session), IPlayerScoped
+{
+    long? IPlayerScoped.PlayerId => PlayerId;
+}
+
 /// <summary>An admin action. The audit forwarder turns it into an <c>audit_log</c> row; never put secrets in <paramref name="Data"/>.</summary>
 public sealed record AdminActionTaken(
     DateTimeOffset At, long? Session, string Actor, string Action, string? Target, IReadOnlyDictionary<string, string?>? Data, string? RemoteIp)

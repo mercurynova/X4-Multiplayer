@@ -825,7 +825,11 @@ export, and a rename export.
 - Audit: the economy service publishes `AdminActionTaken` (`economy.adjust`, `economy.wallet.freeze|unfreeze`, `economy.reverse`, `economy.loan.forgive|cancel`, `economy.trade.cancel|resolve_complete|resolve_refund`, `economy.unfreeze`, `economy.migrate`) with the actor `admin:<user>` and the reason; the REST layer writes `economy.policy` and `economy.ledger.export` itself. Rows arrive through the event bus (asynchronously, a few ms).
 - Policy: `PATCH /economy/policy` maps its fields to the `Economy.*` settings (per-key errors like `PATCH /settings`); a credit-mode change on a Running or Paused session answers 409 with the migration preview unless `confirm: true`, then applies the setting and reconciles the balances at once. Design deviation: `EconomyPolicyDto`/`WalletDto` follow the real options and wallet state (a wallet has `version`, no `updatedAt`).
 - Hub: `SubscribeEconomy` (returns `EconomySummaryDto`) / `UnsubscribeEconomy`; pushes `WalletChanged` (coalesced per wallet, `EconomyWalletIntervalMs` 250), `LedgerPosted` (every transaction), `LoanChanged` / `TradeChanged` (keyed per id, latest wins), `EconomyEvent` (`EconomyEventsPerSecond` 10, local negative ids), `EconomySummary` (1 Hz), `EconomyAlert` (alerts whose code starts with `economy`). Handlers run on the actor thread (`EconomyLedger.Committed`, `LoanCommitted`, `EconomyService.TradeObserved`) and return before building anything while the topic is empty (`PayloadsByKind`: `wallet`, `ledger`, `loan`, `trade`, `economy-event`, `economy-alert`, `economy-summary`). The module raises `ServiceStarted` so the broadcaster can attach when the session row appears.
-- Open: rejected player requests are not events yet (the event log holds state changes and completed actions); trade `returnAsset`; `economy_events` table was not created (events come from `session_events`, which is write-behind).
+- Rejections: a refused player request publishes `EconomyRequestRejected` (player, op, reason, detail) from the single
+  transfer funnel and from the loan, trade and ledger result senders (`EconomyModule.NoteRejected`), so the event log
+  shows what was asked for and why it was turned down, not only state changes and completed actions. An accepted
+  request publishes nothing extra.
+- Open: trade `returnAsset`; `economy_events` table was not created (events come from `session_events`, which is write-behind).
 
 ## M1-T4 implementation notes (AssetPermissionPolicy)
 

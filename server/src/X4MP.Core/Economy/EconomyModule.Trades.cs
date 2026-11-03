@@ -161,8 +161,13 @@ public sealed partial class EconomyModule
 
     private static Id128T TradeWire(long id) => new() { Lo = (ulong)id };
 
-    private static void SendTradeResult(SessionNode node, Id128T key, TradeActionResult result, EconomyService service)
+    private void SendTradeResult(SessionNode node, Id128T key, TradeActionResult result, EconomyService service)
     {
+        if (!result.Ok)
+        {
+            NoteRejected(node, "trade", result.Reason, result.Detail);
+        }
+
         if (node.Connection is null)
         {
             return;

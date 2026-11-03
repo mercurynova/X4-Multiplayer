@@ -18,7 +18,8 @@ internal sealed class EconomyViews(
     SqliteAdminQueries queries, ITeamDirectory? teams, IOptionsMonitor<EconomyOptions> options, TimeProvider time)
 {
     private static readonly string[] EventTypes =
-        ["LoanStateChanged", "TradeStateChanged", "EconomyActionCompleted", "EconomyMigrated", "EconomyFrozen", "EconomyUnfrozen"];
+        ["LoanStateChanged", "TradeStateChanged", "EconomyActionCompleted", "EconomyMigrated", "EconomyFrozen", "EconomyUnfrozen",
+         "EconomyRequestRejected"];
 
     private readonly ConcurrentDictionary<long, string> _players = new();
 
@@ -121,6 +122,7 @@ internal sealed class EconomyViews(
     /// <summary>True for the domain events that belong in the economy event log.</summary>
     public static bool IsEconomyEvent(DomainEvent e) =>
         e is LoanStateChanged or TradeStateChanged or EconomyActionCompleted or EconomyMigrated or EconomyFrozen or EconomyUnfrozen
+            or EconomyRequestRejected
         || (e is AdminActionTaken a && a.Action.StartsWith("economy.", StringComparison.Ordinal));
 
     /// <summary>A live event for the hub (null when it is not an economy event). <paramref name="id"/> is a local number: live events have no database id yet.</summary>
@@ -134,6 +136,9 @@ internal sealed class EconomyViews(
         EconomyMigrated m => new(id, m.At, nameof(EconomyMigrated), m.Actor, "tx", null, m.From, m.To, "moved " + m.TotalMoved.ToString(CultureInfo.InvariantCulture)),
         EconomyFrozen f => new(id, f.At, nameof(EconomyFrozen), "system", null, null, null, null, f.Reason),
         EconomyUnfrozen u => new(id, u.At, nameof(EconomyUnfrozen), u.Actor, null, null, null, null, null),
+        EconomyRequestRejected r => new(id, r.At, nameof(EconomyRequestRejected),
+            "player:" + (r.PlayerId?.ToString(CultureInfo.InvariantCulture) ?? "?"), "request", null, null, null,
+            r.Op + ": " + r.Reason + (string.IsNullOrEmpty(r.Detail) ? string.Empty : " (" + r.Detail + ")")),
         AdminActionTaken a when a.Action.StartsWith("economy.", StringComparison.Ordinal) => FromAdmin(id, a.At, a.Actor, a.Action, a.Target,
             a.Data is not null && a.Data.TryGetValue("reason", out var reason) ? reason : null),
         _ => null,
@@ -165,6 +170,8 @@ internal sealed class EconomyViews(
                 nameof(EconomyMigrated) => new(row.Id, row.At, row.Type, Text("actor") ?? "system", "tx", null, Text("from"), Text("to"), "moved " + Text("totalMoved")),
                 nameof(EconomyFrozen) => new(row.Id, row.At, row.Type, "system", null, null, null, null, Text("reason")),
                 nameof(EconomyUnfrozen) => new(row.Id, row.At, row.Type, Text("actor") ?? "system", null, null, null, null, null),
+                nameof(EconomyRequestRejected) => new(row.Id, row.At, row.Type, "player:" + (Text("playerId") ?? "?"), "request", null, null, null,
+                    Text("op") + ": " + Text("reason") + (Text("detail") is { Length: > 0 } detail ? " (" + detail + ")" : string.Empty)),
                 _ => FromAdmin(
                     row.Id, row.At, Text("actor") ?? "unknown", Text("action") ?? row.Type, Text("target"),
                     json.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object && data.TryGetProperty("reason", out var reason)

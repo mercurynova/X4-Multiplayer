@@ -263,11 +263,22 @@ public sealed partial class EconomyModule : ISessionModule
             result = service.CheckRate(node.PlayerId) ?? run(keyText);
         }
 
+        if (!result.Ok)
+        {
+            NoteRejected(node, frame.Type.ToString(), result.Reason, result.Detail);
+        }
+
         SendResult(node, key, result);
         return true;
     }
 
     private static string KeyText(Id128T key) => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{key.Hi:x16}{key.Lo:x16}");
+
+    /// <summary>A refusal becomes part of the session record, not just a frame the sender alone sees (docs/roadmap.md, M6).</summary>
+    private void NoteRejected(SessionNode node, string op, EconomyReject reason, string? detail)
+    {
+        _events?.Publish(new EconomyRequestRejected(_time.GetUtcNow(), Service?.Ledger.SessionId, node.PlayerId, op, reason.ToString(), detail));
+    }
 
     private void SendResult(SessionNode node, Id128T key, EconomyActionResult result)
     {

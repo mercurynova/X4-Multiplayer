@@ -1,6 +1,7 @@
 using Google.FlatBuffers;
 using Microsoft.Extensions.Time.Testing;
 using X4MP.Core.Economy;
+using X4MP.Core.Events;
 using X4MP.Core.Tests.Session;
 using X4MP.Proto;
 
@@ -39,14 +40,15 @@ public sealed class EconomyActionsModuleTests
 
     private static EconomyResult LastResult(JoinedNode node) => node.Connection.SentOf(MsgType.EconomyResult)[^1].Decode<EconomyResult>();
 
-    private static async Task<(ActorRig Rig, EconomyModule Module, JoinedNode Boss, JoinedNode Pilot, FakeTeamDirectory Teams)> StartAsync(Action<EconomyOptions>? configure = null)
+    private static async Task<(ActorRig Rig, EconomyModule Module, JoinedNode Boss, JoinedNode Pilot, FakeTeamDirectory Teams)> StartAsync(
+        Action<EconomyOptions>? configure = null, IEventPublisher? events = null)
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero));
         var options = new EconomyOptions { StartingCredits = 1000, DonateScope = EconomyScope.Allied };
         configure?.Invoke(options);
         var teams = new FakeTeamDirectory();
         teams.Set([1, 2], new Dictionary<int, int?> { [1] = 1, [2] = 2 });
-        var module = new EconomyModule(() => options, new InMemoryEconomyStore(), teams, time);
+        var module = new EconomyModule(() => options, new InMemoryEconomyStore(), teams, time, events);
         var rig = new ActorRig(time, null, null, [module]);
         var boss = await rig.JoinAuthorityAsync();
         var pilot = await rig.JoinAsync("Pilot");
@@ -142,6 +144,33 @@ public sealed class EconomyActionsModuleTests
 
             Assert.Equal(EconomyReject.SessionNotRunning, LastResult(boss).Reason);
             Assert.Equal(1000, module.Service!.Ledger.BalanceOf(WalletId.Player(boss.PlayerId)));
+        }
+    }
+
+    [Fact]
+    public async Task ARefusedRequestBecomesPartOfTheSessionRecord()
+    {
+        var events = new RecordingEvents();
+        var (rig, module, boss, pilot, teams) = await StartAsync(events: events);
+        await using (rig)
+        {
+            module.OnSessionPhaseChanged(SessionPhase.Running, SessionPhase.Paused);
+
+            await rig.SendAsync(boss, MsgType.CreditTransferRequest, Transfer(1, pilot.PlayerId, 10));
+
+            Assert.Equal(EconomyReject.SessionNotRunning, LastResult(boss).Reason);
+            var rejected = Assert.Single(events.OfType<EconomyRequestRejected>());
+            Assert.Equal(nameof(MsgType.CreditTransferRequest), rejected.Op);
+            Assert.Equal(nameof(EconomyReject.SessionNotRunning), rejected.Reason);
+            Assert.Equal(boss.PlayerId, (int)rejected.PlayerId!.Value);
+
+            // An accepted request is recorded by its own event, not as a refusal.
+            module.OnSessionPhaseChanged(SessionPhase.Paused, SessionPhase.Running);
+            teams.SetRelation(1, 2, X4MP.Core.Teams.TeamRelation.Allied);
+            await rig.SendAsync(boss, MsgType.DonateRequest, Donate(2, pilot.PlayerId, 10));
+
+            Assert.Equal(EconomyStatus.Ok, LastResult(boss).Status);
+            Assert.Single(events.OfType<EconomyRequestRejected>());
         }
     }
 }

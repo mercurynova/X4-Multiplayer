@@ -128,9 +128,14 @@ public sealed partial class EconomyModule
             : (ushort)0;
     }
 
-    private static void SendLedgerPage(SessionNode node, Id128T key, EconomyReject reason, string detail,
-                                       List<LedgerRowT> rows, bool more)
+    private void SendLedgerPage(SessionNode node, Id128T key, EconomyReject reason, string detail,
+                                List<LedgerRowT> rows, bool more)
     {
+        if (reason != EconomyReject.None)
+        {
+            NoteRejected(node, "ledger", reason, detail);
+        }
+
         if (node.Connection is null)
         {
             return;
