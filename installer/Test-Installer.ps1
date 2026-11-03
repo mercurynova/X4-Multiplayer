@@ -196,7 +196,21 @@ try {
   $r = Run $CheckScript @('-GameDir', $game, '-AccountRoot', $data, '-NoPause')
   Check ($r.Code -eq 0) 'disabled extension: enabled again, the verdict is READY'
 
-  # ---- 8. Uninstall leaves everything else alone.
+  # ---- 8. The zip unzipped into the game folder: the payload is already where the copy would put
+  # it, and the destination must not be deleted as if it were an old install.
+  Write-Host ''
+  Write-Host 'install, package already in the game folder'
+  $inPlace = Join-Path $tmp 'game-in-place'
+  New-Item -ItemType Directory -Force (Join-Path $inPlace 'extensions') | Out-Null
+  Write-Text (Join-Path $inPlace 'X4.exe') 'not a real game, the installer only checks that it exists'
+  Copy-Item -Recurse -Force (Join-Path $pkg 'extensions\*') (Join-Path $inPlace 'extensions')
+  $r = Run $InstallScript @('-GameDir', $inPlace, '-AccountRoot', $data, '-Source', $inPlace, '-NoPause')
+  Expect 'in place' $r 0 'Already in place'
+  Check (Test-Path -LiteralPath (Join-Path $inPlace 'extensions\x4mp\native\x4mp.dll')) 'in place: the dll the package carried is still there'
+  Check (Test-Path -LiteralPath (Join-Path $inPlace 'extensions\x4mp\ui\x4mp_economy.lua')) 'in place: the ui folder is still there'
+  Check (Test-Path -LiteralPath (Join-Path $inPlace 'extensions\x4native\native\x4native_64.dll')) 'in place: X4Native is still there'
+
+  # ---- 9. Uninstall leaves everything else alone.
   Write-Host ''
   Write-Host 'uninstall'
   $r = Run $UninstallScript @('-GameDir', $game, '-NoPause')

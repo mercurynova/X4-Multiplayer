@@ -101,7 +101,20 @@ $ext = Join-Path $GameDir 'extensions'
 if (-not (Test-Path -LiteralPath $ext)) { New-Item -ItemType Directory -Path $ext | Out-Null }
 
 $copied = New-Object System.Collections.Generic.List[string]
+function Same-Folder([string]$A, [string]$B) {
+  $a2 = [IO.Path]::GetFullPath($A).TrimEnd('\')
+  $b2 = [IO.Path]::GetFullPath($B).TrimEnd('\')
+  return [string]::Equals($a2, $b2, [StringComparison]::OrdinalIgnoreCase)
+}
 function Copy-Tree([string]$From, [string]$To) {
+  # A player who unzips into the game folder (README-server.md) already has the extension where the
+  # copy would put it. Removing the destination first would delete the only copy of the payload, and
+  # the install would end with nothing to verify, so the files are left alone and only reported.
+  if (Same-Folder $From $To) {
+    Write-Host ('Already in place: {0}' -f $To)
+    foreach ($item in Get-ChildItem -LiteralPath $From -Recurse -File -Force) { $copied.Add($item.FullName) }
+    return
+  }
   if (Test-Path -LiteralPath $To) { Remove-Item -LiteralPath $To -Recurse -Force }
   New-Item -ItemType Directory -Path $To | Out-Null
   foreach ($item in Get-ChildItem -LiteralPath $From -Recurse -Force) {
@@ -116,18 +129,17 @@ function Copy-Tree([string]$From, [string]$To) {
       $copied.Add($dst)
     }
   }
+  Write-Host ('Copied extensions\{0}' -f (Split-Path -Leaf $To))
 }
 
 Write-Host ''
 if ($PSCmdlet.ShouldProcess($ext, 'install x4mp and x4native')) {
   Copy-Tree $payload.X4mp (Join-Path $ext 'x4mp')
-  Write-Host 'Copied extensions\x4mp'
   Copy-Tree $payload.X4Native (Join-Path $ext 'x4native')
   foreach ($extra in $payload.X4NativeExtras) {
     Copy-Item -LiteralPath $extra -Destination (Join-Path $ext ('x4native\' + (Split-Path -Leaf $extra))) -Force
     $copied.Add((Join-Path $ext ('x4native\' + (Split-Path -Leaf $extra))))
   }
-  Write-Host 'Copied extensions\x4native'
   if ($payload.Dll) {
     $native = Join-Path $ext 'x4mp\native'
     if (-not (Test-Path -LiteralPath $native)) { New-Item -ItemType Directory -Path $native | Out-Null }

@@ -69,7 +69,16 @@ The registry change takes effect for newly started programs (sign out/in to be s
 folder still can't be deleted, use the long-path form:
 `Remove-Item -LiteralPath "\\?\C:\full\path" -Recurse -Force`.
 
-**X4Native** (eg3r, MIT) is **vendored in the repo** at the pinned release
+**A second preset without network.** Each build directory runs vcpkg's manifest install on its
+first configure, and that step asks GitHub for the registry: behind a blocked network it fails with
+`catch2 does not exist` even though the dependencies are already built for the same triplet in
+another build directory. Reuse that tree instead of downloading it again:
+```
+cmake --preset msvc-x64-release -DVCPKG_MANIFEST_INSTALL=OFF `
+  "-DVCPKG_INSTALLED_DIR=$PWD/build/msvc-x64-relwithdebinfo/vcpkg_installed"
+cmake --build --preset msvc-x64-release
+```
+X4Native (eg3r, MIT) is **vendored in the repo** at the pinned release
 `v9.0.0-611726` (see `mod-design.md`). Don't install it separately. Its `version_db/`
 folder must ship with the mod, or the MD hooks silently do nothing.
 

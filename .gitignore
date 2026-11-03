@@ -27,6 +27,8 @@ test-results/
 # Native
 build/
 out/
+# release staging tree (release.yml assembles the zip here)
+pkg/
 CMakeUserPresets.json
 vcpkg_installed/
 *.pdb
