@@ -879,6 +879,35 @@ TEST_CASE("onfoot: MD's 'gone' forgets the actor and the throttle delays the re-
   CHECK(st.reg.counters().spawns == 2);  // asked again two seconds after the removal
 }
 
+// S10.6: the container's interiors are despawned, so MD destroys every avatar it held in one go and sends one 'gone' per player.
+// The players stay (only their bodies died with the rooms) and the re-ask is throttled exactly like any other removal.
+TEST_CASE("onfoot: an interiors teardown drops every avatar at once and the asks come back throttled") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  remotes[8] = avatar_in_room(0, 0, 0);
+  remotes[9] = avatar_in_room(0, 0, 0);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  st.reg.on_reply("spawn;8;9002");
+  st.reg.on_reply("spawn;9;9003");
+  REQUIRE(st.reg.live() == 3);
+
+  st.reg.on_reply("gone;7");
+  st.reg.on_reply("gone;8");
+  st.reg.on_reply("gone;9");
+  CHECK(st.reg.live() == 0);
+  CHECK(st.reg.tracked() == 3);            // the players are still here, only the bodies are gone
+  CHECK(st.reg.counters().bad_replies == 0);
+  CHECK(st.reg.counters().spawns == 3);
+
+  st.step(remotes, 1'100'000);
+  CHECK(st.reg.counters().spawns == 3);  // no spawn/gone storm right after the teardown
+  st.step(remotes, 3'100'000);
+  CHECK(st.reg.counters().spawns == 6);  // every avatar is asked for again
+  CHECK(st.reg.live() == 0);             // asked, not confirmed
+}
+
 TEST_CASE("onfoot: a malformed answer is counted, not trusted") {
   Stage st;
   std::map<std::uint16_t, RemoteAvatar> remotes;

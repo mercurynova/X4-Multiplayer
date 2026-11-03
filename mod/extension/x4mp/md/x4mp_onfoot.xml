@@ -37,6 +37,12 @@
   away from the network position) and it must not be written into the save as an NPC. temporary stays false - the actor is
   removed by X4MP_OnFoot_Despawn or by the janitor, which is also what makes a stale avatar disappear after a reload.
 
+  Teardown (S10.6). When a zone loses attention the engine despawns the container's dynamic interiors and the avatars standing in
+  them die with the rooms; the list and the native side would keep pointing at dead ids. X4MP_OnFoot_InteriorsDespawn listens to
+  event_object_interiors_despawning (vanilla cleans up its own temporary characters the same way, md/npc_instantiation.xml
+  PlaceNPC_InteriorDespawning), destroys what is still alive, drops every entry, tells native "gone" per player and logs the
+  leftover count: "[X4MP] onfoot interiors despawn: cleared 2 avatar(s), leftover=0".
+
   Safety: the only components this file creates are those crew NPCs (faction.x4mp_team_1, tag.crew, the requested race or the
   character macro a peer picked); the only things it destroys are actors listed in md.$X4MP_OnFoot_Actors; and it never moves the
   player or any vanilla object.
@@ -238,6 +244,9 @@
               <rotation yaw="$Yaw"/>
             </add_actor_to_room>
             <do_if value="$Moved">
+              <!-- The container is remembered so the interiors teardown can recognise its own event.object even when an actor's
+                   own .object is already gone. -->
+              <set_value name="md.$X4MP_OnFoot_Cont" exact="$Cont"/>
               <append_to_list name="md.$X4MP_OnFoot_Actors" exact="$A"/>
               <raise_lua_event name="'x4mp.onfoot_actor'" param="'spawn;' + $Pid + ';' + $A"/>
             </do_if>
@@ -297,7 +306,50 @@
           </do_all>
         </do_if>
         <set_value name="md.$X4MP_OnFoot_Actors" exact="[]"/>
+        <set_value name="md.$X4MP_OnFoot_Cont" exact="null"/>
         <debug_text text="'[X4MP] onfoot janitor: avatars cleared'" filter="general"/>
+      </actions>
+    </cue>
+
+    <!-- S10.6: the container's dynamic interiors are about to be despawned (the zone lost attention, or the player flew away). The
+         engine takes the avatars with the rooms, so what is left here are dead ids: destroy the ones that still live, drop every
+         entry and tell native 'gone', or it keeps writing poses to ids that no longer exist and never asks for a new one. The
+         leftover count in the log line is what the S10.6 check reads ("0 leftover actors"). -->
+    <cue name="X4MP_OnFoot_InteriorsDespawn" instantiate="true">
+      <conditions>
+        <event_object_interiors_despawning/>
+        <check_value value="md.$X4MP_OnFoot_Actors? and md.$X4MP_OnFoot_Actors.count gt 0"/>
+      </conditions>
+      <actions>
+        <set_value name="$Object" exact="event.object"/>
+        <set_value name="$Cleared" exact="0"/>
+        <!-- Our own container: event.object is exactly what the spawn cue stored, so every avatar we own is in it. -->
+        <set_value name="$All" exact="md.$X4MP_OnFoot_Cont? and event.object == md.$X4MP_OnFoot_Cont"/>
+        <do_all exact="md.$X4MP_OnFoot_Actors.count" counter="$i" reverse="true">
+          <set_value name="$A" exact="md.$X4MP_OnFoot_Actors.{$i}"/>
+          <set_value name="$Drop" exact="not @$A.exists"/>
+          <do_if value="not $Drop and ($All or @$A.object == $Object)">
+            <set_value name="$Drop" exact="true"/>
+          </do_if>
+          <do_if value="$Drop">
+            <set_value name="$Pid" exact="@$A.$x4mp_pid"/>
+            <do_if value="@$A.exists">
+              <destroy_object object="$A"/>
+            </do_if>
+            <remove_value name="md.$X4MP_OnFoot_Actors.{$i}"/>
+            <do_if value="$Pid">
+              <raise_lua_event name="'x4mp.onfoot_actor'" param="'gone;' + $Pid"/>
+            </do_if>
+            <set_value name="$Cleared" exact="$Cleared + 1"/>
+          </do_if>
+        </do_all>
+        <do_if value="$All">
+          <set_value name="md.$X4MP_OnFoot_Cont" exact="null"/>
+        </do_if>
+        <!-- Only our container is worth a line: every zone in the game despawns interiors now and then. -->
+        <do_if value="$All or $Cleared gt 0">
+          <debug_text text="'[X4MP] onfoot interiors despawn: cleared ' + $Cleared + ' avatar(s), leftover=' + md.$X4MP_OnFoot_Actors.count" filter="general"/>
+        </do_if>
       </actions>
     </cue>
 

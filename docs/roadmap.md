@@ -320,10 +320,22 @@ remote avatar needs its yaw written every frame. S10.8: 8 walking spike NPCs cos
 pathfinding; the mod writes positions), and the load sweep removes leftover actors (8/8, 0 stale) once it is driven from the UI script —
 a cue with only a `<delay>` never instantiates, and neither `<event_game_loaded/>` nor `<check_interval>` fires in an extension mdscript.
 S10.9: dynamic interiors are per-save state (0 rooms on unvisited stations, 6 on the current one), so a `kind=dynamic` key can only match
-when both players have that room. Still open: S10.6 (room transitions, transporter, interior teardown — needs a human at the controls) and
+when both players have that room. Still open: the in-game half of S10.6 (room transitions, transporter, interior teardown — needs a
+human at the controls; the teardown code itself is in, see the 2026-11-03 status below) and
 the in-game half of S10.7 (MD's `open_conversation_menu` resolves the name but never calls `menu.onShowMenu`, so the spike opens the menu
 from Lua with `OpenMenu`; a human must press "Back to conversation"). **Next:** S10.6, then the client waves (capture, room resolver,
 actors, appearance picker) — no lounge.
+
+**Status 2026-11-03: the S10.6 teardown half is in.** `mod/extension/x4mp/md/x4mp_onfoot.xml` gained
+`X4MP_OnFoot_InteriorsDespawn`, a cue on `event_object_interiors_despawning` that destroys the avatars still standing in the container,
+drops their entries, tells native `gone;<pid>` per player and logs
+`[X4MP] onfoot interiors despawn: cleared N avatar(s), leftover=0` — the line the S10.6 acceptance reads. It copies vanilla's own
+pattern (`md/npc_instantiation.xml`, `PlaceNPC_InteriorDespawning`: `destroy_object` on the temporary characters plus a `debug_text`
+naming them, with the container test `$actor.object == event.object`). The cue keeps the spawn container in
+`md.$X4MP_OnFoot_Cont`, so it recognises its own `event.object` even when an actor's `.object` is already gone, and it only logs for
+our own container. Offline evidence: the game's own `libraries/md.xsd` extracted with `tools/x4cat_extract.py` (399 files) and the
+Catch2 case `host.onfoot: an interiors teardown drops every avatar at once and the asks come back throttled`. What is left is a human
+check: the transporter ride, the > 50 km undock and the capital-ship bridge, and reading that log line in a real session.
 
 **Status 2026-10-25 (later): W3, the on-foot feature skeleton, is in — native capture plus the extension's room report.** The native side is
 `mod/native/features/onfoot/`: `onfoot_types` (the `key=value;...` report grammar, `fnv1a32`, `matched_container_id`,
