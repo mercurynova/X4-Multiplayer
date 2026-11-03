@@ -385,9 +385,12 @@ millisecond range means the mod itself is not what slows the game down.
 Both entries that were found on this stand first are fixed as of 2026-11-02: the spurious
 `money: send refused` at every start, and the reconnect grace that was shorter than a boot — the
 default is 300 s now, so a restart of both instances resumes instead of rejoining. The stand's
-later run found two more that are **open**: every transfer and loan between two players of one
-team is refused `SameWallet` unless the server runs `Economy:CreditMode=PerPlayer`, and the mod
-cannot create an offer or answer a loan offer. All four, plus what looks like a bug but is not:
+later run found two more, both answered on 2026-11-03: every transfer and loan between two players
+of one team is refused `SameWallet` unless the server runs `Economy:CreditMode=PerPlayer` — the
+default stays, but the refusal now names that setting — and the mod could not offer a loan or
+answer one, which it now can with `/mp offer <player> <credits> [repay] [days] [memo]` and
+`/mp accept`/`/mp decline`. What is still open is the trade proposal, which needs an asset list the
+mod does not have. All four, plus what looks like a bug but is not:
 [`known-issues.md`](known-issues.md).
 
 ## 15. Related
