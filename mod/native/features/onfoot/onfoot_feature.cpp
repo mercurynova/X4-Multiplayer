@@ -104,12 +104,18 @@ void OnFootFeature::install_actor_callbacks(host::HostContext& ctx) {
     const auto it = room_ids_.find(macro_ref);
     return it != room_ids_.end() ? it->second : std::string();
   };
-  cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us) {
+  cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us, float dist_m) {
     // One line per avatar per 5 s. A session reads `lag` to check the M3b "error < 0.5 m" criterion: it is how far behind the
     // newest sample the actor is drawn, so a standing avatar reads 0.00 m and a walking one about speed x 90 ms.
+    // `dist` is how far the local player stands from that avatar in room space: a few metres means they really share the room.
     if (log_ == nullptr) return;
-    X4MP_CLOG(*log_, Cat::Md, Level::Info, "onfoot: avatar pid={} lag={:.2f}m speed={:.2f}m/s age={}ms", pid,
-              static_cast<double>(lag_m), static_cast<double>(speed_mps), age_us / 1000);
+    if (dist_m < 0.0f) {
+      X4MP_CLOG(*log_, Cat::Md, Level::Info, "onfoot: avatar pid={} lag={:.2f}m speed={:.2f}m/s age={}ms dist=n/a", pid,
+                static_cast<double>(lag_m), static_cast<double>(speed_mps), age_us / 1000);
+      return;
+    }
+    X4MP_CLOG(*log_, Cat::Md, Level::Info, "onfoot: avatar pid={} lag={:.2f}m speed={:.2f}m/s age={}ms dist={:.2f}m", pid,
+              static_cast<double>(lag_m), static_cast<double>(speed_mps), age_us / 1000, static_cast<double>(dist_m));
   };
   onfoot::onfoot_actors().set_callbacks(std::move(cb));
 }
@@ -179,8 +185,8 @@ void OnFootFeature::send_state(host::HostContext& /*ctx*/, const onfoot::OnFootT
     return;
   }
 
-  // cx/cy/cz are container-local metres at 1/64 m (wire::quantize_position). The room-local position (1/1024 m) is the same point
-  // relative to the room origin MD reported, in decimetres.
+  // cx/cy/cz are ROOM-local metres at EYE height (both add_actor_to_room and SetPositionalOffset take an offset relative to
+  // the actor's parent, which is the room), so they go on the wire unchanged: quantize_position is 1/64 m, room_x/y/z 1/1024 m.
   const auto qx = wire::quantize_position(cx);
   const auto qy = wire::quantize_position(cy);
   const auto qz = wire::quantize_position(cz);
@@ -189,9 +195,9 @@ void OnFootFeature::send_state(host::HostContext& /*ctx*/, const onfoot::OnFootT
     ++send_failed_;
     return;
   }
-  const auto room_x = static_cast<std::int32_t>(std::lround((cx - static_cast<float>(room.anchor_x) / 10.0f) * 1024.0f));
-  const auto room_y = static_cast<std::int32_t>(std::lround((cy - static_cast<float>(room.anchor_y) / 10.0f) * 1024.0f));
-  const auto room_z = static_cast<std::int32_t>(std::lround((cz - static_cast<float>(room.anchor_z) / 10.0f) * 1024.0f));
+  const auto room_x = static_cast<std::int32_t>(std::lround(cx * 1024.0f));
+  const auto room_y = static_cast<std::int32_t>(std::lround(cy * 1024.0f));
+  const auto room_z = static_cast<std::int32_t>(std::lround(cz * 1024.0f));
   const auto look = static_cast<std::uint8_t>(std::clamp<std::int32_t>(
       static_cast<std::int32_t>(std::lround((pitch + kPi / 2.0f) / kPi * 255.0f)), 0, 255));
 
@@ -377,6 +383,7 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   const auto& room = hub.room();
   if (!room.valid || room.mode == onfoot::Mode::None) {
     // Still report the leave state, so the peers drop the avatar instead of freezing it.
+    onfoot::onfoot_actors().set_self(false, 0.0, 0.0, 0.0);
     onfoot::OnFootTracker::Sample sample;
     sample.ctx = room;
     const auto step = tracker_.update(sample, now_us);
@@ -384,10 +391,12 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
     return;
   }
 
-  const auto player = ctx.game.player_object();
-  // MD may omit the container (it is only needed to read the position); the game knows it anyway.
-  const auto container = room.container != 0 ? room.container : ctx.game.player_container();
-  const auto pos = ctx.game.positional_offset(player, container);
+  // The walking position comes from the ACTOR (GetPlayerID), read relative to its direct parent (`space == 0`, the room). Two
+  // measured reasons: GetPlayerObjectID returns the avatar entity and answers (0,0,0) on foot, and the room key stores the anchor in
+  // decimetres as int16, so subtracting it breaks as soon as a room origin exceeds 3276.7 m (a shipyard interior at 4.6 km came out
+  // 1.4 km too far on z). The parent-relative pose needs no anchor at all and is already at eye height.
+  const auto actor = ctx.game.player_id();
+  const auto pos = ctx.game.positional_offset(actor, 0);
   if (!pos) {
     // The interior may have just been torn down; MD reports the new room on the next room change.
     ++sample_failed_;
@@ -401,7 +410,9 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   sample.yaw = pos->yaw;
   sample.pitch = pos->pitch;
   const auto step = tracker_.update(sample, now_us);
-  if (step.send) send_state(ctx, step, room, sample.cx, sample.cy, sample.cz, sample.yaw, sample.pitch);
+  // The local player in room space, the same frame the states use: the diag line measures the distance to each avatar from here.
+  onfoot::onfoot_actors().set_self(true, static_cast<double>(pos->x), static_cast<double>(pos->y), static_cast<double>(pos->z));
+  if (step.send) send_state(ctx, step, room, pos->x, pos->y, pos->z, sample.yaw, sample.pitch);
 }
 
 }  // namespace x4mp::features

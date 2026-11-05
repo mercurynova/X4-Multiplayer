@@ -550,6 +550,7 @@ struct Stage {
     std::uint16_t pid;
     float lag_m, speed_mps;
     std::int64_t age_us;
+    float dist_m;
   };
   std::vector<Diag> diags;
   // The room catalogue the feature keeps from MD (M3c): hash -> macro id. Empty unless a test seeds it.
@@ -567,8 +568,8 @@ struct Stage {
       const auto it = roomIds.find(macro_ref);
       return it == roomIds.end() ? std::string() : it->second;
     };
-    cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us) {
-      diags.push_back({pid, lag_m, speed_mps, age_us});
+    cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us, float dist_m) {
+      diags.push_back({pid, lag_m, speed_mps, age_us, dist_m});
     };
     reg.set_callbacks(std::move(cb));
   }
@@ -659,7 +660,7 @@ TEST_CASE("onfoot: the look table keeps the newest appearance and drops an older
   CHECK(hub.appearance(kSelf) == nullptr);  // the relay never echoes our own look back at us
 }
 
-TEST_CASE("onfoot: a remote player in the same room is spawned once, in container metres at foot height") {
+TEST_CASE("onfoot: a remote player in the same room is spawned once, in room metres at foot height") {
   Stage st;
   st.names[7] = "Ann";
   std::map<std::uint16_t, RemoteAvatar> remotes;
@@ -675,9 +676,10 @@ TEST_CASE("onfoot: a remote player in the same room is spawned once, in containe
   CHECK(j.find("\"race\":\"teladi\"") != std::string::npos);
   CHECK(j.find("\"rmacro\":\"room_arg_corridor_01_macro\"") != std::string::npos);
   CHECK(j.find("\"ax\":-20598") != std::string::npos);
-  CHECK(j.find("\"x\":-2058.800") != std::string::npos);  // anchor (-2059.8 m) + 1.0 m
-  CHECK(j.find("\"y\":-1175.720") != std::string::npos);  // anchor (-1176.0 m) + 2.0 m - 1.72 m eye height
-  CHECK(j.find("\"z\":3.200") != std::string::npos);      // anchor (0.2 m) + 3.0 m
+  // Room metres, no anchor added: add_actor_to_room positions inside the room (the anchor is metadata for the room lookup only).
+  CHECK(j.find("\"x\":1.000") != std::string::npos);
+  CHECK(j.find("\"y\":0.280") != std::string::npos);  // 2.0 m eye - 1.72 m eye height = feet
+  CHECK(j.find("\"z\":3.000") != std::string::npos);
   CHECK(st.reg.counters().spawns == 1);
   CHECK(st.reg.tracked() == 1);
   CHECK(st.reg.live() == 0);  // asked, not confirmed
@@ -709,9 +711,9 @@ TEST_CASE("onfoot: MD's answer makes the actor live and the pose is written ever
   REQUIRE_FALSE(st.places.empty());
   const auto& p = st.places.back();
   CHECK(p.actor == 9001u);
-  CHECK(p.x == Approx(-2058.8f).margin(0.01f));
-  CHECK(p.y == Approx(-1175.72f).margin(0.01f));
-  CHECK(p.z == Approx(3.2f).margin(0.01f));
+  CHECK(p.x == Approx(1.0f).margin(0.01f));
+  CHECK(p.y == Approx(0.28f).margin(0.01f));
+  CHECK(p.z == Approx(3.0f).margin(0.01f));
   CHECK(p.yaw == Approx(0.0f).margin(1e-4f));
 
   st.step(remotes, 1'200'000);  // no new sample, the pose is still written
@@ -766,10 +768,11 @@ TEST_CASE("onfoot: a player in another room of the station is spawned with the i
   const auto& batch = st.batches.back();
   CHECK(batch.find("\"rmacro\":\"room_arg_bar_01_macro\"") != std::string::npos);
   CHECK(batch.find("\"ax\":-5000") != std::string::npos);
-  // container metres = room metres + anchor/10; y loses the 1.72 m between the eye and the floor
-  CHECK(batch.find("\"x\":-499.000") != std::string::npos);
-  CHECK(batch.find("\"y\":10.280") != std::string::npos);
-  CHECK(batch.find("\"z\":7.000") != std::string::npos);
+  // The anchor travels on the wire for the room lookup, but the spawn position stays room-local (add_actor_to_room is inside $Room);
+  // y loses the 1.72 m between the eye and the floor.
+  CHECK(batch.find("\"x\":1.000") != std::string::npos);
+  CHECK(batch.find("\"y\":0.280") != std::string::npos);
+  CHECK(batch.find("\"z\":3.000") != std::string::npos);
   CHECK(st.reg.counters().spawns == 1);
   CHECK(st.reg.counters().no_room == 0);
 }
@@ -1029,4 +1032,30 @@ TEST_CASE("onfoot: a live avatar is measured once per five seconds", "[onfoot][d
   // A standing avatar is drawn where its newest sample says: no lag. A walking one is behind by speed x the display delay.
   CHECK(st.diags.back().speed_mps == Approx(0.0f).margin(0.01f));
   CHECK(st.diags.back().lag_m == Approx(0.0f).margin(0.01f));
+
+  // No local position was ever set (the frame had no sample): the distance cannot be measured, and the line says so.
+  CHECK(st.diags.back().dist_m < 0.0f);
+}
+
+TEST_CASE("onfoot: the measurement line says how far the local player stands from the avatar", "[onfoot][diag]") {
+  // Two players in one room are a few metres apart even when the camera looks the other way: this is the number that proves the
+  // avatar was drawn where the peer stands, without a screenshot.
+  Stage st;
+  st.reg.set_self(true, 0.0, 0.0, 5.0);  // the local player: 5 m along z from the avatar at the room origin
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0, 1, 1'000'000);
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+
+  remotes[7] = avatar_in_room(0, 0, 0, 2, 6'000'000);
+  st.step(remotes, 6'000'000);
+  REQUIRE(st.diags.size() == 1);
+  CHECK(st.diags.front().dist_m == Approx(5.0f).margin(0.01f));
+
+  // The other side of the room: 30 m away, still the same room (the distance is not a filter, only a measurement).
+  st.reg.set_self(true, 0.0, 0.0, 30.0);
+  remotes[7] = avatar_in_room(0, 0, 0, 3, 11'000'000);
+  st.step(remotes, 11'000'000);
+  REQUIRE(st.diags.size() == 2);
+  CHECK(st.diags.back().dist_m == Approx(30.0f).margin(0.01f));
 }

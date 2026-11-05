@@ -3,7 +3,7 @@
   X4MP on-foot presence, MD side (M3b). Lua side: ui/x4mp_onfoot.lua; native side: features/onfoot
   (docs/research/on-foot-presence.md 3.1-3.3, ADR-046).
 
-  Why MD at all: native can read the player's container and the container-local position, but not which ROOM the player stands in -
+  Why MD at all: native can read the player's parent-relative pose and container, but not which ROOM the player stands in -
   the SDK has no room accessor (sdk/x4n_rooms.h is only an enum -> name mapper). So MD builds the room key and pushes it over the
   bridge:
 
@@ -93,10 +93,13 @@
         <raise_lua_event name="'x4mp.onfoot_room'" param="$Report"/>
         <!-- M3c: keep the room catalogue of this container current. Native needs the macro id strings of all rooms, because the
              wire carries only a hash and MD cannot hash; without them an avatar in another room of the same station cannot be
-             placed. Re-pushed only when the container changes. -->
+             placed. Pushed when the container changes AND once every 10 reports: a native DLL reload empties the table while the
+             container stays the same, and only a periodic push recovers from that (Guest ran with rooms=0 after a reload). -->
         <do_if value="$Cont and $Cont.macro.id">
-          <do_if value="not global.$X4MP_OnFoot_RoomsCont? or global.$X4MP_OnFoot_RoomsCont != $Cont">
+          <set_value name="md.$X4MP_OnFoot_RoomsTick" exact="(md.$X4MP_OnFoot_RoomsTick? or 0) + 1"/>
+          <do_if value="not global.$X4MP_OnFoot_RoomsCont? or global.$X4MP_OnFoot_RoomsCont != $Cont or md.$X4MP_OnFoot_RoomsTick ge 10">
             <set_value name="global.$X4MP_OnFoot_RoomsCont" exact="$Cont"/>
+            <set_value name="md.$X4MP_OnFoot_RoomsTick" exact="0"/>
             <signal_cue_instantly cue="X4MP_OnFoot_RoomsBuild"/>
           </do_if>
         </do_if>
@@ -136,10 +139,11 @@
     <!-- ===================== remote avatars (W4) ===================== -->
 
     <!-- Create one avatar. event.param3 is the Lua table, read positionally: 1 pid, 2 name, 3 race, 4 character macro (empty =
-         let MD pick a crew NPC), 5 room macro, 6/7/8 room anchor in decimetres, 9 kind, 10/11/12 container-local position in
-         metres at FOOT height (native already removed the 1.72 m eye offset of GetPositionalOffset), 13 yaw in degrees.
-         The room is looked up by macro id plus anchor because one room macro can appear several times in a container; M3c adds
-         the nearest-copy fallback when the exact copy is not here.
+         let MD pick a crew NPC), 5 room macro, 6/7/8 room anchor in decimetres, 9 kind, 10/11/12 ROOM-local position in
+         metres at FOOT height (native sends the actor's parent-relative pose, which is eye height, and removed the 1.72 m), 13 yaw in degrees.
+         The position is ROOM-local: add_actor_to_room treats <position> as an offset inside $Room (the spike's of_place proved it, and
+         vanilla moves the player this way). The room is looked up by macro id plus anchor because one room macro can appear several
+         times in a container; M3c adds the nearest-copy fallback when the exact copy is not here.
          Native re-asks every 2 s until it gets an answer, so a failure here is retried rather than lost. -->
     <cue name="X4MP_OnFoot_Spawn" instantiate="true">
       <conditions>
@@ -164,27 +168,52 @@
         <set_value name="$Room" exact="null"/>
         <set_value name="$Fallback" exact="null"/>
         <set_value name="$BestD" exact="100000000"/>
+        <set_value name="$Hits" exact="0"/>
+        <set_value name="$Anchors" exact="0"/>
         <set_value name="$Cont" exact="player.container"/>
+        <!-- Diagnostics only: the failure text below must not itself error on a null container or room. -->
+        <set_value name="$ContMacro" exact="'-'"/>
+        <do_if value="$Cont">
+          <set_value name="$ContMacro" exact="$Cont.macro.id"/>
+        </do_if>
+        <set_value name="$MyMacro" exact="'-'"/>
+        <do_if value="player.room">
+          <set_value name="$MyMacro" exact="player.room.macro.id"/>
+        </do_if>
         <do_if value="$Cont and $Cont.macro.id">
-          <find_room name="$Rooms" object="$Cont" multiple="true"/>
-          <do_for_each name="$Rm" in="$Rooms">
-            <do_if value="not $Room and $Rm.macro.id == $RMacro">
-              <set_value name="$Anchor" exact="@$Rm.relativeposition.{$Cont}"/>
-              <do_if value="$Anchor">
-                <set_value name="$Dx" exact="($Anchor.x / 1m) * 10 - $Ax"/>
-                <set_value name="$Dy" exact="($Anchor.y / 1m) * 10 - $Ay"/>
-                <set_value name="$Dz" exact="($Anchor.z / 1m) * 10 - $Az"/>
-                <set_value name="$D2" exact="$Dx * $Dx + $Dy * $Dy + $Dz * $Dz"/>
-                <do_if value="$D2 le 25">
-                  <set_value name="$Room" exact="$Rm"/>
+          <!-- The player's own room first (the common case: two players in the same room). find_room does not list the dynamic
+               interior the player stands in on this build ("no room room_gen_managersoffice_01_macro", 05.11.2026), but
+               player.room is that very room, and the wire only names it when the peer's room hash equals ours. -->
+          <do_if value="player.room and player.room.macro.id == $RMacro">
+            <!-- The native names a room by macro only when the peer's room key equals the viewer's own (its hash covers the
+                 sector, the station and the anchor), so in the same-room case player.room IS the room. No anchor check: the
+                 key already proved it, and relativeposition is not exposed for every dynamic interior. -->
+            <set_value name="$Room" exact="player.room"/>
+          </do_if>
+          <!-- Any other room of the container: match the macro id, then the anchor, so several copies of one room macro are told apart. -->
+          <do_if value="not $Room">
+            <find_room name="$Rooms" object="$Cont" multiple="true"/>
+            <do_for_each name="$Rm" in="$Rooms">
+              <do_if value="not $Room and $Rm.macro.id == $RMacro">
+                <set_value name="$Hits" exact="$Hits + 1"/>
+                <set_value name="$Anchor" exact="@$Rm.relativeposition.{$Cont}"/>
+                <do_if value="$Anchor">
+                  <set_value name="$Anchors" exact="$Anchors + 1"/>
+                  <set_value name="$Dx" exact="($Anchor.x / 1m) * 10 - $Ax"/>
+                  <set_value name="$Dy" exact="($Anchor.y / 1m) * 10 - $Ay"/>
+                  <set_value name="$Dz" exact="($Anchor.z / 1m) * 10 - $Az"/>
+                  <set_value name="$D2" exact="$Dx * $Dx + $Dy * $Dy + $Dz * $Dz"/>
+                  <do_if value="$D2 le 25">
+                    <set_value name="$Room" exact="$Rm"/>
+                  </do_if>
+                  <do_elseif value="$D2 lt $BestD">
+                    <set_value name="$BestD" exact="$D2"/>
+                    <set_value name="$Fallback" exact="$Rm"/>
+                  </do_elseif>
                 </do_if>
-                <do_elseif value="$D2 lt $BestD">
-                  <set_value name="$BestD" exact="$D2"/>
-                  <set_value name="$Fallback" exact="$Rm"/>
-                </do_elseif>
               </do_if>
-            </do_if>
-          </do_for_each>
+            </do_for_each>
+          </do_if>
         </do_if>
         <!-- M3c, fallback F2: the exact copy of the room is not in this container, so the remote player stands in another copy of
              the same room macro. Show them in the nearest copy instead of showing nothing; the position still comes from the
@@ -262,7 +291,7 @@
           </do_else>
         </do_if>
         <do_else>
-          <debug_text text="'[X4MP] onfoot spawn: no room ' + $RMacro + ' in the player container for ' + $Name" filter="general"/>
+          <debug_text text="'[X4MP] onfoot spawn: no room ' + $RMacro + ' in the player container for ' + $Name + ' (cont=' + $ContMacro + ' myroom=' + $MyMacro + ' hits=' + $Hits + ' anchors=' + $Anchors + ')'" filter="general" context="false"/>
         </do_else>
       </actions>
     </cue>
@@ -317,7 +346,9 @@
          leftover count in the log line is what the S10.6 check reads ("0 leftover actors"). -->
     <cue name="X4MP_OnFoot_InteriorsDespawn" instantiate="true">
       <conditions>
-        <event_object_interiors_despawning/>
+        <!-- The event requires an object attribute (without it the game logs "Required attribute 'object' is missing" and passes a
+             null event.object). Our stored container is the only one that can own avatars, so listen to exactly that one. -->
+        <event_object_interiors_despawning object="md.$X4MP_OnFoot_Cont"/>
         <check_value value="md.$X4MP_OnFoot_Actors? and md.$X4MP_OnFoot_Actors.count gt 0"/>
       </conditions>
       <actions>

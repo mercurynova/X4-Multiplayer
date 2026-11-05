@@ -197,7 +197,11 @@ std::optional<PosRotPod> GameApi::object_position(UniverseId id) const noexcept 
   return fns_.GetObjectPositionInSector(id);
 }
 std::optional<PosRotPod> GameApi::positional_offset(UniverseId id, UniverseId space) const noexcept {
-  if (id == 0 || space == 0 || !fns_.GetPositionalOffset || !assert_main_thread("GetPositionalOffset")) return std::nullopt;
+  // `space` 0 is the documented form for "relative to the object's direct parent" (docs/research/on-foot-presence.md 2.2:
+  // `GetPositionalOffset(id, 0)`, sdk/x4_game_func_list.inc:1019). A walking player's parent is the room, so that call returns
+  // the ROOM-local pose at eye height, which is exactly what add_actor_to_room/SetPositionalOffset take. Any other id asks for
+  // the offset in that component's space.
+  if (id == 0 || !fns_.GetPositionalOffset || !assert_main_thread("GetPositionalOffset")) return std::nullopt;
   return fns_.GetPositionalOffset(id, space);
 }
 bool GameApi::set_positional_offset(UniverseId id, const PosRotPod& pos) const noexcept {

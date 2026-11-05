@@ -910,7 +910,9 @@ This section records what exists in code; the server half came first, the client
   container", see the Tier 2 bullet below). It raises one
   `{"v":1,"spawn":[…],"despawn":[…]}` batch over `x4mp.onfoot_actors`; `md/x4mp_onfoot.xml` creates the actor (`create_cue_actor` + `<select tags="tag.crew">`, owned by
   `faction.x4mp_team_1`, `customhandler="true"` so the NPC AI stays out of it), places it in the matched room and answers `spawn;<pid>;<actor>`; an unanswered spawn is retried
-  every 2 s, a failed placement is destroyed. Motion is `SetPositionalOffset` every frame in container space (room-local + `anchor/10`) at foot height (`y − 1.72 m`), yaw in
+  every 2 s, a failed placement is destroyed. Motion is `SetPositionalOffset` every frame in **room** space (the sender's own
+  parent-relative pose, `GetPositionalOffset(actor, 0)`; no anchor math, because the room anchor is stored as int16 decimetres and
+  overflows past 3276.7 m) at foot height (`y − 1.72 m`), yaw in
   radians; no pathfinding, no slots, no lounge. v1 shows the idle pose because MD has no locomotion action (S10.4). `Despawn`/`Janitor` cues and a janitor trigger 5 s after a
   load clean up; `onfoot_actor` is in `B.VERBS`. A fifth, read-only callback measures the pipeline: once per avatar per 5 s the log gets
   `onfoot: avatar pid=7 lag=0.12m speed=1.40m/s age=91ms`, where `lag` is `speed × (render time − represented time)`, i.e. how far behind the newest sample the actor is

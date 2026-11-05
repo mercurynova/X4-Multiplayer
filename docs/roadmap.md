@@ -362,7 +362,7 @@ feeds a `ghost::Interpolator` (the ship interpolator, unchanged) from the sample
 `{"v":1,"spawn":[...],"despawn":[...]}` over `x4mp.onfoot_actors`; MD creates the actor (`create_cue_actor` + `<select tags="tag.crew">`,
 owned by `faction.x4mp_team_1`, `customhandler="true"`, `temporary="false"`), finds the room by macro + 0.5 m anchor, places it, and
 answers `spawn;<pid>;<actor>`; a failed placement is destroyed and retried every 2 s. `SetPositionalOffset` is bound (radians, no degree
-conversion, `kGameFnCount` 30) and the pose is written **every frame** in container space (room-local + `anchor/10`) at foot height
+conversion, `kGameFnCount` 30) and the pose is written **every frame** in room space at foot height
 (`y − 1.72 m`): pathfinding is not involved at all, as S10.4 measured p95 0.163 m. v1 shows the idle pose, because MD has no locomotion
 action. `md/x4mp_onfoot.xml` gained the `Spawn`/`Despawn`/`Janitor` cues, `ui/x4mp_onfoot.lua` the `onfoot_actors`/`onfoot_actor` bridge
 plus a janitor trigger 5 s after load (`<delay>`/`event_game_loaded` are silent in this mdscript), and `onfoot_actor` was added to

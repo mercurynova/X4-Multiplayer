@@ -883,7 +883,8 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   - A live actor whose player walks into another room is removed and created again in the new room: MD placed the actor in
     one room and the engine keeps it there, so the actor cannot simply be moved across the door.
   - Motion is **not** pathfinding: the viewer interpolates `px/py/pz` and writes the pose every frame with
-    `SetPositionalOffset` in **container** space (room-local + `anchor_/10`), at foot height (`y − 1.72 m`, because the
+    `SetPositionalOffset` in **room** space (the sender's parent-relative pose; no anchor is added or subtracted), at foot height
+    (`y − 1.72 m`, because the
     sender's sample is eye height) and with the sender's yaw in radians. A per-frame write measured p95 0.163 m of error
     against the sender (S10.4). A sample flagged Teleport snaps instead of blending.
   - v1 shows the idle pose: MD has no locomotion action, so a teleported actor cannot be made to walk. The animation field is

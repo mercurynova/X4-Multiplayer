@@ -79,7 +79,9 @@ const char* fk_cname(UniverseId) { return nullptr; }
 bool fk_wrecked(UniverseId id) { return id == 13; }
 bool fk_docked() { return g_docked; }
 PosRotPod fk_posoffset(UniverseId id, UniverseId space) {
-  // Mirrors the game: the offset of `id` inside `space`. The test only needs a distinguishable answer.
+  // Mirrors the game: the offset of `id` inside `space`. The test only needs a distinguishable answer. `space == 0` is "relative to
+  // the direct parent", which for a walking player is the room - the form the on-foot position is read with.
+  if (space == 0) return PosRotPod{static_cast<float>(id), 1.72f, 0.25f, 0.0f, 0.0f, 0.0f};
   if (space != 5001) return PosRotPod{};
   return PosRotPod{static_cast<float>(id), 2.0f, 3.0f, 1.5f, 0.0f, 0.0f};
 }
@@ -346,6 +348,13 @@ TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][
   CHECK(g_written_offset.z == 3.0f);
   CHECK_FALSE(api.set_positional_offset(0, p));  // no id: refused before the call
 
+  // space 0 is "relative to the direct parent" (the room for a walking player) and must reach the game: it is the only form that
+  // yields a usable room pose on foot (GetPlayerObjectID answers (0,0,0) and the stored room anchor is clipped to int16 decimetres).
+  const auto room_pose = api.positional_offset(9002, 0);
+  REQUIRE(room_pose);
+  CHECK(room_pose->y == Catch::Approx(1.72f));
+  CHECK_FALSE(api.positional_offset(0, 0));  // no id: refused before the call
+
   GameApi none(resolve_game_fns(lookup_none), GameInfo{});
   CHECK(none.spawn_object("m", 1, p, "o") == 0);
   CHECK_FALSE(none.activate_object(1, true));
@@ -361,6 +370,7 @@ TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][
   CHECK_FALSE(none.component_wrecked(1));
   CHECK_FALSE(none.player_ship_docked());
   CHECK_FALSE(none.set_positional_offset(1, p));
+  CHECK_FALSE(none.positional_offset(1, 0));
 
   // off the main thread every wrapper refuses
   main_thread().capture_frame();

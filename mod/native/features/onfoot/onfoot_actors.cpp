@@ -12,11 +12,10 @@ constexpr double kRadToDegD = 57.295779513082320876798154814105;
 
 [[nodiscard]] bool on_foot(const RemoteAvatar& a) noexcept { return a.mode == Mode::Walking || a.mode == Mode::InTransit; }
 
-// The wire's px/py/pz are ROOM space (1/1024 m, finer than the 1/64 m of cx/cy/cz). SetPositionalOffset and add_actor_to_room both take
-// CONTAINER space, so the room anchor goes back on at the last moment. same_room() guarantees the two clients agree on that anchor.
-[[nodiscard]] double container_axis(double room_value, std::int16_t anchor_dm) noexcept {
-  return room_value + static_cast<double>(anchor_dm) / 10.0;
-}
+// The wire's px/py/pz are ROOM space (1/1024 m, finer than the 1/64 m of cx/cy/cz). Both add_actor_to_room and SetPositionalOffset take
+// an offset RELATIVE TO THE ACTOR'S PARENT, and an avatar created by add_actor_to_room is parented to the room - so room space is passed
+// through unchanged. Adding the anchor here (as an earlier version did) put every avatar a whole room anchor away from the player.
+// S10.4 measured the spike with the same room-local values: p95 0.163 m. same_room() guarantees the two clients agree on the room.
 
 // Locale-independent number text (std::to_chars, not printf: a Russian Windows would print a decimal comma and break the JSON).
 void append_fixed(std::string& out, double v, int decimals) {
@@ -160,9 +159,10 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
       if (now_us - e.last_request_us >= kSpawnRetryUs) {
         const auto pose = e.interp.render(now_us);
         const bool have_pose = pose.visible();
-        const double x = container_axis(have_pose ? pose.pos.x : e.avatar.px, e.avatar.room.anchor_x);
-        const double y = container_axis(have_pose ? pose.pos.y : e.avatar.py, e.avatar.room.anchor_y) - kEyeToFoot;  // origin at the feet
-        const double z = container_axis(have_pose ? pose.pos.z : e.avatar.pz, e.avatar.room.anchor_z);
+        // Room space, foot height: add_actor_to_room positions inside the room it is given, exactly like the spike's of_place.
+        const double x = have_pose ? pose.pos.x : e.avatar.px;
+        const double y = (have_pose ? pose.pos.y : e.avatar.py) - kEyeToFoot;  // origin at the feet
+        const double z = have_pose ? pose.pos.z : e.avatar.pz;
         const double yaw = (have_pose ? pose.rot.yaw : e.avatar.yaw) * kRadToDegD;
 
         std::string name = cb_.name ? cb_.name(pid) : std::string();
@@ -235,17 +235,22 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
     const auto pose = e.interp.render(now_us);
     if (pose.visible()) {
       if (cb_.place) {
-        cb_.place(e.actor, static_cast<float>(container_axis(pose.pos.x, e.avatar.room.anchor_x)),
-                  static_cast<float>(container_axis(pose.pos.y, e.avatar.room.anchor_y) - kEyeToFoot),
-                  static_cast<float>(container_axis(pose.pos.z, e.avatar.room.anchor_z)),
-                  static_cast<float>(pose.rot.yaw));
+        // Room space again: the actor is parented to the room, so SetPositionalOffset is a room-local offset (S10.4 mode C).
+        cb_.place(e.actor, static_cast<float>(pose.pos.x), static_cast<float>(pose.pos.y - kEyeToFoot),
+                  static_cast<float>(pose.pos.z), static_cast<float>(pose.rot.yaw));
       }
       ++counters_.places;
       // Measurement for the M3b acceptance run: the avatar is drawn this many metres behind the newest sample.
       if (cb_.diag && now_us - e.last_diag_us >= kDiagUs) {
         const auto behind_s = static_cast<double>(pose.render_t_us - pose.represented_t_us) / 1e6;
+        // How far the local player stands from this avatar, in the same room space: proves the two players share a room even when
+        // the camera is not pointed at the avatar.
+        const double dx = pose.pos.x - self_x_;
+        const double dy = pose.pos.y - self_y_;
+        const double dz = pose.pos.z - self_z_;
+        const auto dist_m = self_known_ ? static_cast<float>(std::sqrt(dx * dx + dy * dy + dz * dz)) : -1.0f;
         cb_.diag(pid, static_cast<float>(pose.speed_mps * behind_s), static_cast<float>(pose.speed_mps),
-                 now_us - e.avatar.at_us);
+                 now_us - e.avatar.at_us, dist_m);
         e.last_diag_us = now_us;
       }
     }

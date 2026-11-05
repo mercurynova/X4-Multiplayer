@@ -28,8 +28,9 @@ namespace x4mp::features::onfoot {
 // The two side effects. `raise_lua` gets the whole batch as one JSON string (bridge verb x4mp.onfoot_actors):
 //   {"v":1,"spawn":[{"pid":3,"name":"Ann","race":"argon","rmacro":123,"ax":-20598,"ay":-11760,"az":2,"kind":1,
 //                    "x":1.25,"y":0.0,"z":-3.5,"yaw":90.0}],"despawn":[7]}
-// spawn x/y/z are CONTAINER-local metres with y ALREADY at foot height (add_actor_to_room places in container space, like the spike did),
-// yaw is DEGREES (MD rotations are degrees). `place` is SetPositionalOffset: container-local metres, y at foot height, yaw RADIANS.
+// spawn x/y/z are ROOM-local metres with y ALREADY at foot height (add_actor_to_room places inside the room it is given, as the spike's
+// of_place did), yaw is DEGREES (MD rotations are degrees). `place` is SetPositionalOffset: room-local metres (the actor is parented to
+// the room), y at foot height, yaw RADIANS.
 struct ActorCallbacks {
   std::function<void(std::string_view json)> raise_lua;
   std::function<void(std::uint64_t actor, float x, float y, float z, float yaw)> place;
@@ -40,8 +41,10 @@ struct ActorCallbacks {
   std::function<std::string(std::uint32_t macro_ref)> room_id;
   // Measurement only (no effect on the pipeline): how far behind the stream an avatar is drawn, every 5 s while it is live.
   // lag_m = speed * (render time - represented time), so a standing avatar reads 0.0 and a 1.4 m/s walk at 90 ms reads 0.13 m.
+  // dist_m is the distance from the local player to the drawn avatar, in room space: two players standing in the same room read
+  // a few metres even when neither avatar is in the camera frame. -1 when the local position is unknown (a leave state).
   // The M3b acceptance criterion is "seen at the correct position, error < 0.5 m"; this line is how a session measures it.
-  std::function<void(std::uint16_t player_id, float lag_m, float speed_mps, std::int64_t age_us)> diag;
+  std::function<void(std::uint16_t player_id, float lag_m, float speed_mps, std::int64_t age_us, float dist_m)> diag;
 };
 
 class ActorRegistry {
@@ -54,6 +57,15 @@ class ActorRegistry {
 
   void set_callbacks(ActorCallbacks cb) { cb_ = std::move(cb); }
   [[nodiscard]] bool has_callbacks() const noexcept { return static_cast<bool>(cb_.raise_lua); }
+
+  // The local player's own room-local position (metres at EYE height - the same space the remote pose uses), so the diag line can
+  // report how far the drawn avatar is. `known` is false when this frame had no sample (a leave state): dist_m is then -1.
+  void set_self(bool known, double x, double y, double z) noexcept {
+    self_known_ = known;
+    self_x_ = x;
+    self_y_ = y;
+    self_z_ = z;
+  }
 
   // One frame. `local` is the last room context MD pushed, `remotes` the hub's view, `appearances` its look table.
   // Never throws; a missing callback simply skips that side effect (the entry still tracks the state).
@@ -103,6 +115,10 @@ class ActorRegistry {
   ActorCallbacks cb_;
   std::map<std::uint16_t, Entry> entries_;
   Counters counters_;
+  bool self_known_ = false;  // set_self saw a player position this frame
+  double self_x_ = 0.0;      // room-local metres at eye height
+  double self_y_ = 0.0;
+  double self_z_ = 0.0;
 };
 
 [[nodiscard]] ActorRegistry& onfoot_actors() noexcept;
