@@ -142,6 +142,7 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         append_despawn(despawns, pid);
         ++counters_.despawns;
       }
+      if (e.walking && cb_.stop_walk) cb_.stop_walk(pid);  // never leave an actor walking to a slot after it is gone
       it = entries_.erase(it);
       continue;
     }
@@ -150,6 +151,8 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
     if (e.live && !(e.avatar.room == e.placed_room)) {
       append_despawn(despawns, pid);
       ++counters_.despawns;
+      if (e.walking && cb_.stop_walk) cb_.stop_walk(pid);
+      e.walking = false;
       e.live = false;
       e.requested = false;
       e.actor = 0;
@@ -230,16 +233,31 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
       continue;
     }
 
-    // Live: MD owns the actor, this frame decides where it stands. yaw is written every frame (S10.5: otherwise the actor keeps
-    // facing wherever it last turned).
+    // Live: MD owns the actor, this frame decides where it stands - except while the remote is walking, where the animation is
+    // worth more than the centimetres: a slot walk is started and native stops writing the pose for kWalkHoldUs so the engine's own
+    // locomotion keeps the actor on its navmesh. On the way back to Idle the walk is stopped and exact placement resumes (the idle
+    // pose is what S10.4 mode D showed the override produces anyway).
     const auto pose = e.interp.render(now_us);
     if (pose.visible()) {
-      if (cb_.place) {
+      const bool wants_walk = e.avatar.anim == Anim::Walk || e.avatar.anim == Anim::Run;
+      if (wants_walk && cb_.walk) {
+        if (!e.walking || now_us - e.last_walk_us >= kWalkCmdUs) {
+          cb_.walk(pid, static_cast<float>(pose.speed_mps));
+          e.last_walk_us = now_us;
+          ++counters_.walks;
+        }
+        e.walking = true;
+      } else if (!wants_walk && e.walking) {
+        if (cb_.stop_walk) cb_.stop_walk(pid);
+        e.walking = false;
+        ++counters_.stops;
+      }
+      if (cb_.place && !(e.walking && now_us - e.last_walk_us < kWalkHoldUs)) {
         // Room space again: the actor is parented to the room, so SetPositionalOffset is a room-local offset (S10.4 mode C).
         cb_.place(e.actor, static_cast<float>(pose.pos.x), static_cast<float>(pose.pos.y - kEyeToFoot),
                   static_cast<float>(pose.pos.z), static_cast<float>(pose.rot.yaw));
+        ++counters_.places;
       }
-      ++counters_.places;
       // Measurement for the M3b acceptance run: the avatar is drawn this many metres behind the newest sample.
       if (cb_.diag && now_us - e.last_diag_us >= kDiagUs) {
         const auto behind_s = static_cast<double>(pose.render_t_us - pose.represented_t_us) / 1e6;
@@ -308,6 +326,7 @@ void ActorRegistry::clear() {
   std::string despawns;
   for (const auto& [pid, e] : entries_) {
     if (e.requested || e.live) append_despawn(despawns, pid);
+    if (e.walking && cb_.stop_walk) cb_.stop_walk(pid);
   }
   entries_.clear();
   send_batch(std::string(), despawns);

@@ -4,7 +4,7 @@
 //   md/x4mp_onfoot.xml sees the player enter a room and pushes the room key (container entity, station match key, room macro, anchor in
 //   decimetres, kind, roomtype) -> ui/x4mp_onfoot.lua -> bridge verb x4mp.onfoot_room -> inbox here -> on_frame.
 //   Native adds what only it can read (container-local position and yaw via GetPositionalOffset), rate-limits with OnFootTracker
-//   (10 Hz moving / 1 Hz idle / at once on a room change) and sends OnFootState (0x0302) on the Realtime lane.
+//   (20 Hz moving / 1 Hz idle / at once on a room change) and sends OnFootState (0x0302) on the Realtime lane.
 //   The relay fans it out to the peers in the same container; their OnFootState / PresenceRoster frames come back through the join
 //   feature into onfoot_hub(). ActorRegistry turns those states into MD commands (x4mp.onfoot_actors -> ui/x4mp_onfoot.lua -> the MD
 //   cues) and moves the confirmed actors with SetPositionalOffset every frame.

@@ -45,13 +45,26 @@ struct ActorCallbacks {
   // a few metres even when neither avatar is in the camera frame. -1 when the local position is unknown (a leave state).
   // The M3b acceptance criterion is "seen at the correct position, error < 0.5 m"; this line is how a session measures it.
   std::function<void(std::uint16_t player_id, float lag_m, float speed_mps, std::int64_t age_us, float dist_m)> diag;
+  // Animation hybrid (issue 2). The engine has no animation API and a per-frame SetPositionalOffset keeps an actor in the idle
+  // pose, so while the sender is walking MD has to own the actor: `walk` asks it to start a slot walk (which plays the walk
+  // animation), `stop_walk` ends it and the per-frame placement below takes over again.
+  std::function<void(std::uint16_t player_id, float speed_mps)> walk;
+  std::function<void(std::uint16_t player_id)> stop_walk;
 };
 
 // The shared ship interpolator extrapolates up to 500 ms past the newest sample. That is right for a ship stream but wrong for a
 // player who stops: the wire goes to 1 Hz while idle, so half a second of extrapolation at 1.4 m/s drags the avatar ~0.7 m past the
-// stop and then the correction springs it back, through geometry. 120 ms covers one missed 10 Hz send and nothing more.
+// stop and then the correction springs it back, through geometry. 120 ms covers one missed 20 Hz send and nothing more.
 inline ghost::InterpolatorConfig onfoot_interp_config() {
   ghost::InterpolatorConfig c;
+  // An avatar is watched from a few metres away, where the ship defaults read as lag and inertia: 100-250 ms of render delay plus a
+  // 200 ms correction blend over a 0.5 m deadband. A 20 Hz stream (onfoot_tracker) makes 60-120 ms of delay enough to hide jitter,
+  // and a short blend with a tight deadband applies a correction instead of sliding into it.
+  c.default_delay_us = 60'000;
+  c.min_delay_us = 40'000;
+  c.max_delay_us = 120'000;
+  c.blend_us = 80'000;
+  c.blend_deadband_m = 0.1;
   c.extrap_cap_us = 120'000;
   return c;
 }
@@ -63,6 +76,11 @@ class ActorRegistry {
   static constexpr std::int64_t kSpawnRetryUs = 2'000'000;  // an unanswered spawn request is repeated this often
   static constexpr std::int64_t kStaleUs = 5'000'000;       // no state for this long: remove the avatar
   static constexpr std::int64_t kDiagUs = 5'000'000;        // one measurement line per avatar per 5 s
+  // The hybrid walk. MD's slot walk animates and drives the actor itself, so it is issued at most every 400 ms and native keeps its
+  // hands off the actor for 200 ms afterwards; the error while walking is then ~0.2 s of sender motion (0.4 m at 2 m/s), which the
+  // 120 ms interpolator cannot fix because the animation, not the position, is the point.
+  static constexpr std::int64_t kWalkCmdUs = 400'000;
+  static constexpr std::int64_t kWalkHoldUs = 200'000;
 
   void set_callbacks(ActorCallbacks cb) { cb_ = std::move(cb); }
   [[nodiscard]] bool has_callbacks() const noexcept { return static_cast<bool>(cb_.raise_lua); }
@@ -95,6 +113,8 @@ class ActorRegistry {
     std::uint32_t bad_replies = 0;
     std::uint32_t ignored = 0;     // states for a player who is not visible here
     std::uint32_t no_room = 0;     // wanted, but its room macro id is not in the local catalogue (fallback F3)
+    std::uint32_t walks = 0;       // start_actor_walk commands issued to MD
+    std::uint32_t stops = 0;       // stop_actor_walk commands issued to MD
   };
   [[nodiscard]] const Counters& counters() const noexcept { return counters_; }
 
@@ -116,6 +136,8 @@ class ActorRegistry {
     std::int64_t last_request_us = 0;
     std::int64_t last_seen_us = 0;  // server time of the newest STATE (a repeated frame is not a sign of life)
     std::int64_t last_diag_us = 0;  // last measurement line
+    std::int64_t last_walk_us = 0;  // last walk command; place is suppressed for kWalkHoldUs after it
+    bool walking = false;           // MD owns the actor (a walk animation is playing)
   };
 
   void append_despawn(std::string& out, std::uint16_t player_id);

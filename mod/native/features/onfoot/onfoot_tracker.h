@@ -1,7 +1,7 @@
 #pragma once
 // features/onfoot: how often the local on-foot sample goes on the wire. Same shape as selfship/own_ship_tracker.h, different rates.
 //
-//   docs/research/on-foot-presence.md 3.1: 10 Hz while moving (more than 5 cm or 5 deg since the last sample), 1 Hz keepalive while idle,
+//   docs/research/on-foot-presence.md 3.1: 20 Hz while moving (more than 5 cm or 5 deg since the last sample), 1 Hz keepalive while idle,
 //   immediately on a room / container / mode change (with the Teleport flag so the remote side snaps instead of interpolating).
 //   On foot the sample is ~40 B, so the idle keepalive is cheap; the 20 Hz PlayerState stream is suspended by MD/native while on foot.
 
@@ -12,7 +12,7 @@
 namespace x4mp::features::onfoot {
 
 struct TrackerConfig {
-  std::int64_t moving_interval_us = 100'000;   // 10 Hz
+  std::int64_t moving_interval_us = 50'000;    // 20 Hz: a walking avatar is watched up close, so the samples must be dense
   std::int64_t idle_interval_us = 1'000'000;   // 1 Hz keepalive
   std::int64_t hidden_interval_us = 5'000'000;  // mode None (left the interior): one leave sample, then a rare repeat
   float moving_metres = 0.05f;

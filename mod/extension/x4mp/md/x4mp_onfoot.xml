@@ -268,6 +268,9 @@
             <set_entity_overrides entity="$A" title="$Name"/>
             <set_value name="$A.$x4mp_pid" exact="$Pid"/>
             <set_value name="$A.$x4mp_name" exact="$Name"/>
+            <!-- Remembered per actor: the walk cue needs the room it was created in, and an avatar can sit in another room of the
+                 same station (M3c), where player.room would be the wrong one. -->
+            <set_value name="$A.$x4mp_room" exact="$Room"/>
             <add_actor_to_room actor="$A" object="$Room" result="$Moved">
               <position x="$X" y="$Y" z="$Z"/>
               <rotation yaw="$Yaw"/>
@@ -293,6 +296,131 @@
         <do_else>
           <debug_text text="'[X4MP] onfoot spawn: no room ' + $RMacro + ' in the player container for ' + $Name + ' (cont=' + $ContMacro + ' myroom=' + $MyMacro + ' hits=' + $Hits + ' anchors=' + $Anchors + ')'" filter="general" context="false"/>
         </do_else>
+      </actions>
+    </cue>
+
+    <!-- The walk hybrid. The engine exposes no animation call to native, so an actor that is moved by SetPositionalOffset every frame
+         stands in the idle pose (S10.4 mode D: the walk animation dies the moment the pose is overwritten). MD's start_actor_walk is
+         the only way into the locomotion state, so while the sender walks native raises this cue every 400 ms and stops writing the
+         pose for 200 ms around it; the leg motion comes from the engine's own walk. event.param3: 1 pid, 2 speed (m/s).
+         The target must be a SLOT (there is no walk-to-position form): the nearest free standing slot to the actor is used, because
+         the walk only has to keep the locomotion state alive for the hold window and a close slot keeps the actor near the true
+         path. Slots already occupied by another of our avatars are skipped - two actors on one spot look wrong. -->
+    <cue name="X4MP_OnFoot_Walk" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_OnFoot'" control="'walk'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Pid" exact="event.param3.{1}"/>
+        <set_value name="$Speed" exact="event.param3.{2}"/>
+        <set_value name="$A" exact="null"/>
+        <do_if value="md.$X4MP_OnFoot_Actors?">
+          <do_for_each name="$C" in="md.$X4MP_OnFoot_Actors">
+            <do_if value="not $A and @$C.$x4mp_pid == $Pid">
+              <set_value name="$A" exact="$C"/>
+            </do_if>
+          </do_for_each>
+        </do_if>
+        <do_if value="$A">
+          <!-- The room the avatar was created in (set by the spawn cue), not player.room: M3c places avatars in other rooms too. -->
+          <set_value name="$Room" exact="@$A.$x4mp_room"/>
+          <do_if value="not $Room">
+            <set_value name="$Room" exact="player.room"/>
+          </do_if>
+          <do_if value="$Room">
+            <find_npc_slot name="$Slots" object="$Room" tags="tag.stand" excludeblocked="true" excludefilled="true" multiple="true"/>
+            <set_value name="$SlotsFrom" exact="'tag.stand'"/>
+            <do_if value="not @$Slots.count">
+              <find_npc_slot name="$Slots" object="$Room" tags="tag.npc_generic" excludeblocked="true" excludefilled="true" multiple="true"/>
+              <set_value name="$SlotsFrom" exact="'tag.npc_generic'"/>
+            </do_if>
+            <do_if value="not @$Slots.count">
+              <find_npc_slot name="$Slots" object="$Room" anytag="[tag.service, tag.wait]" excludeblocked="true" excludefilled="true" multiple="true"/>
+              <set_value name="$SlotsFrom" exact="'work_slot_fallback'"/>
+            </do_if>
+            <do_if value="not @$Slots.count">
+              <find_npc_slot name="$Slots" object="$Room" excludeblocked="false" excludefilled="false" multiple="true"/>
+              <set_value name="$SlotsFrom" exact="'any_slot_including_filled'"/>
+            </do_if>
+            <set_value name="$Slot" exact="null"/>
+            <set_value name="$SlotIdx" exact="0"/>
+            <set_value name="$BestD" exact="-1m"/>
+            <set_value name="$Near" exact="null"/>
+            <set_value name="$NearD" exact="-1m"/>
+            <do_if value="@$Slots.count">
+              <do_all exact="$Slots.count" counter="$i">
+                <set_value name="$Taken" exact="false"/>
+                <do_for_each name="$C" in="md.$X4MP_OnFoot_Actors">
+                  <do_if value="not $Taken and @$C != $A and (@$C.distanceto.{$Slots.{$i}}) lt 1.5m">
+                    <set_value name="$Taken" exact="true"/>
+                  </do_if>
+                </do_for_each>
+                <do_if value="not $Taken">
+                  <!-- A slot has no .position; distance is always measured from an entity to a slot. -->
+                  <set_value name="$D" exact="@$A.distanceto.{$Slots.{$i}}"/>
+                  <do_if value="$NearD lt 0m">
+                    <set_value name="$Near" exact="$Slots.{$i}"/>
+                    <set_value name="$NearD" exact="$D"/>
+                  </do_if>
+                  <do_else>
+                    <do_if value="$D lt $NearD">
+                      <set_value name="$Near" exact="$Slots.{$i}"/>
+                      <set_value name="$NearD" exact="$D"/>
+                    </do_if>
+                  </do_else>
+                  <!-- Nearest slot at least 1 m away: a slot under the actor's feet finishes the walk immediately and shows no animation. -->
+                  <do_if value="$D ge 1m">
+                    <do_if value="$BestD lt 0m or $D lt $BestD">
+                      <set_value name="$Slot" exact="$Slots.{$i}"/>
+                      <set_value name="$SlotIdx" exact="$i"/>
+                      <set_value name="$BestD" exact="$D"/>
+                    </do_if>
+                  </do_if>
+                </do_if>
+              </do_all>
+            </do_if>
+            <do_if value="not $Slot and $Near">
+              <set_value name="$Slot" exact="$Near"/>
+              <set_value name="$BestD" exact="$NearD"/>
+            </do_if>
+            <do_if value="$Slot">
+              <start_actor_walk actor="$A" target="$Slot" speed="$Speed"/>
+              <do_if value="$SlotsFrom != 'tag.stand'">
+                <debug_text text="'[X4MP] onfoot walk: pid=' + $Pid + ' stage=' + $SlotsFrom + ' slots=' + @$Slots.count + ' idx=' + $SlotIdx + ' d=' + ($BestD / 1m) + ' speed=' + $Speed" filter="general" context="false"/>
+              </do_if>
+            </do_if>
+            <do_else>
+              <debug_text text="'[X4MP] onfoot walk: no free slot for pid=' + $Pid + ' stage=' + $SlotsFrom + ' slots=' + @$Slots.count + ' room=' + (@$Room.type)" filter="general" context="false"/>
+            </do_else>
+          </do_if>
+          <do_else>
+            <debug_text text="'[X4MP] onfoot walk: no room for pid=' + $Pid" filter="general" context="false"/>
+          </do_else>
+        </do_if>
+        <do_else>
+          <debug_text text="'[X4MP] onfoot walk: no actor for pid=' + $Pid" filter="general" context="false"/>
+        </do_else>
+      </actions>
+    </cue>
+
+    <!-- The sender stopped walking: end the slot walk, native resumes exact placement on the next frame and snaps the actor back. -->
+    <cue name="X4MP_OnFoot_StopWalk" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_OnFoot'" control="'stop_walk'"/>
+      </conditions>
+      <actions>
+        <set_value name="$Pid" exact="event.param3.{1}"/>
+        <set_value name="$A" exact="null"/>
+        <do_if value="md.$X4MP_OnFoot_Actors?">
+          <do_for_each name="$C" in="md.$X4MP_OnFoot_Actors">
+            <do_if value="not $A and @$C.$x4mp_pid == $Pid">
+              <set_value name="$A" exact="$C"/>
+            </do_if>
+          </do_for_each>
+        </do_if>
+        <do_if value="$A">
+          <stop_actor_walk actor="$A"/>
+        </do_if>
       </actions>
     </cue>
 

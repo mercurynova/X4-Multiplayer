@@ -839,7 +839,7 @@ Wire behaviour that integration (M3-14) pinned down; the first three were bugs t
 Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRoster` 0x0304 and `PlayerInteraction` 0x0305 (Control), plus the
 `OnFootPresence` capability bit (1<<17). The design and the spike plan are in [research/on-foot-presence.md](research/on-foot-presence.md).
 
-- **Capture and rate (client, normative).** 10 Hz while moving (more than 0.05 m or 5° since the last sample), 1 Hz keepalive while idle, and an
+- **Capture and rate (client, normative).** 20 Hz while moving (more than 0.05 m or 5° since the last sample), 1 Hz keepalive while idle, and an
   immediate sample on a mode, container or room change. `PlayerState` is suspended while on foot; the last ship sample stands (its `Hidden` flag keeps
   the docked ship invisible). Positions: room-local at 1/1024 m, container-local at 1/64 m.
 - **Room key (client, normative).** MD owns the room, because the SDK has no room

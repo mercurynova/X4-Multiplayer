@@ -902,7 +902,7 @@ This section records what exists in code; the server half came first, the client
   captures real state.
 - **Not built yet (client waves):** the server-side appearance catalogue check. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
   and then goes quiet while the player stands up.
-- **Capture (client, in).** `mod/native/features/onfoot/`: `onfoot_types` (report grammar, `fnv1a32`, `matched_container_id`, `RoomRef`, `same_room`), `onfoot_tracker` (10 Hz moving /
+- **Capture (client, in).** `mod/native/features/onfoot/`: `onfoot_types` (report grammar, `fnv1a32`, `matched_container_id`, `RoomRef`, `same_room`), `onfoot_tracker` (20 Hz moving /
   1 Hz idle, measured from the last send), `onfoot_hub` (relay frames in, `PresenceRoster` out, the room key and `PlayerAppearance` parsed) and `onfoot_feature` (inbox drain, frame
   fan-out, `send_state`). The room key comes from MD (`md/x4mp_onfoot.xml` → `ui/x4mp_onfoot.lua` → `x4mp.onfoot_room`), because the SDK has no room accessor.
 - **Avatars (client, in).** `onfoot_actors` (`ActorRegistry`, pure logic, callbacks injected) turns the relay stream into temporary NPC actors: one entry per remote player, a

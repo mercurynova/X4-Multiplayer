@@ -96,6 +96,18 @@ void OnFootFeature::install_actor_callbacks(host::HostContext& ctx) {
     // makes the actor face where the other player looks.
     game_->set_positional_offset(actor, game::PosRotPod{x, y, z, yaw, 0.0f, 0.0f});
   };
+  // The animation hybrid. The engine has no animation API, so the only way to see a walk is MD's slot walk; these two lanes tell MD
+  // when to start and stop one. The registry withholds SetPositionalOffset while it is in charge (see ActorRegistry::kWalkHoldUs).
+  cb.walk = [this](std::uint16_t pid, float speed) {
+    if (platform_ == nullptr) return;
+    const auto json = nlohmann::json{{"v", 1}, {"pid", pid}, {"speed", speed}}.dump();
+    if (!platform_->raise_lua("x4mp.onfoot_walk", json)) ++actor_raise_failed_;
+  };
+  cb.stop_walk = [this](std::uint16_t pid) {
+    if (platform_ == nullptr) return;
+    const auto json = nlohmann::json{{"v", 1}, {"pid", pid}}.dump();
+    if (!platform_->raise_lua("x4mp.onfoot_stop_walk", json)) ++actor_raise_failed_;
+  };
   cb.name = [](std::uint16_t pid) -> std::string {
     const auto* row = chat::chat_hub().roster().find(pid);
     return row != nullptr ? row->name : std::string();
@@ -362,10 +374,10 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
         a.bad_replies || a.no_room) {
       X4MP_CLOG(ctx.log, Cat::Sess, Level::Info,
                 "onfoot: linked={} reports={} bad={} out={} failed={} no_clock={} in={} roster={} remotes={} actors={}/{} spawn={} "
-                "despawn={} place={} answers={} bad_answers={} rooms={} no_room={}",
+                "despawn={} place={} answers={} bad_answers={} rooms={} no_room={} walk={} stop={}",
                 linked, reports_, bad_reports_, sent_states_, send_failed_, no_clock_, c.states_in, c.rosters, hub.remotes().size(),
                 onfoot::onfoot_actors().live(), onfoot::onfoot_actors().tracked(), a.spawns, a.despawns, a.places, a.replies,
-                a.bad_replies, room_ids_.size(), a.no_room);
+                a.bad_replies, room_ids_.size(), a.no_room, a.walks, a.stops);
     }
   }
   if (!linked) {

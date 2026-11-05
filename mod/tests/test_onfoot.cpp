@@ -1,5 +1,5 @@
 // M3b: features/onfoot, the pure parts (docs/research/on-foot-presence.md 3.1-3.3, ADR-046): the room-context parser MD pushes over the
-// bridge, the client-matched container id, the send-rate tracker (10 Hz moving, 1 Hz idle, immediate on a room change) and the hub's decoding
+// bridge, the client-matched container id, the send-rate tracker (20 Hz moving, 1 Hz idle, immediate on a room change) and the hub's decoding
 // of the relay frames. The live round trip (two nodes, real avatars) is covered by the hostsim kit and by the in-game spikes S10.*.
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -306,15 +306,15 @@ TEST_CASE("onfoot: an abrupt stop goes out at once, not one idle interval later"
   CHECK_FALSE(sim.step(ctx, 0, 0, z).send);
 }
 
-TEST_CASE("onfoot: walking sends at 10 Hz") {
+TEST_CASE("onfoot: walking sends at 20 Hz") {
   FootSim sim;
   const auto ctx = walking_context();
   sim.step(ctx, 0, 0, 0);
   const auto t0 = sim.now;
-  sim.run(1.0, 60, [&](double sec) { sim.step(ctx, static_cast<float>(sec * 2.0), 0, 0); });  // 2 m/s
+  sim.run(1.0, 100, [&](double sec) { sim.step(ctx, static_cast<float>(sec * 2.0), 0, 0); });  // 2 m/s, 10 ms steps
   const auto n = sim.count(t0, t0 + 1'000'000);
-  CHECK(n >= 9);
-  CHECK(n <= 11);
+  CHECK(n >= 18);
+  CHECK(n <= 22);
 }
 
 TEST_CASE("onfoot: the animation hint follows the mode and the speed") {
@@ -575,6 +575,12 @@ struct Stage {
     float dist_m;
   };
   std::vector<Diag> diags;
+  struct Walk {
+    std::uint16_t pid;
+    float speed_mps;
+  };
+  std::vector<Walk> walks;
+  std::vector<std::uint16_t> stops;
   // The room catalogue the feature keeps from MD (M3c): hash -> macro id. Empty unless a test seeds it.
   std::map<std::uint32_t, std::string> roomIds;
 
@@ -593,6 +599,8 @@ struct Stage {
     cb.diag = [this](std::uint16_t pid, float lag_m, float speed_mps, std::int64_t age_us, float dist_m) {
       diags.push_back({pid, lag_m, speed_mps, age_us, dist_m});
     };
+    cb.walk = [this](std::uint16_t pid, float speed_mps) { walks.push_back({pid, speed_mps}); };
+    cb.stop_walk = [this](std::uint16_t pid) { stops.push_back(pid); };
     reg.set_callbacks(std::move(cb));
   }
 
@@ -741,6 +749,69 @@ TEST_CASE("onfoot: MD's answer makes the actor live and the pose is written ever
   st.step(remotes, 1'200'000);  // no new sample, the pose is still written
   CHECK(st.places.size() >= 2);
   CHECK(st.reg.counters().places >= 2);
+}
+
+TEST_CASE("onfoot: a walking avatar is handed to MD, and placement resumes when it stops") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  auto a = avatar_in_room(1.0f, 2.0f, 3.0f);
+  a.anim = Anim::Walk;
+  remotes[7] = a;
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  REQUIRE(st.reg.live() == 1);
+
+  // First live frame: the walk is issued and the pose is withheld, or the per-frame override would kill the animation.
+  st.step(remotes, 1'100'000);
+  REQUIRE(st.walks.size() == 1);
+  CHECK(st.walks.front().pid == 7);
+  CHECK(st.stops.empty());
+  CHECK(st.places.empty());
+
+  // Still inside the 200 ms hold: no placement, no second command yet.
+  st.step(remotes, 1'200'000);
+  CHECK(st.walks.size() == 1);
+  CHECK(st.places.empty());
+
+  // Hold over: native writes the exact pose again until the next walk command is due.
+  st.step(remotes, 1'300'000);
+  CHECK(st.walks.size() == 1);
+  CHECK(st.places.size() == 1);
+
+  // 400 ms after the first command: re-issue, and the pose is withheld again.
+  st.step(remotes, 1'500'000);
+  CHECK(st.walks.size() == 2);
+  CHECK(st.places.size() == 1);
+  CHECK(st.reg.counters().walks == 2);
+
+  // Back to Idle: one stop, then normal per-frame placement (which is what snaps the actor home).
+  auto idle = avatar_in_room(1.0f, 2.0f, 3.0f, 2, 2'000'000);
+  remotes[7] = idle;
+  st.step(remotes, 2'000'000);
+  REQUIRE(st.stops.size() == 1);
+  CHECK(st.stops.front() == 7);
+  CHECK(st.places.size() == 2);
+  CHECK(st.reg.counters().stops == 1);
+
+  st.step(remotes, 2'100'000);
+  CHECK(st.stops.size() == 1);  // a latch, not a per-frame command
+}
+
+TEST_CASE("onfoot: removing a walking avatar stops its walk as well") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  auto a = avatar_in_room(0, 0, 0);
+  a.anim = Anim::Run;
+  remotes[7] = a;
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  st.step(remotes, 1'100'000);
+  REQUIRE(st.walks.size() == 1);
+
+  remotes.clear();  // the player leaves the container
+  st.step(remotes, 1'200'000);
+  REQUIRE(st.stops.size() == 1);
+  CHECK(st.reg.counters().despawns == 1);
 }
 
 TEST_CASE("onfoot: another room of the same container is a spawn, not a despawn") {

@@ -98,6 +98,19 @@ B.on("onfoot_actors", function(p)
 	end
 end)
 
+-- ---- the walk hybrid (native -> MD) --------------------------------------------------------------------------------------------
+-- The engine has no animation API: only MD's slot walk animates an actor. Native therefore stops writing the pose for a moment and
+-- asks for a walk here; MD picks a free slot in the avatar's room and starts the walk. A stop command ends it, after which native
+-- takes the pose back and snaps the actor exactly onto the sender's position.
+B.on("onfoot_walk", function(p)
+	if type(p) ~= "table" then return end
+	pcall(AddUITriggeredEvent, O.MD_SCREEN, "walk", { p.pid, p.speed or 1.4 })
+end)
+B.on("onfoot_stop_walk", function(p)
+	if type(p) ~= "table" then return end
+	pcall(AddUITriggeredEvent, O.MD_SCREEN, "stop_walk", { p.pid })
+end)
+
 -- MD answers every spawn with the actor id it created (and every despawn with "gone"), so native can drive that actor. The string is
 -- passed through untouched: "spawn;<pid>;<component id>" / "gone;<pid>".
 RegisterEvent("x4mp.onfoot_actor", function(_, param)
