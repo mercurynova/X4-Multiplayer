@@ -75,6 +75,23 @@ public sealed partial class RelayModule
     /// <summary>The appearance the server holds for a player (null before the first <c>PlayerAppearance</c>).</summary>
     public PlayerAppearanceT? GetAppearance(int playerId) => _appearances.GetValueOrDefault(playerId);
 
+    /// <summary>
+    /// Drops the sequence and rate state of a player's on-foot flow. A restarted extension (for example <c>/reloadui</c>) sends
+    /// <c>seq</c> from 1 again while the server kept the old flow across the detach; without this reset the stale gate rejects
+    /// every fresh sample until the client climbs past the old sequence. The newest sample is kept as the presence key.
+    /// </summary>
+    private void ResetOnFootFlow(int playerId)
+    {
+        if (!_onFoot.TryGetValue(playerId, out var flow))
+        {
+            return;
+        }
+
+        flow.LastSeq = 0;
+        flow.Tokens = -1;
+        flow.LastRefill = 0;
+    }
+
     // ------------------------------------------------------------------ OnFootState
 
     private void OnOnFootState(SessionNode node, InboundFrame frame)

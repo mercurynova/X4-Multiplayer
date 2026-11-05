@@ -227,6 +227,34 @@ public sealed class RelayOnFootTests
         Assert.Equal(1, rig.Relay.Stats.OnFootStatesStale);
     }
 
+    [Fact]
+    public async Task ARestartedClientMayStartItsSequenceOverAfterAReload()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        await SpawnStationAsync(rig, authority, Station);
+        var alice = await rig.JoinInGameAsync("Alice", caps: OnFootCap);
+        var bob = await rig.JoinInGameAsync("Bob", caps: OnFootCap);
+
+        await rig.SendAsync(bob, MsgType.OnFootState, RelayFrames.OnFoot(1, Station));
+        await rig.SendAsync(alice, MsgType.OnFootState, RelayFrames.OnFoot(3903, Station));
+        int walkingBefore = States(bob).Count(s => s.Mode == OnFootMode.Walking);
+
+        // /reloadui: the extension process restarts and its seq starts at 1 again, but the server keeps the flow across the detach.
+        // The detach itself sends one leave state (mode None) to the peers, so count the walking frames only.
+        await rig.Rig.DisconnectAsync(alice, DisconnectCode.ClientReload);
+        var back = await rig.Rig.ResumeAsync("Alice", alice);
+        await rig.Actor.FlushAsync();
+
+        await rig.SendAsync(back, MsgType.OnFootState, RelayFrames.OnFoot(1, Station));
+
+        Assert.Equal(0, rig.Relay.Stats.OnFootStatesStale);
+        var walking = States(bob).Where(s => s.Mode == OnFootMode.Walking).ToList();
+        Assert.Equal(walkingBefore + 1, walking.Count);
+        Assert.Equal((ushort)alice.PlayerId, walking[^1].PlayerId);
+        Assert.Equal(1u, walking[^1].Seq);
+    }
+
     // ------------------------------------------------------------------ roster
 
     [Fact]

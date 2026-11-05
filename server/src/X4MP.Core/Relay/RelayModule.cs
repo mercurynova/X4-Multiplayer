@@ -139,6 +139,10 @@ public sealed partial class RelayModule : ISessionModule, ISessionActorBound, IW
             flow.Estimator.Reset(); // the sample clock restarts with the new connection
         }
 
+        // A resumed connection is usually a restarted extension process: its on-foot seq starts at 1 again. Keeping the old
+        // LastSeq would reject every fresh sample as stale for minutes (seq 1 < 3903). The newest sample stays for presence.
+        ResetOnFootFlow(node.PlayerId);
+
         SendOnFootSnapshot(node);
 
         // A resumed authority is back in game without a phase change after its connection exists (the phase is restored before the node is
