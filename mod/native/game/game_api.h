@@ -39,6 +39,12 @@ struct PosRotPod {
   float yaw = 0, pitch = 0, roll = 0;
 };
 
+// Binary-compatible with the SDK's Rotation {float yaw; float pitch; float roll;} (sdk/x4_game_types.h:1845). GetCameraRotation
+// returns it in the same radians the rest of the mod uses; there is no write side, so no degree conversion is involved.
+struct RotationPod {
+  float yaw = 0, pitch = 0, roll = 0;
+};
+
 inline constexpr float kRadToDeg = 180.0f / 3.14159265358979f;  // same factor as x4n::math::RAD_TO_DEG
 // The mod's radians pose -> the game's write units (degrees). Positions untouched.
 [[nodiscard]] constexpr PosRotPod pos_rot_to_game_write(const PosRotPod& p) noexcept {
@@ -90,6 +96,8 @@ struct GameFns {
   UniverseId (*GetPlayerContainerID)() = nullptr;
   UniverseId (*GetContextByClass)(UniverseId componentid, const char* classname, bool includeself) = nullptr;
   bool (*IsValidComponent)(UniverseId componentid) = nullptr;
+  // On-foot facing (M3): the direction the player looks along, which is the body heading of the avatar other players see.
+  RotationPod (*GetCameraRotation)() = nullptr;
   // M3 exports (M3-04): ghosts, avatars, own-ship tracking, takeover. Signatures verified against the X4Native 9.0.0-611726 table.
   UniverseId (*SpawnObjectAtPos2)(const char* macroname, UniverseId sectorid, PosRotPod offset, const char* ownerid) = nullptr;
   void (*ActivateObject)(UniverseId objectid, bool active) = nullptr;
@@ -177,6 +185,8 @@ class GameApi {
   [[nodiscard]] UniverseId player_object() const noexcept;
   [[nodiscard]] UniverseId player_container() const noexcept;
   [[nodiscard]] UniverseId context_by_class(UniverseId id, const char* classname, bool include_self) const noexcept;
+  // Radians (the same convention as PosRotPod). nullopt when the export is missing; used for the on-foot body heading.
+  [[nodiscard]] std::optional<RotationPod> camera_rotation() const noexcept;
   // true when the export is missing (cannot filter): callers treat "unknown" as valid.
   [[nodiscard]] bool is_valid_component(UniverseId id) const noexcept;
 

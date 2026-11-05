@@ -47,6 +47,15 @@ struct ActorCallbacks {
   std::function<void(std::uint16_t player_id, float lag_m, float speed_mps, std::int64_t age_us, float dist_m)> diag;
 };
 
+// The shared ship interpolator extrapolates up to 500 ms past the newest sample. That is right for a ship stream but wrong for a
+// player who stops: the wire goes to 1 Hz while idle, so half a second of extrapolation at 1.4 m/s drags the avatar ~0.7 m past the
+// stop and then the correction springs it back, through geometry. 120 ms covers one missed 10 Hz send and nothing more.
+inline ghost::InterpolatorConfig onfoot_interp_config() {
+  ghost::InterpolatorConfig c;
+  c.extrap_cap_us = 120'000;
+  return c;
+}
+
 class ActorRegistry {
  public:
   // The player entity reports EYE height (S10.4/S10.5); an actor's origin is at its feet, so every write subtracts this.
@@ -98,7 +107,7 @@ class ActorRegistry {
  private:
   struct Entry {
     RemoteAvatar avatar;
-    ghost::Interpolator interp;
+    ghost::Interpolator interp{onfoot_interp_config()};
     std::uint64_t actor = 0;
     bool requested = false;   // asked MD, no answer yet
     bool live = false;        // actor id known, being moved

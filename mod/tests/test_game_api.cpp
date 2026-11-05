@@ -78,6 +78,7 @@ const char* fk_idcode(UniverseId) { return "ABC-123"; }
 const char* fk_cname(UniverseId) { return nullptr; }
 bool fk_wrecked(UniverseId id) { return id == 13; }
 bool fk_docked() { return g_docked; }
+RotationPod fk_camrot() { return RotationPod{1.25f, 0.5f, 0.0f}; }
 PosRotPod fk_posoffset(UniverseId id, UniverseId space) {
   // Mirrors the game: the offset of `id` inside `space`. The test only needs a distinguishable answer. `space == 0` is "relative to
   // the direct parent", which for a walking player is the room - the form the on-foot position is read with.
@@ -183,6 +184,7 @@ void* lookup_all(const char* name) {
   if (n == "GetComponentName") return reinterpret_cast<void*>(&fk_cname);
   if (n == "IsComponentWrecked") return reinterpret_cast<void*>(&fk_wrecked);
   if (n == "IsPlayerOccupiedShipDocked") return reinterpret_cast<void*>(&fk_docked);
+  if (n == "GetCameraRotation") return reinterpret_cast<void*>(&fk_camrot);
   if (n == "GetPositionalOffset") return reinterpret_cast<void*>(&fk_posoffset);
   if (n == "SetPositionalOffset") return reinterpret_cast<void*>(&fk_setposoffset);
   if (n == "GetNumCargo") return reinterpret_cast<void*>(&fk_numcargo);
@@ -232,7 +234,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 35);
+  CHECK(missing_exports(api.fns()).size() == 36);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -249,7 +251,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 35);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 36);
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -295,7 +297,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 34);
+  CHECK(missing_exports(api.fns()).size() == 35);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {
@@ -339,12 +341,13 @@ TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][
   g_docked = true;
   CHECK(api.player_ship_docked());
 
-  // M3b: the on-foot offset writer is the one write that keeps radians (S10.4/S10.5 wrote GetPositionalOffset's own
-  // radians and the avatar faced the right way), so the wrapper must not run pos_rot_to_game_write.
+  // M3b: the on-foot offset writer takes the game's write units, like every other write - DEGREES for the angles. Measured
+  // 2026-11-05 on the live stand: writing the mod's radians (-2.564) left the actor at GetPositionalOffset's -0.045 rad, exactly
+  // -2.564 * pi / 180, i.e. the engine read the value as degrees; the avatar therefore kept its spawn facing.
   CHECK(api.set_positional_offset(9002, PosRotPod{1, 2, 3, 1.5707964f, 0.25f, 0}));
   CHECK(g_offset_id == 9002);
-  CHECK(g_written_offset.yaw == Catch::Approx(1.5707964f).margin(1e-5f));
-  CHECK(g_written_offset.pitch == Catch::Approx(0.25f).margin(1e-6f));
+  CHECK(g_written_offset.yaw == Catch::Approx(90.0f).margin(1e-3f));
+  CHECK(g_written_offset.pitch == Catch::Approx(14.323944f).margin(1e-3f));
   CHECK(g_written_offset.z == 3.0f);
   CHECK_FALSE(api.set_positional_offset(0, p));  // no id: refused before the call
 
@@ -354,6 +357,11 @@ TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][
   REQUIRE(room_pose);
   CHECK(room_pose->y == Catch::Approx(1.72f));
   CHECK_FALSE(api.positional_offset(0, 0));  // no id: refused before the call
+
+  // The on-foot body heading: GetCameraRotation is the look direction, so the avatar faces where the player looks.
+  const auto cam = api.camera_rotation();
+  REQUIRE(cam);
+  CHECK(cam->yaw == Catch::Approx(1.25f));
 
   GameApi none(resolve_game_fns(lookup_none), GameInfo{});
   CHECK(none.spawn_object("m", 1, p, "o") == 0);
@@ -371,6 +379,7 @@ TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][
   CHECK_FALSE(none.player_ship_docked());
   CHECK_FALSE(none.set_positional_offset(1, p));
   CHECK_FALSE(none.positional_offset(1, 0));
+  CHECK_FALSE(none.camera_rotation());
 
   // off the main thread every wrapper refuses
   main_thread().capture_frame();

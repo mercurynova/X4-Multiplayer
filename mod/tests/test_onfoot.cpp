@@ -284,6 +284,28 @@ TEST_CASE("onfoot: standing still keeps a 1 Hz keepalive") {
   CHECK(n <= 4);
 }
 
+TEST_CASE("onfoot: an abrupt stop goes out at once, not one idle interval later") {
+  FootSim sim;
+  const auto ctx = walking_context();
+  sim.step(ctx, 0, 0, 0);
+  float z = 0;
+  for (int i = 0; i < 10; ++i) {  // 10 fps, 0.2 m per call: every call is a moving one
+    sim.now += 100'000;
+    z -= 0.2f;
+    sim.step(ctx, 0, 0, z);
+  }
+  const auto before = sim.sends.size();
+  // The first call that brings no movement at all must send at once; 16.7 ms is far inside the 100 ms moving interval, so only the
+  // moving -> still transition can be the reason.
+  sim.now += 16'667;
+  const auto stop = sim.step(ctx, 0, 0, z);
+  CHECK(stop.send);
+  CHECK(sim.sends.size() == before + 1);
+  // ... and the very next frame is silent again, so a stop does not turn into a 60 Hz stream.
+  sim.now += 16'667;
+  CHECK_FALSE(sim.step(ctx, 0, 0, z).send);
+}
+
 TEST_CASE("onfoot: walking sends at 10 Hz") {
   FootSim sim;
   const auto ctx = walking_context();

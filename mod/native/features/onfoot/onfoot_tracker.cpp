@@ -33,6 +33,17 @@ OnFootTracker::Step OnFootTracker::update(const Sample& s, std::int64_t now_us) 
   }
   const bool moving = moved >= cfg_.moving_metres || dyaw >= cfg_.moving_yaw_radians;
 
+  // Per-CALL delta. `moving` above is measured from the last send and stays true right after one, so a stop has to be read from
+  // two consecutive calls: the first call that brings no movement at all after a moving one is sent at once.
+  float step_moved = 0;
+  if (have_step_) {
+    const float sx = s.cx - step_x_;
+    const float sy = s.cy - step_y_;
+    const float sz = s.cz - step_z_;
+    step_moved = std::sqrt(sx * sx + sy * sy + sz * sz);
+  }
+  const bool still = step_moved < cfg_.still_metres;
+
   if (have_send_ && now_us > last_send_us_ && s.ctx.container == last_ctx_.container) {
     const double dt = static_cast<double>(now_us - last_send_us_) / 1'000'000.0;
     if (dt > 0.001) speed_mps_ = static_cast<float>(static_cast<double>(moved) / dt);
@@ -51,7 +62,9 @@ OnFootTracker::Step OnFootTracker::update(const Sample& s, std::int64_t now_us) 
               : speed_mps_ > 0.15f ? Anim::Walk
                                    : Anim::Idle;
 
-  if (force_ || changed || due) {
+  // The leave state is the exception: mode None has its own 5 s repeat, so a stop must not turn it into a 1 Hz one.
+  const bool stopped = was_moving_ && still && s.ctx.valid && s.ctx.mode != Mode::None;
+  if (force_ || changed || due || stopped) {
     step.send = true;
     step.keyframe = force_ || changed;
     step.teleport = room_changed || (changed && s.ctx.valid);
@@ -66,6 +79,11 @@ OnFootTracker::Step OnFootTracker::update(const Sample& s, std::int64_t now_us) 
 
   last_ctx_ = s.ctx;
   have_last_ = true;
+  step_x_ = s.cx;
+  step_y_ = s.cy;
+  step_z_ = s.cz;
+  have_step_ = true;
+  was_moving_ = !still;
   return step;
 }
 

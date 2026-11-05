@@ -43,6 +43,7 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "GetComponentName", f.GetComponentName);
   bind(get, "IsComponentWrecked", f.IsComponentWrecked);
   bind(get, "IsPlayerOccupiedShipDocked", f.IsPlayerOccupiedShipDocked);
+  bind(get, "GetCameraRotation", f.GetCameraRotation);
   bind(get, "GetPositionalOffset", f.GetPositionalOffset);
   bind(get, "SetPositionalOffset", f.SetPositionalOffset);
   bind(get, "GetNumCargo", f.GetNumCargo);
@@ -86,6 +87,7 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.GetComponentName), "GetComponentName");
   check(reinterpret_cast<const void*>(f.IsComponentWrecked), "IsComponentWrecked");
   check(reinterpret_cast<const void*>(f.IsPlayerOccupiedShipDocked), "IsPlayerOccupiedShipDocked");
+  check(reinterpret_cast<const void*>(f.GetCameraRotation), "GetCameraRotation");
   check(reinterpret_cast<const void*>(f.GetPositionalOffset), "GetPositionalOffset");
   check(reinterpret_cast<const void*>(f.SetPositionalOffset), "SetPositionalOffset");
   check(reinterpret_cast<const void*>(f.GetNumCargo), "GetNumCargo");
@@ -161,6 +163,10 @@ UniverseId GameApi::player_object() const noexcept {
 UniverseId GameApi::player_container() const noexcept {
   return (fns_.GetPlayerContainerID && assert_main_thread("GetPlayerContainerID")) ? fns_.GetPlayerContainerID() : 0;
 }
+std::optional<RotationPod> GameApi::camera_rotation() const noexcept {
+  if (!fns_.GetCameraRotation || !assert_main_thread("GetCameraRotation")) return std::nullopt;
+  return fns_.GetCameraRotation();
+}
 UniverseId GameApi::context_by_class(UniverseId id, const char* classname, bool include_self) const noexcept {
   if (id == 0 || !fns_.GetContextByClass || !assert_main_thread("GetContextByClass")) return 0;
   return fns_.GetContextByClass(id, classname, include_self);
@@ -206,7 +212,7 @@ std::optional<PosRotPod> GameApi::positional_offset(UniverseId id, UniverseId sp
 }
 bool GameApi::set_positional_offset(UniverseId id, const PosRotPod& pos) const noexcept {
   if (id == 0 || !fns_.SetPositionalOffset || !assert_main_thread("SetPositionalOffset")) return false;
-  fns_.SetPositionalOffset(id, pos);  // radians in, radians out (S10.4): no pos_rot_to_game_write here
+  fns_.SetPositionalOffset(id, pos_rot_to_game_write(pos));  // degrees on the write side (measured 2026-11-05); reads give radians
   return true;
 }
 bool GameApi::teleport_player_to(UniverseId id, bool allow_controlling, bool instant, bool force) const noexcept {

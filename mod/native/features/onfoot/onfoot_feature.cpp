@@ -92,6 +92,8 @@ void OnFootFeature::install_actor_callbacks(host::HostContext& ctx) {
   cb.place = [this](std::uint64_t actor, float x, float y, float z, float yaw) {
     if (game_ == nullptr) return;
     // S10.4: the per-frame override is what makes the avatar follow; MD cannot animate a teleported actor, so v1 keeps the idle pose.
+    // The heading goes with it: the wrapper converts the mod's radians to the game's degrees (measured 2026-11-05), which is what
+    // makes the actor face where the other player looks.
     game_->set_positional_offset(actor, game::PosRotPod{x, y, z, yaw, 0.0f, 0.0f});
   };
   cb.name = [](std::uint16_t pid) -> std::string {
@@ -407,8 +409,11 @@ void OnFootFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   sample.cx = pos->x;
   sample.cy = pos->y;
   sample.cz = pos->z;
-  sample.yaw = pos->yaw;
-  sample.pitch = pos->pitch;
+  // Facing: the look direction is the body heading other players must see. The actor rotation does not follow the mouse on foot, so
+  // the camera yaw is the signal; the actor yaw is the fallback when the export is missing.
+  const auto cam = ctx.game.camera_rotation();
+  sample.yaw = cam ? cam->yaw : pos->yaw;
+  sample.pitch = cam ? cam->pitch : pos->pitch;
   const auto step = tracker_.update(sample, now_us);
   // The local player in room space, the same frame the states use: the diag line measures the distance to each avatar from here.
   onfoot::onfoot_actors().set_self(true, static_cast<double>(pos->x), static_cast<double>(pos->y), static_cast<double>(pos->z));
