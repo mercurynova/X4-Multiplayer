@@ -234,7 +234,19 @@ void AvatarTakeover::step(double now_s) {
   switch (stage_) {
     case Stage::Idle: {
       const auto ship = env_.own_ship();
-      if (ship == 0) return;
+      if (ship == 0) {
+        // M4: on foot in a station there is no ship to take over, so Stage::Idle is where a client that loaded standing stays. Both
+        // M3-12 holds were set the moment the node linked and only a finished takeover lifts them, so they would never be lifted here:
+        // PlayerState (the relay's interest) and every streamed ghost would stay suppressed for the whole session. Nothing is being
+        // taken over, so there is no copy to protect; start() sets the holds again before the machine touches anything if a ship
+        // does appear later.
+        if (!idle_released_) {
+          env_.hold_ghosts(false);
+          env_.hold_states(false);
+          idle_released_ = true;
+        }
+        return;
+      }
       start(now_s, player, ship);
       break;
     }
@@ -250,6 +262,7 @@ void AvatarTakeover::step(double now_s) {
 void AvatarTakeover::start(double now_s, std::uint16_t player, std::uint64_t ship) {
   player_ = player;
   started_ = now_s;
+  idle_released_ = false;
   if (!held_) {
     env_.hold_ghosts(true);
     env_.hold_states(true);  // until the avatar is taken over the own ship is the host's: it must not move the avatar (m3-plan 4.3 step 6)

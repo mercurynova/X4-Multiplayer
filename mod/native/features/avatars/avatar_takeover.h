@@ -224,6 +224,9 @@ class AvatarTakeover {
   std::optional<AvatarInfo> grant_;           // the own avatar
   Stage stage_ = Stage::Idle;
   bool held_ = false;
+  // M4: set when the machine finds nothing to take over (the player is on foot, so own_ship() is 0) and releases the M3-12 holds.
+  // start() clears it again before it takes them, so boarding a ship later still holds ghosts off during the takeover.
+  bool idle_released_ = false;
   std::uint16_t player_ = 0;
   std::uint64_t host_id_ = 0, avatar_id_ = 0, stale_id_ = 0;  // keep mode: avatar_id_ == host_id_ == the player's own ship; stale_id_ = the save's avatar copy to remove
   std::string host_idcode_, avatar_idcode_, stale_idcode_;

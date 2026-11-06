@@ -1228,3 +1228,26 @@ TEST_CASE("takeover (M3-29): a new avatar net id for the own player after Done r
   CHECK(r.env.removed.empty());
   CHECK(r.m.avatar_id() == avatar);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------
+TEST_CASE("takeover: on foot there is nothing to take over, so the M3-12 holds are lifted; boarding a ship takes them back", "[takeover][onfoot]") {
+  Rig r;
+  r.env.ship_standing = 0;  // standing in a station: the player owns no ship there
+  r.env.held = true;        // avatar_hub set both holds the moment the node linked
+  r.env.ghosts_held = true;
+  r.frames(10);
+  // A client that loads the session already standing never reaches Done, so without this the holds would stay on for the whole
+  // session: no PlayerState (the relay never learns the sector) and no streamed ghost (the budget says ghosts=0).
+  CHECK_FALSE(r.env.held);
+  CHECK_FALSE(r.env.ghosts_held);
+  CHECK(r.env.hold_edges == 1);  // released once, not on every frame
+  CHECK(std::count(r.env.calls.begin(), r.env.calls.end(), "release") == 1);
+  CHECK(std::count(r.env.calls.begin(), r.env.calls.end(), "ghosts_release") == 1);
+
+  // The player boards a ship later: the machine takes the holds back before it touches anything, so no ghost can stand on a copy.
+  r.env.ship_standing = r.host;
+  r.frames(1);
+  CHECK(r.env.held);
+  CHECK(r.env.ghosts_held);
+  CHECK(r.env.hold_edges == 2);
+}
