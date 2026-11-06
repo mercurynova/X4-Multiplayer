@@ -207,6 +207,9 @@ class GhostDriver {
 
   void bind_world(IGhostWorld* world) noexcept { world_ = world; }
   void set_self(std::uint16_t player_id) noexcept { self_ = player_id; }
+  // M4-17: the net id of the ship this client already has as its own. A passenger inside another player's ship reports that hull as
+  // its own ship (own_ship_tracker), so without this the other side would create a second copy of a ship it already owns.
+  void set_own_ship_net_id(std::uint32_t net_id) noexcept { own_ship_net_id_ = net_id; }
   [[nodiscard]] std::uint16_t self() const noexcept { return self_; }
   // M4-16: the link is gone. While frozen frame() does nothing at all: the ghosts stay where they were, unmoving, and no stale-hide,
   // placement, hint or validity check runs. Unfreezing resumes from the interpolators with no respawn.
@@ -328,6 +331,7 @@ class GhostDriver {
   LogFn log_;
   IGhostWorld* world_ = nullptr;
   std::uint16_t self_ = 0;
+  std::uint32_t own_ship_net_id_ = 0;  // the hull this client already owns: never ghost it (a passenger reports it as its own ship)
   ghost::StreamSet streams_;
   ghost::Registries regs_;
   std::vector<Ghost> ghosts_;

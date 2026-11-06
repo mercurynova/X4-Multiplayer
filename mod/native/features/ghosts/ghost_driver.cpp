@@ -106,7 +106,9 @@ const GhostDriver::Ghost* GhostDriver::find(std::uint32_t net_id) const noexcept
 // ---------------------------------------------------------------------------------------------------------------------
 bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std::optional<InitialState>& state) {
   if (info.net_id == 0) return false;
-  const bool own = self_ != 0 && (info.controller == self_ || (info.controller == 0 && info.player_id == self_));
+  const bool own =
+      (self_ != 0 && (info.controller == self_ || (info.controller == 0 && info.player_id == self_))) ||
+      (own_ship_net_id_ != 0 && info.net_id == own_ship_net_id_);
   if (own) {
     if (find(info.net_id)) erase_record(info.net_id);  // the server never replicates our own ship; a leftover ghost of it is wrong
     return false;

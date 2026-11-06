@@ -192,6 +192,9 @@ void GhostFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
   // M4-16: the link is gone (a reconnect clears the own-ship link): keep every ghost exactly where it is, unmoving, and resume without a
   // respawn when the link comes back.
   c.driver.set_frozen(!selfship::selfship_hub().linked());
+  // M4-17: tell the driver which hull is already ours, so a passenger sitting in another player's ship (which own_ship_tracker
+  // reports as the passenger's own ship) does not become a second copy of that ship on the other side.
+  c.driver.set_own_ship_net_id(selfship::selfship_hub().own_net_id());
   const ghosts::FrameStats fs = c.driver.frame(now_server);
   // M4-13/M4-15: local NPC suppression for the sectors the server has closed for us, and the 1 Hz late-spawn sweep.
   pump_suppression(ctx, c, now_server);
