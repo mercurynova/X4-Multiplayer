@@ -329,7 +329,11 @@ void SelfShipFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& in
     if ((tick.out.flags & ghost::kTeleport) != 0) {
       X4MP_CLOG(ctx.log, Cat::Client, Level::Info, "selfship: teleport state, sector {}", tick.out.sector);
     }
-    if (linked && !held) send_state(ctx, tick.out);
+    // M3-12 holds PlayerState back until the takeover has bound this client's avatar ship; the pose it protects is a SHIP pose.
+    // A standing player's state carries no ship pose at all (Hidden, the parked hull), and it is the only thing that tells the relay
+    // which sector this client is in: interest, the CaptureSet and the whole world stream do nothing while that sector is 0. So the
+    // hold covers seated states only. Without this, a client that loads the session already on foot holds forever.
+    if (linked && (!held || !tick.seated)) send_state(ctx, tick.out);
   }
   if (tick.blocked != Blocked::None && (tick.blocked != last_blocked_ || now_us - last_blocked_log_us_ >= kBlockedLogEveryUs)) {
     last_blocked_ = tick.blocked;
