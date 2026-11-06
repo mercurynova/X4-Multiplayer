@@ -144,6 +144,7 @@ class ActorRegistry {
     bool live = false;        // actor id known, being moved
     bool seen = false;        // the hub still lists this player in the current frame
     RoomRef placed_room;      // the room the live actor was created in; MD keeps an actor inside its room
+    RoomRef pending_room;     // the room MD is moving the same actor to; placed_room flips on the reply
     std::int64_t last_request_us = 0;
     std::int64_t first_seen_us = 0;  // when this player first appeared: the look-wait is measured from here
     std::int64_t last_seen_us = 0;  // server time of the newest STATE (a repeated frame is not a sign of life)

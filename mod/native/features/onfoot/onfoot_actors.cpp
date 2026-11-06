@@ -155,9 +155,10 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
     // component (remove_actor_from_room + add_actor_to_room), so this side neither despawns nor forgets the actor: it only asks
     // again, and the answer confirms the same id.
     const bool room_moved = e.live && !(e.avatar.room == e.placed_room);
-    if (room_moved) {
-      e.requested = false;
-      e.last_request_us = now_us - kSpawnRetryUs;  // ask again in this same frame
+    if (room_moved && !e.requested) {
+      e.requested = true;
+      e.pending_room = e.avatar.room;
+      e.last_request_us = now_us - kSpawnRetryUs;  // ask in this same frame
     }
     if (!e.live || room_moved) {
       if (now_us - e.last_request_us >= kSpawnRetryUs) {
@@ -237,7 +238,9 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         spawns.push_back('}');
 
         e.requested = true;
-        e.placed_room = e.avatar.room;
+        // placed_room flips only when MD answers. Until then the actor is still in its old room and the placement below keeps
+        // drawing it there (shifted by the anchor difference), so it walks up to the door instead of freezing on the spot.
+        e.pending_room = e.avatar.room;
         e.last_request_us = now_us;
         ++counters_.spawns;
       }
@@ -276,8 +279,19 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
       }
       if (cb_.place && !(e.walking && now_us - e.last_walk_us < kWalkHoldUs)) {
         // Room space again: the actor is parented to the room, so SetPositionalOffset is a room-local offset (S10.4 mode C).
-        cb_.place(e.actor, static_cast<float>(pose.pos.x), static_cast<float>(pose.pos.y - kEyeToFoot),
-                  static_cast<float>(pose.pos.z), static_cast<float>(pose.rot.yaw));
+        // While MD re-parents the actor (it is still in the old room) the pose already belongs to the new one, so express it in
+        // the old room through the anchor difference: the avatar keeps walking to the door instead of freezing, and it jumps the
+        // one time it has to, when the reply arrives and placed_room flips.
+        double px = pose.pos.x;
+        double py = pose.pos.y;
+        double pz = pose.pos.z;
+        if (e.requested && e.placed_room.known() && e.pending_room.known() && !(e.pending_room == e.placed_room)) {
+          px += (e.pending_room.anchor_x - e.placed_room.anchor_x) / 10.0;
+          py += (e.pending_room.anchor_y - e.placed_room.anchor_y) / 10.0;
+          pz += (e.pending_room.anchor_z - e.placed_room.anchor_z) / 10.0;
+        }
+        cb_.place(e.actor, static_cast<float>(px), static_cast<float>(py - kEyeToFoot),
+                  static_cast<float>(pz), static_cast<float>(pose.rot.yaw));
         ++counters_.places;
       }
       // Measurement for the M3b acceptance run: the avatar is drawn this many metres behind the newest sample.
@@ -330,6 +344,8 @@ void ActorRegistry::on_reply(std::string_view reply) {
     e.actor = actor;
     e.live = true;
     e.requested = false;
+    // The reply means MD moved the same component: from now on the pose belongs to the new room.
+    if (e.pending_room.known()) e.placed_room = e.pending_room;
     ++counters_.replies;
   } else if (kind == "gone") {
     // MD destroyed the actor on its own (janitor, room unload). Forget it; the retry throttle keeps this from becoming a loop.
