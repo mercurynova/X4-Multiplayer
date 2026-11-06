@@ -44,7 +44,7 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
   if (tick.edge != SeatEdge::None) ++counters_.seat_edges;
 
   if (tick.edge == SeatEdge::StoodUp) {
-    // One last, Hidden state so the others hide the ghost now; then silence (no OnFootState before M3b).
+    // One last, Hidden state so the others hide the ghost now; then the slow standing heartbeat below keeps the sector known.
     seated_ = false;
     ship_ = tick.ship;
     have_prev_ = false;
@@ -58,15 +58,52 @@ Tick OwnShipTracker::update(const Observation& obs, const GalaxyMap& map) noexce
       tick.out.rot = last_rot_;
       sent_flags_ = tick.out.flags;
       sent_t_us_ = obs.now_us;
+      next_due_us_ = obs.now_us + cfg_.hidden_interval_us;
       ++counters_.sent;
       ++counters_.immediate;
     }
-    sent_any_ = false;
     return tick;
   }
   if (!seated_now) {
     seated_ = false;
     ship_ = tick.ship;
+    have_prev_ = false;
+    anchor_valid_ = false;
+    // M4: the relay keys a client's interest on the sector of its PlayerState and does nothing at all while that sector is 0
+    // (InterestManager::Recompute). The 20 Hz stream stops when the player stands up, so without a slow standing state a player who
+    // walks into a station stops receiving the universe: no CaptureSet, no EntityStream, not even the suppression scan. One Hidden
+    // state a second (the ship is not flown, so nothing of it is drawn) keeps the sector alive; the ship itself reaches the other
+    // screens through the authority's own entity stream.
+    if (!map.ready()) {
+      tick.blocked = Blocked::MapNotReady;
+      ++counters_.blocked_frames;
+      return tick;
+    }
+    const std::uint16_t sector_idx = map.index_of(obs.sector);
+    if (sector_idx == 0) {
+      tick.blocked = Blocked::UnknownSector;
+      ++counters_.blocked_frames;
+      return tick;
+    }
+    const bool sector_changed = sent_any_ && sector_idx != sent_sector_;
+    if (sent_any_ && !sector_changed && obs.now_us < next_due_us_) return tick;
+    const bool have_pose = obs.pose_valid;
+    tick.out.send = true;
+    tick.out.immediate = sector_changed || !sent_any_;
+    tick.out.sector = sector_idx;
+    tick.out.flags = static_cast<std::uint16_t>(ghost::kPlayerControlled | ghost::kHidden | (obs.docked ? ghost::kDocked : 0));
+    tick.out.pos = have_pose ? obs.pos : last_pos_;
+    tick.out.rot = have_pose ? obs.rot : last_rot_;
+    last_pos_ = tick.out.pos;
+    last_rot_ = tick.out.rot;
+    last_sector_idx_ = sector_idx;
+    sent_any_ = true;
+    sent_sector_ = sector_idx;
+    sent_flags_ = tick.out.flags;
+    sent_t_us_ = obs.now_us;
+    next_due_us_ = obs.now_us + cfg_.hidden_interval_us;
+    ++counters_.sent;
+    if (tick.out.immediate) ++counters_.immediate;
     return tick;
   }
 

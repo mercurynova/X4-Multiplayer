@@ -4,8 +4,10 @@
 // the tracker says what happened (seat edge) and whether a PlayerState is due now.
 //
 // Seat (S13.5): GetPlayerOccupiedShipID goes 0 -> ship at sit-down and ship -> 0 at stand-up. While the player stands the ship is still
-// known (GetPlayerContainerID = the ship), but nothing is streamed: the stand-up edge sends ONE Hidden state (so the others hide the
-// ghost at once) and then the stream stays silent until the next sit-down (OnFootState is M3b).
+// known (GetPlayerContainerID = the ship), and the stream does not stop: the stand-up edge sends ONE Hidden state (so the others hide
+// the ghost at once) and then a 1 Hz Hidden state (=hidden_interval_us) keeps the player's sector alive on the relay, which keys a
+// client's interest on it and streams nothing at all while it is 0 (M4). The standing state never carries a ship's pose unless one is
+// really read: on foot in a station the coordinates are container-local.
 //
 // Rates (m3-plan 4.5): 20 Hz moving, 5 Hz idle (< 1 m/s and < 0.05 rad/s over a 250 ms window), 1 Hz while Hidden (highway, docked);
 // IMMEDIATE on a sector change, a teleport, a ship change, the first state after sit-down and a change of the Hidden / Docked /

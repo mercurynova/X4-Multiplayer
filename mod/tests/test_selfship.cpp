@@ -117,15 +117,46 @@ TEST_CASE("galaxy map: large 64-bit ids", "[selfship][map]") {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
-TEST_CASE("tracker: nobody sits -> no state, no edge; the ship is known from the container while standing", "[selfship][tracker]") {
+TEST_CASE("tracker: nobody sits -> no edge, and a 1 Hz Hidden state keeps the sector known", "[selfship][tracker]") {
   Sim s;
   s.o.occupied = 0;
   s.o.standing_ship = 7;
   s.run(2.0, 60);
-  CHECK(s.sends.empty());
+  // M4: the relay keys a client's interest on the sector of its PlayerState and sends no CaptureSet while it is 0, so a player who
+  // stands up keeps a slow Hidden heartbeat instead of going silent. Hidden means nobody draws the parked hull here.
+  REQUIRE(s.sends.size() >= 2);
+  CHECK(s.sends.size() <= 3);
+  for (const auto& st : s.sends) {
+    CHECK((st.second.out.flags & gh::kHidden) != 0);
+    CHECK(st.second.out.sector == 1);
+  }
   CHECK(s.tracker.counters().seat_edges == 0);
   CHECK(s.tracker.ship() == 7);
   CHECK_FALSE(s.tracker.seated());
+}
+
+TEST_CASE("tracker: while standing, a new sector is sent at once, not on the next heartbeat", "[selfship][tracker]") {
+  Sim s;
+  s.o.occupied = 0;
+  s.o.standing_ship = 7;
+  s.step();
+  const std::size_t before = s.sends.size();
+  s.o.sector = 3003;  // map index 3
+  const auto t = s.step();
+  REQUIRE(t.out.send);
+  CHECK(t.out.immediate);
+  CHECK(t.out.sector == 3);
+  CHECK(s.sends.size() == before + 1);
+}
+
+TEST_CASE("tracker: a standing player with no known sector sends nothing rather than a zero", "[selfship][tracker]") {
+  Sim s;
+  s.o.occupied = 0;
+  s.o.standing_ship = 7;
+  s.o.sector = 0;  // the body could not be resolved (a hashed container, a missing export): no guess
+  s.run(2.0, 60);
+  CHECK(s.sends.empty());
+  CHECK(s.tracker.counters().blocked_frames > 0);
 }
 
 TEST_CASE("tracker: sitting down gives an immediate Teleport state, then 20 Hz while moving", "[selfship][tracker]") {
@@ -266,7 +297,8 @@ TEST_CASE("tracker: docked and highway set Hidden, are sent at once, then 1 Hz",
   CHECK((t.out.flags & gh::kDocked) == 0);
 }
 
-TEST_CASE("tracker: standing up sends ONE Hidden state and then nothing, for minutes; sitting down again is a new edge", "[selfship][tracker]") {
+TEST_CASE("tracker: standing up sends ONE Hidden state and then a 1 Hz heartbeat, for minutes; sitting down again is a new edge",
+          "[selfship][tracker]") {
   Sim s;
   s.run(1.0, 60, [&](double ts) { s.o.pos = {100 + 200 * ts, 0, 0}; });
   s.sends.clear();
@@ -279,7 +311,9 @@ TEST_CASE("tracker: standing up sends ONE Hidden state and then nothing, for min
   CHECK(t.out.sector == 1);
   CHECK(s.sends.size() == 1);
   s.run(180.0, 30);  // three minutes standing
-  CHECK(s.sends.size() == 1);
+  CHECK(s.sends.size() >= 170);  // the heartbeat did not stop: the relay needs the sector
+  CHECK(s.sends.size() <= 182);  // one per second, plus the stand-up state (30 fps rounds 1 s up to 31 frames)
+  for (const auto& st : s.sends) CHECK((st.second.out.flags & gh::kHidden) != 0);
   CHECK(s.tracker.ship() == 7);
   // sit down again
   s.o.occupied = 7;
@@ -573,11 +607,13 @@ TEST_CASE("seta guard: nothing while disconnected; the MD source block shares th
 // ---------------------------------------------------------------------------------------------------------------------------------------
 namespace {
 using x4mp::game::UniverseId;
-UniverseId g_occ = 0, g_cont = 0, g_sector = 0, g_highway = 0;
+UniverseId g_occ = 0, g_cont = 0, g_sector = 0, g_highway = 0, g_obj = 0, g_ctrl = 0;
 bool g_dock = false;
 x4mp::game::PosRotPod g_pose;
 UniverseId fk_occ() { return g_occ; }
 UniverseId fk_container() { return g_cont; }
+UniverseId fk_obj() { return g_obj; }
+UniverseId fk_ctrl() { return g_ctrl; }
 UniverseId fk_ctx(UniverseId id, const char* cls, bool) {
   const std::string c = cls;
   if (c == "sector") return id == 0 ? 0 : g_sector;
@@ -592,6 +628,8 @@ void* lookup(const char* name) {
   const std::string n = name;
   if (n == "GetPlayerOccupiedShipID") return reinterpret_cast<void*>(&fk_occ);
   if (n == "GetPlayerContainerID") return reinterpret_cast<void*>(&fk_container);
+  if (n == "GetPlayerObjectID") return reinterpret_cast<void*>(&fk_obj);
+  if (n == "GetPlayerControlledShipID") return reinterpret_cast<void*>(&fk_ctrl);
   if (n == "GetContextByClass") return reinterpret_cast<void*>(&fk_ctx);
   if (n == "IsPlayerOccupiedShipDocked") return reinterpret_cast<void*>(&fk_isdock);
   if (n == "GetObjectPositionInSector") return reinterpret_cast<void*>(&fk_pos);
@@ -632,11 +670,26 @@ TEST_CASE("selfship adapter: seat, container ship, sector, highway, dock and pos
   CHECK(r.standing_ship == 51);
   CHECK(r.ship() == 51);
   CHECK_FALSE(r.docked);  // docked is the OCCUPIED ship's state
-  // standing in a station: no ship
+  // standing in a station: no ship, but the sector still comes from the body - the relay keys interest on it and streams nothing
+  // while it is 0 (M4)
   g_cont = 900;
+  g_obj = 42;
+  g_ctrl = 50;
   r = x4mp::game::read_own_ship(api);
   CHECK(r.ship() == 0);
   CHECK_FALSE(r.pose_valid);
+  CHECK(r.sector == 1001);
+  // no body id: the controlled hull's sector is the last resort (the body's coordinates are container-local and are never sent)
+  g_obj = 0;
+  g_ctrl = 51;
+  g_sector = 2002;
+  r = x4mp::game::read_own_ship(api);
+  CHECK(r.sector == 2002);
+  // neither: no sector rather than a guess
+  g_obj = 0;
+  g_ctrl = 0;
+  g_sector = 1001;
+  r = x4mp::game::read_own_ship(api);
   CHECK(r.sector == 0);
   // exports missing: all zero
   x4mp::game::GameApi none(x4mp::game::resolve_game_fns([](const char*) -> void* { return nullptr; }), x4mp::game::GameInfo{});
