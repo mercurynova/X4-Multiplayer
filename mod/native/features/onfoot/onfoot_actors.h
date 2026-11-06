@@ -90,6 +90,9 @@ class ActorRegistry {
   static constexpr std::int64_t kAppearanceWaitUs = 3'000'000;
 
   void set_callbacks(ActorCallbacks cb) { cb_ = std::move(cb); }
+  // The MD slot walk is off by default: it does animate, but to whichever slot is free (usually the wrong direction) and its
+  // placement hold is what made the motion jerk. Tests switch it on to keep the mechanism covered.
+  void set_walk_hybrid(bool on) noexcept { walk_hybrid_ = on; }
   [[nodiscard]] bool has_callbacks() const noexcept { return static_cast<bool>(cb_.raise_lua); }
 
   // The local player's own room-local position (metres at EYE height - the same space the remote pose uses), so the diag line can
@@ -155,6 +158,7 @@ class ActorRegistry {
   void send_batch(const std::string& spawns, const std::string& despawns);
 
   ActorCallbacks cb_;
+  bool walk_hybrid_ = false;  // MD slot walk: off (see set_walk_hybrid)
   std::map<std::uint16_t, Entry> entries_;
   Counters counters_;
   bool self_known_ = false;  // set_self saw a player position this frame

@@ -150,18 +150,16 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
       continue;
     }
     // M3c: the actor lives in another room than the player does now. MD created it in the old room and the engine keeps an actor
-    // inside the room it was placed in, so the player who walked through a door has to be removed and created again.
-    if (e.live && !(e.avatar.room == e.placed_room)) {
-      append_despawn(despawns, pid);
-      ++counters_.despawns;
-      if (e.walking && cb_.stop_walk) cb_.stop_walk(pid);
-      e.walking = false;
-      e.live = false;
+    // inside the room it was placed in. This used to destroy and recreate the actor, which changed its face on every door (the
+    // generic character macros the catalogue uses are randomised per creation) and flashed the model. MD now re-parents the same
+    // component (remove_actor_from_room + add_actor_to_room), so this side neither despawns nor forgets the actor: it only asks
+    // again, and the answer confirms the same id.
+    const bool room_moved = e.live && !(e.avatar.room == e.placed_room);
+    if (room_moved) {
       e.requested = false;
-      e.actor = 0;
       e.last_request_us = now_us - kSpawnRetryUs;  // ask again in this same frame
     }
-    if (!e.live) {
+    if (!e.live || room_moved) {
       if (now_us - e.last_request_us >= kSpawnRetryUs) {
         const auto pose = e.interp.render(now_us);
         const bool have_pose = pose.visible();
@@ -257,7 +255,13 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         e.walk_denied = false;
         e.walk_denied_us = now_us + kWalkDenyUs;
       }
-      const bool wants_walk = (e.avatar.anim == Anim::Walk || e.avatar.anim == Anim::Run) && now_us >= e.walk_denied_us;
+      // 2026-11-06: the slot walk is OFF. It is the only animation the engine offers (`start_actor_walk` takes a component slot,
+      // libraries_common.xsd:33137 - there is no walk-to-position form and no locomotion trigger), but it walks the avatar to
+      // whichever slot happens to be free, i.e. usually the wrong way, and the placement hold that keeps the animation alive is
+      // exactly what made the motion jerk and teleport. Exact placement is smooth and faces the look direction; the animation
+      // needs a different mechanism before this is switched on again.
+      const bool wants_walk = walk_hybrid_ && (e.avatar.anim == Anim::Walk || e.avatar.anim == Anim::Run) &&
+                              now_us >= e.walk_denied_us;
       if (wants_walk && cb_.walk) {
         if (!e.walking || now_us - e.last_walk_us >= kWalkCmdUs) {
           cb_.walk(pid, static_cast<float>(pose.speed_mps));

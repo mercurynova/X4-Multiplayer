@@ -171,9 +171,15 @@ struct GhostConfig {
   bool engine_guard = true;                          // diag.engine_guard_off turns it off
   std::int64_t guard_interval_us = 200'000;
   std::int64_t guard_hot_us = 2'000'000;             // after a hit the check runs every frame for this long
-  std::int64_t guard_log_interval_us = 5'000'000;
+  std::int64_t guard_hot_interval_us = 50'000;       // ... but no more often than this (20 Hz), not once per frame
+  std::int64_t guard_log_interval_us = 20'000'000;
   double guard_min_m = 30.0;
   double guard_speed_s = 0.3;
+  // A ghost the engine keeps putting back where it wants it (a docked hull the game pins, a placement that never sticks) would be read
+  // back and re-placed for the whole session: the two-client stand logged 17.6k repairs and 284k reads in 15 minutes, which is real
+  // frame time. After this many hits in a row the guard drops that ghost for guard_giveup_us.
+  int guard_giveup_hits = 8;
+  std::int64_t guard_giveup_us = 30'000'000;
 };
 
 struct DriverCounters {
@@ -286,6 +292,8 @@ class GhostDriver {
     bool dressed_ok = false;
     bool hint_was_zero = false;
     std::int64_t last_guard_us = 0, guard_hot_until_us = 0, last_guard_log_us = 0;  // M3-34 engine guard
+    std::uint16_t guard_hits = 0;          // engine-moved reads in a row; guard_giveup_hits stops the loop
+    std::int64_t guard_skip_until_us = 0;  // this ghost is not read back until then
     std::int64_t erase_at_us = -1;  // M4-14: >= 0 = the server dropped it, the object goes when the leave grace runs out
     bool force_place = false;
     bool have_prev = false;

@@ -880,8 +880,9 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   - When the exact copy of the room is not in the container (the peer stands in another copy of the same room macro), MD
     falls back to the **nearest copy** of that macro and logs which anchor it was asked for (fallback F2). The position is
     still the peer's own, written every frame, so the fallback only changes which room geometry the actor belongs to.
-  - A live actor whose player walks into another room is removed and created again in the new room: MD placed the actor in
-    one room and the engine keeps it there, so the actor cannot simply be moved across the door.
+  - A live actor whose player walks into another room is re-parented, not recreated: MD removes it from the old room
+    (`remove_actor_from_room destroy="false"`) and adds it to the new one. The engine keeps an actor inside the room it was
+    placed in, so it cannot simply follow across the door, but re-parenting keeps the same component, the model and the face.
   - Motion is **not** pathfinding: the viewer interpolates `px/py/pz` and writes the pose every frame with
     `SetPositionalOffset` in **room** space (the sender's parent-relative pose; no anchor is added or subtracted), at foot height
     (`y − 1.72 m`, because the

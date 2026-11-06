@@ -801,6 +801,7 @@ TEST_CASE("onfoot: MD's answer makes the actor live and the pose is written ever
 
 TEST_CASE("onfoot: a walking avatar is handed to MD, and placement resumes when it stops") {
   Stage st;
+  st.reg.set_walk_hybrid(true);  // the slot walk is off by default (see ActorRegistry::set_walk_hybrid)
   std::map<std::uint16_t, RemoteAvatar> remotes;
   auto a = avatar_in_room(1.0f, 2.0f, 3.0f);
   a.anim = Anim::Walk;
@@ -847,6 +848,7 @@ TEST_CASE("onfoot: a walking avatar is handed to MD, and placement resumes when 
 
 TEST_CASE("onfoot: removing a walking avatar stops its walk as well") {
   Stage st;
+  st.reg.set_walk_hybrid(true);  // the slot walk is off by default (see ActorRegistry::set_walk_hybrid)
   std::map<std::uint16_t, RemoteAvatar> remotes;
   auto a = avatar_in_room(0, 0, 0);
   a.anim = Anim::Run;
@@ -864,6 +866,7 @@ TEST_CASE("onfoot: removing a walking avatar stops its walk as well") {
 
 TEST_CASE("onfoot: a refused walk ends the hold, so the avatar keeps moving") {
   Stage st;
+  st.reg.set_walk_hybrid(true);  // the slot walk is off by default (see ActorRegistry::set_walk_hybrid)
   std::map<std::uint16_t, RemoteAvatar> remotes;
   auto a = avatar_in_room(1.0f, 2.0f, 3.0f);
   a.anim = Anim::Walk;
@@ -901,26 +904,30 @@ TEST_CASE("onfoot: another room of the same container is a spawn, not a despawn"
   REQUIRE(st.reg.live() == 1);
   REQUIRE(st.batches.size() == 1);
 
-  SECTION("a room the catalogue knows: removed from the old room, asked for in the new one") {
+  SECTION("a room the catalogue knows: the same actor is asked for in the new room, never despawned") {
     remotes[7].room.macro_ref = fnv1a32("room_arg_bar_01_macro");
     remotes[7].room.anchor_x = -1000;
     st.roomIds[fnv1a32("room_arg_bar_01_macro")] = "room_arg_bar_01_macro";
     st.step(remotes, 1'100'000);
     REQUIRE(st.reg.tracked() == 1);
-    CHECK(st.reg.live() == 0);  // the actor of the old room is gone, a new one is asked for
+    // The actor survives the door: MD re-parents the same component, so the model and the face do not change.
+    CHECK(st.reg.live() == 1);
     REQUIRE(st.batches.size() == 2);
-    CHECK(st.batches.back().find("\"despawn\":[7]") != std::string::npos);
+    // The batch always carries a despawn array; an empty one is what "nothing was removed" looks like.
+    CHECK(st.batches.back().find("\"despawn\":[]") != std::string::npos);
     CHECK(st.batches.back().find("\"rmacro\":\"room_arg_bar_01_macro\"") != std::string::npos);
     CHECK(st.batches.back().find("\"ax\":-1000") != std::string::npos);
-    CHECK(st.reg.counters().despawns == 1);
+    CHECK(st.reg.counters().despawns == 0);
     CHECK(st.reg.counters().spawns == 2);
   }
 
-  SECTION("a room the catalogue does not know yet: no actor, counted, retried") {
+  SECTION("a room the catalogue does not know yet: nothing is asked for, counted, retried") {
     remotes[7].room.macro_ref = 8u;
+    const auto before = st.batches.size();
     st.step(remotes, 1'100'000);
     CHECK(st.reg.counters().no_room == 1);
-    CHECK(st.batches.back().find("\"rmacro\"") == std::string::npos);
+    // No room id means no request at all: the actor stays where it is and the entry is retried later.
+    CHECK(st.batches.size() == before);
     CHECK(st.reg.tracked() == 1);  // the player stays tracked, the presence list still names them
   }
 }

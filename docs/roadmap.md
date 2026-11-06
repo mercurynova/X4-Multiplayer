@@ -5,6 +5,9 @@ Status: v1.0, 2026-10-01. Follows [`architecture.md`](architecture.md) and
 developer). "Deps" lists task ids that must be done first. Tracks: **P** protocol,
 **S** server, **W** web GUI, **N** native mod, **F** FakeNode/test tooling, **C** CI.
 
+Play modes: cooperative is the current target; the competitive mode is designed but not built -
+see [`game-modes.md`](game-modes.md).
+
 ---
 
 ## 1. Milestones

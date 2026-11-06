@@ -315,7 +315,7 @@ bool GhostDriver::note_respawn(Ghost& g, std::int64_t now_us) {
 // capture). Read what the GAME says about the object and compare it with the pose we put there last. A difference is the evidence, and the repair is
 // the same frame's placement (forced) with the velocity zeroed; for the next guard_hot_us the check runs every frame.
 void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
-  if (g.local_id == 0 || !g.have_prev || !world_) return;
+  if (g.local_id == 0 || !g.have_prev || !world_ || now_us < g.guard_skip_until_us) return;
   const auto st = world_->read_state(g.local_id);
   if (!st) return;
   ++counters_.guard_reads;
@@ -324,7 +324,10 @@ void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
   const double tol = cfg_.guard_min_m + speed_mps * cfg_.guard_speed_s;
   const bool far = !other_sector && d > tol;
   const bool moved = other_sector || far;
-  if (!moved && !st->in_highway) return;
+  if (!moved && !st->in_highway) {
+    g.guard_hits = 0;  // it stayed where the last placement left it
+    return;
+  }
   if (other_sector) ++counters_.engine_sector;
   else if (far) ++counters_.engine_moved;
   if (st->in_highway) ++counters_.engine_highway;
@@ -335,6 +338,14 @@ void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
       hint_batch_.push_back({g.local_id, 0, 0, 0});
       g.hint_was_zero = true;
       g.last_hint_us = now_us;
+    }
+    // A repair that never sticks is a loop, not a repair: the engine pinning a hull somewhere (a docked ship, a placement the sector
+    // refuses) would cost a read-back and a forced placement every frame for the whole session. Drop this ghost for a while instead.
+    if (++g.guard_hits >= static_cast<std::uint16_t>(cfg_.guard_giveup_hits)) {
+      g.guard_hits = 0;
+      g.guard_skip_until_us = now_us + cfg_.guard_giveup_us;
+      log(kWarn, std::format("ghost guard gives up for {} s: net={} label='{}' the game keeps moving it ({:.1f} m from the placed pose)",
+                             cfg_.guard_giveup_us / 1'000'000, g.info.net_id, g.label, d));
     }
   }
   if (g.last_guard_log_us == 0 || now_us - g.last_guard_log_us >= cfg_.guard_log_interval_us) {
@@ -496,8 +507,9 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       }
     }
 
-    // M3-34 engine guard: before this frame's placement, is the object where the last placement left it?
-    if (cfg_.engine_guard && now_us - g.last_guard_us >= (now_us < g.guard_hot_until_us ? 0 : cfg_.guard_interval_us)) {
+    // M3-34 engine guard: before this frame's placement, is the object where the last placement left it? While hot (a hit in the last
+    // guard_hot_us) it is read at 20 Hz rather than every frame: 60 ghosts read back per frame was most of the guard's cost on the stand.
+    if (cfg_.engine_guard && now_us - g.last_guard_us >= (now_us < g.guard_hot_until_us ? cfg_.guard_hot_interval_us : cfg_.guard_interval_us)) {
       g.last_guard_us = now_us;
       guard_check(g, now_us, rp.speed_mps);
     }

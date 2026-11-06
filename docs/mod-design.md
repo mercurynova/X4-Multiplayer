@@ -923,7 +923,8 @@ This section records what exists in code; the server half came first, the client
   DLL reload empties the native table) and `drain_rooms` keeps `hash -> id` for the run. An unknown hash is fallback **F3**: no actor, counted as `no_room`, retried with
   the usual 2 s throttle, presence list unchanged. When the exact copy of the room is absent, MD uses the nearest copy of the same macro and logs the anchor it wanted —
   fallback **F2**, not by `roomtype`, because `roomtype` is not observable (MD prints `$R.type` as a name and the wire field stays 21). A live actor whose player walks
-  into another room is despawned and created again there (the engine keeps an actor inside the room it was placed in). The catalogue inbox has its own 64 KB cap; the
+  into another room is re-parented rather than recreated: MD removes it from the old room (`remove_actor_from_room destroy="false"`)
+  and adds it to the new one, so the component (and with it the model and the face) survives the door. The catalogue inbox has its own 64 KB cap; the
   shared 512-byte report cap silently dropped the 27-id catalogue of a small factory.
 - **Appearance (client, in).** `features/appearance/`: `appearance_catalogue` is a **curated** list of five races and twelve looks (argon `male|female_cau|afr|asi`,
   teladi and split `male|female`, paranid and boron `generic`), each a real `character_<race>_…_macro` of the base build; it is curated because `<select race=…>`
