@@ -90,4 +90,24 @@ std::optional<ScanBatch> parse_scan_batch(std::string_view data) {
   return out;
 }
 
+std::string_view scan_payload(std::string_view text) {
+  const auto raw = trim(text);
+  if (raw.size() >= 2 && raw[1] == ';' && (raw[0] == 'S' || raw[0] == 'E')) return raw;
+
+  const auto key = raw.find("\"data\"");
+  if (key == std::string_view::npos) return raw;
+  auto pos = raw.find(':', key + 6);
+  if (pos == std::string_view::npos) return raw;
+  ++pos;
+  while (pos < raw.size() && (raw[pos] == ' ' || raw[pos] == '\t')) ++pos;
+  if (pos >= raw.size() || raw[pos] != '"') return raw;
+  const auto start = ++pos;
+  while (pos < raw.size() && raw[pos] != '"') {
+    if (raw[pos] == '\\') return raw;  // an escape would have to be decoded; the bridge never escapes a scan
+    ++pos;
+  }
+  if (pos >= raw.size()) return raw;  // unterminated string
+  return raw.substr(start, pos - start);
+}
+
 }  // namespace x4mp::features::auth

@@ -37,4 +37,10 @@ struct ScanBatch {
 // Parse one bridge message. nullopt when the text is not a scan batch at all (the caller counts it as a bad report).
 [[nodiscard]] std::optional<ScanBatch> parse_scan_batch(std::string_view data);
 
+// The bridge raises every verb as a platform event whose text is a JSON envelope (`{"v":1,"data":"S;..."}`, x4mp_bridge.lua B.send), while
+// the authority reads the field directly. A native subscriber that only gets the raw event text must unwrap it first: this returns the
+// scan text from either form and hands back anything else unchanged, for parse_scan_batch to reject. A scan never contains a quote or a
+// backslash, so the envelope scan is deliberately simple.
+[[nodiscard]] std::string_view scan_payload(std::string_view text);
+
 }  // namespace x4mp::features::auth

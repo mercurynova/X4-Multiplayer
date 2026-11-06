@@ -237,7 +237,9 @@ void GhostFeature::pump_suppression(host::HostContext& ctx, ghosts::GhostCore& c
   };
 
   for (const auto& text : scan_inbox_->take()) {
-    const auto batch = auth::parse_scan_batch(text);
+    // The platform event carries the bridge envelope ({"v":1,"data":"S;..."}), not the bare batch the parser reads (M4-13: every scan
+    // used to be counted as bad here, so suppression never ran).
+    const auto batch = auth::parse_scan_batch(auth::scan_payload(text));
     if (!batch) {
       ++scan_bad_;
       continue;

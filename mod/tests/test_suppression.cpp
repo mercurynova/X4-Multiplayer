@@ -247,3 +247,30 @@ TEST_CASE("M4-13: clear() forgets every sector, id and counter", "[suppression][
   CHECK_FALSE(s.closed(7));
   CHECK(s.stats().removed == 0);
 }
+
+TEST_CASE("M4-13: a scan unwraps from the bridge envelope before it is parsed", "[suppression][m413][capture_ingest]") {
+  // The platform event text is what x4mp_bridge.lua B.send raises: {"v":1,"data":"<wire>"}. Reading it as a bare batch made every scan a
+  // bad report (live guest: suppression bad=217203 scans=0), so this is the regression the client's NPC suppression depends on.
+  const std::string s_batch = "S;ship_sector_09_macro;0x1b665b|ship_arg_s_fighter_01_a_macro|argon|0;0x1b665c|ship_arg_m_miner|teladi|1";
+  const std::string envelope = R"({"v":1,"data":")" + s_batch + "\"}";
+
+  CHECK(auth::scan_payload(s_batch) == s_batch);
+  CHECK(auth::scan_payload(envelope) == s_batch);
+  CHECK(auth::scan_payload("  " + envelope + "  ") == s_batch);
+
+  const auto batch = auth::parse_scan_batch(auth::scan_payload(envelope));
+  REQUIRE(batch.has_value());
+  CHECK(batch->sector_macro == "ship_sector_09_macro");
+  REQUIRE(batch->rows.size() == 2);
+  CHECK(batch->rows[0].component == 0x1b665b);
+  CHECK(batch->rows[0].owner == "argon");
+  CHECK_FALSE(batch->rows[0].mission);
+  CHECK(batch->rows[1].mission);
+}
+
+TEST_CASE("M4-13: an envelope without a scan is still rejected, not guessed", "[suppression][m413][capture_ingest]") {
+  CHECK_FALSE(auth::parse_scan_batch(auth::scan_payload(R"({"v":1,"data":"hello"})")).has_value());
+  CHECK_FALSE(auth::parse_scan_batch(auth::scan_payload(R"({"v":1,"count":3})")).has_value());
+  CHECK_FALSE(auth::parse_scan_batch(auth::scan_payload(R"({"v":1,"data":"S;"})")).has_value());
+  CHECK(auth::scan_payload("").empty());
+}
