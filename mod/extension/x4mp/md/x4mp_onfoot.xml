@@ -77,31 +77,35 @@
       </conditions>
       <actions>
         <set_value name="$Report" exact="'mode=0'"/>
+        <set_value name="$Mode" exact="0"/>
         <set_value name="$Cont" exact="player.container"/>
         <set_value name="$Room" exact="player.room"/>
         <do_if value="player.occupiedship">
-          <!-- in a pilot seat: the ship is the container, there is no shared station interior to place an avatar in -->
-          <set_value name="$Report" exact="'mode=2'"/>
+          <!-- in a pilot seat: the ship is the container. The report still carries the fields: a bare "mode=2" is rejected by the
+               native parser (it needs the container to know which ship), which used to log "bad room report (field sector)" once a
+               second. Without a resolvable container the seated state is reported as the leave state instead. -->
+          <set_value name="$Mode" exact="2"/>
         </do_if>
-        <do_elseif value="$Cont and $Room and $Cont.macro.id and $Cont.sector and $Room.macro.id">
+        <do_if value="$Cont and $Room and $Cont.macro.id and $Cont.sector and $Room.macro.id">
           <set_value name="$Pos" exact="$Cont.position"/>
           <set_value name="$Anchor" exact="@$Room.relativeposition.{$Cont}"/>
           <do_if value="$Pos and $Anchor">
-            <set_value name="$Report" exact="'mode=1;sector=' + $Cont.sector.macro.id + ';smacro=' + $Cont.macro.id + ';sx=' + ($Pos.x / 1m) + ';sy=' + ($Pos.y / 1m) + ';sz=' + ($Pos.z / 1m) + ';rmacro=' + $Room.macro.id + ';ax=' + ($Anchor.x / 1m) + ';ay=' + ($Anchor.y / 1m) + ';az=' + ($Anchor.z / 1m) + ';kind=' + (if $Room.dynamicinterior then 2 else 1)"/>
+            <set_value name="$Report" exact="'mode=' + $Mode + ';sector=' + $Cont.sector.macro.id + ';smacro=' + $Cont.macro.id + ';sx=' + ($Pos.x / 1m) + ';sy=' + ($Pos.y / 1m) + ';sz=' + ($Pos.z / 1m) + ';rmacro=' + $Room.macro.id + ';ax=' + ($Anchor.x / 1m) + ';ay=' + ($Anchor.y / 1m) + ';az=' + ($Anchor.z / 1m) + ';kind=' + (if $Room.dynamicinterior then 2 else 1)"/>
           </do_if>
-        </do_elseif>
+        </do_if>
         <raise_lua_event name="'x4mp.onfoot_room'" param="$Report"/>
         <!-- M3c: keep the room catalogue of this container current. Native needs the macro id strings of all rooms, because the
              wire carries only a hash and MD cannot hash; without them an avatar in another room of the same station cannot be
              placed. Pushed when the container changes AND once every 10 reports: a native DLL reload empties the table while the
-             container stays the same, and only a periodic push recovers from that (Guest ran with rooms=0 after a reload). -->
-        <do_if value="$Cont and $Cont.macro.id">
-          <set_value name="md.$X4MP_OnFoot_RoomsTick" exact="(md.$X4MP_OnFoot_RoomsTick? or 0) + 1"/>
-          <do_if value="not global.$X4MP_OnFoot_RoomsCont? or global.$X4MP_OnFoot_RoomsCont != $Cont or md.$X4MP_OnFoot_RoomsTick ge 10">
-            <set_value name="global.$X4MP_OnFoot_RoomsCont" exact="$Cont"/>
-            <set_value name="md.$X4MP_OnFoot_RoomsTick" exact="0"/>
-            <signal_cue_instantly cue="X4MP_OnFoot_RoomsBuild"/>
-          </do_if>
+             container stays the same, and only a periodic push recovers from that (Guest ran with rooms=0 after a reload).
+             The tick counts unconditionally and the identity is a STRING: an object held in a global does not survive a save load
+             intact, which is why the comparison silently stopped firing (host: rooms=0 for minutes after a load). -->
+        <set_value name="md.$X4MP_OnFoot_RoomsTick" exact="(md.$X4MP_OnFoot_RoomsTick? or 0) + 1"/>
+        <set_value name="$ContKey" exact="(if $Cont and $Cont.macro.id then $Cont.macro.id else '')"/>
+        <do_if value="$ContKey != '' and (not md.$X4MP_OnFoot_RoomsKey? or md.$X4MP_OnFoot_RoomsKey != $ContKey or md.$X4MP_OnFoot_RoomsTick ge 10)">
+          <set_value name="md.$X4MP_OnFoot_RoomsKey" exact="$ContKey"/>
+          <set_value name="md.$X4MP_OnFoot_RoomsTick" exact="0"/>
+          <signal_cue_instantly cue="X4MP_OnFoot_RoomsBuild"/>
         </do_if>
       </actions>
     </cue>
@@ -123,14 +127,33 @@
       </conditions>
       <actions>
         <set_value name="$Ids" exact="''"/>
-        <set_value name="$Cont" exact="player.container"/>
-        <do_if value="$Cont and $Cont.macro.id">
-          <find_room name="$Rooms" object="$Cont" multiple="true"/>
-          <do_for_each name="$Rm" in="$Rooms">
-            <do_if value="$Rm.macro.id">
-              <set_value name="$Ids" exact="$Ids + $Rm.macro.id + ';'"/>
-            </do_if>
-          </do_for_each>
+        <!-- The local room macro always goes in first: it is the one the OTHER client has to resolve when this player walks into
+             another room, and find_room does not list a dynamic interior, so a thin catalogue would otherwise leave the avatar
+             unplaceable. Everything find_room returns is added on top (station first - the spike measured the full list there -
+             then the container, in case the two objects differ). -->
+        <do_if value="player.room and player.room.macro.id">
+          <set_value name="$Ids" exact="$Ids + player.room.macro.id + ';'"/>
+        </do_if>
+        <set_value name="$St" exact="player.station"/>
+        <set_value name="$Co" exact="player.container"/>
+        <do_if value="$St and $St.macro.id">
+          <find_room name="$FromStation" object="$St" multiple="true"/>
+        </do_if>
+        <do_if value="$Co and $Co.macro.id">
+          <find_room name="$FromContainer" object="$Co" multiple="true"/>
+        </do_if>
+        <do_for_each name="$Rm" in="$FromStation">
+          <do_if value="$Rm.macro.id">
+            <set_value name="$Ids" exact="$Ids + $Rm.macro.id + ';'"/>
+          </do_if>
+        </do_for_each>
+        <do_for_each name="$Rm" in="$FromContainer">
+          <do_if value="$Rm.macro.id">
+            <set_value name="$Ids" exact="$Ids + $Rm.macro.id + ';'"/>
+          </do_if>
+        </do_for_each>
+        <do_if value="not @$FromStation.count and not @$FromContainer.count">
+          <debug_text text="'[X4MP] onfoot rooms: find_room returned nothing for station/container, local room only'" filter="general" context="false"/>
         </do_if>
         <raise_lua_event name="'x4mp.onfoot_rooms'" param="$Ids"/>
       </actions>
@@ -197,6 +220,7 @@
               <do_if value="not $Room and $Rm.macro.id == $RMacro">
                 <set_value name="$Hits" exact="$Hits + 1"/>
                 <set_value name="$Anchor" exact="@$Rm.relativeposition.{$Cont}"/>
+                <set_value name="$D2" exact="1000000"/>
                 <do_if value="$Anchor">
                   <set_value name="$Anchors" exact="$Anchors + 1"/>
                   <set_value name="$Dx" exact="($Anchor.x / 1m) * 10 - $Ax"/>
@@ -205,6 +229,15 @@
                   <set_value name="$D2" exact="$Dx * $Dx + $Dy * $Dy + $Dz * $Dz"/>
                   <do_if value="$D2 le 25">
                     <set_value name="$Room" exact="$Rm"/>
+                  </do_if>
+                </do_if>
+                <!-- Nearest copy of this macro, and the FIRST one unconditionally: an anchor match must never be the difference
+                     between an avatar and nothing. The host log showed the case this guards - hits=1 anchors=1 and a "no room"
+                     line, i.e. a room with the right macro whose anchor did not compare (05.11.2026). -->
+                <do_if value="not $Room">
+                  <do_if value="not $Fallback">
+                    <set_value name="$Fallback" exact="$Rm"/>
+                    <set_value name="$BestD" exact="$D2"/>
                   </do_if>
                   <do_elseif value="$D2 lt $BestD">
                     <set_value name="$BestD" exact="$D2"/>
@@ -220,7 +253,7 @@
              network every frame. -->
         <do_if value="not $Room and $Fallback">
           <set_value name="$Room" exact="$Fallback"/>
-          <debug_text text="'[X4MP] onfoot spawn: no exact room ' + $RMacro + ' at ' + $Ax + '/' + $Ay + '/' + $Az + ', using the nearest copy for ' + $Name" filter="general" context="false"/>
+          <debug_text text="'[X4MP] onfoot spawn: no exact room ' + $RMacro + ' at ' + $Ax + '/' + $Ay + '/' + $Az + ' (hits=' + $Hits + ' anchors=' + $Anchors + ' d2=' + $BestD + '), using the nearest copy for ' + $Name" filter="general" context="false"/>
         </do_if>
         <!-- A race string cannot be passed to <select>, only a race object can (vanilla always passes one: gmc_madscientist
              race="$Manager.race"). So the wire's "argon" ... is mapped here; an unknown or empty race falls back to the
@@ -247,6 +280,11 @@
         <do_if value="$Room">
           <set_faction_active faction="faction.x4mp_team_1" active="true"/>
           <set_value name="$A" exact="null"/>
+          <!-- Diagnostic for the "the other player's character changes on every load" report: an empty macro means a random crew
+               NPC, so a line here says whether the spawn raced the appearance. -->
+          <do_if value="not $Macro or $Macro == ''">
+            <debug_text text="'[X4MP] onfoot spawn: no character macro for pid=' + $Pid + ' - a random crew NPC is used'" filter="general" context="false"/>
+          </do_if>
           <!-- A chosen look is a character macro: <create_cue_actor macro="..."> is how vanilla spawns a named character
                (md/scenario_tutorials.xml:18520). Without one, a crew NPC is picked by race (S10.7: <select> honours
                neither race nor gender, so it is the fallback and not the picker). -->
@@ -321,7 +359,10 @@
             </do_if>
           </do_for_each>
         </do_if>
-        <do_if value="$A">
+        <!-- Native re-issues this every 400 ms for as long as the sender walks. If the engine is already walking this actor, a new
+             start_actor_walk would restart the leg - that is the visible jerk - and the slot scan below is MD work per command for
+             nothing. Finish the current leg; native keeps the pose off until the walk stops. -->
+        <do_if value="$A and not @$A.iswalking">
           <!-- The room the avatar was created in (set by the spawn cue), not player.room: M3c places avatars in other rooms too. -->
           <set_value name="$Room" exact="@$A.$x4mp_room"/>
           <do_if value="not $Room">
@@ -391,14 +432,21 @@
             </do_if>
             <do_else>
               <debug_text text="'[X4MP] onfoot walk: no free slot for pid=' + $Pid + ' stage=' + $SlotsFrom + ' slots=' + @$Slots.count + ' room=' + (@$Room.type)" filter="general" context="false"/>
+              <!-- Tell native to stop holding the pose: there is nothing to animate here, and a withheld pose would freeze the
+                   avatar until the sender stops walking. -->
+              <raise_lua_event name="'x4mp.onfoot_actor'" param="'failed;' + $Pid"/>
             </do_else>
           </do_if>
           <do_else>
             <debug_text text="'[X4MP] onfoot walk: no room for pid=' + $Pid" filter="general" context="false"/>
+            <raise_lua_event name="'x4mp.onfoot_actor'" param="'failed;' + $Pid"/>
           </do_else>
         </do_if>
         <do_else>
-          <debug_text text="'[X4MP] onfoot walk: no actor for pid=' + $Pid" filter="general" context="false"/>
+          <do_if value="not $A">
+            <debug_text text="'[X4MP] onfoot walk: no actor for pid=' + $Pid" filter="general" context="false"/>
+          </do_if>
+          <!-- else: the actor exists and is already walking; the leg is left to finish (see the guard above). -->
         </do_else>
       </actions>
     </cue>

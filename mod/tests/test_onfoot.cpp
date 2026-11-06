@@ -584,6 +584,18 @@ struct Stage {
   // The room catalogue the feature keeps from MD (M3c): hash -> macro id. Empty unless a test seeds it.
   std::map<std::uint32_t, std::string> roomIds;
 
+  // The look the hub has for each peer (ADR-051). Every normal session sends one before/with the first state, so `step` models that;
+  // a test that wants the spawn/appearance race calls step_bare().
+  static std::map<std::uint16_t, Appearance> known_looks(const std::map<std::uint16_t, RemoteAvatar>& remotes) {
+    std::map<std::uint16_t, Appearance> looks;
+    for (const auto& [pid, avatar] : remotes) {
+      if (avatar.mode == Mode::None) continue;
+      looks[pid].race = "teladi";
+      looks[pid].character_macro = "character_teladi_male_generic_01_macro";
+    }
+    return looks;
+  }
+
   Stage() {
     ActorCallbacks cb;
     cb.raise_lua = [this](std::string_view json) { batches.emplace_back(json); };
@@ -605,8 +617,14 @@ struct Stage {
   }
 
   void step(const std::map<std::uint16_t, RemoteAvatar>& remotes, std::int64_t now_us,
-            const std::map<std::uint16_t, Appearance>& looks = {}) {
+            const std::map<std::uint16_t, Appearance>& l = {}) {
+    auto looks = known_looks(remotes);
+    for (const auto& [pid, look] : l) looks[pid] = look;
     reg.update(walking_context(), remotes, looks, now_us);
+  }
+  // The peer's look is not here yet (the spawn/appearance race): no appearance at all.
+  void step_bare(const std::map<std::uint16_t, RemoteAvatar>& remotes, std::int64_t now_us) {
+    reg.update(walking_context(), remotes, {}, now_us);
   }
 };
 
@@ -716,6 +734,36 @@ TEST_CASE("onfoot: a remote player in the same room is spawned once, in room met
   CHECK(st.places.empty());
 }
 
+TEST_CASE("onfoot: a spawn waits briefly for the peer's look, so the character does not change on every load") {
+  // Live symptom: the actor was created from the spawn batch before the appearance frame arrived, so MD picked a random crew NPC,
+  // and the next respawn picked a different one. The spawn now waits for the look instead of racing it.
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step_bare(remotes, 1'000'000);  // no look yet
+  CHECK(st.batches.empty());
+  st.step_bare(remotes, 2'000'000);  // still inside kAppearanceWaitUs
+  CHECK(st.batches.empty());
+
+  st.step(remotes, 2'100'000);  // the look arrives (Stage's default): spawn at once, with it
+  REQUIRE(st.batches.size() == 1);
+  CHECK(st.batches.front().find("\"macro\":\"character_teladi_male_generic_01_macro\"") != std::string::npos);
+  CHECK(st.batches.front().find("\"race\":\"teladi\"") != std::string::npos);
+}
+
+TEST_CASE("onfoot: a peer that never sends a look is still spawned, as a race-only actor") {
+  // The wait must not hide a player forever: an appearance never arrives (a peer on an older build), so after the window the
+  // spawn goes out anyway and MD falls back to a crew NPC of the announced race.
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  remotes[7] = avatar_in_room(0, 0, 0);
+  st.step_bare(remotes, 1'000'000);
+  st.step_bare(remotes, 4'500'000);  // past kAppearanceWaitUs
+  REQUIRE(st.batches.size() == 1);
+  CHECK(st.reg.counters().spawns == 1);
+  CHECK(st.batches.front().find("\"macro\":\"\"") != std::string::npos);  // MD picks a crew NPC of the race
+}
+
 TEST_CASE("onfoot: an unanswered spawn is retried every two seconds, not every frame") {
   Stage st;
   std::map<std::uint16_t, RemoteAvatar> remotes;
@@ -768,20 +816,20 @@ TEST_CASE("onfoot: a walking avatar is handed to MD, and placement resumes when 
   CHECK(st.stops.empty());
   CHECK(st.places.empty());
 
-  // Still inside the 200 ms hold: no placement, no second command yet.
+  // Still inside the hold: no placement, no second command yet.
   st.step(remotes, 1'200'000);
   CHECK(st.walks.size() == 1);
   CHECK(st.places.empty());
 
-  // Hold over: native writes the exact pose again until the next walk command is due.
+  // The hold is longer than the command interval on purpose: placement must NOT resume between two legs (that snap at 2.5 Hz is
+  // the visible jerk). 400 ms after the first command the walk is re-issued and the actor is left to the engine.
   st.step(remotes, 1'300'000);
   CHECK(st.walks.size() == 1);
-  CHECK(st.places.size() == 1);
+  CHECK(st.places.empty());
 
-  // 400 ms after the first command: re-issue, and the pose is withheld again.
   st.step(remotes, 1'500'000);
   CHECK(st.walks.size() == 2);
-  CHECK(st.places.size() == 1);
+  CHECK(st.places.empty());
   CHECK(st.reg.counters().walks == 2);
 
   // Back to Idle: one stop, then normal per-frame placement (which is what snaps the actor home).
@@ -790,7 +838,7 @@ TEST_CASE("onfoot: a walking avatar is handed to MD, and placement resumes when 
   st.step(remotes, 2'000'000);
   REQUIRE(st.stops.size() == 1);
   CHECK(st.stops.front() == 7);
-  CHECK(st.places.size() == 2);
+  CHECK(st.places.size() == 1);
   CHECK(st.reg.counters().stops == 1);
 
   st.step(remotes, 2'100'000);
@@ -812,6 +860,36 @@ TEST_CASE("onfoot: removing a walking avatar stops its walk as well") {
   st.step(remotes, 1'200'000);
   REQUIRE(st.stops.size() == 1);
   CHECK(st.reg.counters().despawns == 1);
+}
+
+TEST_CASE("onfoot: a refused walk ends the hold, so the avatar keeps moving") {
+  Stage st;
+  std::map<std::uint16_t, RemoteAvatar> remotes;
+  auto a = avatar_in_room(1.0f, 2.0f, 3.0f);
+  a.anim = Anim::Walk;
+  remotes[7] = a;
+  st.step(remotes, 1'000'000);
+  st.reg.on_reply("spawn;7;9001");
+  st.step(remotes, 1'100'000);
+  REQUIRE(st.walks.size() == 1);
+  REQUIRE(st.places.empty());
+
+  // MD has no slot for this room (every corridor): it answers "failed;<pid>". The hold must end at once and placement resume,
+  // otherwise the avatar would stand still for the whole walk instead of only losing the animation.
+  st.reg.on_reply("failed;7");
+  st.step(remotes, 1'200'000);
+  CHECK(st.walks.size() == 1);
+  CHECK(st.places.size() == 1);
+  CHECK(st.reg.counters().walk_denied == 1);
+
+  // Inside the backoff: no new command every 400 ms, but placement continues.
+  st.step(remotes, 1'500'000);
+  CHECK(st.walks.size() == 1);
+  CHECK(st.places.size() == 2);
+
+  // Backoff over while the sender is still walking: one more attempt.
+  st.step(remotes, 3'300'000);
+  CHECK(st.walks.size() == 2);
 }
 
 TEST_CASE("onfoot: another room of the same container is a spawn, not a despawn") {

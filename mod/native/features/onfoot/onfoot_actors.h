@@ -77,10 +77,17 @@ class ActorRegistry {
   static constexpr std::int64_t kStaleUs = 5'000'000;       // no state for this long: remove the avatar
   static constexpr std::int64_t kDiagUs = 5'000'000;        // one measurement line per avatar per 5 s
   // The hybrid walk. MD's slot walk animates and drives the actor itself, so it is issued at most every 400 ms and native keeps its
-  // hands off the actor for 200 ms afterwards; the error while walking is then ~0.2 s of sender motion (0.4 m at 2 m/s), which the
-  // 120 ms interpolator cannot fix because the animation, not the position, is the point.
+  // hands off the actor while it does: the hold is deliberately longer than the command interval, otherwise placement resumes for
+  // 200 ms between two legs and snaps the actor back at 2.5 Hz (that was the reported jerk). The cost is that the avatar follows
+  // MD's slot walk, not the sender's exact line; on the way back to Idle native stops the walk and places exactly again.
   static constexpr std::int64_t kWalkCmdUs = 400'000;
-  static constexpr std::int64_t kWalkHoldUs = 200'000;
+  static constexpr std::int64_t kWalkHoldUs = 450'000;
+  // MD answers "failed;<pid>" when it cannot start a walk (a corridor has no NPC slots at all). Asking again every 400 ms would
+  // keep the slot search running and, worse, keep placement withheld: the avatar would stand still for the whole walk. So a refusal
+  // pauses the hybrid for this long and native places the actor normally in the meantime.
+  static constexpr std::int64_t kWalkDenyUs = 2'000'000;
+  // A spawn is held this long while the peer's look has not arrived yet, so the actor is never created as a random crew NPC.
+  static constexpr std::int64_t kAppearanceWaitUs = 3'000'000;
 
   void set_callbacks(ActorCallbacks cb) { cb_ = std::move(cb); }
   [[nodiscard]] bool has_callbacks() const noexcept { return static_cast<bool>(cb_.raise_lua); }
@@ -115,6 +122,7 @@ class ActorRegistry {
     std::uint32_t no_room = 0;     // wanted, but its room macro id is not in the local catalogue (fallback F3)
     std::uint32_t walks = 0;       // start_actor_walk commands issued to MD
     std::uint32_t stops = 0;       // stop_actor_walk commands issued to MD
+    std::uint32_t walk_denied = 0; // MD had no slot for a walk (the hybrid backs off for kWalkDenyUs)
   };
   [[nodiscard]] const Counters& counters() const noexcept { return counters_; }
 
@@ -134,10 +142,13 @@ class ActorRegistry {
     bool seen = false;        // the hub still lists this player in the current frame
     RoomRef placed_room;      // the room the live actor was created in; MD keeps an actor inside its room
     std::int64_t last_request_us = 0;
+    std::int64_t first_seen_us = 0;  // when this player first appeared: the look-wait is measured from here
     std::int64_t last_seen_us = 0;  // server time of the newest STATE (a repeated frame is not a sign of life)
     std::int64_t last_diag_us = 0;  // last measurement line
     std::int64_t last_walk_us = 0;  // last walk command; place is suppressed for kWalkHoldUs after it
     bool walking = false;           // MD owns the actor (a walk animation is playing)
+    bool walk_denied = false;       // MD answered "failed": back off for kWalkDenyUs instead of asking again
+    std::int64_t walk_denied_us = 0;  // ... until then native places the actor itself
   };
 
   void append_despawn(std::string& out, std::uint16_t player_id);

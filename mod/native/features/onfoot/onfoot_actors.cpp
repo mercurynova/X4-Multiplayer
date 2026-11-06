@@ -110,7 +110,10 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
   for (const auto& [pid, avatar] : remotes) {
     if (avatar.mode == Mode::None) continue;
     Entry& e = entries_[pid];
-    if (e.last_seen_us == 0) e.last_request_us = now_us - kSpawnRetryUs;  // the first spawn of a new entry is immediate
+    if (e.last_seen_us == 0) {
+      e.last_request_us = now_us - kSpawnRetryUs;  // the first spawn of a new entry is immediate
+      e.first_seen_us = now_us;
+    }
     const bool fresh = e.last_seen_us == 0 || avatar.seq != e.avatar.seq || avatar.at_us != e.avatar.at_us;
     if (fresh) {
       ghost::Sample s;
@@ -175,9 +178,20 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
         }
         std::string race;
         std::string macro;
+        bool look_known = false;
         if (const auto a = appearances.find(pid); a != appearances.end()) {
           race = a->second.race;
           macro = a->second.character_macro;  // ADR-051: a curated macro beats a race-only <select> (S10.7)
+          look_known = true;
+        }
+
+        // A spawn before the appearance has arrived creates a random crew NPC, and every respawn then picks a different one - the
+        // reported "the other player's character changes on every load". Wait for the look, but not forever: a peer that sends none
+        // must still be visible. An appearance WITH an empty macro is a deliberate "default", not a race.
+        if (!look_known && now_us - e.first_seen_us < kAppearanceWaitUs) {
+          e.last_request_us = now_us - kSpawnRetryUs;
+          ++it;
+          continue;
         }
 
         // The room macro id, not its hash: MD matches $Rm.macro.id. The viewer's own id is the fast path; another room comes from
@@ -239,7 +253,11 @@ void ActorRegistry::update(const RoomContext& local, const std::map<std::uint16_
     // pose is what S10.4 mode D showed the override produces anyway).
     const auto pose = e.interp.render(now_us);
     if (pose.visible()) {
-      const bool wants_walk = e.avatar.anim == Anim::Walk || e.avatar.anim == Anim::Run;
+      if (e.walk_denied) {
+        e.walk_denied = false;
+        e.walk_denied_us = now_us + kWalkDenyUs;
+      }
+      const bool wants_walk = (e.avatar.anim == Anim::Walk || e.avatar.anim == Anim::Run) && now_us >= e.walk_denied_us;
       if (wants_walk && cb_.walk) {
         if (!e.walking || now_us - e.last_walk_us >= kWalkCmdUs) {
           cb_.walk(pid, static_cast<float>(pose.speed_mps));
@@ -316,6 +334,12 @@ void ActorRegistry::on_reply(std::string_view reply) {
     e.requested = false;
     e.last_request_us = e.last_seen_us;
     ++counters_.replies;
+  } else if (kind == "failed") {
+    // MD could not start a walk (no free slot, no room). Drop the hold at once and let native place the actor again: every
+    // corridor has zero slots, and withholding the pose there would freeze the avatar for the whole walk.
+    e.walking = false;
+    e.walk_denied = true;
+    ++counters_.walk_denied;
   } else {
     ++counters_.bad_replies;
   }

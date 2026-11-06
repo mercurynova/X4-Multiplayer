@@ -1,6 +1,8 @@
 #include "features/appearance/appearance_feature.h"
 
 #include <chrono>
+#include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -77,6 +79,26 @@ void AppearanceFeature::on_init(host::HostContext& ctx) {
               ctx.config.avatar_race, ctx.config.avatar_preset);
   }
   X4MP_CLOG(ctx.log, Cat::Ui, Level::Info, "appearance: {}", appearance::describe(choice_));
+  // An empty choice means "let the game pick a crew NPC" - and the game picks a NEW one every time the actor is created, which is
+  // why the second client's character changed on every load. A client with no stored look therefore gets one stable look, seeded
+  // from its own user file path: the same install always draws the same character, and two clients draw different ones. It is
+  // stored like a picked look, so the menu shows it and the picker can change it.
+  if (choice_.empty() && ctx.paths != nullptr) {
+    std::string seed = ctx.paths->user_file.string();
+    if (seed.empty()) seed = ctx.config.player_name;
+    if (!seed.empty()) {
+      choice_ = appearance::pick_random(static_cast<std::uint32_t>(std::hash<std::string>{}(seed)));
+      X4MP_CLOG(ctx.log, Cat::Ui, Level::Info, "appearance: no stored look, picked a stable one for this install ({})",
+                appearance::describe(choice_));
+      if (!ctx.paths->user_file.empty()) {
+        const auto stored = config::update_string_keys(
+            ctx.paths->user_file, {{"avatar_race", choice_.race}, {"avatar_preset", choice_.preset}});
+        if (!stored.ok) {
+          X4MP_CLOG(ctx.log, Cat::Ui, Level::Warn, "appearance: could not store the look in x4mp.json ({})", stored.error);
+        }
+      }
+    }
+  }
   dirty_ = true;  // the server learns it once the session is up
 }
 
