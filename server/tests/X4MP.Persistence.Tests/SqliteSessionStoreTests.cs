@@ -110,7 +110,7 @@ public sealed class SqliteSessionStoreTests : IDisposable
         {
             Assert.Equal("Ended", Scalar<string>("SELECT state FROM sessions WHERE id = @id", new { id }));
             Assert.Equal("server restarted", Scalar<string>("SELECT end_reason FROM sessions WHERE id = @id", new { id }));
-            Assert.StartsWith("2026-11-07", Scalar<string>("SELECT ended_at FROM sessions WHERE id = @id", new { id }));
+            Assert.StartsWith("2026-11-08T00:00", Scalar<string>("SELECT ended_at FROM sessions WHERE id = @id", new { id }));
         }
 
         Assert.Equal("admin stop", Scalar<string>("SELECT end_reason FROM sessions WHERE id = @id", new { id = ended })); // untouched
