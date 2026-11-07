@@ -83,6 +83,12 @@ $probeCfg = Join-Path $cfgDir 'x4mp_probe.json'
 
 try {
   if ($runKit) {
+    Step 'F30: Ensure-Published rebuilds stale web / server / FakeNode (Get-PublishStaleness on a synthetic tree)' {
+        $r = Run-Kit '..\session3\test-publish-staleness.ps1' @()
+        Expect-Kit $r 'test-publish-staleness' 0 @('test-publish-staleness: PASS')
+        Check $true 'Get-PublishStaleness: stale web sources, server sources, build hash and -Rebuild are detected'
+    }
+
     Step '-WhatIf of every script changes nothing' {
         foreach ($s in @(
                 @('install-spike.ps1', ($x4 + @('-ProbeDll', "`"$fakeDll`"", '-Force', '-WhatIf'))),

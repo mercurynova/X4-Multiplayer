@@ -445,6 +445,18 @@ What it settles: the authority grace is now 600 s, and an Ended session can be r
 
 Send back: the clock times of each step, whether the authority's X4 reconnected **by itself** when it was closed in step 3/4 or needed a manual join (and any message it showed after the end: ServerShutdown), the GUI state names you saw, whether the loaded checkpoint matched your expectation (what was missing), the server log and the mod log (`authority:` lines).
 
+## Session-tooling re-checks (2026-11-07 findings F27, F29, F30, F30b, K7, K8, K9, F31, low-FPS alert)
+
+Quick re-checks of the fixes from the 2026-11-07 sitting; all need a running server, most also one real X4.
+
+1. **Fresh server and GUI (F30).** `tools\session4\start-server-lan.ps1` (and the `start-fake-*.ps1` scripts) now rebuild what is stale. After pulling or switching branch expect lines `Publish: rebuilding the web GUI (...)` / `Publish: republishing the server (...)` naming the reason, or `Publish: ... up to date (nothing rebuilt)`. The server banner build hash in `out\session4\data\logs` must equal `git rev-parse --short=10 HEAD`, and the GUI Sessions page must show the newest buttons. `-Rebuild` still forces everything.
+2. **No save: the authority is told (F30b).** In the GUI create a session with Save = `(none: the authority's own save)` (the page now says what that means), start it, join as the authority. If X4 has a game loaded it starts from that game. If X4 sits in the main menu expect, within a second, the on-screen notice "This session has no save: your running game becomes the session start. If X4 is at the main menu, load the game you want to run, ...". Load a game: the session goes on.
+3. **Grace countdown (K8) and live settings (F29).** With a Running session close the authority's X4. The GUI Sessions page shows `authority grace: N s left`, counting down. While it counts, change `Session.AuthorityGraceSeconds` in Settings (for example to 60): the countdown jumps to loss time plus the new value (the grace ends at once if that time has already passed); changing it back lengthens it again.
+4. **Stale history (K9, F31).** Stop the server (Ctrl+C) while a session is Running or AuthorityLost, start it again. Sessions & Saves history shows that session as `Ended` (not Running/AuthorityLost) with a normal duration; the server log says `session(s) left open by a previous server run marked as ended (server restarted)`. The history hint reads: resume after a restart is not supported: create a new session from its checkpoint.
+5. **Disconnect button stays put (K7).** As the authority in game open Multiplayer, note where Disconnect is, press it. The notice "Saving the universe before leaving..." appears BELOW Back; Disconnect and Back do not move.
+6. **No PhaseDenied at join / load (F27).** Join as a client (fresh join and a rejoin) and, as the authority, load a save inside a running session. The server log must show no `policy violation "PlayerShip"` / `"PlayerState"` (`PhaseDenied`); the avatar takeover still starts (it may wait up to a second for the roster to show the node live).
+7. **Low-FPS warning goes away.** Let the authority run below 15 FPS for 30 s until the GUI alert `Authority <name> has been below 15 FPS ...` shows, then close the authority's X4 (or leave): the alert disappears from the GUI within a few seconds.
+
 ## In-game checks the code could not settle (collected from the M3 handoff notes)
 
 Look at these during the sittings; each is "does it behave like the code assumes?":

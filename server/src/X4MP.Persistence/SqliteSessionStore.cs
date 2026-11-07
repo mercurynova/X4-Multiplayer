@@ -40,6 +40,26 @@ public sealed class SqliteSessionStore(SqliteConnectionFactory factory, Persiste
             """,
             new { id = sessionId, state = phase.ToString(), authority = authorityPlayerId, at = Stamp(at), reason });
 
+    /// <summary>The end reason stored on sessions a previous server run left open (K9).</summary>
+    public const string ServerRestartedReason = "server restarted";
+
+    /// <summary>
+    /// K9: at server start no session is live, so every row not Ended belongs to an earlier run (the process died or was stopped without ending it).
+    /// They are marked Ended with <see cref="ServerRestartedReason"/>, and their players as left. Resume after a restart is not supported (ADR-052).
+    /// Returns the number of sessions closed. Also frees the saves such a row kept pinned (the janitor protects the saves of every non-Ended session).
+    /// </summary>
+    public static int EndOpenSessions(SqliteConnectionFactory factory, DateTimeOffset at)
+    {
+        using var connection = factory.Open();
+        string stamp = Stamp(at);
+        connection.Execute(
+            "UPDATE session_players SET left_at = @at, leave_reason = @reason WHERE left_at IS NULL AND session_id IN (SELECT id FROM sessions WHERE state <> 'Ended')",
+            new { at = stamp, reason = ServerRestartedReason });
+        return connection.Execute(
+            "UPDATE sessions SET state = 'Ended', ended_at = @at, end_reason = @reason WHERE state <> 'Ended'",
+            new { at = stamp, reason = ServerRestartedReason });
+    }
+
     public void RenameSession(long sessionId, string name) =>
         writer.TryEnqueue("UPDATE sessions SET name = @name WHERE id = @id", new { id = sessionId, name });
 
