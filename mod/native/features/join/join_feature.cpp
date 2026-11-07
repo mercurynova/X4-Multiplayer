@@ -618,7 +618,7 @@ void JoinFeature::update_diag(host::HostContext&) {
     diag_ship_link_ = true;
     selfship::SelfShipLink link;
     link.send_realtime = [this](std::uint16_t type, std::span<const std::uint8_t> payload) {
-      return session_ && welcomed() && session_->send(wire::Lane::Realtime, type, payload) == net::SendResult::Ok;
+      return session_ && welcomed() && resume::player_messages_allowed_in_phase(my_phase_) && session_->send(wire::Lane::Realtime, type, payload) == net::SendResult::Ok;  // F27
     };
     link.server_now = [this](std::int64_t& out) {
       if (!session_) return false;
@@ -640,7 +640,7 @@ void JoinFeature::update_diag(host::HostContext&) {
     avatars::ClientLink link;
     link.player_id = [this]() -> std::uint16_t { return session_ && session_->has_welcome() ? session_->welcome().player_id : 0; };
     link.send_control = [this](std::uint16_t type, std::vector<std::uint8_t> payload) {
-      if (!session_ || !welcomed()) return false;
+      if (!session_ || !welcomed() || !resume::player_messages_allowed_in_phase(my_phase_)) return false;  // F27: the takeover retries in 1 s
       send_control(type, payload);
       return true;
     };
