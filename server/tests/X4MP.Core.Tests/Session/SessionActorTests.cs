@@ -471,6 +471,28 @@ public class SessionActorTests
         Assert.Equal(SessionPhase.AuthorityLoading, await PhaseAsync(rig));
     }
 
+    [Fact]
+    public async Task ChangingAuthorityGraceSecondsWhileTheAuthorityIsLostReappliesItFromTheLossTime()
+    {
+        await using var rig = new ActorRig();
+        var boss = await RunningSessionAsync(rig);
+        await rig.DisconnectAsync(boss, DisconnectCode.ClientQuit);
+        Assert.Equal(SessionPhase.AuthorityLost, await PhaseAsync(rig));
+        await rig.AdvanceSecondsAsync(100);
+
+        rig.Options.AuthorityGraceSeconds = 300;                                // shortened: 300 from the loss, 200 left
+        var shorter = await rig.SnapshotAsync();
+        Assert.Equal(200.0, shorter.Authority.GraceRemainingSeconds!.Value, 1);
+
+        rig.Options.AuthorityGraceSeconds = 1000;                               // lengthened again: from the loss time, 900 left
+        var longer = await rig.SnapshotAsync();
+        Assert.Equal(900.0, longer.Authority.GraceRemainingSeconds!.Value, 1);
+
+        rig.Options.AuthorityGraceSeconds = 50;                                 // already past 50 s from the loss: the grace is over
+        await rig.AdvanceSecondsAsync(1);
+        await WaitUntilAsync(rig, s => s.Phase != SessionPhase.AuthorityLost);
+    }
+
     // ------------------------------------------------------------------ resume
 
     [Fact]

@@ -13,6 +13,10 @@ public sealed partial class SessionActor
     private SessionPhase _phaseBeforeLoss = SessionPhase.Running;
     private DateTimeOffset _phaseSince;
     private long _authorityDeadline = long.MaxValue;
+    private long _authorityLostAt;
+
+    /// <summary>Deadline = loss time + the CURRENT <c>AuthorityGraceSeconds</c> (shorter or longer than when the authority was lost).</summary>
+    private void ReapplyAuthorityGrace() => _authorityDeadline = After(_authorityLostAt, Opt.AuthorityGraceSeconds);
     private long _stoppingDeadline = long.MaxValue;
     private int _authorityPlayerId;
     private Guid _sessionGuid;
@@ -90,6 +94,7 @@ public sealed partial class SessionActor
         if (to == SessionPhase.AuthorityLost)
         {
             _phaseBeforeLoss = from;
+            _authorityLostAt = now;
             _authorityDeadline = After(now, Opt.AuthorityGraceSeconds);
         }
         else if (from == SessionPhase.AuthorityLost)
@@ -225,6 +230,11 @@ public sealed partial class SessionActor
 
         _scratch.Clear();
 
+        if (_phase == SessionPhase.AuthorityLost)
+        {
+            ReapplyAuthorityGrace(); // F29: an admin who changes AuthorityGraceSeconds while the countdown runs means it
+        }
+
         if (_phase == SessionPhase.AuthorityLost && now >= _authorityDeadline)
         {
             Transition(SessionTrigger.GraceExpired, "authority did not return within AuthorityGraceSeconds");
@@ -292,6 +302,11 @@ public sealed partial class SessionActor
         {
             _nodes.TryGetValue(_authorityPlayerId, out var slot);
             bool live = slot?.Attached is not null;
+            if (_phase == SessionPhase.AuthorityLost)
+            {
+                ReapplyAuthorityGrace();
+            }
+
             double? grace = _phase == SessionPhase.AuthorityLost && _authorityDeadline != long.MaxValue
                 ? Math.Max(0, _time.GetElapsedTime(now, _authorityDeadline).TotalSeconds)
                 : null;
