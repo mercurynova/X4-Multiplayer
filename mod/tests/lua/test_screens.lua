@@ -373,6 +373,26 @@ test("notify topic becomes a notice on the open screen", function()
 	truthy(found)
 end)
 
+test("K7: a notice does not move the Disconnect / Connect / Back buttons (it is drawn below them)", function()
+	local S, _, r = setup()
+	local function index(model, id)
+		for i, row in ipairs(model.rows) do if row.id == id then return i end end
+	end
+	S.open("join")
+	local connectBefore, backBefore = index(r.last, "connect"), index(r.last, "back")
+	env.fire("x4mp.notify", '{"text":"Saving the universe before leaving."}')
+	eq(index(r.last, "connect"), connectBefore)
+	eq(index(r.last, "back"), backBefore)
+	S.go("status")
+	env.fire("x4mp.status", '{"state":"ingame"}')
+	S.state.notice = nil
+	S.render()
+	local disconnectBefore = index(r.last, "disconnect") or index(r.last, "join")
+	env.fire("x4mp.notify", '{"text":"Saving the universe before leaving."}')
+	eq(index(r.last, "disconnect") or index(r.last, "join"), disconnectBefore)
+	truthy(r.last.rows[#r.last.rows].text == "Saving the universe before leaving.", "the notice is the last row")
+end)
+
 test("open: unknown screen names fall back to main; no renderer is reported", function()
 	local S, _, r = setup()
 	eq(S.open("nonsense"), true)

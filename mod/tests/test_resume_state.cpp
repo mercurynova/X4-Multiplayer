@@ -152,6 +152,15 @@ TEST_CASE("world_clock_may_run: the authority's keepalive needs a universe and n
   CHECK_FALSE(world_clock_may_run(false, true));
 }
 
+TEST_CASE("player_messages_allowed_in_phase: PlayerState / PlayerShip only while the roster shows CatchingUp or InGame (F27)", "[resume]") {
+  CHECK(player_messages_allowed_in_phase(6));
+  CHECK(player_messages_allowed_in_phase(7));
+  CHECK_FALSE(player_messages_allowed_in_phase(5));   // Matching: the window right after NodeReady
+  CHECK_FALSE(player_messages_allowed_in_phase(4));   // Loading
+  CHECK_FALSE(player_messages_allowed_in_phase(8));   // Detached
+  CHECK_FALSE(player_messages_allowed_in_phase(-1));  // roster not seen yet
+}
+
 TEST_CASE("manifest_report_denied_in_phase: only a node the roster shows InGame must not report (F25)", "[resume]") {
   CHECK(manifest_report_denied_in_phase(7));  // fast-return / in-session Load: the old InGame phase
   CHECK_FALSE(manifest_report_denied_in_phase(5));  // Matching

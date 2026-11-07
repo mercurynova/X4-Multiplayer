@@ -258,9 +258,10 @@ local function buildJoin(st, rows)
 	end
 	rows[#rows + 1] = text(T(6) .. ": " .. T(7), "normal")
 	rows[#rows + 1] = text(T(14), "inactive")
-	if st.notice then rows[#rows + 1] = text(st.notice, "warning") end
 	rows[#rows + 1] = { type = "button", id = "connect", text = T(8), active = not busy, onClick = function() S.submitJoin() end }
 	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
+	-- K7: below the buttons, so a notice never pushes Connect / Back down
+	if st.notice then rows[#rows + 1] = text(st.notice, "warning") end
 end
 
 local function buildStatus(st, rows)
@@ -309,13 +310,14 @@ local function buildStatus(st, rows)
 		if status.players then rows[#rows + 1] = text(T(44, status.players)) end
 	end
 	if B.lastError then rows[#rows + 1] = text(tostring(B.lastError.text or B.lastError.code), "error") end
-	if st.notice then rows[#rows + 1] = text(st.notice, "warning") end
 	if S.connectionActive() then
 		rows[#rows + 1] = { type = "button", id = "disconnect", text = T(9), active = true, onClick = function() S.disconnect() end }
 	else
 		rows[#rows + 1] = { type = "button", id = "join", text = T(2), active = true, onClick = function() S.go("join") end }
 	end
 	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
+	-- K7: below the buttons, so the "Saving the universe before leaving" notice (F24) never pushes Disconnect / Back down
+	if st.notice then rows[#rows + 1] = text(st.notice, "warning") end
 end
 
 local builders = { main = buildMain, join = buildJoin, status = buildStatus }
