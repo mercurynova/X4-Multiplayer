@@ -101,6 +101,8 @@ exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Lo
 lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4400.0}
 frame 60Hz 720
 expect-file extension/logs/x4mp.log SaveStarted sent (game_time 4400.000
+# F28: the ledger entry is made when the upload starts, so a planned leave that ends the session before the server's confirmation is processed still has it
+expect-file-order extension/logs/x4mp.log SaveStarted sent (game_time 4400.000 >> the checkpoint joined the avatar ledger as its upload starts >> planned leave: the server answered saved=true
 expect-file extension/logs/x4mp.log planned leave: the server answered saved=true
 expect-file extension/logs/x4mp.log planned leave: leaving now (the checkpoint is stored
 expect-file extension/logs/x4mp.log leaving the session (disconnect)

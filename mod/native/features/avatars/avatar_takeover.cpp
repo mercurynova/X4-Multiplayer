@@ -344,6 +344,11 @@ void AvatarTakeover::step_requesting(double now_s, std::uint16_t player) {
     }
   }
   if (grant_) {
+    // F28: an avatar nobody pilots (controller 0) that is named for us without any answer is the parked avatar of an earlier session, replicated to us on a
+    // fresh rejoin: it is the right ship but the authority does not know we are back, and an earlier request may have been dropped by the server's phase gate
+    // (sent right behind NodeReady). Ask now, so the authority puts the avatar online again and answers with the controller; the server also asks on our behalf
+    // when our PlayerState names the parked avatar.
+    if (grant_->controller_player != player && env_.send_request(host_id_)) ++stats_.requests;
     ++stats_.grants;
     log(LogLevel::Info, std::format("avatar granted: net_id={} idcode={} name='{}' sector {} after {:.1f} s", grant_->net_id, grant_->idcode, grant_->name, grant_->sector, now_s - started_));
     stage_ = Stage::Locating;

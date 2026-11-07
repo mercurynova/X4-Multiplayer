@@ -89,6 +89,10 @@ GitHub (`git push origin --delete <branch>`) without asking again, after checkin
 `-D` local delete or any other destructive git action still needs the user's OK. Dependabot branches go away by
 themselves when their PR is merged or closed.
 
+**Merging (standing OK from the user, 2026-11-07):** the lead merges a PR without asking again once it has reviewed the
+diff and CI (`ci-ok`) is green, then reports what was merged. Not covered: merging a red or unreviewed PR, force pushes,
+branch-protection changes, or closing other people's PRs.
+
 ### 3.2 After each major step: code review and a fresh session (user request, 2026-10-20)
 
 A **major step** is a merged wave of fixes, a milestone task group, a milestone exit, or a dependency/toolchain change.

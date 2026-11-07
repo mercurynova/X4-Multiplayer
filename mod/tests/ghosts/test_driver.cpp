@@ -718,3 +718,86 @@ TEST_CASE("F23c: a hard brake zeroes the velocity hint (the map extrapolates fro
   old.run(4.0);
   CHECK(ghost::length(old.world.only()->velocity) > 100.0);
 }
+
+namespace {
+// Cruises at `v0` in sector 1, jumps through a gate at `t_jump` (sector 2, Teleport on the first 20 Hz sample) and flies there at `v_burst` until
+// `t_burst_end`, then at `v0` again (a superhighway crossing and its exit).
+Track highway_track(double v0, double t_jump, double v_burst, double t_burst_end) {
+  return [=](double t) {
+    TrackPoint p;
+    const Vec3 dir{0.0, 0.0, 1.0};
+    double s;
+    double v;
+    if (t < t_jump) {
+      s = v0 * t;
+      v = v0;
+      p.sector = 1;
+    } else if (t < t_burst_end) {
+      s = v_burst * (t - t_jump);
+      v = v_burst;
+      p.sector = 2;
+      if (t - t_jump < 0.05) p.flags |= kTeleport;
+    } else {
+      s = v_burst * (t_burst_end - t_jump) + v0 * (t - t_burst_end);
+      v = v0;
+      p.sector = 2;
+    }
+    p.pos = dir * s;
+    p.vel = dir * v;
+    return p;
+  };
+}
+}  // namespace
+
+TEST_CASE("F32: a sector change zeroes the outstanding hint at once and no hint goes out until the speed gate has seen calm, real data", "[ghosts][driver][f32]") {
+  Rig r;
+  const double t_jump = 6.0;
+  r.add(11, highway_track(300, t_jump, 300, 1e9), Rig::info(11, 2, "Pax", 2));  // the speed itself does not change: only the placement jumps
+  r.run(3.0);
+  REQUIRE(r.world.only() != nullptr);
+  CHECK(ghost::length(r.world.only()->velocity) > 250.0);  // cruising below the cap: the hint carries the speed
+  bool changed = false;
+  double since_change_s = 0;
+  double first_hint_after = -1;
+  std::uint64_t last_sector = r.world.only()->sector;
+  for (int i = 0; i < 60 * 8; ++i) {
+    (void)r.step();
+    const FakeObj* o = r.world.only();
+    REQUIRE(o != nullptr);
+    if (!changed && o->sector != last_sector) changed = true;
+    if (!changed) continue;
+    since_change_s += 1.0 / 60.0;
+    const bool hinted = ghost::length(o->velocity) > 1.0;
+    if (since_change_s < 0.5) {
+      CHECK_FALSE(hinted);  // the old velocity must not carry the object on, and the new one needs the settle time
+    } else if (hinted && first_hint_after < 0) {
+      first_hint_after = since_change_s;
+    }
+  }
+  REQUIRE(changed);
+  CHECK(first_hint_after > 0.0);  // real data after the jump: the hint is back
+  CHECK(first_hint_after < 1.5);
+}
+
+TEST_CASE("F32: after a burst at superhighway speed no hint goes out until the rendered speed has been calm for the settle time", "[ghosts][driver][f32]") {
+  Rig r;
+  const double t_jump = 4.0, t_end = 6.0;
+  const auto track = highway_track(300, t_jump, 9000, t_end);
+  r.add(11, track, Rig::info(11, 2, "Pax", 2));
+  r.run(3.0);
+  double worst_during_calm_window = 0;
+  double first_hint_after_burst = -1;
+  for (int i = 0; i < 60 * 8; ++i) {
+    (void)r.step();
+    const auto v = r.driver->views();
+    if (v.empty() || r.world.only() == nullptr) continue;
+    const double rendered_t = r.track_time_s(v[0].represented_t_us);
+    const double hint = ghost::length(r.world.only()->velocity);
+    if (rendered_t > t_jump + 0.2 && rendered_t < t_end) CHECK(hint == 0.0);  // travel speed: never a hint
+    if (rendered_t >= t_end + 0.05 && rendered_t < t_end + 0.6) worst_during_calm_window = std::max(worst_during_calm_window, hint);
+    if (rendered_t >= t_end + 0.05 && hint > 1.0 && first_hint_after_burst < 0) first_hint_after_burst = rendered_t - t_end;
+  }
+  CHECK(worst_during_calm_window == 0.0);  // the first slow samples after the burst are the first: no hint inside the settle time
+  CHECK(first_hint_after_burst > 0.6);
+  CHECK(first_hint_after_burst < 2.0);
+}

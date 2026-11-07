@@ -73,9 +73,24 @@ public sealed partial class RelayModule
         {
             state.NetId = node.ShipNetId; // the server knows the avatar even when the client has not learnt its id yet
         }
-        else if (state.NetId != 0 && _mirror is not null && !(_mirror.TryGet(state.NetId, out var claimed) && claimed.ControllerPlayer == node.PlayerId))
+        else if (state.NetId != 0 && _mirror is not null)
         {
-            state.NetId = 0; // M3-29: the client still names an avatar a world rollback removed (or one that is not theirs): never feed that id to the authority
+            if (_mirror.TryGet(state.NetId, out var claimed) && claimed.ControllerPlayer == node.PlayerId)
+            {
+                // the client's own, piloted avatar: the id is fed as it is
+            }
+            else if (claimed is not null && IsParkedAvatarOf(claimed, node.PlayerId))
+            {
+                // F28: the client names its own PARKED avatar (it was replicated to the client on a fresh rejoin and taken for the answer to a request
+                // that was never sent, or was dropped by the phase gate right behind NodeReady). Nobody pilots it, so the authority would count every
+                // state as an unknown net id and never drive it: ask the authority to hand the avatar back (the answer is the controller change).
+                state.NetId = 0;
+                AdoptParkedAvatar(node, claimed, state);
+            }
+            else
+            {
+                state.NetId = 0; // M3-29: the client still names an avatar a world rollback removed (or one that is not theirs): never feed that id to the authority
+            }
         }
 
         if (flow.Dirty)
@@ -186,6 +201,51 @@ public sealed partial class RelayModule
         _avatarRequests[node.PlayerId] = ship;
         _lastShips[node.PlayerId] = ship;
         _reprovision.Remove(node.PlayerId); // the player asked itself: the request is theirs, with their pose
+        if (Authority is { } authority)
+        {
+            ForwardAvatarRequest(authority, ship);
+        }
+    }
+
+    private static bool IsParkedAvatarOf(MirrorEntity entity, int playerId) =>
+        entity.Origin == EntityOrigin.PlayerShip && entity.ControllerPlayer == 0 && entity.OwnerPlayer == playerId;
+
+    private readonly Dictionary<int, long> _adoptNext = [];
+
+    /// <summary>
+    /// F28: the server asks the authority for the player's parked avatar on the player's behalf (a PlayerShip stamped with the player id: the
+    /// authority answers an existing avatar with a controller change). Repeated at most once a second until the avatar is bound; the request is also
+    /// kept like the player's own, so a world rollback that removes the avatar re-provisions it (M3-29) and an authority resume forwards it again.
+    /// </summary>
+    private void AdoptParkedAvatar(SessionNode node, MirrorEntity avatar, PlayerStateT state)
+    {
+        long now = Now;
+        if (_adoptNext.TryGetValue(node.PlayerId, out long next) && now < next)
+        {
+            return;
+        }
+
+        _adoptNext[node.PlayerId] = now + _time.TimestampFrequency;
+        var ship = new PlayerShipT
+        {
+            PlayerId = (ushort)node.PlayerId,
+            Sector = state.Sector,
+            Px = state.Px,
+            Py = state.Py,
+            Pz = state.Pz,
+            Yaw = state.Yaw,
+            Pitch = state.Pitch,
+            Roll = state.Roll,
+            Name = avatar.Name,
+            Idcode = avatar.IdCode,
+            Hull = 255,
+            Shield = 255,
+        };
+        _avatarRequests[node.PlayerId] = ship;
+        _lastShips[node.PlayerId] = ship;
+        _reprovision.Remove(node.PlayerId);
+        Stats.AvatarsAdopted++;
+        LogAdopt(node.PlayerId, avatar.NetId);
         if (Authority is { } authority)
         {
             ForwardAvatarRequest(authority, ship);
@@ -408,6 +468,9 @@ public sealed partial class RelayModule
 
         frame.Release();
     }
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "relay: player {PlayerId} names its parked avatar {NetId} but nobody pilots it: the authority is asked to hand it back")]
+    private partial void LogAdopt(int playerId, uint netId);
 
     [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Information, Message = "relay: player {PlayerId} lost its avatar to a world rollback: the authority is asked to provision a new one (sector {Sector}, the player's newest position)")]
     private partial void LogReprovision(int playerId, int sector);
