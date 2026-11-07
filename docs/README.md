@@ -50,6 +50,7 @@ below. The repo is the only memory that follows you between computers.
 | [m2-exit-report.md](m2-exit-report.md) | M2 exit evidence (all 18 criteria, session 3) |
 | [m3-plan.md](m3-plan.md) | M3 plan (two players see each other): open questions for the user, scope/non-goals, 16 exit criteria, design decisions (who simulates what, ghosts, avatars + takeover, frames, rates, interpolation, clocks, reloads, teams, hygiene), spikes S13, waves 0-3 (M3-001/002, M3-01..14), tests, risks |
 | [in-game-session-4.md](in-game-session-4.md) | **Outline** of the session-4 user script: sitting 0 spikes S13, sittings 1-2 on one PC with FakeNode wingmen, sitting 3 on two PCs; finalised by M3-14 |
+| [spikes/session-4-2026-11-07-results.md](spikes/session-4-2026-11-07-results.md) | Session 4 two-PC run 2026-11-07: verification of the F1/F13/F21b/F23c/F24/F25 fixes, X1 by user decision, new F27-F32 (F28 high) |
 | [spikes/session-1.md](spikes/session-1.md), [spikes/session-1-results.md](spikes/session-1-results.md) | In-game session 1 script and verdicts (2026-10-01) |
 
 ## Quick facts

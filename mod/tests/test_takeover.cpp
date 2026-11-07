@@ -692,6 +692,24 @@ TEST_CASE("takeover: a parked avatar (controller 0) of the own player is the gra
   CHECK(r.m.done());
 }
 
+TEST_CASE("takeover: a parked avatar named without any answer still sends the PlayerShip request (F28)", "[takeover][grant]") {
+  Rig r;
+  auto g = r.grant();
+  g.controller_player = 0;  // replicated to the rejoining client; nobody asked the authority yet
+  r.m.on_spawn_avatars({g});
+  r.seconds(2);
+  CHECK(r.m.done());
+  CHECK(r.env.requests >= 1);  // the authority must put it online again, or it counts every PlayerState as an unknown net id
+}
+
+TEST_CASE("takeover: an avatar already piloted by the own player needs no extra request (F28)", "[takeover][grant]") {
+  Rig r;
+  r.m.on_spawn_avatars({r.grant()});
+  r.seconds(2);
+  CHECK(r.m.done());
+  CHECK(r.env.requests == 0);
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------
 TEST_CASE("takeover reload: after /reloadui in the Done state the new instance is Done at once with the own net id", "[takeover][reload]") {
   Rig r;

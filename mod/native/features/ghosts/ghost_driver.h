@@ -28,6 +28,7 @@
 #include <string_view>
 #include <vector>
 
+#include "core/ghost/hint_gate.h"
 #include "core/ghost/interpolator.h"
 #include "core/ghost/registry.h"
 #include "core/ghost/replication.h"
@@ -142,6 +143,9 @@ struct GhostConfig {
   // M3-34 (Finding 23): the velocity hint is for the target info's speed, but the ENGINE flies the inert ship with it between our per-frame placements and
   // can capture it into a highway. Above this speed the hint is zero (the placements alone carry the ghost; the target info shows 0 m/s at travel speed).
   double hint_max_mps = 1000.0;
+  // F32: after any placement jump (sector change, spawn, show, snap, guard hit) a non-zero hint needs this long of uninterrupted valid rendered speeds at or below
+  // hint_max_mps (core/ghost HintGate, shared with the avatar director): real data, not the first frames of a new sector.
+  std::int64_t hint_settle_us = 600'000;
   // F23c: the hint is up to hint_interval_us old when the engine extrapolates from it (the map icon). While the rendered path decelerates harder than
   // hint_max_decel_mps2 the stale hint overshoots by decel x age (30 m/s^2 x 0.2 s = 6 m/s, about 1.2 m of map drift per hint period; a gentle slow-down
   // stays below it and keeps its hint): the hint is zero then, exactly like a hold, and the per-frame placements alone carry the ghost.
@@ -262,6 +266,9 @@ class GhostDriver {
     int dress_retries = 0;
     bool dressed_ok = false;
     bool hint_was_zero = false;
+    ghost::HintGate gate;                // F32: the shared speed gate (per-frame samples, settle time after every jump)
+    double last_hint_mps = 0;            // length of the last NON-zero hint sent (diagnostics of the guard line)
+    std::int64_t last_nonzero_hint_us = 0;
     bool braking = false;                // F23c: the rendered speed fell faster than hint_max_decel_mps2 over the last window
     double decel_ref_mps = 0;            // speed at the start of that window
     std::int64_t decel_ref_us = 0;       // 0 = no window open

@@ -82,6 +82,14 @@ inline constexpr std::int64_t kMenuLeaveConfirmMs = 30000;
 inline constexpr int kRosterPhaseInGame = 7;
 [[nodiscard]] constexpr bool manifest_report_denied_in_phase(int roster_phase) noexcept { return roster_phase == kRosterPhaseInGame; }
 
+// F27: MessagePolicy allows PlayerState and PlayerShip only in CatchingUp or InGame (PolicyPhase.Live). The join feature installs the send links when
+// the mod itself reaches InGame (right after it sends NodeReady), but the roster publishes the new phase a moment later (and after a resume or an
+// in-session Load it may still show an earlier phase): a send before that is a PhaseDenied violation. The links send only while the roster says Live.
+inline constexpr int kRosterPhaseCatchingUp = 6;
+[[nodiscard]] constexpr bool player_messages_allowed_in_phase(int roster_phase) noexcept {
+  return roster_phase == kRosterPhaseCatchingUp || roster_phase == kRosterPhaseInGame;
+}
+
 // F1d: the authority's world-clock keepalive (WorldUpdate game_time, the reference every player sample is stamped with) runs only while a universe exists:
 // the gate is open and the Lua state is not the start menu. At the main menu game_time() still answers (a fresh ~2 s clock) and sent into the session it
 // shifted every ghost's sample stamps by tens of seconds.

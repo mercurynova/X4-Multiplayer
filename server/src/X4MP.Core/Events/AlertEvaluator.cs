@@ -28,6 +28,7 @@ public sealed class AuthorityLowFpsRule(Func<AlertOptions> options) : IAlertRule
     private DateTimeOffset? _lowSince;
     private bool _active;
     private long? _session;
+    private long _playerId = -1;
     private string _player = "";
     private double _fps;
 
@@ -35,8 +36,22 @@ public sealed class AuthorityLowFpsRule(Func<AlertOptions> options) : IAlertRule
     {
         ArgumentNullException.ThrowIfNull(sink);
         var current = options();
+
+        // The authority is gone (socket lost, left, or the session ended): its last FPS says nothing any more, and the alert must not outlive it.
+        if (domainEvent is PlayerDetached or PlayerLeft or SessionStateChanged { To: "Ended" or "Stopping" or "AuthorityLost" } &&
+            (domainEvent is SessionStateChanged || (domainEvent as IPlayerScoped)?.PlayerId == _playerId))
+        {
+            _lowSince = null;
+            if (_active)
+            {
+                _active = false;
+                sink.Clear(_session, AlertCode);
+            }
+        }
+
         if (domainEvent is NodeStatsReported { IsAuthority: true } stats)
         {
+            _playerId = stats.PlayerId;
             _session = stats.Session;
             _player = stats.Player;
             _fps = stats.Fps;

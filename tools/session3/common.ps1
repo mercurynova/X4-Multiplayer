@@ -53,28 +53,111 @@ function Invoke-Native([string]$what, [scriptblock]$cmd) {
     if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE)" }
 }
 
-# Publishes the server and FakeNode when missing (or -Force). Returns @{ Server; FakeNode }.
+# F30: what makes a built artefact stale. Newest write time of the given files/folders (folders recursively; build output, node_modules and
+# dist skipped); $null when nothing exists.
+function Get-NewestWriteTime([string[]]$Paths, [switch]$IncludeDist) {
+    $skip = if ($IncludeDist) { '[\\/](bin|obj|node_modules)[\\/]' } else { '[\\/](bin|obj|node_modules|dist)[\\/]' }
+    $newest = $null
+    foreach ($p in $Paths) {
+        if (-not (Test-Path $p)) { continue }
+        $files = if ((Get-Item $p).PSIsContainer) { Get-ChildItem $p -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch $skip } } else { Get-Item $p }
+        foreach ($f in $files) { if (-not $newest -or $f.LastWriteTimeUtc -gt $newest.Time) { $newest = [pscustomobject]@{ Time = $f.LastWriteTimeUtc; Path = $f.FullName } } }
+    }
+    return $newest
+}
+
+# F30: the reasons (empty = up to date) why the web GUI, the server exe and the FakeNode exe must be rebuilt. Rules:
+#   web      : dist\index.html is missing, or any build input (server\web\src, index.html, package.json, package-lock.json, vite and tsconfig
+#              files) is newer than dist\index.html.
+#   server   : the exe is missing, or older than the newest source (server\src, protocol\schema + constants, the shared props, global.json) or
+#              than the web GUI it embeds (the newest file of server\web\dist), or its build hash ($BuiltHash, from `x4mp-server version`)
+#              is a known hash that differs from the current git HEAD ($HeadHash).
+#   fakenode : the exe is missing, or older than the newest FakeNode / server / protocol source.
+# $Force (-Rebuild) rebuilds everything. Pure (no git, no process): the caller passes the hashes, so a test can drive it.
+function Get-PublishStaleness([string]$RepoRoot, [string]$BuiltHash, [string]$HeadHash, [switch]$Force) {
+    $webDir = Join-Path $RepoRoot 'server\web'
+    $dist = Join-Path $webDir 'dist'
+    $serverExe = Join-Path $RepoRoot 'out\win-x64\x4mp-server.exe'
+    $fakeNodeExe = Join-Path $RepoRoot 'out\fakenode\X4MP.FakeNode.exe'
+    $r = @{ Web = (New-Object System.Collections.Generic.List[string]); Server = (New-Object System.Collections.Generic.List[string]); FakeNode = (New-Object System.Collections.Generic.List[string]) }
+
+    $distIndex = Join-Path $dist 'index.html'
+    $webInputs = @((Join-Path $webDir 'src'), (Join-Path $webDir 'index.html'), (Join-Path $webDir 'package.json'), (Join-Path $webDir 'package-lock.json'),
+        (Join-Path $webDir 'vite.config.ts'), (Join-Path $webDir 'tsconfig.json'), (Join-Path $webDir 'tsconfig.app.json'), (Join-Path $webDir 'tsconfig.node.json'))
+    if ($Force) { $r.Web.Add('-Rebuild') }
+    elseif (-not (Test-Path $distIndex)) { $r.Web.Add('server\web\dist\index.html is missing') }
+    else {
+        $n = Get-NewestWriteTime $webInputs
+        if ($n -and $n.Time -gt (Get-Item $distIndex).LastWriteTimeUtc) { $r.Web.Add("web source is newer than the built GUI ($(Split-Path $n.Path -Leaf))") }
+    }
+
+    $common = @((Join-Path $RepoRoot 'protocol\schema'), (Join-Path $RepoRoot 'protocol\constants'), (Join-Path $RepoRoot 'Directory.Packages.props'),
+        (Join-Path $RepoRoot 'Directory.Build.props'), (Join-Path $RepoRoot 'global.json'))
+    $serverSrc = @((Join-Path $RepoRoot 'server\src')) + $common
+    $fakeSrc = @((Join-Path $RepoRoot 'tools\X4MP.FakeNode'), (Join-Path $RepoRoot 'tools\X4MP.FakeNode.Core')) + $serverSrc
+    $check = {
+        param([string]$exe, [string[]]$inputs, $reasons, [string]$label, [string]$extraDist)
+        if ($Force) { $reasons.Add('-Rebuild'); return }
+        if (-not (Test-Path $exe)) { $reasons.Add("$label exe is missing"); return }
+        $exeTime = (Get-Item $exe).LastWriteTimeUtc
+        $n = Get-NewestWriteTime $inputs
+        if ($n -and $n.Time -gt $exeTime) { $reasons.Add("source is newer than the $label exe ($(Split-Path $n.Path -Leaf))"); return }
+        if ($extraDist) {
+            $d = Get-NewestWriteTime @($extraDist) -IncludeDist
+            if ($d -and $d.Time -gt $exeTime) { $reasons.Add("the built web GUI is newer than the $label exe (it embeds it)") }
+        }
+    }
+    & $check $serverExe $serverSrc $r.Server 'server' $dist
+    & $check $fakeNodeExe $fakeSrc $r.FakeNode 'FakeNode' $null
+    # a GUI rebuilt in this very run is embedded by the server publish that follows
+    if ($r.Web.Count -gt 0 -and $r.Server.Count -eq 0) { $r.Server.Add('the web GUI is rebuilt and is embedded in the exe') }
+    if ($r.Server.Count -eq 0 -and $BuiltHash -and $BuiltHash -ne 'unknown' -and $HeadHash -and -not $HeadHash.StartsWith($BuiltHash) -and -not $BuiltHash.StartsWith($HeadHash)) {
+        $r.Server.Add("built from git $BuiltHash, HEAD is $HeadHash")
+    }
+    return $r
+}
+
+# The build hash a published server exe reports (`x4mp-server version` prints "build: <hash>"); $null when it cannot be read.
+function Get-ServerBuildHash([string]$ServerExe) {
+    if (-not (Test-Path $ServerExe)) { return $null }
+    try {
+        $o = & $ServerExe version 2>$null
+        foreach ($l in $o) { if ([string]$l -match '^build:\s*(\S+)') { return $Matches[1] } }
+    } catch { }
+    return $null
+}
+
+# Builds what is stale (web GUI, server publish, FakeNode) and prints what was rebuilt and why. -Force (-Rebuild) rebuilds all.
+# Returns @{ Server; FakeNode }.
 function Ensure-Published([switch]$Force) {
     $serverExe = Join-Path $Repo 'out\win-x64\x4mp-server.exe'
     $fakeNodeExe = Join-Path $Repo 'out\fakenode\X4MP.FakeNode.exe'
-    # The web GUI is built first (npm ci + npm run build in server\web) when server\web\dist is missing: a server published without it
-    # only shows a "GUI not built" page, and every dashboard check of the session needs the GUI.
     $webDir = Join-Path $Repo 'server\web'
-    $needWeb = -not (Test-Path (Join-Path $webDir 'dist\index.html'))
-    if ($Force -or $needWeb -or -not (Test-Path $serverExe) -or -not (Test-Path $fakeNodeExe)) {
-        if (-not (Test-Path (Join-Path $Repo 'tools\flatc\bin\flatc.exe'))) {
-            Invoke-Native 'fetch-flatc' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $Repo 'tools\flatc\fetch-flatc.ps1') }
+    $head = $null
+    try { $head = (& git -C $Repo rev-parse --short=10 HEAD 2>$null | Select-Object -First 1) } catch { }
+    $why = Get-PublishStaleness -RepoRoot $Repo -BuiltHash (Get-ServerBuildHash $serverExe) -HeadHash $head -Force:$Force
+    if ($why.Web.Count -eq 0 -and $why.Server.Count -eq 0 -and $why.FakeNode.Count -eq 0) {
+        Write-Host 'Publish: the web GUI, the server and the FakeNode are up to date (nothing rebuilt; -Rebuild forces it).'
+        return @{ Server = $serverExe; FakeNode = $fakeNodeExe }
+    }
+    if (-not (Test-Path (Join-Path $Repo 'tools\flatc\bin\flatc.exe'))) {
+        Invoke-Native 'fetch-flatc' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $Repo 'tools\flatc\fetch-flatc.ps1') }
+    }
+    if ($why.Web.Count -gt 0) {
+        Write-Host "Publish: rebuilding the web GUI ($($why.Web -join '; ')): npm ci + npm run build, a few minutes the first time..."
+        Push-Location $webDir
+        try {
+            Invoke-Native 'npm ci' { npm ci --no-audit --no-fund }
+            Invoke-Native 'npm run build' { npm run build }
         }
-        if ($needWeb) {
-            Write-Host 'Building the web GUI once (npm ci + npm run build; a few minutes the first time)...'
-            Push-Location $webDir
-            try {
-                Invoke-Native 'npm ci' { npm ci --no-audit --no-fund }
-                Invoke-Native 'npm run build' { npm run build }
-            }
-            finally { Pop-Location }
-        }
+        finally { Pop-Location }
+    }
+    if ($why.Server.Count -gt 0) {
+        Write-Host "Publish: republishing the server ($($why.Server -join '; '))..."
         Invoke-Native 'dotnet publish (server)' { dotnet publish (Join-Path $Repo 'server\src\X4MP.Server') -c Release '-p:PublishProfile=win-x64' -p:SkipWebBuild=true -nologo -v:m }
+    }
+    if ($why.FakeNode.Count -gt 0 -or $why.Server.Count -gt 0) {
+        Write-Host "Publish: rebuilding the FakeNode ($(@($why.FakeNode + $why.Server) -join '; '))..."
         Invoke-Native 'dotnet build (FakeNode)' { dotnet build (Join-Path $Repo 'tools\X4MP.FakeNode') -c Release -o (Join-Path $Repo 'out\fakenode') -nologo -v:m }
     }
     return @{ Server = $serverExe; FakeNode = $fakeNodeExe }

@@ -306,9 +306,11 @@ void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
   }
   if (g.last_guard_log_us == 0 || now_us - g.last_guard_log_us >= cfg_.guard_log_interval_us) {
     g.last_guard_log_us = now_us;
-    log(kInfo, std::format("ghost engine guard: net={} label='{}' {}{:.1f} m from the placed pose (tolerance {:.0f} m, speed {:.0f} m/s), highway context {}{} (totals: moved {}, sector {}, highway {})",
+    const double hint_age_ms = g.last_nonzero_hint_us == 0 ? -1.0 : static_cast<double>(now_us - g.last_nonzero_hint_us) / 1e3;
+    log(kInfo, std::format("ghost engine guard: net={} label='{}' {}{:.1f} m from the placed pose (tolerance {:.0f} m, speed {:.0f} m/s), highway context {}{}; last non-zero hint {:.0f} m/s {:.0f} ms ago (-1 = none), hint gate calm {:.2f} s (totals: moved {}, sector {}, highway {})",
                            g.info.net_id, g.label, other_sector ? "the game moved our object into another sector, " : moved ? "the game moved our object: " : "not moved: ", d, tol, speed_mps,
-                           st->in_highway ? "YES" : "no", moved ? "; placed it back, velocity zeroed" : "", counters_.engine_moved, counters_.engine_sector, counters_.engine_highway));
+                           st->in_highway ? "YES" : "no", moved ? "; placed it back, velocity zeroed" : "", g.last_hint_mps, hint_age_ms, g.gate.calm_s(static_cast<double>(now_us) / 1e6),
+                           counters_.engine_moved, counters_.engine_sector, counters_.engine_highway));
   }
 }
 
@@ -477,10 +479,18 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
         have_v = true;
       }
     }
+    const double now_s = static_cast<double>(now_us) / 1e6;
     if (!have_v) {
       g.decel_ref_us = 0;  // a placement jump (gate, snap): the speed history across it means nothing
       g.braking = false;
+      g.gate.discontinuity();  // F32: neither does the speed gate's calm period
+      if (!cfg_.hints_off && !g.hint_was_zero && (sector_changed || rp.snapped || !g.have_prev)) {  // F32: and the velocity of the last hint must not carry the object on into the new sector / pose
+        hint_batch_.push_back({g.local_id, 0, 0, 0});
+        g.hint_was_zero = true;
+        g.last_hint_us = now_us;
+      }
     } else {
+      g.gate.speed(now_s, ghost::length(v));  // F32: every frame, not only at the 5 Hz hint tick
       // F23c: strong deceleration over one window -> the (up to one hint period old) hint would overshoot: zero it, like a hold
       const double sp_now = ghost::length(v);
       if (g.decel_ref_us == 0) {
@@ -496,13 +506,16 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     if (!cfg_.hints_off && now_us - g.last_hint_us >= cfg_.hint_interval_us && have_v) {
       const double sp = ghost::length(v);
       // M3-34: at travel speed the engine would fly the inert ship by the hint between our placements (and may capture it into a highway): zero then.
-      const bool too_fast = !cfg_.hints_all_speeds && sp > cfg_.hint_max_mps;
+      // F32: also not before the gate has seen `hint_settle_us` of real, calm data since the last jump (a sector change at superhighway speed lets no hint out).
+      const bool too_fast = !cfg_.hints_all_speeds && (sp > cfg_.hint_max_mps || !g.gate.allow(now_s));
       // the engine guard fired lately (guard_hot_us): the engine just threw this object away from its placed pose, so no hint for it (F23c, 2026-10-28 evidence)
       const bool guard_hot = now_us < g.guard_hot_until_us;
       if (sp > 0.05 && !too_fast && !g.braking && !guard_hot) {
         hint_batch_.push_back({g.local_id, v.x, v.y, v.z});
         g.hint_was_zero = false;
         g.last_hint_us = now_us;
+        g.last_hint_mps = sp;
+        g.last_nonzero_hint_us = now_us;
       } else if (!g.hint_was_zero || now_us - g.last_hint_us >= cfg_.zero_hint_interval_us) {
         hint_batch_.push_back({g.local_id, 0, 0, 0});
         g.hint_was_zero = true;
@@ -607,6 +620,7 @@ bool GhostDriver::restore(std::string_view meta, std::int64_t now_us) {
     }
     if (f[0] != "G" || f.size() != 10) return false;
     Ghost g;
+    g.gate = ghost::HintGate({cfg_.hint_max_mps, static_cast<double>(cfg_.hint_settle_us) / 1e6});
     std::uint32_t net = 0;
     unsigned player = 0, controller = 0, team = 0;
     std::uint64_t local = 0;

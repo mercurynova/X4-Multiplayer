@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <format>
 
+#include "core/ghost/hint_gate.h"
 #include "x4mp/wire.h"
 
 namespace x4mp::features::avatars {
@@ -18,6 +19,7 @@ constexpr double kPersistPeriodS = 2.0;
 // M3-34 (Finding 23 / the 286 km repair): the velocity hint is zero above this speed, and the engine guard reads the game's pose back this often (every
 // frame for kGuardHotS after a hit): 1 s was long enough for the engine to carry a held avatar a whole highway away.
 constexpr double kHintMaxMps = 1000.0;
+constexpr double kHintSettleS = 0.6;  // F32: calm, valid rendered speed needed after a placement jump before a non-zero hint may go out (core/ghost HintGate)
 constexpr double kGuardPeriodS = 0.2;
 constexpr double kGuardHotS = 2.0;
 constexpr double kGuardLogS = 5.0;
@@ -65,6 +67,9 @@ struct AvatarDirector::Avatar {
   double next_snap = 0;
   VelHint last_hint{};
   bool hint_nonzero = false;
+  ghost::HintGate gate;               // F32: the shared speed gate (core/ghost): per-frame samples, calm period after every jump
+  double last_hint_mps = 0;           // length of the last NON-zero hint sent (diagnostics of the guard line)
+  double last_nonzero_hint_s = -1;
   bool holding = false;               // M3-31: driven avatar currently not moved (hidden / stale): repaired like a parked one when something pushes it
   bool zero_pending = false;          // M3-20: one zero-velocity hint is owed (parked, suspended, snapped back): the inert ship keeps its last velocity otherwise
   std::string waiting;                // why a spawn waits (logged when it changes)
@@ -98,6 +103,7 @@ AvatarDirector::Avatar& AvatarDirector::create(std::uint16_t player) {
   auto a = std::make_unique<Avatar>();
   a->rec.player_id = player;
   a->interp = std::make_unique<ghost::Interpolator>();
+  a->gate = ghost::HintGate({kHintMaxMps, kHintSettleS});
   avatars_.push_back(std::move(a));
   return *avatars_.back();
 }
@@ -693,6 +699,7 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
   if (rp.state == ghost::PoseState::Empty) return;
   if (rp.hidden) {  // on foot / docked inside / superhighway transit / stale: the ship stays where it is
     av.vel.sample(now_s_, 0, 0, 0, true);
+    av.gate.discontinuity();
     if (!av.holding) {
       // M3-34: the hold starts NOW: the zero velocity goes out this frame (not at the next 5 Hz tick, up to 200 ms of flight at the speed the avatar
       // had when the ship disappeared into a highway) and the guard looks at the ship at once.
@@ -724,7 +731,20 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
   // M3-31 (Finding 18): the velocity hint follows what is RENDERED, every frame. It used to be fed only when a pose was set, so a held avatar (no
   // state for > 500 ms: the interpolator holds the pose) kept its last flight speed for seconds (decaying 25 % per 250 ms re-assert): the game kept
   // flying the inert ship, across the sector edge near a superhighway ring, and the next set_pose put it back = a sector ping-pong.
-  av.vel.sample(now_s_, p.x, p.y, p.z, rp.snapped || sector_changed || rp.state == ghost::PoseState::Held || rp.state == ghost::PoseState::Early);
+  const bool jump = rp.snapped || sector_changed || rp.state == ghost::PoseState::Held || rp.state == ghost::PoseState::Early;
+  av.vel.sample(now_s_, p.x, p.y, p.z, jump);
+  // F32: the SAME gate as the ghosts (core/ghost HintGate): every frame's measured speed feeds it, a jump restarts its calm period, and the velocity of the
+  // last hint must not carry the avatar on into the new sector / pose (the zero goes out now, not at the next 5 Hz tick).
+  if (jump) {
+    av.gate.discontinuity();
+    if (av.hint_nonzero) {
+      av.zero_pending = true;
+      next_vel_s_ = 0;
+    }
+  } else if (av.vel.valid()) {
+    const auto gv = av.vel.velocity();
+    av.gate.speed(now_s_, std::sqrt(gv.x * gv.x + gv.y * gv.y + gv.z * gv.z));
+  }
   const bool same = av.have_last_set && !sector_changed && distance_m(p, av.last_set) < 1e-4 && p.yaw == av.last_set.yaw && p.pitch == av.last_set.pitch &&
                     p.roll == av.last_set.roll;
   if (same && now_s_ - av.last_set_s < kIdleReassertS) return;
@@ -787,15 +807,17 @@ void AvatarDirector::guard(Avatar& av, bool parked) {
   if (hw) ++stats_.engine_highway;
   if (moved) {
     av.have_last_set = false;  // the next drive() writes the pose whatever it is
+    av.gate.discontinuity();   // F32
     av.zero_pending = true;
     next_vel_s_ = 0;
     av.guard_hot_until = now_s_ + kGuardHotS;
   }
   if (now_s_ - av.last_guard_log >= kGuardLogS) {
     av.last_guard_log = now_s_;
-    env_.log(LogLevel::Info, std::format("avatars: engine guard: avatar of player {} (net_id {}): {}{:.1f} m from where it was placed (tolerance {:.0f} m, speed {:.0f} m/s), highway context {}{} (totals: moved {}, highway {})",
+    env_.log(LogLevel::Info, std::format("avatars: engine guard: avatar of player {} (net_id {}): {}{:.1f} m from where it was placed (tolerance {:.0f} m, speed {:.0f} m/s), highway context {}{}; last non-zero hint {:.0f} m/s {:.0f} ms ago (-1 = none), hint gate calm {:.2f} s (totals: moved {}, highway {})",
                                          av.rec.player_id, av.rec.net_id, other_sector ? "the game moved it into another sector, " : moved ? "the game moved it: " : "not moved: ", d, tol, speed,
-                                         hw ? "YES" : "no", moved ? "; placed it back, velocity zeroed" : "", stats_.engine_moved, stats_.engine_highway));
+                                         hw ? "YES" : "no", moved ? "; placed it back, velocity zeroed" : "", av.last_hint_mps,
+                                         av.last_nonzero_hint_s < 0 ? -1.0 : (now_s_ - av.last_nonzero_hint_s) * 1e3, av.gate.calm_s(now_s_), stats_.engine_moved, stats_.engine_highway));
   }
 }
 
@@ -891,7 +913,7 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
       if (av.vel.valid()) {
         const auto v = av.vel.velocity();
         const double sp = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        const bool too_fast = !diag_.hints_all_speeds && sp > kHintMaxMps;  // M3-34: at travel speed the engine would fly the inert ship by the hint
+        const bool too_fast = !diag_.hints_all_speeds && (sp > kHintMaxMps || !av.gate.allow(now_s_));  // F32: also until the gate saw calm, real data since the last jump  // M3-34: at travel speed the engine would fly the inert ship by the hint
         if (too_fast) {
           if (av.hint_nonzero || zero_owed) hints.push_back({av.local_id, 0, 0, 0});
           av.hint_nonzero = false;
@@ -901,6 +923,8 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
         } else if (sp > 0.05) {
           hints.push_back({av.local_id, v.x, v.y, v.z});
           av.hint_nonzero = true;
+          av.last_hint_mps = sp;
+          av.last_nonzero_hint_s = now_s_;
         } else if (av.hint_nonzero) {
           hints.push_back({av.local_id, 0, 0, 0});
           av.hint_nonzero = false;

@@ -177,6 +177,77 @@ public class RelayAvatarTests
         Assert.All(fed, s => Assert.Equal(0u, s.NetId));
     }
 
+    // ------------------------------------------------------------------ F28: a fresh rejoin names the parked avatar, nobody asked for it
+
+    [Fact]
+    public async Task APlayerStateNamingTheOwnParkedAvatarAsksTheAuthorityToHandItBackOncePerSecondAndKeepsTheRequestForARollback()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(bob, netId: 500));
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, 0)); // parked: Bob left once
+        Assert.Equal(0u, RosterOf(bob, bob.PlayerId)[^1].ShipNetId);
+        Assert.Empty(Ships(authority)); // the PlayerShip of the rejoin never arrived (the phase gate dropped it, or the client took the parked avatar for the answer)
+
+        // the client names the parked avatar it was shown, with its own pose
+        await rig.AdvanceAsync(1);
+        await rig.SendAsync(bob, MsgType.PlayerState, RelayFrames.State(1, 1_000_000, px: 777, sector: 5, netId: 500));
+        await rig.Actor.FlushAsync();
+
+        var request = Assert.Single(Ships(authority));
+        Assert.Equal((ushort)bob.PlayerId, request.PlayerId);
+        Assert.Equal(777, request.Px);
+        Assert.Equal(1L, rig.Relay.Stats.AvatarsAdopted);
+        // the avatar is not piloted yet: the id is not fed to the authority
+        var fed = authority.Connection.SentOf(MsgType.PlayerState)
+            .Select(f => MessageRegistry.Default.Decode<PlayerState>(new Frame(f.Type, FrameOptions.None, Lane.Realtime, f.Payload)).UnPack()).ToList();
+        Assert.All(fed, s => Assert.Equal(0u, s.NetId));
+
+        // more states within the second do not repeat the request
+        await rig.SendAsync(bob, MsgType.PlayerState, RelayFrames.State(2, 1_050_000, px: 778, sector: 5, netId: 500));
+        await rig.Actor.FlushAsync();
+        Assert.Single(Ships(authority));
+        Assert.Equal(1L, rig.Relay.Stats.AvatarsAdopted);
+
+        // the authority answers with the controller change: bound, and the states carry the id from then on
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, (ushort)bob.PlayerId));
+        Assert.Equal(500u, RosterOf(bob, bob.PlayerId)[^1].ShipNetId);
+        await rig.AdvanceAsync(1);
+        await rig.SendAsync(bob, MsgType.PlayerState, RelayFrames.State(3, 1_100_000, px: 779, sector: 5, netId: 0));
+        await rig.AdvanceAsync(1);
+        var last = authority.Connection.SentOf(MsgType.PlayerState)
+            .Select(f => MessageRegistry.Default.Decode<PlayerState>(new Frame(f.Type, FrameOptions.None, Lane.Realtime, f.Payload)).UnPack()).Last();
+        Assert.Equal(500u, last.NetId);
+
+        // a re-hosted authority that loads a save without the avatar gets the request again (the rollback re-provisions it)
+        await DropAsync(rig, authority);
+        rig.Mirror.RollbackToNetIdFloor(500, authority.PlayerId);
+        var back = await rig.Rig.ResumeAsync("Boss", authority);
+        await rig.Actor.FlushAsync();
+        var again = Assert.Single(Ships(back));
+        Assert.Equal((ushort)bob.PlayerId, again.PlayerId);
+        Assert.Equal(1L, rig.Relay.Stats.AvatarsReprovisioned);
+    }
+
+    [Fact]
+    public async Task APlayerStateNamingAnAvatarOfAnotherPlayerNeverAsksTheAuthority()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice");
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(alice, netId: 500));
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, 0));
+
+        await rig.AdvanceAsync(1);
+        await rig.SendAsync(bob, MsgType.PlayerState, RelayFrames.State(1, 1_000_000, px: 5, sector: 5, netId: 500)); // Bob names Alice's parked avatar
+        await rig.AdvanceAsync(1);
+
+        Assert.Empty(Ships(authority));
+        Assert.Equal(0L, rig.Relay.Stats.AvatarsAdopted);
+    }
+
     // ------------------------------------------------------------------ parked avatars (Q6)
 
     [Fact]

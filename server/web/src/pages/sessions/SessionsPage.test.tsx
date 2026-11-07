@@ -110,6 +110,37 @@ describe('SessionsPage', () => {
     expect(screen.getByText('Old')).toBeInTheDocument();
   });
 
+  it('K8: shows the authority grace countdown while the authority is lost, and not otherwise', async () => {
+    setup({
+      current: session('AuthorityLost', {
+        authority: { playerId: 1, name: 'Alice', status: 'Lost', graceRemainingSeconds: 412.3, gameBuild: null, modVersion: null },
+      }),
+      saves: [],
+      history: [],
+    });
+    expect(await screen.findByText(/authority grace: 41[23] s left/)).toBeInTheDocument();
+  });
+
+  it('K8: no countdown for a running session', async () => {
+    setup({ current: session('Running'), saves: [], history: [] });
+    expect(await screen.findByText('Friday Run')).toBeInTheDocument();
+    expect(screen.queryByText(/authority grace/)).not.toBeInTheDocument();
+  });
+
+  it('F31: history says a resume after a restart is not supported when it lists an ended session', async () => {
+    setup({
+      current: null,
+      saves: [],
+      history: [{ id: 6, name: 'Old', state: 'Ended', saveName: null, saveSha256: null, startedAt: null, uptimeSeconds: 0, players: 0 }],
+    });
+    expect(await screen.findByText(/resume after a restart is not supported: create a new session from its checkpoint/)).toBeInTheDocument();
+  });
+
+  it('F30b: choosing no save says the authority starts from its running game', async () => {
+    setup({ current: null, saves: [save()], history: [] });
+    expect(await screen.findByText(/No save: the authority's running game becomes the session start/)).toBeInTheDocument();
+  });
+
   it('asks for confirmation, then requests a save', async () => {
     const { calls } = setup({ current: session('Running'), saves: [], history: [] });
     const user = userEvent.setup();

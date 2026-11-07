@@ -273,6 +273,12 @@ public class AlertEvaluatorTests
             _published++;
         }
 
+        public void Publish(DomainEvent domainEvent)
+        {
+            Bus.Publish(domainEvent);
+            _published++;
+        }
+
         /// <summary>Waits until the evaluator has handled everything published through <see cref="Stats"/>.</summary>
         public Task SettleAsync() => EventBusTests.WaitUntil(() =>
         {
@@ -321,6 +327,52 @@ public class AlertEvaluatorTests
         // recovery clears it, and a new dip starts a new episode
         rig.Stats(60);
         await EventBusTests.WaitUntil(() => rig.Alerts.Count == 2);
+        Assert.IsType<AlertCleared>(rig.Alerts.Last());
+    }
+
+    [Fact]
+    public async Task TheLowFpsAlertIsClearedWhenTheAuthorityDetachesAndDoesNotReturnWithoutNewStats()
+    {
+        await using var rig = new Rig();
+        rig.Stats(11);
+        await rig.SettleAsync();
+        rig.Clock.Advance(TimeSpan.FromSeconds(31));
+        await EventBusTests.WaitUntil(() => rig.Alerts.Count == 1);
+        Assert.IsType<AlertRaised>(rig.Alerts.Single());
+
+        rig.Publish(new PlayerDetached(rig.Clock.GetUtcNow(), 7, 2, "someone else", "x")); // another player: no effect
+        await rig.SettleAsync();
+        await Task.Delay(30);
+        Assert.Single(rig.Alerts);
+
+        rig.Publish(new PlayerDetached(rig.Clock.GetUtcNow(), 7, 1, "host", "socket lost")); // the authority (player 1)
+        await EventBusTests.WaitUntil(() => rig.Alerts.Count == 2);
+        Assert.IsType<AlertCleared>(rig.Alerts.Last());
+
+        rig.Clock.Advance(TimeSpan.FromSeconds(120)); // no more stats: no new alert from the stale reading
+        await rig.SettleAsync();
+        await Task.Delay(30);
+        Assert.Equal(2, rig.Alerts.Count);
+    }
+
+    [Fact]
+    public async Task TheLowFpsAlertIsClearedWhenTheAuthorityLeavesOrTheSessionEnds()
+    {
+        await using var rig = new Rig();
+        rig.Stats(11);
+        await rig.SettleAsync();
+        rig.Clock.Advance(TimeSpan.FromSeconds(31));
+        await EventBusTests.WaitUntil(() => rig.Alerts.Count == 1);
+        rig.Publish(new PlayerLeft(rig.Clock.GetUtcNow(), 7, 1, "host", "ClientQuit"));
+        await EventBusTests.WaitUntil(() => rig.Alerts.Count == 2);
+        Assert.IsType<AlertCleared>(rig.Alerts.Last());
+
+        rig.Stats(11);
+        await rig.SettleAsync();
+        rig.Clock.Advance(TimeSpan.FromSeconds(31));
+        await EventBusTests.WaitUntil(() => rig.Alerts.Count == 3);
+        rig.Publish(new SessionStateChanged(rig.Clock.GetUtcNow(), 7, "Running", "Ended", "stop"));
+        await EventBusTests.WaitUntil(() => rig.Alerts.Count == 4);
         Assert.IsType<AlertCleared>(rig.Alerts.Last());
     }
 

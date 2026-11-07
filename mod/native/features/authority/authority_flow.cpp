@@ -494,6 +494,11 @@ void AuthorityFlow::step_hashing(host::HostContext& ctx) {
   spec.ghosts_cleaned = ghosts_cleaned_;
   spec.step_timeout = seconds(60);
   if (!uploader_.start(std::move(spec))) return fail(ctx, "the upload job could not start (not connected?)");
+  // F28: the ledger entry is made now, not when the server's confirmation is processed. A planned leave ends the session the moment the server
+  // answers "saved" (it stores the upload first), so the confirmation can arrive after the node is gone: the save was then missing from the ledger and
+  // the re-hosted authority that loaded exactly this checkpoint dropped every avatar record (a connected player's avatar was swept as a leftover).
+  note_checkpoint_in_ledger();
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: the checkpoint joined the avatar ledger as its upload starts (save {}, {} avatar(s))", hex12(ready_.save.sha256), manifest_avatars_.size());
   spawn_ship_ = collected_.ship();
   late_ship_ = false;
   ship_wait_ = false;  // this checkpoint decides again below (a newer collection supersedes an older ship question)
@@ -515,17 +520,20 @@ void AuthorityFlow::step_uploading(host::HostContext& ctx) {
   }
 }
 
+// M3-22: the checkpoint joins the avatar lineage ledger: a later load of exactly this save keeps the avatars its manifest lists
+void AuthorityFlow::note_checkpoint_in_ledger() {
+  std::vector<std::string> idcodes;
+  for (const auto& r : manifest_avatars_) {
+    if (!r.idcode.empty()) idcodes.push_back(r.idcode);
+  }
+  avatars::avatar_hub().note_checkpoint(crypto::to_hex(std::span<const std::uint8_t>(ready_.save.sha256)), std::move(idcodes));
+}
+
 void AuthorityFlow::on_checkpoint_stored(host::HostContext& ctx) {
   ++stored_total_;
   ++state_.checkpoints;
   state_.loaded_sha = ready_.save.sha256;  // this game is the source of that checkpoint
-  {  // M3-22: the checkpoint joins the avatar lineage ledger: a later load of exactly this save keeps the avatars its manifest lists
-    std::vector<std::string> idcodes;
-    for (const auto& r : manifest_avatars_) {
-      if (!r.idcode.empty()) idcodes.push_back(r.idcode);
-    }
-    avatars::avatar_hub().note_checkpoint(crypto::to_hex(std::span<const std::uint8_t>(ready_.save.sha256)), std::move(idcodes));
-  }
+  note_checkpoint_in_ledger();  // (already done when the upload started; harmless to repeat)
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: checkpoint {} stored (save {}, request {})", save_name_, hex12(ready_.save.sha256), request_id_);
   std::error_code ec;
   fs::remove(ready_.manifest_path, ec);  // our own temporary manifest file
