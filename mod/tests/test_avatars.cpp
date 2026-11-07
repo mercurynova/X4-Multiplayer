@@ -1326,6 +1326,78 @@ TEST_CASE("avatars.director (M3-34): the velocity hint is zero above 1000 m/s (t
   }
 }
 
+namespace {
+// Flies along x at `speed` in `sector` (index) for `seconds`, continuing the position of the previous call (20 Hz states, 60 fps frames).
+struct Flight {
+  AvatarDirector& d;
+  Clock& c;
+  std::uint32_t net;
+  double x = 2000;
+  void go(double speed, double seconds, std::uint16_t sector) {
+    const int frames = static_cast<int>(seconds * 60);
+    for (int i = 0; i < frames; ++i) {
+      c.t += 1.0 / 60.0;
+      x += speed / 60.0;
+      if (i % 3 == 0) {
+        PlayerStateIn s;
+        s.net_id = net;
+        s.sector = sector;
+        s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+        s.pose = {x, 0, 0, 0, 0, 0};
+        d.on_player_state(s, s.sample_time_us);
+      }
+      d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+    }
+  }
+};
+bool any_nonzero_hint(const FakeEnv& env, std::size_t from) { return max_hint_speed(env, from) > 0.0; }
+}  // namespace
+
+TEST_CASE("avatars.director (F32): a sector change zeroes the outstanding hint at once and sends no hint until the gate has seen calm, real data", "[avatars][f32]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  Flight f{d, c, net};
+  f.go(400.0, 3.0, 1);
+  REQUIRE(max_hint_speed(env) > 300.0);  // cruising below the cap: the hint carries the speed
+
+  // the avatar changes sector (the ring superhighway's sector crossing) while still flying at 400 m/s: step until the game object is in the new sector
+  int guard = 0;
+  while (env.objs[id].sector != 901 && guard++ < 120) f.go(400.0, 1.0 / 60.0, 2);
+  REQUIRE(env.objs[id].sector == 901);
+  const auto at_change = env.velocities.size();
+  bool zero_now = false;
+  for (std::size_t i = at_change > 0 ? at_change - 1 : 0; i < env.velocities.size(); ++i) {
+    for (const auto& h : env.velocities[i]) zero_now = zero_now || (h.vx == 0 && h.vy == 0 && h.vz == 0);
+  }
+  CHECK(zero_now);  // the velocity of the last hint must not carry the avatar on into the new sector (the old code waited for the next 5 Hz tick)
+  f.go(400.0, 0.4, 2);
+  CHECK_FALSE(any_nonzero_hint(env, at_change));  // inside the settle time (0.6 s): no hint
+  f.go(400.0, 1.5, 2);
+  CHECK(any_nonzero_hint(env, at_change));  // real data after the jump: the hint is back
+}
+
+TEST_CASE("avatars.director (F32): after a burst at travel speed no hint goes out until the speed has been calm and valid for the settle time", "[avatars][f32]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  Flight f{d, c, net};
+  f.go(400.0, 2.0, 1);
+  f.go(9000.0, 0.5, 2);  // superhighway speed after the sector change
+  const auto after_burst = env.velocities.size();
+  CHECK(max_hint_speed(env, after_burst) == 0.0);
+  f.go(400.0, 0.3, 2);  // the ship is out of the highway: the first valid samples are slow, but they are the first
+  CHECK_FALSE(any_nonzero_hint(env, after_burst));
+  f.go(400.0, 1.5, 2);
+  CHECK(any_nonzero_hint(env, after_burst));
+}
+
 TEST_CASE("avatars.director (M3-34): a hold (the player's ship went hidden) zeroes the velocity in the same frame, not at the next 5 Hz tick", "[avatars][m334]") {
   FakeEnv env;
   AvatarDirector d(env);

@@ -106,6 +106,7 @@ class AuthorityFlow {
   void step_hashing(host::HostContext& ctx);
   void step_uploading(host::HostContext& ctx);
   void on_checkpoint_stored(host::HostContext& ctx);
+  void note_checkpoint_in_ledger();
   void maybe_spawn(host::HostContext& ctx);
   void step_ship_wait(host::HostContext& ctx);
   void schedule_reask() noexcept;

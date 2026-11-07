@@ -100,6 +100,9 @@ public sealed class RelayStats
     /// <summary>PlayerShip requests re-sent to an authority for players whose avatar a world rollback removed (M3-29).</summary>
     public long AvatarsReprovisioned { get; internal set; }
 
+    /// <summary>PlayerShip requests the server sent for a player whose PlayerState names its own parked avatar (F28: the client never asked, or its request was dropped).</summary>
+    public long AvatarsAdopted { get; internal set; }
+
     /// <summary>Avatars removed on an admin kick/ban with "remove their ships" (M3-01).</summary>
     public long AvatarsRemoved { get; internal set; }
 
