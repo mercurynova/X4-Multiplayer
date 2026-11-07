@@ -53,6 +53,17 @@ function CurrentSession({
     return () => clearInterval(timer);
   }, [session]);
 
+  // K8: the authority-grace countdown. The server sends the seconds left with each state push; between pushes it ticks here.
+  const graceBase = session?.state === 'AuthorityLost' ? (session.authority?.graceRemainingSeconds ?? null) : null;
+  const [graceTick, setGraceTick] = useState<{ base: number; left: number } | null>(null);
+  useEffect(() => {
+    if (graceBase === null) return;
+    const t0 = Date.now();
+    const timer = setInterval(() => setGraceTick({ base: graceBase, left: Math.max(0, graceBase - (Date.now() - t0) / 1000) }), 1000);
+    return () => clearInterval(timer);
+  }, [graceBase]);
+  const graceLeft = graceBase === null ? null : graceTick?.base === graceBase ? graceTick.left : graceBase;
+
   if (!session) {
     return (
       <section aria-labelledby="current-h">
@@ -95,6 +106,14 @@ function CurrentSession({
         <dd>{session.startedAt ? formatDuration(uptime) : '-'}</dd>
         <dt>Authority</dt>
         <dd>{session.authority ? `${session.authority.name ?? `player ${session.authority.playerId}`} (${session.authority.status})` : 'none yet'}</dd>
+        {graceLeft !== null && (
+          <>
+            <dt>Authority grace</dt>
+            <dd>
+              <span className="state state-authoritylost">authority grace: {Math.ceil(graceLeft)} s left</span>
+            </dd>
+          </>
+        )}
         <dt>Players</dt>
         <dd>{session.players}</dd>
         <dt>Save</dt>
@@ -285,6 +304,11 @@ function History({ sessions }: { sessions: readonly SessionSummaryDto[] }) {
         <p className="muted">No sessions yet.</p>
       ) : (
         <div className="table-wrap">
+          {sessions.some((s) => s.state === 'Ended') && (
+            <p className="muted">
+              Ended sessions (also those closed by a server restart): resume after a restart is not supported: create a new session from its checkpoint.
+            </p>
+          )}
           <table>
             <thead>
               <tr>

@@ -91,6 +91,35 @@ public sealed class SqliteSessionStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task SessionsLeftOpenByAPreviousRunAreEndedAtStartupWithTheirPlayers()
+    {
+        long running = await _store.BeginSessionAsync("Running one", Guid.NewGuid(), T0, default);
+        _store.RecordPhase(running, SessionPhase.Running, _playerId, T0.AddSeconds(3), null);
+        _store.PlayerJoined(running, _playerId, Role.Authority, T0.AddSeconds(4));
+        long lost = await _store.BeginSessionAsync("Lost one", Guid.NewGuid(), T0, default);
+        _store.RecordPhase(lost, SessionPhase.AuthorityLost, 0, T0.AddSeconds(5), "lost");
+        long idle = await _store.BeginSessionAsync("Never started", Guid.NewGuid(), T0, default);
+        long ended = await _store.BeginSessionAsync("Already ended", Guid.NewGuid(), T0, default);
+        _store.RecordPhase(ended, SessionPhase.Ended, 0, T0.AddMinutes(1), "admin stop");
+        await _writer.FlushAsync();
+
+        var restart = T0.AddHours(900);
+        Assert.Equal(3, SqliteSessionStore.EndOpenSessions(_factory, restart));
+
+        foreach (long id in new[] { running, lost, idle })
+        {
+            Assert.Equal("Ended", Scalar<string>("SELECT state FROM sessions WHERE id = @id", new { id }));
+            Assert.Equal("server restarted", Scalar<string>("SELECT end_reason FROM sessions WHERE id = @id", new { id }));
+            Assert.StartsWith("2026-11-07", Scalar<string>("SELECT ended_at FROM sessions WHERE id = @id", new { id }));
+        }
+
+        Assert.Equal("admin stop", Scalar<string>("SELECT end_reason FROM sessions WHERE id = @id", new { id = ended })); // untouched
+        Assert.Equal(0, Scalar<int>("SELECT COUNT(*) FROM session_players WHERE session_id = @id AND left_at IS NULL", new { id = running }));
+        Assert.Equal("server restarted", Scalar<string>("SELECT leave_reason FROM session_players WHERE session_id = @id", new { id = running }));
+        Assert.Equal(0, SqliteSessionStore.EndOpenSessions(_factory, restart)); // idempotent
+    }
+
+    [Fact]
     public async Task PlayerRowsOpenOnJoinAndCloseOnLeaveInOrder()
     {
         long id = await _store.BeginSessionAsync("S", Guid.NewGuid(), T0, default);

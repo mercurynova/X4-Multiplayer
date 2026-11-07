@@ -220,6 +220,13 @@ internal sealed partial class DatabaseStartup(
     {
         var version = migrations.Migrate();
         LogReady(version);
+        int closed = X4MP.Persistence.SqliteSessionStore.EndOpenSessions(
+            services.GetRequiredService<SqliteConnectionFactory>(), services.GetRequiredService<TimeProvider>().GetUtcNow());
+        if (closed > 0)
+        {
+            LogClosedStale(closed);
+        }
+
         _ = services.GetRequiredService<PersistenceWriter>(); // eager so shutdown flushes it
         return Task.CompletedTask;
     }
@@ -228,6 +235,9 @@ internal sealed partial class DatabaseStartup(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Database ready at schema version {SchemaVersion}")]
     private partial void LogReady(int schemaVersion);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Count} session(s) left open by a previous server run marked as ended (server restarted)")]
+    private partial void LogClosedStale(int count);
 }
 
 /// <summary>Logs where the server keeps its data, where the GUI is, and the plain-HTTP warning.</summary>
