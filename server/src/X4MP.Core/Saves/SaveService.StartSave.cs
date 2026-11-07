@@ -16,6 +16,11 @@ public sealed partial class SaveService
     // The connection the start save was announced on: a node announced twice on one connection (attach and phase change race) is told once; a resume is a new connection.
     private INodeConnection? _startInfoConnection;
 
+    /// <summary>The text an authority gets when the session has no start save (F30b).</summary>
+    public const string NoStartSaveNotice = "This session has no save: your running game becomes the session start. If X4 is at the main menu, load the game you want to run, or ask the admin to choose or upload a save for the session.";
+
+    private INodeConnection? _noSaveNoticeConnection;
+
     /// <summary>
     /// Names the stored save the session starts from (<c>POST /sessions {saveId}</c>, null clears it). Until the session has its first checkpoint the
     /// authority is sent this save as a <c>SessionSaveInfo</c> (without a manifest: an uploaded save has none, and the authority needs none) and walks
@@ -87,6 +92,17 @@ public sealed partial class SaveService
     {
         if (EffectiveStart() is not { } start || !node.IsAuthority || node.Connection is not { } connection)
         {
+            // F30b: no session save and no checkpoint. The authority's own running game is the start (the mod reports ready by itself when a game is
+            // loaded); one sitting in the main menu would wait without a word, so it is told once per connection what to do.
+            if (node.IsAuthority && node.Connection is { } waiting && _current is null && _startSave is null && !ReferenceEquals(_noSaveNoticeConnection, waiting))
+            {
+                _noSaveNoticeConnection = waiting;
+                Send(node, ControlFrames.Encode(
+                    MsgType.ServerNotice,
+                    fbb => ServerNotice.Pack(fbb, new ServerNoticeT { Severity = NoticeSeverity.Info, Text = NoStartSaveNotice, DisplayMs = 15000 }).Value,
+                    256));
+            }
+
             return;
         }
 

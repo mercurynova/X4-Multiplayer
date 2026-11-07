@@ -234,6 +234,11 @@ function NewSession({
             ))}
           </select>
           {errors.saveId && <span className="field-error">{errors.saveId}</span>}
+          {selectedSha === null && (
+            <span className="muted">
+              No save: the authority's running game becomes the session start. If its X4 is at the main menu it waits until a game is loaded.
+            </span>
+          )}
         </label>
         {!canCreate && <p className="muted">A session is active. Stop it before creating another.</p>}
         <div className="row">
