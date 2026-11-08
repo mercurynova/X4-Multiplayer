@@ -443,7 +443,7 @@ void AvatarsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
     if (s.dir->size() > 0 && (st.states_in != s.last_stats.states_in || st.set_pose_calls != s.last_stats.set_pose_calls)) {
       ctx.log.raw(Cat::Ghost, Level::Info,
                   "avatars: [drive] avatars=" + std::to_string(s.dir->size()) + " live=" + std::to_string(s.dir->live_count()) + " states_in=" + std::to_string(st.states_in) +
-                      " unknown_net_id=" + std::to_string(st.states_unknown) + " set_pose=" + std::to_string(st.set_pose_calls) + " unmapped_sector=" +
+                      " no_id=" + std::to_string(st.states_no_id) + " unknown_net_id=" + std::to_string(st.states_unknown) + " set_pose=" + std::to_string(st.set_pose_calls) + " unmapped_sector=" +
                       std::to_string(st.unmapped_sector) + " vel_hints=" + std::to_string(st.vel_hints) + " repairs=" + std::to_string(st.repairs) +
                       " engine_moved=" + std::to_string(st.engine_moved) + " engine_highway=" + std::to_string(st.engine_highway));
     }

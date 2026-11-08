@@ -431,6 +431,28 @@ TEST_CASE("avatars.director: provisioning on PlayerShip", "[avatars]") {
   }
 }
 
+TEST_CASE("avatars.director: a state that names no ship is counted apart, not as an unknown id", "[avatars]") {
+  // M3-14: selfship's own_net_id is 0 until the client takes its avatar over, so every on-foot client sends PlayerState with net id 0. That used to
+  // land in states_unknown and made the [drive] line read as if the avatar record were broken (1537 of 1537 states on the 2026-11-08 stand).
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  (void)provision(d, env, c, 2, 1, "Alice");
+  PlayerStateIn s;
+  s.net_id = 0;
+  s.sector = 1;
+  s.pose = {1, 2, 3, 0, 0, 0};
+  for (int i = 0; i < 3; ++i) {
+    s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6) + i * 1000;
+    d.on_player_state(s, s.sample_time_us);
+  }
+  CHECK(d.stats().states_in == 3);
+  CHECK(d.stats().states_no_id == 3);
+  CHECK(d.stats().states_unknown == 0);  // no record was claimed to be missing
+  CHECK(d.stats().set_pose_calls == 0);
+}
+
 TEST_CASE("avatars.director: driving from relayed PlayerState, velocity hint, parking", "[avatars]") {
   FakeEnv env;
   AvatarDirector d(env);

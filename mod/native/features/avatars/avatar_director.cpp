@@ -384,6 +384,13 @@ void AvatarDirector::on_player_ship(const PlayerShipReq& req) {
 
 void AvatarDirector::on_player_state(const PlayerStateIn& s, std::int64_t arrival_server_us) {
   ++stats_.states_in;
+  // M3-14: a client names its ship with the net id the takeover gave it (selfship: own_net_id). A client that has not taken its avatar over yet -
+  // walking around on foot, or not yet spawned into the session - sends 0. That is not an unknown id (find_net(0) can never match), so it is
+  // counted apart: the [drive] line otherwise claims a broken record for every second of every on-foot session.
+  if (s.net_id == 0) {
+    ++stats_.states_no_id;
+    return;
+  }
   Avatar* av = find_net(s.net_id);
   if (!av || !av->rec.online) {
     ++stats_.states_unknown;

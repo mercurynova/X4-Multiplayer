@@ -118,7 +118,8 @@ struct DirectorDiag {
 struct DirectorStats {
   std::uint32_t requests = 0, provisioned = 0, refreshed = 0, spawn_failed = 0, safepos_replies = 0, safepos_timeouts = 0;
   std::uint32_t bound = 0, lost = 0, strays = 0, respawned = 0, parked = 0, removed = 0, remove_refused = 0;
-  std::uint32_t states_in = 0, states_unknown = 0, set_pose_calls = 0, unmapped_sector = 0, repairs = 0, vel_hints = 0;
+  // states_no_id: a state that named no ship at all (net id 0), i.e. sent by a client that has not taken its avatar over yet; not an unknown id.
+  std::uint32_t states_in = 0, states_unknown = 0, states_no_id = 0, set_pose_calls = 0, unmapped_sector = 0, repairs = 0, vel_hints = 0;
   std::uint32_t dress_ok = 0, dress_failed = 0, announced = 0, reowned = 0, team_respawned = 0;
   std::uint32_t engine_moved = 0, engine_highway = 0;  // M3-34: the game moved a driven avatar by itself / has it in a highway context
 };
