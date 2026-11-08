@@ -85,6 +85,21 @@ TEST_CASE("extrapolates 500 ms then holds, hides when stale", "[ghost][interp]")
   CHECK(p.snapped);
 }
 
+TEST_CASE("a wider extrapolation cap dead-reckons through the streamer's keepalive", "[ghost][interp]") {
+  // The authority sends nothing to a hull whose velocity is right until its keepalive (1 s near, 5 s far), so a ghost has to
+  // extrapolate for longer than the 500 ms default or it freezes and the error grows with the freeze (GhostConfig::extrap_cap_us).
+  InterpolatorConfig cfg;
+  cfg.extrap_cap_us = 6'000'000;
+  Interpolator in(cfg);
+  in.push(mk(1000, 0, 1000), 0);
+  in.push(mk(1050, 50, 1000), 0);
+  const RenderPose p = in.render(3050 * kMs);  // render time 2950: 1.9 s past the newest sample
+  CHECK(p.state == PoseState::Extrapolating);
+  CHECK(p.pos.x == Approx(1950.0).margin(4.0));
+  CHECK(p.represented_t_us == 2950 * kMs);
+  CHECK_FALSE(p.hidden);
+}
+
 TEST_CASE("Teleport and sector change snap, never interpolate", "[ghost][interp]") {
   Interpolator in;
   in.push(mk(1000, 0, 100), 0);

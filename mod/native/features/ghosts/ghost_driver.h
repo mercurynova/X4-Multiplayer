@@ -164,6 +164,10 @@ struct GhostConfig {
   // Plan 4.6 says "stale > 5 s -> hide", but the server sends NOTHING for a ship that does not change (a parked avatar was silent for
   // 30 s in the ghost e2e), so silence is not staleness: a ghost without data stays where it is. Removal comes from EntityDespawn.
   std::int64_t stale_us = 3'600'000'000;
+  // A ghost dead-reckons through the streamer's keepalive: a hull whose velocity is right is sent nothing until the 1 s (near) or 5 s
+  // (far) keyframe, so the interpolator's 500 ms default froze it and the error grew with the freeze (stand 2026-11-08: 19465 m at
+  // 8170 m/s with 17 of 42 frames held). The cap covers the far keepalive; past it the ghost holds, because silence is not staleness.
+  std::int64_t extrap_cap_us = 6'000'000;
   double motion_epsilon_m = 0.001;
   double motion_epsilon_rad = 0.0001;
   // M3-34 (Finding 23): the velocity hint is for the target info's speed, but the ENGINE flies the inert ship with it between our per-frame placements and

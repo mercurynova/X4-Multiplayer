@@ -20,6 +20,7 @@ constexpr double kSpawnNearMetres = 5000.0;
 ghost::InterpolatorConfig interp_config(const GhostConfig& c) {
   ghost::InterpolatorConfig i;
   i.stale_us = c.stale_us;
+  i.extrap_cap_us = c.extrap_cap_us;
   return i;
 }
 
