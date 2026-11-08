@@ -52,6 +52,12 @@ struct StreamConfig {
   double status_keepalive_s = 10.0;
   // The distance used for the dead-reckoning tiers when the authority's own ship (the observer) is unknown.
   double observer_unknown_m = 50000.0;
+  // A hull outruns its sector's capture tier: a 1 Hz sector visits each of its entities about once a second, so a ship at
+  // 1000 m/s covers a kilometre between two samples and the client has to extrapolate for most of the interval (measured
+  // on the stand 2026-11-08: delay_ms 851-930, held 16-19 frames of 36, err_p95 ~ speed x interval). A track faster than
+  // fast_speed_mps is therefore polled again on its own schedule, whatever its sector's tier says.
+  double fast_speed_mps = 300.0;
+  double fast_poll_s = 0.15;
 };
 
 struct StreamStats {
@@ -61,6 +67,7 @@ struct StreamStats {
   std::uint32_t updates = 0;         // WorldUpdate entries
   std::uint32_t update_messages = 0; // WorldUpdate frames (keepalives included)
   std::uint32_t polls = 0;
+  std::uint32_t fast_polls = 0;  // of which the extra poll a fast hull gets beyond its sector's tier
   std::uint32_t poll_failed = 0;
   std::uint32_t despawns = 0;
   std::uint32_t changes = 0;

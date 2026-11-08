@@ -403,6 +403,24 @@ void EntityStream::update_pass(double now_s, const CaptureSet& set, const Univer
       for (const auto net_id : focus->second) poll(net_id);
     }
   }
+
+  // A fast hull does not wait for its sector's slice: at 1 Hz it would be read about once a second, which at 1000 m/s is a
+  // kilometre of travel the client has to bridge by extrapolation. Such a track is polled again on its own interval
+  // (fast_poll_s), never more often than the tier the sector already gives it. A sector that left interest is skipped: the
+  // client is not watching it, and its tracks keep the last pose for the grace.
+  for (auto& [net_id, track] : tracks_) {
+    (void)net_id;
+    if (!track.have_sent || !track.have_read) continue;
+    if (track.visited_tick == visit_tick_) continue;
+    if (set.rate_of(track.sector) == 0) continue;
+    const double speed = std::sqrt(track.velocity.x * track.velocity.x + track.velocity.y * track.velocity.y +
+                                   track.velocity.z * track.velocity.z);
+    if (!(speed >= cfg_.fast_speed_mps)) continue;
+    if (now_s - track.read_at_s < cfg_.fast_poll_s) continue;
+    track.visited_tick = visit_tick_;
+    ++stats_.fast_polls;
+    visit(track, track.sector, now_s, set, states_);
+  }
 }
 
 void EntityStream::visit(EntityTrack& track, std::uint16_t sector, double now_s, const CaptureSet& set,

@@ -552,6 +552,53 @@ TEST_CASE("stream: a hull that jumps faster than the wire can carry keeps its po
   CHECK(seen);  // the pose still reached the client
 }
 
+TEST_CASE("stream: a fast hull is polled beyond its sector's capture tier", "[authority][stream][fast]") {
+  // A 1 Hz sector gives each of its 40 hulls one poll per second. At 1000 m/s that is a kilometre between two samples, and the
+  // client has to extrapolate for the rest of the interval (measured on the stand 2026-11-08: delay_ms 851-930 ms, held 16-19
+  // frames of 36, err_p95 ~ speed x interval). A hull above fast_speed_mps is polled again on its own schedule.
+  World world;
+  const auto fast = world.add(12, 4000, TrackPose{100, 0, 0, 0, 0, 0});  // not (0,0,0): that reads as docked and is skipped
+  world.add(12, 4001, TrackPose{500, 0, 0, 0, 0, 0});  // a hull of the same sector that is not moving
+  for (int i = 2; i < 40; ++i) world.add(12, 4000 + i, TrackPose{600.0 + i, 0, 0, 0, 0, 0});
+  Recorder recorder;
+  std::unordered_map<std::uint64_t, int> reads;
+  auto reader = [&](std::uint64_t component, TrackPose& out) {
+    ++reads[component];
+    out = world.poses[component];
+    return true;
+  };
+  EntityStream stream(reader, recorder.sink());
+  stream.set_observer(12, 0.0, 0.0, 0.0);
+  CaptureSet set;
+  REQUIRE(set.apply(1, {{12, 1}}, {}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(12);
+  stream.step(1.0, 0, 0.0, set, world.index);  // spawn pass reads every entity once
+  recorder.clear();
+  reads.clear();
+
+  for (int tick = 1; tick <= 60; ++tick) {
+    const double t = tick * 0.05;
+    world.poses[4000] = TrackPose{100.0 + 1000.0 * t, 0, 0, 0, 0, 0};  // 1000 m/s along +x
+    stream.step(1.0 + t, tick * 50000, t, set, world.index);
+  }
+
+  // The tier alone reads each hull about once a second (3 times in these 3 s); the extra poll lifts the fast hull to ~18.
+  CHECK(stream.stats().fast_polls >= 5);
+  CHECK(reads[4000] >= reads[4001] + 5);
+  std::size_t fast_entries = 0;
+  for (const auto& [type, payload] : recorder.realtime) {
+    if (type != T(P::MsgType::WorldUpdate)) continue;
+    for (const auto& state : states_of(payload)) {
+      if (state.net_id() == fast) ++fast_entries;
+    }
+  }
+  CHECK(fast_entries <= 6);  // a steadier hull is predicted from its velocity: more polls do not mean more messages
+  // Feeding a hull that flies straight and steady needs no update - the client predicts it from the velocity it already has.
+  // That is why the extra poll is measurable in reads and in fast_polls, not in the number of WorldUpdate entries.
+  CHECK(stream.stats().encode_failed == 0);
+}
+
 TEST_CASE("stream: every tick emits one WorldUpdate, even with nothing to say", "[authority][stream][clock]") {
   World world;
   Recorder recorder;
