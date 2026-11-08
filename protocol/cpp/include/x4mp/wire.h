@@ -349,6 +349,10 @@ inline constexpr double kVelocityStepsPerMps = 4.0;                             
 inline constexpr double kCoarseMpsPerStep = 4.0;                                       ///< 4 m/s
 inline constexpr double kMaxFineVelocityMps = 32767.0 / kVelocityStepsPerMps;
 inline constexpr std::int32_t kMaxTimeOffsetMs = 32767;
+/// Largest |metre| a position can carry: an i32 count of 1/64 m covers +-33 554 431.98 m (+-33 554 km) from the sector origin.
+/// A sector-relative position beyond that cannot be encoded at all, so anything that produces one must be skipped, not
+/// quantised (the streamer counts those as skipped_far instead of encode_failed).
+inline constexpr double kMaxPositionMetres = 2147483647.0 / kPositionStepsPerMetre;
 
 /// Metres (sector-relative) to i32 1/64 m.
 [[nodiscard]] inline Result<std::int32_t> quantize_position(double metres) noexcept {

@@ -467,6 +467,53 @@ TEST_CASE("stream: a ship that docks keeps its last real pose instead of jumping
   }
 }
 
+TEST_CASE("stream: a hull beyond the wire's 33 554 km position range is skipped, not an encode failure", "[authority][stream][spawn][far]") {
+  // The wire carries a sector-relative position as an i32 count of 1/64 m, so it stops at wire::kMaxPositionMetres (33 554 km).
+  // Positions of 47 000-48 000 km exist in the universe (the 2026-11-08 give-up lines named hulls there), and every update of such
+  // a hull used to land in encode_failed, which read as an encoder bug rather than a range the protocol cannot carry.
+  World world;
+  const auto near = world.add(12, 1000, TrackPose{200'000, 0, 0, 0, 0, 0});
+  const auto far = world.add(12, 1001, TrackPose{40'000'000, 0, 0, 0, 0, 0});  // 40 000 km, past the range
+  Recorder recorder;
+  EntityStream stream(world.reader(), recorder.sink());
+  CaptureSet set;
+  REQUIRE(set.apply(3, {{12, 1}}, {}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(12);
+  stream.step(1.0, 1000, 0.0, set, world.index);
+
+  REQUIRE(recorder.count(T(P::MsgType::EntitySpawn)) == 1);
+  const auto* spawn = flatbuffers::GetRoot<P::EntitySpawn>(recorder.first(T(P::MsgType::EntitySpawn)).data());
+  REQUIRE(spawn->entities() != nullptr);
+  REQUIRE(spawn->entities()->size() == 1);
+  CHECK(spawn->entities()->Get(0)->net_id() == near);
+  CHECK(stream.stats().skipped_far == 1);
+  CHECK(stream.stats().encode_failed == 0);
+  CHECK(stream.track_count() == 1);
+
+  // Back in range: the next scan pass spawns it, still with no encoder failure.
+  world.poses[1001] = TrackPose{250'000, 0, 0, 0, 0, 0};
+  recorder.clear();
+  stream.on_scan_complete(12);
+  stream.step(1.0, 1050, 0.05, set, world.index);
+  REQUIRE(recorder.count(T(P::MsgType::EntitySpawn)) == 1);
+  const auto* again = flatbuffers::GetRoot<P::EntitySpawn>(recorder.first(T(P::MsgType::EntitySpawn)).data());
+  REQUIRE(again->entities() != nullptr);
+  REQUIRE(again->entities()->size() == 1);
+  CHECK(again->entities()->Get(0)->net_id() == far);
+  CHECK(stream.stats().encode_failed == 0);
+
+  // A tracked hull that flies out of range is skipped too: the client keeps the last pose it was told instead of a stale update.
+  const auto skips = stream.stats().skipped_far;
+  world.poses[1000] = TrackPose{40'000'000, 0, 0, 0, 0, 0};
+  recorder.clear();
+  for (int i = 0; i < 3; ++i) stream.step(1.0, 1100 + i * 50, 0.05 * (i + 1), set, world.index);
+  CHECK(stream.stats().skipped_far > skips);
+  CHECK(stream.stats().encode_failed == 0);
+  for (const auto& [type, payload] : recorder.realtime) {
+    for (const auto& state : states_of(payload)) CHECK(state.net_id() != near);
+  }
+}
 
 TEST_CASE("stream: every tick emits one WorldUpdate, even with nothing to say", "[authority][stream][clock]") {
   World world;

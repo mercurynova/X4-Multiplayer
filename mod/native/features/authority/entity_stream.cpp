@@ -32,6 +32,15 @@ constexpr std::uint16_t kChangeMacro = 1u << 5;
   return std::fabs(p.x) < 0.01 && std::fabs(p.y) < 0.01 && std::fabs(p.z) < 0.01;
 }
 
+// The wire carries a sector-relative position as an i32 count of 1/64 m, so it stops at +-33 554 km (wire::kMaxPositionMetres).
+// A hull beyond that cannot be encoded at all: quantize_position refuses it, and every update used to fall into encode_failed,
+// which made a protocol range look like an encoder bug (74 in three minutes on the stand, 2026-11-08, while the same run's
+// give-up lines named hulls at 47 000-48 000 km from the sector origin). Such a hull is skipped and counted separately.
+[[nodiscard]] bool out_of_range_pose(const TrackPose& p) noexcept {
+  return std::fabs(p.x) > wire::kMaxPositionMetres || std::fabs(p.y) > wire::kMaxPositionMetres ||
+         std::fabs(p.z) > wire::kMaxPositionMetres;
+}
+
 }  // namespace
 
 EntityStream::EntityStream(PoseReader reader, Sink sink, StreamConfig cfg)
@@ -313,6 +322,10 @@ void EntityStream::spawn_due(double game_time, double now_s, const CaptureSet& s
         ++stats_.skipped_no_pose;  // docked/landed: retried on the next scan pass
         continue;
       }
+      if (out_of_range_pose(pose)) {
+        ++stats_.skipped_far;  // beyond the wire's position range: never spawnable, retried on the next scan pass
+        continue;
+      }
       const auto qx = wire::quantize_position(pose.x), qy = wire::quantize_position(pose.y), qz = wire::quantize_position(pose.z);
       const auto ry = wire::quantize_rotation(pose.yaw), rp = wire::quantize_rotation(pose.pitch),
                  rr = wire::quantize_rotation(pose.roll);
@@ -404,6 +417,12 @@ void EntityStream::visit(EntityTrack& track, std::uint16_t sector, double now_s,
     // Docked or landed: no in-sector position. Keep the last real pose the client already holds instead of dragging the ghost
     // to the sector centre and fighting the engine over it.
     ++stats_.skipped_no_pose;
+    return;
+  }
+  if (out_of_range_pose(pose)) {
+    // Beyond the wire's +-33 554 km position range: unencodable, so the client keeps the last pose it holds. Counted apart from
+    // encode_failed, which must keep meaning "the encoder refused a value it should have accepted".
+    ++stats_.skipped_far;
     return;
   }
   ++stats_.polls;
