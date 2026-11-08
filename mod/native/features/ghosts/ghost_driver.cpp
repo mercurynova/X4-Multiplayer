@@ -819,7 +819,8 @@ std::vector<std::string> GhostDriver::take_sync_lines() {
     if (who.rfind(kNamePrefix, 0) == 0) who.erase(0, kNamePrefix.size());
     static constexpr std::string_view tag = "[sync] ";
     if (line.rfind(tag, 0) == 0) line.insert(tag.size(), "player=" + who + " ");
-    line += std::format(" delay_ms={} newest_age_ms={}", in->delay_us() / 1000, (last_now_us_ - in->newest_sample_us()) / 1000);
+    line += std::format(" delay_ms={} newest_age_ms={} dt_ms={}", in->delay_us() / 1000, (last_now_us_ - in->newest_sample_us()) / 1000,
+                        static_cast<std::int64_t>(in->delay_controller().interval_us()) / 1000);
     lines.push_back(std::move(line));
   }
   return lines;

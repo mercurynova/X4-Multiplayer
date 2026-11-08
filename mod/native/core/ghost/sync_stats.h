@@ -63,7 +63,9 @@ struct SyncReport {
   double err_p50 = 0, err_p95 = 0, err_max = 0;            // all speeds
   double err_steady_p95 = 0, err_steady_max = 0;           // speed < 300 m/s (Q3: < 10 m)
   double err_fast_p95 = 0, err_fast_max = 0;               // speed >= 300 m/s (Q3: < 50 m below 500 m/s)
+  double err_extrap_p95 = 0, err_extrap_max = 0;           // only poses rendered past the newest sample (extrapolated)
   double lat_p50_ms = 0, lat_p95_ms = 0, lat_max_ms = 0;   // Q3: p95 <= 200 ms on a LAN
+  std::size_t n_extrap = 0;
   double speed_max = 0;
   std::uint64_t frames = 0, snaps = 0, extrapolated_frames = 0, held_frames = 0;
 };
@@ -79,8 +81,10 @@ class SyncStats {
   // A sender sample, as accepted by the interpolator.
   void on_source_sample(std::int64_t t_us, std::uint16_t sector, std::uint16_t flags, Vec3 pos) noexcept;
   // One rendered pose (displayed position) at server time render_t_us, representing `represented_t_us`.
+  // extrapolated: the pose was rendered past the newest sample (the interpolator's Extrapolating state), so its error is the
+  // extrapolation error alone rather than interpolation between two known samples.
   void on_render(std::int64_t now_us, std::int64_t render_t_us, std::int64_t represented_t_us, std::uint16_t sector,
-                 Vec3 displayed_pos, double speed_mps) noexcept;
+                 Vec3 displayed_pos, double speed_mps, bool extrapolated = false) noexcept;
   void count_frame(bool snapped, bool extrapolating, bool held) noexcept;
 
   // Snapshot of the current window. reset=true starts a fresh window (call every 5 s for the [sync] line).
@@ -99,6 +103,7 @@ class SyncStats {
     std::uint16_t sector = 0;
     Vec3 pos{};
     double speed = 0;
+    bool extrap = false;
   };
   void resolve() noexcept;
 
@@ -107,12 +112,12 @@ class SyncStats {
   std::array<Pending, kPending> pend_{};
   std::size_t pend_head_ = 0, pend_n_ = 0;
 
-  PercentileWindow<kWindow> err_all_, err_steady_, err_fast_, lat_;
+  PercentileWindow<kWindow> err_all_, err_steady_, err_fast_, err_extrap_, lat_;
   double speed_max_ = 0;
   std::uint64_t frames_ = 0, snaps_ = 0, extrap_ = 0, held_ = 0;
 };
 
-// "[sync] net=<id> frames=.. err_p50/p95/max=.. steady_p95=.. fast_p95=.. lat_p95=..ms speed_max=.." (reporting path, allocates).
+// "[sync] net=<id> frames=.. err_p50/p95/max=.. steady_p95=.. fast_p95=.. ex_p95=.. ex_n=.. lat_p95=..ms speed_max=.." (reporting path, allocates).
 [[nodiscard]] std::string format_sync_line(std::uint32_t net_id, const SyncReport& r);
 
 }  // namespace x4mp::ghost

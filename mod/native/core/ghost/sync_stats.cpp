@@ -27,7 +27,7 @@ void SyncStats::on_source_sample(std::int64_t t_us, std::uint16_t sector, std::u
 }
 
 void SyncStats::on_render(std::int64_t now_us, std::int64_t render_t_us, std::int64_t represented_t_us, std::uint16_t sector,
-                          Vec3 displayed_pos, double speed_mps) noexcept {
+                          Vec3 displayed_pos, double speed_mps, bool extrapolated) noexcept {
   lat_.push(static_cast<double>(now_us - represented_t_us) / 1000.0);
   speed_max_ = std::max(speed_max_, speed_mps);
   // Drop pending poses that are too old to ever be scored.
@@ -39,7 +39,7 @@ void SyncStats::on_render(std::int64_t now_us, std::int64_t render_t_us, std::in
     pend_head_ = (pend_head_ + 1) % kPending;
     --pend_n_;
   }
-  pend_[(pend_head_ + pend_n_) % kPending] = {render_t_us, sector, displayed_pos, speed_mps};
+  pend_[(pend_head_ + pend_n_) % kPending] = {render_t_us, sector, displayed_pos, speed_mps, extrapolated};
   ++pend_n_;
   resolve();
 }
@@ -73,6 +73,7 @@ void SyncStats::resolve() noexcept {
       err_all_.push(err);
       if (p.speed < kSteadyMaxMps) err_steady_.push(err);
       else err_fast_.push(err);
+      if (p.extrap) err_extrap_.push(err);
     }
     pend_head_ = (pend_head_ + 1) % kPending;
     --pend_n_;
@@ -99,6 +100,9 @@ SyncReport SyncStats::report(bool reset) noexcept {
   r.err_steady_max = err_steady_.max();
   r.err_fast_p95 = err_fast_.percentile(0.95);
   r.err_fast_max = err_fast_.max();
+  r.n_extrap = err_extrap_.size();
+  r.err_extrap_p95 = err_extrap_.percentile(0.95);
+  r.err_extrap_max = err_extrap_.max();
   r.lat_p50_ms = lat_.percentile(0.50);
   r.lat_p95_ms = lat_.percentile(0.95);
   r.lat_max_ms = lat_.max();
@@ -111,6 +115,7 @@ SyncReport SyncStats::report(bool reset) noexcept {
     err_all_.clear();
     err_steady_.clear();
     err_fast_.clear();
+    err_extrap_.clear();
     lat_.clear();
     speed_max_ = 0;
     frames_ = snaps_ = extrap_ = held_ = 0;
@@ -121,11 +126,12 @@ SyncReport SyncStats::report(bool reset) noexcept {
 std::string format_sync_line(std::uint32_t net_id, const SyncReport& r) {
   char buf[320];
   std::snprintf(buf, sizeof buf,
-                "[sync] net=%u frames=%llu err_p50/p95/max=%.2f/%.2f/%.2f m steady_p95=%.2f fast_p95=%.2f lat_p95=%.0f ms "
-                "speed_max=%.0f snaps=%llu extrap=%llu held=%llu",
+                "[sync] net=%u frames=%llu err_p50/p95/max=%.2f/%.2f/%.2f m steady_p95=%.2f fast_p95=%.2f ex_p95=%.0f ex_n=%llu "
+                "lat_p95=%.0f ms speed_max=%.0f snaps=%llu extrap=%llu held=%llu",
                 net_id, static_cast<unsigned long long>(r.frames), r.err_p50, r.err_p95, r.err_max, r.err_steady_p95,
-                r.err_fast_p95, r.lat_p95_ms, r.speed_max, static_cast<unsigned long long>(r.snaps),
-                static_cast<unsigned long long>(r.extrapolated_frames), static_cast<unsigned long long>(r.held_frames));
+                r.err_fast_p95, r.err_extrap_p95, static_cast<unsigned long long>(r.n_extrap), r.lat_p95_ms, r.speed_max,
+                static_cast<unsigned long long>(r.snaps), static_cast<unsigned long long>(r.extrapolated_frames),
+                static_cast<unsigned long long>(r.held_frames));
   return buf;
 }
 

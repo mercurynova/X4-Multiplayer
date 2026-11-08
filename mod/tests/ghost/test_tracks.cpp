@@ -174,3 +174,26 @@ TEST_CASE("SyncStats really measures: a ghost rendered 30 m off scores ~30 m", "
   CHECK(r.lat_p95_ms < 101.0);
   CHECK(r.n_steady == r.n_all);
 }
+
+TEST_CASE("SyncStats: an extrapolated frame is scored apart from an interpolated one", "[ghost][stats]") {
+  // The S6.3.1 question: is the err_p95 of a fast hull the interpolation between two samples or the extrapolation past the
+  // newest one? The interpolator knows the frame state exactly, so it is scored separately here.
+  SyncStats st;
+  for (int i = 0; i < 40; ++i) st.on_source_sample(1'000'000 + i * 50'000, 1, 0, {i * 12.5, 0, 0});
+  int extrap_frames = 0;
+  for (int f = 0; f < 100; ++f) {
+    const std::int64_t t = 1'200'000 + f * 16'667;
+    const double x = (static_cast<double>(t) - 1'000'000.0) / 50'000.0 * 12.5;
+    const bool ex = (f % 2) == 1;
+    if (ex) ++extrap_frames;
+    st.on_render(t + 100'000, t, t, 1, {x + (ex ? 10.0 : 30.0), 0, 0}, 250.0, ex);
+  }
+  const SyncReport r = st.report();
+  CHECK(r.n_extrap > 0);
+  CHECK(r.n_extrap <= static_cast<std::size_t>(extrap_frames));
+  CHECK(r.err_extrap_p95 > 9.9);   // the extrapolated frames are 10 m off
+  CHECK(r.err_extrap_p95 < 10.1);
+  CHECK(r.err_p95 > 29.9);         // the interpolated ones are 30 m off, and they still set the overall p95
+  CHECK(r.err_p95 < 30.1);
+  CHECK(r.err_extrap_p95 < r.err_p95);
+}

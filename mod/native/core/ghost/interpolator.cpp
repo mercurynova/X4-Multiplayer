@@ -262,8 +262,9 @@ RenderPose Interpolator::render(std::int64_t now_us) noexcept {
   out.represented_t_us = r.represented_t_us;
 
   if (!hidden) {
-    stats_.on_render(now_us, t, r.represented_t_us, r.sector, out.pos, r.speed);
-    stats_.count_frame(snap && have_prev_, r.state == PoseState::Extrapolating, r.state == PoseState::Held);
+    const bool extrapolating = r.state == PoseState::Extrapolating;
+    stats_.on_render(now_us, t, r.represented_t_us, r.sector, out.pos, r.speed, extrapolating);
+    stats_.count_frame(snap && have_prev_, extrapolating, r.state == PoseState::Held);
   }
   prev_ = r;
   prev_render_t_us_ = t;
