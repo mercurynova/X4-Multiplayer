@@ -801,3 +801,53 @@ TEST_CASE("F32: after a burst at superhighway speed no hint goes out until the r
   CHECK(first_hint_after_burst > 0.6);
   CHECK(first_hint_after_burst < 2.0);
 }
+
+namespace {
+bool hinted_now(Rig& r) { return r.world.only() != nullptr && ghost::length(r.world.only()->velocity) > 1.0; }
+}  // namespace
+
+TEST_CASE("F32: a ghost created by a spawn message (not restored) builds its hint gate from the config", "[ghosts][driver][f32]") {
+  GhostConfig cfg;
+  cfg.hint_settle_us = 3'000'000;  // not the 0.6 s default
+  Rig r(cfg);
+  r.add(11, line_track(300), Rig::info(11, 2, "Pax", 2));
+  double first_hint_s = -1, t = 0;
+  for (int i = 0; i < 60 * 8; ++i) {
+    (void)r.step();
+    t += 1.0 / 60.0;
+    if (first_hint_s < 0 && hinted_now(r)) first_hint_s = t;
+  }
+  CHECK(first_hint_s > 2.9);  // the default gate would have let the first hint out after about 0.6 s
+  CHECK(first_hint_s < 5.0);
+}
+
+TEST_CASE("F32: an engine guard hit restarts the calm period: no hint before the settle time, even after guard_hot_us is over", "[ghosts][driver][f32]") {
+  GhostConfig cfg;
+  cfg.guard_hot_us = 100'000;  // the hot window is over long before the settle time
+  cfg.hint_settle_us = 1'500'000;
+  Rig r(cfg);
+  r.add(11, line_track(300), Rig::info(11, 2, "Pax", 2));
+  r.run(5.0);
+  REQUIRE(hinted_now(r));  // cruising below the cap: the hint carries the speed
+  const std::uint64_t id = r.world.only()->id;
+  int guard = 0;
+  while (r.driver->counters().engine_moved == 0 && guard++ < 30) {  // the game keeps moving our object until the 5 Hz guard has read it
+    r.world.objs[id].pose.pos = r.world.objs[id].pose.pos + Vec3{5000, 0, 0};
+    (void)r.step();
+  }
+  REQUIRE(r.driver->counters().engine_moved >= 1);
+  const std::int64_t hit_us = r.now;
+  bool early_hint = false;
+  double first_hint_after_s = -1;
+  for (int i = 0; i < 60 * 5; ++i) {
+    (void)r.step();
+    const double since_s = static_cast<double>(r.now - hit_us) / 1e6;
+    if (hinted_now(r)) {
+      if (since_s < 1.4) early_hint = true;
+      if (first_hint_after_s < 0) first_hint_after_s = since_s;
+    }
+  }
+  CHECK_FALSE(early_hint);
+  CHECK(first_hint_after_s >= 1.4);  // and the hint does come back once the data is calm again
+  CHECK(first_hint_after_s < 4.0);
+}

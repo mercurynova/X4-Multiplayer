@@ -7,7 +7,8 @@
 // a sector change / a (re)spawn / a snap / a hold, a spike between two ticks. This gate keeps the evidence instead:
 //   - discontinuity()  a placement jump (sector change, snap, spawn, show again, hold, engine guard hit): everything measured so far means nothing;
 //   - speed()          EVERY frame's measured rendered speed (not only the one at the hint tick); a sample above the cap restarts the calm period;
-//   - allow()          true only after `settle_s` seconds of uninterrupted valid samples at or below the cap, i.e. real data after the jump.
+//   - allow()          the WHOLE rule: true only if the speed being hinted is at or below the cap AND `settle_s` seconds of uninterrupted valid samples at or
+//                      below the cap have passed since the last jump, i.e. real data after the jump. Callers do not test the cap themselves.
 // A hint that is not allowed is a ZERO hint (the caller sends it exactly like a hold). Pure arithmetic, no game calls: Catch2 tests it directly.
 
 namespace x4mp::ghost {
@@ -29,7 +30,9 @@ class HintGate {
     else if (calm_since_s_ < 0.0) calm_since_s_ = t_s;
   }
 
-  [[nodiscard]] bool allow(double t_s) const noexcept { return calm_since_s_ >= 0.0 && t_s - calm_since_s_ >= cfg_.settle_s; }
+  [[nodiscard]] bool allow(double t_s, double speed_mps) const noexcept {
+    return speed_mps <= cfg_.max_mps && calm_since_s_ >= 0.0 && t_s - calm_since_s_ >= cfg_.settle_s;
+  }
 
   // Seconds of calm so far (0 when not calm), for the diagnostics line.
   [[nodiscard]] double calm_s(double t_s) const noexcept { return calm_since_s_ < 0.0 ? 0.0 : t_s - calm_since_s_; }
