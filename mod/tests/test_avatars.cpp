@@ -1495,3 +1495,26 @@ TEST_CASE("avatars.director (M3-34): the engine guard puts back a held avatar wi
   }
   CHECK(d3.stats().engine_moved == 0);
 }
+
+TEST_CASE("avatars.director (F32): an engine guard hit restarts the calm period: no non-zero hint before the settle time", "[avatars][f32]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Bob", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  Flight f{d, c, net};
+  f.go(400.0, 3.0, 1);
+  REQUIRE(max_hint_speed(env) > 300.0);
+  int guard = 0;
+  while (d.stats().engine_moved == 0 && guard++ < 60) {
+    env.objs[id].pose.y += 5000.0;  // the game keeps moving it until the guard sampled it
+    f.go(400.0, 1.0 / 60.0, 1);
+  }
+  REQUIRE(d.stats().engine_moved >= 1);
+  const auto at_hit = env.velocities.size();
+  f.go(400.0, 0.4, 1);
+  CHECK_FALSE(any_nonzero_hint(env, at_hit));  // inside the settle time (0.6 s)
+  f.go(400.0, 1.5, 1);
+  CHECK(any_nonzero_hint(env, at_hit));
+}
