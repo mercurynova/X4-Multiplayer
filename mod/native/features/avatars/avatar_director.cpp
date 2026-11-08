@@ -181,6 +181,12 @@ void AvatarDirector::on_checkpoint_stored(const std::string& sha_hex, const std:
   persist_now();
 }
 
+void AvatarDirector::on_checkpoint_dropped(const std::string& sha_hex) {
+  if (sha_hex.empty()) return;
+  if (std::erase_if(lineage_.ledger, [&](const CheckpointNote& c) { return c.sha == sha_hex; }) == 0) return;
+  persist_now();
+}
+
 void AvatarDirector::new_universe() {
   for (auto& a : avatars_) {
     a->local_id = 0;
@@ -374,12 +380,18 @@ void AvatarDirector::on_player_ship(const PlayerShipReq& req) {
                                          av->stage == Stage::Live ? "live" : "not live yet"));
     ++stats_.refreshed;
   }
+  // F28 review: a repeated request for an avatar that is already online for this player (the server re-asks every few seconds on a slow bind, a rejoin
+  // asks again) only refreshes the answer. Wiping the interpolation, the sample count and the velocity estimate here made the avatar's motion stutter
+  // for the others with every request. Only a parked / suspended avatar (the player was away: its motion is stale) starts its motion state afresh.
+  const bool was_live = av->rec.online && !av->suspended;
   av->rec.online = true;
   av->suspended = false;
-  av->interp->reset();
-  av->samples = 0;
-  av->have_prev_state = false;
-  av->state_vel.reset();
+  if (!was_live) {
+    av->interp->reset();
+    av->samples = 0;
+    av->have_prev_state = false;
+    av->state_vel.reset();
+  }
   av->announced = false;  // refresh: the answer EntitySpawn goes out again (controller = the player)
   if (av->stage == Stage::Failed) {
     av->stage = Stage::Wanted;

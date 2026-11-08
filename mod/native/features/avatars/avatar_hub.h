@@ -60,8 +60,8 @@ struct HubInputs {
   bool welcomed = false;
   // M3-22: the lineage events in order (a save this node loads, a stored checkpoint).
   struct LineageEvent {
-    enum class Kind : std::uint8_t { LoadedSave, Checkpoint } kind = Kind::LoadedSave;
-    std::string text;                  // save sha hex
+    enum class Kind : std::uint8_t { LoadedSave, Checkpoint, CheckpointDropped } kind = Kind::LoadedSave;
+    std::string text;                  // save sha hex (CheckpointDropped: the checkpoint whose upload failed / was cancelled, it leaves the ledger again)
     std::vector<std::string> idcodes;  // Checkpoint: the manifest's avatars
   };
   std::vector<LineageEvent> lineage;
@@ -80,6 +80,8 @@ class AvatarHub {
   void note_checkpoint(std::string sha_hex, std::vector<std::string> idcodes) {
     inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::Checkpoint, std::move(sha_hex), std::move(idcodes)});
   }
+  // F28 review: the upload of a checkpoint noted at its start failed or was cancelled: the server never stored it, so it must not hold a ledger slot.
+  void note_checkpoint_dropped(std::string sha_hex) { inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::CheckpointDropped, std::move(sha_hex), {}}); }
   void on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id);
   void session_ended();
 

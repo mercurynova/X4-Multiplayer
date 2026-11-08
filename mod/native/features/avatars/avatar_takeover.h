@@ -232,6 +232,7 @@ class AvatarTakeover {
   std::uint32_t last_sit_downs_ = 0;
   bool hint_shown_ = false;
   bool owner_set_ = false;
+  bool parked_logged_ = false;  // F28 review: the "parked avatar, not bound yet" line is logged once per request round
   // create mode
   bool stale_searched_ = false, creating_ = false;
   std::uint32_t create_seq_ = 0;

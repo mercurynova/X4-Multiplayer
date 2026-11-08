@@ -683,23 +683,57 @@ TEST_CASE("takeover: the own avatar is told from the others by the player id", "
   CHECK(r.m.done());
 }
 
-TEST_CASE("takeover: a parked avatar (controller 0) of the own player is the grant too", "[takeover][grant]") {
+TEST_CASE("takeover: a parked avatar (controller 0) of the own player is not a grant until the authority binds it", "[takeover][grant]") {
   Rig r;
   auto g = r.grant();
-  g.controller_player = 0;  // a rejoin: the authority answers with the parked avatar
+  g.controller_player = 0;  // a rejoin: the parked avatar is replicated, the authority has not answered yet
+  r.m.on_spawn_avatars({g});
+  r.seconds(2);
+  CHECK(r.m.stage() == AvatarTakeover::Stage::Requesting);
+  CHECK(!r.m.done());
+  g.controller_player = r.env.player;  // the authority's answer: the same avatar, now controlled by us
   r.m.on_spawn_avatars({g});
   r.seconds(2);
   CHECK(r.m.done());
+  CHECK(r.m.net_id() == 41);
 }
 
-TEST_CASE("takeover: a parked avatar named without any answer still sends the PlayerShip request (F28)", "[takeover][grant]") {
+TEST_CASE("takeover: a parked avatar named without any answer keeps sending the PlayerShip request (F28)", "[takeover][grant]") {
   Rig r;
   auto g = r.grant();
   g.controller_player = 0;  // replicated to the rejoining client; nobody asked the authority yet
   r.m.on_spawn_avatars({g});
   r.seconds(2);
+  CHECK(r.env.requests == 1);  // the authority must put it online again, or it counts every PlayerState as an unknown net id
+  r.seconds(20);
+  CHECK(r.env.requests > 1);  // no answer: the request backoff re-sends
+  CHECK(!r.m.done());
+}
+
+TEST_CASE("takeover: a parked request refused by the link is retried (F28)", "[takeover][grant]") {
+  Rig r;
+  auto g = r.grant();
+  g.controller_player = 0;
+  r.env.request_ok = false;
+  r.m.on_spawn_avatars({g});
+  r.seconds(3);
+  CHECK(r.env.requests == 0);
+  CHECK(r.m.stage() == AvatarTakeover::Stage::Requesting);
+  r.env.request_ok = true;
+  r.seconds(3);
+  CHECK(r.env.requests >= 1);
+}
+
+TEST_CASE("takeover: the avatar bound to the own player wins over a parked one listed first (F28)", "[takeover][grant]") {
+  Rig r;
+  auto parked = r.grant(30, "OLD-001", "[MP] Me (parked)");
+  parked.controller_player = 0;
+  auto bound = r.grant(41);
+  r.m.on_spawn_avatars({parked, bound});
+  r.seconds(2);
   CHECK(r.m.done());
-  CHECK(r.env.requests >= 1);  // the authority must put it online again, or it counts every PlayerState as an unknown net id
+  CHECK(r.m.net_id() == 41);
+  CHECK(r.env.requests == 0);
 }
 
 TEST_CASE("takeover: an avatar already piloted by the own player needs no extra request (F28)", "[takeover][grant]") {

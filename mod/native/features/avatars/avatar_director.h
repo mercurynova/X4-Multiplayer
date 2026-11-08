@@ -169,6 +169,8 @@ class AvatarDirector {
   void on_loaded_save(const std::string& sha_hex);
   // A checkpoint was stored: its manifest's avatars (idcodes) join the ledger (persisted at once).
   void on_checkpoint_stored(const std::string& sha_hex, const std::vector<std::string>& idcodes);
+  // F28 review: a checkpoint that was entered when its upload started never got stored (failed / cancelled): its entry leaves the ledger again.
+  void on_checkpoint_dropped(const std::string& sha_hex);
 
   // ---- inputs ----
   void on_roster(const RosterIn& roster);

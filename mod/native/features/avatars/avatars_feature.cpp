@@ -269,6 +269,7 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
     for (const auto& ev : in.lineage) {  // M3-22: in the order they happened
       using K = av::HubInputs::LineageEvent::Kind;
       if (ev.kind == K::LoadedSave) dir->on_loaded_save(ev.text);
+      else if (ev.kind == K::CheckpointDropped) dir->on_checkpoint_dropped(ev.text);
       else dir->on_checkpoint_stored(ev.text, ev.idcodes);
     }
     if (in.welcomed) dir->on_welcome();

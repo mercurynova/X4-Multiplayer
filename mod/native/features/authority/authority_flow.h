@@ -107,6 +107,7 @@ class AuthorityFlow {
   void step_uploading(host::HostContext& ctx);
   void on_checkpoint_stored(host::HostContext& ctx);
   void note_checkpoint_in_ledger();
+  void drop_checkpoint_from_ledger();  // F28 review: the upload that note_checkpoint_in_ledger() anticipated failed / was cancelled
   void maybe_spawn(host::HostContext& ctx);
   void step_ship_wait(host::HostContext& ctx);
   void schedule_reask() noexcept;
@@ -139,6 +140,7 @@ class AuthorityFlow {
   std::uint64_t stored_total_ = 0;
   bool spawn_due_ = false;
   // The ship was unknown when the checkpoint finished: ask MD (x4mp.auth_collect {"ship_only":true}) when the player sits (seat edge).
+  bool ledger_noted_ = false;  // the checkpoint of this upload is in the avatar ledger but the server has not confirmed it yet
   bool ship_wait_ = false;
   bool ship_pending_ = false;
   int ship_asks_ = 0;
