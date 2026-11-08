@@ -325,6 +325,20 @@ A successful pair looks like this in the mod logs (UTC):
 [auth] Welcome: player_id=2 roles=2 resumed=false
 ```
 
+## 11a. Joining a session that carries a save reloads the UI once - give it three minutes
+
+A join into a session with a save (the normal case on this stand) is not finished when `Welcome` arrives:
+
+| after the Join | log line | meaning |
+|---|---|---|
+| +15 s | `[host] config reloaded (ui reload)`, `[auth] Welcome: ... resumed=true` | the downloaded session save is being loaded, X4 reloads the UI, the extension re-inits and re-joins as a resume |
+| +1.5-2 min | `[sess] game loaded (stage 4)` | the pushed save finished loading |
+| +2.5-3 min | `[sync] ghosts tracked=...` (guest), a new `CaptureSet epoch` (authority) | the world stream is live |
+
+Verified 2026-11-08 on the two-instance stand. Waiting for a reload *before* joining is pointless - the join causes
+it - and a session that is `InSession` with `rx` around 140 B/s is still loading, not wedged. `launch.json` cannot
+help here either (see above): on the reload it is ignored and the resume takes over.
+
 ## 12. Verifying the stand
 
 Run these after both windows are in the main menu.
