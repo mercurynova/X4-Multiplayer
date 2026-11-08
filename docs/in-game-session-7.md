@@ -160,7 +160,10 @@ readable now: the 5 s report is two lines, and `spawn_near` sits on the second o
 (`[sync] ghosts health: rep_bad=.. spawn_failed=.. unmapped=.. unresolved=.. spawn_near=..`, ~86 characters) because the
 single line was cut at `log::kMaxLineChars = 240` (`core/log/log.h:50`) - measured 272 characters total, 232 of message,
 ending mid-word after `spawn_failed=0`. `tools\session4\sync-report.ps1` reads the health line as well and reports a
-`spawn-near-player pops` row with limit `= 0`. The counter itself is unit-tested
+`spawn-near-player pops` row with limit `= 0 in transit` and the distance band of the detail lines. The counter itself did
+move on the stand, but at join rather than in transit: 92 `spawn-near-player:` lines in two batches (`06:00:52` 52 lines,
+`06:31:36` 40 lines), 623-4081 m, because a join spawns the sector at once and the nearest hulls go first
+(`max_spawns_per_frame = 40`, `ghost_driver.h:138`). The counter itself is unit-tested
 (`mod/tests/ghosts/test_driver.cpp:880-889`).
 
 ## 7.7 No churn while in interest (criterion 7)
