@@ -98,16 +98,18 @@ struct Record {
 struct CheckpointNote {
   std::string sha;                   // lowercase hex of the checkpoint save
   std::vector<std::string> idcodes;  // the manifest's avatars
+  bool pending = false;              // F28 review 2: the upload started but the server's "stored" answer has not been processed (outcome unknown)
   bool operator==(const CheckpointNote&) const = default;
 };
 struct Lineage {
-  std::vector<CheckpointNote> ledger;  // newest last, at most kMaxLedger
+  std::vector<CheckpointNote> ledger;  // newest last: at most kMaxLedger confirmed entries plus at most kMaxPending pending ones
   bool operator==(const Lineage&) const = default;
-  static constexpr std::size_t kMaxLedger = 8;
+  static constexpr std::size_t kMaxLedger = 8;   // confirmed entries only
+  static constexpr std::size_t kMaxPending = 2;  // pending entries never count toward kMaxLedger and never evict a confirmed one
 };
 
 // One line per record, fields separated by '|' (sanitised: no '|' or line breaks inside a field), preceded by "x4av 2" and the ledger
-// lines "C|<sha>|<idcode>;<idcode>". Tolerant reader: lines that do not parse are skipped and counted; "x4av 1" (no ledger) is read with an empty
+// lines "C|<sha>|<idcode>;<idcode>" (a pending entry has a fourth field "p"; lines without it are confirmed). Tolerant reader: lines that do not parse are skipped and counted; "x4av 1" (no ledger) is read with an empty
 // ledger. Local component ids are NOT part of it (they change on every load).
 [[nodiscard]] std::string records_to_text(const std::vector<Record>& records, const Lineage& lineage = {});
 struct ParsedRecords {

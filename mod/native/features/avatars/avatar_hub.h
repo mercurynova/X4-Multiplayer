@@ -60,7 +60,7 @@ struct HubInputs {
   bool welcomed = false;
   // M3-22: the lineage events in order (a save this node loads, a stored checkpoint).
   struct LineageEvent {
-    enum class Kind : std::uint8_t { LoadedSave, Checkpoint, CheckpointDropped } kind = Kind::LoadedSave;
+    enum class Kind : std::uint8_t { LoadedSave, Checkpoint, CheckpointDropped, CheckpointPending } kind = Kind::LoadedSave;
     std::string text;                  // save sha hex (CheckpointDropped: the checkpoint whose upload failed / was cancelled, it leaves the ledger again)
     std::vector<std::string> idcodes;  // Checkpoint: the manifest's avatars
   };
@@ -79,6 +79,10 @@ class AvatarHub {
   // M3-22: a checkpoint of the session was stored (authority): the avatars its manifest lists.
   void note_checkpoint(std::string sha_hex, std::vector<std::string> idcodes) {
     inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::Checkpoint, std::move(sha_hex), std::move(idcodes)});
+  }
+  // F28 review 2: an upload of a checkpoint started: noted pending until the server's answer (note_checkpoint) arrives.
+  void note_checkpoint_pending(std::string sha_hex, std::vector<std::string> idcodes) {
+    inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::CheckpointPending, std::move(sha_hex), std::move(idcodes)});
   }
   // F28 review: the upload of a checkpoint noted at its start failed or was cancelled: the server never stored it, so it must not hold a ledger slot.
   void note_checkpoint_dropped(std::string sha_hex) { inputs_.lineage.push_back({HubInputs::LineageEvent::Kind::CheckpointDropped, std::move(sha_hex), {}}); }

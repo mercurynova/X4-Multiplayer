@@ -149,7 +149,7 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
   const auto generation = uploader_.new_connection(resumed);
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: connection generation {} ({})", generation, resumed ? "resumed" : "fresh join");
   if (!resumed) {
-    drop_checkpoint_from_ledger();  // a fresh join discards the pending upload: the server never stores that checkpoint
+    ledger_noted_ = false;  // F28 review 2: a fresh join keeps the pending entry (the server may have stored the upload: a planned leave ends the session behind its "saved" answer)
     step_ = Step::Idle;
     spawn_due_ = false;
     ship_wait_ = ship_pending_ = late_ship_ = false;
@@ -221,9 +221,10 @@ void AuthorityFlow::begin_request(host::HostContext& ctx, std::uint32_t request_
   }
 }
 
-void AuthorityFlow::fail(host::HostContext& ctx, const std::string& why) {
+void AuthorityFlow::fail(host::HostContext& ctx, const std::string& why, bool server_may_have_stored) {
   X4MP_CLOG(ctx.log, Cat::Save, Level::Error, "authority: checkpoint request {} failed: {}", request_id_, why);
-  drop_checkpoint_from_ledger();
+  if (server_may_have_stored) ledger_noted_ = false;  // outcome unknown: the entry stays pending (the server may have stored it)
+  else drop_checkpoint_from_ledger();
   step_ = Step::Idle;
   watcher_.reset();
   if (prepared_.valid()) prepared_.wait();
@@ -499,9 +500,8 @@ void AuthorityFlow::step_hashing(host::HostContext& ctx) {
   // F28: the ledger entry is made now, not when the server's confirmation is processed. A planned leave ends the session the moment the server
   // answers "saved" (it stores the upload first), so the confirmation can arrive after the node is gone: the save was then missing from the ledger and
   // the re-hosted authority that loaded exactly this checkpoint dropped every avatar record (a connected player's avatar was swept as a leftover).
-  note_checkpoint_in_ledger();
-  ledger_noted_ = true;
-  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: the checkpoint joined the avatar ledger as its upload starts (save {}, {} avatar(s))", hex12(ready_.save.sha256), manifest_avatars_.size());
+  note_checkpoint_in_ledger(true);
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: the checkpoint joined the avatar ledger (pending) as its upload starts (save {}, {} avatar(s))", hex12(ready_.save.sha256), manifest_avatars_.size());
   spawn_ship_ = collected_.ship();
   late_ship_ = false;
   ship_wait_ = false;  // this checkpoint decides again below (a newer collection supersedes an older ship question)
@@ -519,17 +519,30 @@ void AuthorityFlow::step_uploading(host::HostContext& ctx) {
   }
   if (const auto& r = uploader_.last_result();
       r && r->state == x4mp::authority::UploadState::Failed && !uploader_.pending() && !uploader_.running()) {
-    fail(ctx, std::string("upload failed: ") + x4mp::authority::to_string(r->error) + " " + r->detail);
+    // Did the server possibly store the checkpoint? It never did (the pending ledger entry is dropped) when the failure came before every file was
+    // fully sent (Io, Protocol, a timeout while chunks were still unacknowledged) or the server explicitly refused (Refused). Only a timeout AFTER the last
+    // file was completely sent (the answer is missing, the server may have stored and answered it) keeps the entry pending. Anything the job cannot
+    // tell apart stays pending: keeping avatars after loading that save is the safe side.
+    bool may_have_stored = false;
+    if (r->error == x4mp::authority::UploadError::Timeout && r->files.size() == 2 && !r->files.back().answered) {
+      const auto& last = r->files.back();
+      may_have_stored = last.resume_offset + last.bytes_sent >= ready_.manifest.size;
+    }
+    fail(ctx, std::string("upload failed: ") + x4mp::authority::to_string(r->error) + " " + r->detail, may_have_stored);
   }
 }
 
-// M3-22: the checkpoint joins the avatar lineage ledger: a later load of exactly this save keeps the avatars its manifest lists
-void AuthorityFlow::note_checkpoint_in_ledger() {
+// M3-22: the checkpoint joins the avatar lineage ledger: a later load of exactly this save keeps the avatars its manifest lists.
+// F28 review 2: at the upload start it is PENDING (outcome unknown, never evicts a confirmed entry); the "stored" answer confirms it.
+void AuthorityFlow::note_checkpoint_in_ledger(bool pending) {
+  ledger_noted_ = pending;
   std::vector<std::string> idcodes;
   for (const auto& r : manifest_avatars_) {
     if (!r.idcode.empty()) idcodes.push_back(r.idcode);
   }
-  avatars::avatar_hub().note_checkpoint(crypto::to_hex(std::span<const std::uint8_t>(ready_.save.sha256)), std::move(idcodes));
+  const auto sha = crypto::to_hex(std::span<const std::uint8_t>(ready_.save.sha256));
+  if (pending) avatars::avatar_hub().note_checkpoint_pending(sha, std::move(idcodes));
+  else avatars::avatar_hub().note_checkpoint(sha, std::move(idcodes));
 }
 
 // F28 review: only a checkpoint that was entered at the upload's start and then never stored leaves again. After a successful "saved" answer
@@ -545,7 +558,7 @@ void AuthorityFlow::on_checkpoint_stored(host::HostContext& ctx) {
   ++stored_total_;
   ++state_.checkpoints;
   state_.loaded_sha = ready_.save.sha256;  // this game is the source of that checkpoint
-  note_checkpoint_in_ledger();  // (already done when the upload started; harmless to repeat)
+  note_checkpoint_in_ledger(false);  // confirms the pending entry made when the upload started (or adds it confirmed when it is missing)
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: checkpoint {} stored (save {}, request {})", save_name_, hex12(ready_.save.sha256), request_id_);
   std::error_code ec;
   fs::remove(ready_.manifest_path, ec);  // our own temporary manifest file

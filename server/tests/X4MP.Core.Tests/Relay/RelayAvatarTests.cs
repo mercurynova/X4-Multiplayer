@@ -272,6 +272,31 @@ public class RelayAvatarTests
     }
 
     [Fact]
+    public async Task TheAdoptionBackoffDoesNotGrowWhileThereIsNoAuthorityToForwardTo()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(bob, netId: 500));
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, 0));
+        await DropAsync(rig, authority);
+
+        async Task NameParkedAsync(ushort seq)
+        {
+            await rig.SendAsync(bob, MsgType.PlayerState, RelayFrames.State(seq, 1_000_000UL + seq * 50_000UL, px: 700, sector: 5, netId: 500));
+            await rig.Actor.FlushAsync();
+        }
+
+        // nothing is forwarded, so the gap stays 1 s: every request after 1.1 s is recorded (it would back off to 2 s, 4 s otherwise)
+        for (ushort i = 1; i <= 4; i++)
+        {
+            await NameParkedAsync(i);
+            Assert.Equal((long)i, rig.Relay.Stats.AvatarsAdopted);
+            await rig.AdvanceAsync(1.1);
+        }
+    }
+
+    [Fact]
     public async Task APlayerWhoLeavesDropsItsAdoptionBackoff()
     {
         await using var rig = new RelayRig();

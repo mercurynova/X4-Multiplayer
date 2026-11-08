@@ -169,7 +169,10 @@ class AvatarDirector {
   void on_loaded_save(const std::string& sha_hex);
   // A checkpoint was stored: its manifest's avatars (idcodes) join the ledger (persisted at once).
   void on_checkpoint_stored(const std::string& sha_hex, const std::vector<std::string>& idcodes);
-  // F28 review: a checkpoint that was entered when its upload started never got stored (failed / cancelled): its entry leaves the ledger again.
+  // F28 review 2: an upload started: the checkpoint is noted PENDING (outcome unknown; matches in on_loaded_save like a confirmed one, never evicts a
+  // confirmed entry, at most Lineage::kMaxPending of them). on_checkpoint_stored confirms it.
+  void on_checkpoint_pending(const std::string& sha_hex, const std::vector<std::string>& idcodes);
+  // F28 review: a checkpoint whose upload provably never got stored (refused / failed before it was fully sent): its PENDING entry leaves the ledger again.
   void on_checkpoint_dropped(const std::string& sha_hex);
 
   // ---- inputs ----
@@ -195,6 +198,7 @@ class AvatarDirector {
   [[nodiscard]] bool rebind_pending() const noexcept { return rebind_pending_; }
 
  private:
+  void trim_ledger();
   struct Avatar;
   Avatar* find(std::uint16_t player);
   Avatar* find_net(std::uint32_t net_id);

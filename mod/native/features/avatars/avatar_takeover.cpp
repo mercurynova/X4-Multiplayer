@@ -349,7 +349,7 @@ void AvatarTakeover::step_requesting(double now_s, std::uint16_t player) {
       bound = &a;
       break;
     }
-    if (a.owner_player == player) parked = true;
+    if (a.owner_player == player && a.controller_player == 0) parked = true;
   }
   if (bound) {
     grant_ = *bound;
@@ -362,12 +362,14 @@ void AvatarTakeover::step_requesting(double now_s, std::uint16_t player) {
   }
   if (parked && !parked_logged_) {
     parked_logged_ = true;
+    if (now_s - last_request_s_ > 1.0) next_action_ = now_s;  // F28 review 2: the first request may have been dropped by the server phase gate: ask again at once
     log(LogLevel::Info, "the parked avatar of an earlier session is replicated, but the authority has not bound it to us yet: asking it to put the avatar online");
   }
   if (now_s < next_action_) return;
   if (env_.send_request(host_id_)) {
     ++stats_.requests;
-    next_action_ = now_s + kRequestEveryS;
+    last_request_s_ = now_s;
+    next_action_ = now_s + (parked ? kParkedRequestEveryS : kRequestEveryS);
     if (stats_.requests > 1 && (stats_.requests - 1) % 3 == 0) log(LogLevel::Warn, std::format("no avatar yet after {:.0f} s ({} requests sent): is there an authority?", now_s - started_, stats_.requests));
   } else {
     next_action_ = now_s + 1.0;  // the link refused it (outbox full / not welcomed): try again soon

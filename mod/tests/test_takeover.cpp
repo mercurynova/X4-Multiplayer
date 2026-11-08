@@ -710,6 +710,39 @@ TEST_CASE("takeover: a parked avatar named without any answer keeps sending the 
   CHECK(!r.m.done());
 }
 
+TEST_CASE("takeover: a parked avatar is re-requested every 2 s, and the first sighting asks at once (F28 review 2)", "[takeover][grant]") {
+  Rig r;
+  r.m.step(r.now);  // no avatar yet: the first request goes out (it may be dropped by the server's phase gate)
+  r.seconds(0.2);
+  const int before = r.env.requests;
+  REQUIRE(before >= 1);
+  r.seconds(1.5);  // the request interval of the no-avatar case is 10 s: nothing more
+  CHECK(r.env.requests == before);
+  auto g = r.grant();
+  g.controller_player = 0;
+  r.m.on_spawn_avatars({g});  // the parked avatar is replicated: the last request is older than 1 s, ask again at once
+  r.seconds(0.3);
+  CHECK(r.env.requests == before + 1);
+  r.seconds(2.2);  // then every 2 s while the avatar stays parked
+  CHECK(r.env.requests == before + 2);
+  r.seconds(2.0);
+  CHECK(r.env.requests == before + 3);
+  CHECK(!r.m.done());
+}
+
+TEST_CASE("takeover: an avatar of the own player that another player controls is not parked (F28 review 2)", "[takeover][grant]") {
+  Rig r;
+  r.m.step(r.now);
+  r.seconds(0.2);
+  const int before = r.env.requests;
+  auto g = r.grant();
+  g.controller_player = static_cast<std::uint16_t>(r.env.player + 1);
+  r.m.on_spawn_avatars({g});
+  r.seconds(4);
+  CHECK(r.env.requests == before);  // the 10 s backoff still applies: no parked-avatar fast path
+  CHECK(!r.m.done());
+}
+
 TEST_CASE("takeover: a parked request refused by the link is retried (F28)", "[takeover][grant]") {
   Rig r;
   auto g = r.grant();

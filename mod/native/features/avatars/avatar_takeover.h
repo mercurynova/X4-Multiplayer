@@ -145,6 +145,7 @@ class AvatarTakeover {
   enum class Stage : std::uint8_t { Idle, Requesting, Locating, Teleporting, Confirming, Removing, Done };
 
   static constexpr double kRequestEveryS = 10.0;
+  static constexpr double kParkedRequestEveryS = 2.0;  // while a parked avatar of ours is replicated but not bound to us yet
   static constexpr double kLocateRetryS = 1.0;
   static constexpr double kLocateGiveUpLogS = 10.0;
   static constexpr double kConfirmTimeoutS = 10.0;
@@ -233,6 +234,7 @@ class AvatarTakeover {
   bool hint_shown_ = false;
   bool owner_set_ = false;
   bool parked_logged_ = false;  // F28 review: the "parked avatar, not bound yet" line is logged once per request round
+  double last_request_s_ = -1e9;  // when the last avatar request went out
   // create mode
   bool stale_searched_ = false, creating_ = false;
   std::uint32_t create_seq_ = 0;

@@ -106,13 +106,14 @@ class AuthorityFlow {
   void step_hashing(host::HostContext& ctx);
   void step_uploading(host::HostContext& ctx);
   void on_checkpoint_stored(host::HostContext& ctx);
-  void note_checkpoint_in_ledger();
-  void drop_checkpoint_from_ledger();  // F28 review: the upload that note_checkpoint_in_ledger() anticipated failed / was cancelled
+  void note_checkpoint_in_ledger(bool pending);
+  void drop_checkpoint_from_ledger();  // F28 review 2: only a definitive failure (the server never stored the checkpoint) removes the pending entry
   void maybe_spawn(host::HostContext& ctx);
   void step_ship_wait(host::HostContext& ctx);
   void schedule_reask() noexcept;
   [[nodiscard]] std::uint32_t late_ship_macro_ref(host::HostContext& ctx, const std::string& macro);
-  void fail(host::HostContext& ctx, const std::string& why);
+  // `server_may_have_stored`: the upload was fully sent and only the answer is missing (see step_uploading): the pending ledger entry then stays.
+  void fail(host::HostContext& ctx, const std::string& why, bool server_may_have_stored = false);
   void persist() const;
   [[nodiscard]] bool send_control(std::uint16_t type, const std::vector<std::uint8_t>& payload);
 
@@ -140,7 +141,7 @@ class AuthorityFlow {
   std::uint64_t stored_total_ = 0;
   bool spawn_due_ = false;
   // The ship was unknown when the checkpoint finished: ask MD (x4mp.auth_collect {"ship_only":true}) when the player sits (seat edge).
-  bool ledger_noted_ = false;  // the checkpoint of this upload is in the avatar ledger but the server has not confirmed it yet
+  bool ledger_noted_ = false;  // this upload's checkpoint is in the avatar ledger as PENDING (set by note_checkpoint_in_ledger(true), cleared once it is confirmed, dropped or left pending)
   bool ship_wait_ = false;
   bool ship_pending_ = false;
   int ship_asks_ = 0;

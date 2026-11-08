@@ -45,6 +45,7 @@ struct AvatarDirector::Avatar {
   bool have_prev_state = false;
   ghost::Sample prev_state{};
   std::size_t samples = 0;
+  double last_state_s = -1e9;         // F28 review 2: director time of the last PlayerState that reached this avatar
   std::uint64_t sector_id = 0;        // the sector the ship is in now (local)
   std::uint16_t cached_index = 0;
   std::uint64_t cached_index_id = 0;
@@ -175,15 +176,45 @@ void AvatarDirector::on_loaded_save(const std::string& sha_hex) {
 
 void AvatarDirector::on_checkpoint_stored(const std::string& sha_hex, const std::vector<std::string>& idcodes) {
   if (sha_hex.empty()) return;
+  // The stored answer confirms the entry (a pending one is replaced by a confirmed one at the end; a missing one is added confirmed).
   std::erase_if(lineage_.ledger, [&](const CheckpointNote& c) { return c.sha == sha_hex; });
-  lineage_.ledger.push_back({sha_hex, idcodes});
-  while (lineage_.ledger.size() > Lineage::kMaxLedger) lineage_.ledger.erase(lineage_.ledger.begin());
+  lineage_.ledger.push_back({sha_hex, idcodes, false});
+  trim_ledger();
   persist_now();
+}
+
+void AvatarDirector::on_checkpoint_pending(const std::string& sha_hex, const std::vector<std::string>& idcodes) {
+  if (sha_hex.empty()) return;
+  for (const auto& c : lineage_.ledger) {
+    if (c.sha == sha_hex) return;  // already known (pending or confirmed): never downgrade a confirmed entry
+  }
+  lineage_.ledger.push_back({sha_hex, idcodes, true});
+  trim_ledger();
+  persist_now();
+}
+
+// Confirmed entries: the newest kMaxLedger stay. Pending entries: the newest kMaxPending stay. Neither kind evicts the other.
+void AvatarDirector::trim_ledger() {
+  const auto trim = [&](bool pending, std::size_t cap) {
+    std::size_t n = 0;
+    for (const auto& c : lineage_.ledger) n += c.pending == pending ? 1 : 0;
+    for (auto it = lineage_.ledger.begin(); it != lineage_.ledger.end() && n > cap;) {
+      if (it->pending == pending) {
+        it = lineage_.ledger.erase(it);
+        --n;
+      } else {
+        ++it;
+      }
+    }
+  };
+  trim(false, Lineage::kMaxLedger);
+  trim(true, Lineage::kMaxPending);
 }
 
 void AvatarDirector::on_checkpoint_dropped(const std::string& sha_hex) {
   if (sha_hex.empty()) return;
-  if (std::erase_if(lineage_.ledger, [&](const CheckpointNote& c) { return c.sha == sha_hex; }) == 0) return;
+  // only a PENDING entry leaves: a confirmed checkpoint (the server stored it) is never dropped
+  if (std::erase_if(lineage_.ledger, [&](const CheckpointNote& c) { return c.pending && c.sha == sha_hex; }) == 0) return;
   persist_now();
 }
 
@@ -383,7 +414,10 @@ void AvatarDirector::on_player_ship(const PlayerShipReq& req) {
   // F28 review: a repeated request for an avatar that is already online for this player (the server re-asks every few seconds on a slow bind, a rejoin
   // asks again) only refreshes the answer. Wiping the interpolation, the sample count and the velocity estimate here made the avatar's motion stutter
   // for the others with every request. Only a parked / suspended avatar (the player was away: its motion is stale) starts its motion state afresh.
-  const bool was_live = av->rec.online && !av->suspended;
+  // F28 review 2: a player who reconnects before the roster marks them offline still counts as live, but no state has arrived for a while: their motion
+  // state is stale as well (a state stream that is flowing is not touched).
+  const bool states_flowing = now_s_ - av->last_state_s <= 2.0;
+  const bool was_live = av->rec.online && !av->suspended && states_flowing;
   av->rec.online = true;
   av->suspended = false;
   if (!was_live) {
@@ -440,6 +474,7 @@ void AvatarDirector::on_player_state(const PlayerStateIn& s, std::int64_t arriva
   }
   av->prev_state = g;
   av->have_prev_state = true;
+  av->last_state_s = now_s_;
   av->interp->push(g, arrival_server_us);
   ++av->samples;
 }
