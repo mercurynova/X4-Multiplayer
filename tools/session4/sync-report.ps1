@@ -6,6 +6,7 @@
   What it reads (formats: mod/native/core/ghost/sync_stats.cpp, features/ghosts/ghost_feature.cpp, features/stats/stats_feature.cpp, host/mod_host.cpp):
     [sync] player=<name> net=<id> frames=.. err_p50/p95/max=a/b/c m steady_p95=.. fast_p95=.. lat_p95=.. ms ...   one per ghost per 5 s window (client)
     [sync] ghosts tracked=.. spawned=.. respawned=.. ... frame_p95_us=..                                          ghost totals + ghost-driver frame cost
+    [sync] ghosts health: rep_bad=.. spawn_failed=.. unmapped=.. unresolved=.. spawn_near=..                      the counters the 240-char cut used to hide
     [perf] stats: fps=.. frame_p95=..ms mod_p95=..ms mod_max=..ms connected=.. rtt=..ms rx=..B/s tx=..B/s       every 5 s
     [perf] frames=.. p50=..us p95=..us avg=..us max=..us over_budget=.. ... log_dropped=..                        the mod's own frame budget
   and judges (PASS / FAIL / n/a), after skipping the first -WarmupWindows (default 2) five-second windows of every ghost (the first windows predate the server's
@@ -102,12 +103,14 @@ function Judge([string]$what, [double]$value, [string]$op, [double]$limit, [stri
 # ---- parse -------------------------------------------------------------------------------------------------------------------------
 $syncRe = [regex]'\[sync\] player=(?<who>.+?) net=(?<net>\d+) frames=(?<frames>\d+) err_p50/p95/max=(?<p50>[\d.]+)/(?<p95>[\d.]+)/(?<max>[\d.]+) m steady_p95=(?<steady>[\d.]+) fast_p95=(?<fast>[\d.]+) lat_p95=(?<lat>[\d.]+) ms speed_max=(?<speed>[\d.]+)'
 $ghostRe = [regex]'\[sync\] ghosts tracked=(?<tracked>\d+) visible=(?<visible>\d+) spawned=(?<spawned>\d+) respawned=(?<respawned>\d+).*?frame_p95_us=(?<fp95>[\d.]+) frame_max_us=(?<fmax>[\d.]+)'
+$ghostHealthRe = [regex]'\[sync\] ghosts health: rep_bad=(?<bad>\d+) spawn_failed=(?<failed>\d+) unmapped=(?<unmapped>\d+) unresolved=(?<unresolved>\d+) spawn_near=(?<near>\d+)'
 $statsRe = [regex]'stats: fps=(?<fps>[\d.]+) frame_p95=(?<fr>[\d.]+)ms mod_p95=(?<mod>[\d.]+)ms mod_max=(?<modmax>[\d.]+)ms connected=(?<conn>\d) rtt=(?<rtt>[-\d.]+)ms rx=(?<rx>\d+)B/s tx=(?<tx>\d+)B/s'
 $hostRe = [regex]'frames=(?<frames>\d+) p50=(?<p50>\d+)us p95=(?<p95>\d+)us avg=(?<avg>\d+)us max=(?<max>\d+)us over_budget=(?<over>\d+) .*?log_dropped=(?<dropped>\d+)'
 $tsRe = [regex]'^(?<t>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d{3}Z '
 
 $windows = @{}          # player -> list of windows
 $ghostTotals = $null
+$ghostHealth = $null
 $ghostFrameP95 = New-Object System.Collections.Generic.List[double]
 $modP95 = New-Object System.Collections.Generic.List[double]
 $modMax = 0.0
@@ -131,6 +134,8 @@ foreach ($l in $lines) {
         }
         $m = $ghostRe.Match($l)
         if ($m.Success) { $ghostTotals = $m; $ghostFrameP95.Add((D $m.Groups['fp95'].Value)) }
+        $m = $ghostHealthRe.Match($l)
+        if ($m.Success) { $ghostHealth = $m }
         continue
     }
     if ($l.Contains('stats: fps=')) {
@@ -202,6 +207,10 @@ Judge2 'display latency p95 (worst moving ghost, median window)' (MaxOf $latMed)
 if ($ghostTotals) {
     $respawned = [int]$ghostTotals.Groups['respawned'].Value
     $results.Add([pscustomobject]@{ Check = 'ghost respawns ("pops"), mod lifetime total'; Value = "$respawned"; Limit = '= 0'; Result = $(if ($respawned -eq 0) { 'PASS' } else { 'FAIL' }); Note = "of $($ghostTotals.Groups['spawned'].Value) spawns; criterion 2" })
+}
+if ($ghostHealth) {
+    $near = [int]$ghostHealth.Groups['near'].Value
+    $results.Add([pscustomobject]@{ Check = 'spawn-near-player pops, mod lifetime total'; Value = "$near"; Limit = '= 0'; Result = $(if ($near -eq 0) { 'PASS' } else { 'FAIL' }); Note = 'criterion 6, M4-23: read from the [sync] ghosts health line' })
 }
 
 # ---- performance ---------------------------------------------------------------------------------------------------------------------

@@ -51,7 +51,8 @@ measured by hand:
 |---|---|---|
 | `budget: fps=.. frame_ms=P50/P95 mod_ms=P50/P95/MAX authority_ms=P50/P95/MAX clients=.. ghosts=.. suppressed=.. rx=..B/s tx=..B/s per_client=..B/s udp=..` | every 30 s | criteria 4, 5, 8, 9 |
 | `[statics] manifest report <ckpt>: M/N stations matched ...` | once per manifest, per client | criterion 1 |
-| `[sync] ghosts tracked=.. visible=.. spawned=.. respawned=.. hidden=.. removed=.. adopted=.. spawn_near=..` | every 5 s, client | criteria 2, 6, 7 |
+| `[sync] ghosts tracked=.. visible=.. spawned=.. respawned=.. hidden=.. removed=.. adopted=.. hints=.. rep_msgs=.. rep_entries=.. frame_p95_us=.. frame_max_us=.. clk_ms=.. bias_ms=..` | every 5 s, client | criteria 2, 7 |
+| `[sync] ghosts health: rep_bad=.. spawn_failed=.. unmapped=.. unresolved=.. spawn_near=..` | every 5 s, client, right after the line above | criterion 6 |
 | `[sync] net=<id> frames=.. err_p50/p95/max=.. m steady_p95=.. fast_p95=.. lat_p95=.. ms ..` | every 5 s, per ghost | criterion 3 |
 | `stats: ... udp=active udp_frames=../.. udp_dgram=../.. udp_loss=..% udp_binds=.. udp_fb=..` | every 5 s | criterion 8 detail |
 
@@ -149,16 +150,18 @@ sector held 119-132 hulls, not 200. Owed: a two-machine session in a shipyard or
 
 1. Take a highway across a busy sector with ghosts in view (the client should be *moving*; a ghost that appears while
    the camera is still does not count as a pop, see m4-plan Q8).
-2. After the transit read `[sync] ghosts ... spawn_near=N` on the client. Criterion 6 is `N == 0` for the whole transit.
+2. After the transit read `[sync] ghosts health: ... spawn_near=N` on the client. Criterion 6 is `N == 0` for the whole transit.
 3. If `N > 0`, the same 5 s lines around it plus the sector name are the bug report.
 
 Record: `spawn_near = ____` before / during / after.
 
-Stand 2026-11-08: **not produced, and not yet readable.** No highway transit was flown. Worse, the counter is the last
-field of the `[sync] ghosts` line, which is cut at `log::kMaxLineChars = 240` (`core/log/log.h:50`): measured 272
-characters total, 232 of message, ending mid-word after `spawn_failed=0`. The counter itself is unit-tested
-(`mod/tests/ghosts/test_driver.cpp:880-889`). Splitting that line needs a matching change in
-`tools\session4\sync-report.ps1`, which parses the field order - do that before the real session.
+Stand 2026-11-08: **not produced.** No highway transit was flown, so `N` has no live value across a pop. The counter is
+readable now: the 5 s report is two lines, and `spawn_near` sits on the second one
+(`[sync] ghosts health: rep_bad=.. spawn_failed=.. unmapped=.. unresolved=.. spawn_near=..`, ~86 characters) because the
+single line was cut at `log::kMaxLineChars = 240` (`core/log/log.h:50`) - measured 272 characters total, 232 of message,
+ending mid-word after `spawn_failed=0`. `tools\session4\sync-report.ps1` reads the health line as well and reports a
+`spawn-near-player pops` row with limit `= 0`. The counter itself is unit-tested
+(`mod/tests/ghosts/test_driver.cpp:880-889`).
 
 ## 7.7 No churn while in interest (criterion 7)
 

@@ -249,7 +249,8 @@ try {
                 $p95 = if ($Bad) { '80.00' } else { '2.50' }
                 $lines.Add("$ts [INFO] [ghost] [sync] player=$who net=7 frames=295 err_p50/p95/max=0.80/$p95/6.00 m steady_p95=$p95 fast_p95=0.00 lat_p95=170 ms speed_max=250 snaps=0 extrap=0 held=0 delay_ms=150 newest_age_ms=60")
             }
-            $lines.Add("$ts [INFO] [ghost] [sync] ghosts tracked=2 visible=2 spawned=2 respawned=0 hidden=0 removed=0 adopted=0 hints=100 rep_msgs=$($w * 100) rep_entries=$($w * 500) frame_p95_us=30 frame_max_us=60 clk_ms=-1000 bias_ms=30 rep_bad=0 spawn_failed=0 unmapped=0 unresolved=0")
+            $lines.Add("$ts [INFO] [ghost] [sync] ghosts tracked=2 visible=2 spawned=2 respawned=0 hidden=0 removed=0 adopted=0 hints=100 rep_msgs=$($w * 100) rep_entries=$($w * 500) frame_p95_us=30 frame_max_us=60 clk_ms=-1000 bias_ms=30")
+            $lines.Add("$ts [INFO] [ghost] [sync] ghosts health: rep_bad=0 spawn_failed=0 unmapped=0 unresolved=0 spawn_near=0")
             $mod = if ($Bad) { '0.900' } else { '0.090' }
             $rate = if ($Bad) { 40000 } else { 3000 }
             $lines.Add("$ts [INFO] [perf] stats: fps=60.0 frame_p95=16.00ms mod_p95=${mod}ms mod_max=0.300ms connected=1 rtt=0.5ms rx=${rate}B/s tx=1500B/s node_stats_sent=$w")

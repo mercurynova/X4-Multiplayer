@@ -278,13 +278,18 @@ void GhostFeature::report(host::HostContext& ctx, std::int64_t) {
   // M4-30: the 30 s budget line quotes this; publish it even when the ghost line below is skipped.
   ghosts::ghost_hub().set_suppressed(suppression_ ? suppression_->total_suppressed() : 0);
   if (c.driver.size() == 0 && c.counters.replication == 0) return;
-  // one line (the log cuts lines at ~240 characters, so the fields that matter come first; sync-report.ps1 reads this exact order)
+  // Two lines: a message is cut at log::kMaxLineChars (240, core/log/log.h), and this used to be one line that ended mid-word at
+  // spawn_failed, so unmapped/unresolved/spawn_near were never readable live (measured 232 chars, 272 with the prefix). The first
+  // line keeps the field order tools/session4/sync-report.ps1 parses; the second carries the health counters, spawn_near included
+  // (M4-23, criterion 6: it must stay 0 across a highway transit).
   ctx.log.raw(Cat::Ghost, Level::Info,
               std::format("[sync] ghosts tracked={} visible={} spawned={} respawned={} hidden={} removed={} adopted={} hints={} rep_msgs={} rep_entries={} frame_p95_us={:.0f} "
-                          "frame_max_us={:.0f} clk_ms={} bias_ms={} rep_bad={} spawn_failed={} unmapped={} unresolved={} spawn_near={}",
+                          "frame_max_us={:.0f} clk_ms={} bias_ms={}",
                           c.driver.size(), last_visible_, k.spawned, k.respawned, k.hidden, k.removed, k.adopted, k.hints_sent, c.counters.replication,
-                          c.counters.replication_entries, frame_cost_us_.percentile(0.95), frame_cost_max_us_, c.clock_offset_us / 1000, c.stream_clock.bias_us() / 1000,
-                          c.counters.replication_bad, k.spawn_failed, k.unmapped_frames, c.counters.spawn_unresolved, k.spawn_near));
+                          c.counters.replication_entries, frame_cost_us_.percentile(0.95), frame_cost_max_us_, c.clock_offset_us / 1000, c.stream_clock.bias_us() / 1000));
+  ctx.log.raw(Cat::Ghost, Level::Info,
+              std::format("[sync] ghosts health: rep_bad={} spawn_failed={} unmapped={} unresolved={} spawn_near={}", c.counters.replication_bad, k.spawn_failed,
+                          k.unmapped_frames, c.counters.spawn_unresolved, k.spawn_near));
   // M4-13: the suppression pass, one line, only when it has done something.
   if (suppression_) {
     const ghosts::LocalSuppression::Stats& s = suppression_->stats();
