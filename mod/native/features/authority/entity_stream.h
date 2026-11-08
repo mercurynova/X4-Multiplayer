@@ -66,6 +66,7 @@ struct StreamStats {
   std::uint32_t changes = 0;
   std::uint32_t statuses = 0;
   std::uint32_t skipped_no_macro = 0;  // a row whose macro string was not in the table yet
+  std::uint32_t skipped_no_pose = 0;   // the engine answered (0,0,0): a docked or landed hull has no in-sector position
   std::uint32_t encode_failed = 0;
   std::uint32_t send_failed = 0;
   std::uint32_t reason_threshold = 0, reason_rotation = 0, reason_flags = 0, reason_sector = 0, reason_keepalive = 0;

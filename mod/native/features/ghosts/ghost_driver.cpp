@@ -349,8 +349,8 @@ void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
       // The four repeating distances on the stand (51059.1, 33496.0, 50660.8, 49525.4 m) are shared by dozens of ghosts, so the pair of
       // positions and sector ids is the only way to tell a frame offset from a pinned hull. Kept on the give-up line: one per 30 s per
       // offender, not a per-frame trace.
-      log(kWarn, std::format("ghost guard gives up for {} s: net={} label='{}' the game keeps moving it ({:.1f} m from the placed pose), sector {} vs {}, at ({:.1f},{:.1f},{:.1f}) want ({:.1f},{:.1f},{:.1f}) highway {}",
-                             cfg_.guard_giveup_us / 1'000'000, g.info.net_id, g.label, d, st->sector, g.sector_id, st->pose.pos.x,
+      log(kWarn, std::format("ghost guard gives up for {} s: net={} local={} label='{}' the game keeps moving it ({:.1f} m from the placed pose), sector {} vs {}, at ({:.1f},{:.1f},{:.1f}) want ({:.1f},{:.1f},{:.1f}) highway {}",
+                             cfg_.guard_giveup_us / 1'000'000, g.info.net_id, g.local_id, g.label, d, st->sector, g.sector_id, st->pose.pos.x,
                              st->pose.pos.y, st->pose.pos.z, g.last_pose.pos.x, g.last_pose.pos.y, g.last_pose.pos.z,
                              st->in_highway ? "YES" : "no"));
     }

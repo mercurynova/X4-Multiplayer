@@ -365,7 +365,7 @@ TEST_CASE("stream: the four authority messages encode and decode", "[authority][
 
 TEST_CASE("stream: a scan pass spawns every entity once, in chunks, before SectorComplete", "[authority][stream][spawn]") {
   World world;
-  for (int i = 0; i < 40; ++i) world.add(12, 1000 + i, TrackPose{double(i), 0, 0, 0, 0, 0});
+  for (int i = 0; i < 40; ++i) world.add(12, 1000 + i, TrackPose{double(i + 1), 0, 0, 0, 0, 0});
   Recorder recorder;
   EntityStream stream(world.reader(), recorder.sink());
   CaptureSet set;
@@ -397,7 +397,7 @@ TEST_CASE("stream: a scan pass spawns every entity once, in chunks, before Secto
   CHECK(complete->entity_count() == 40);
 
   // A second pass spawns only the entity that is new.
-  const auto late = world.add(12, 5000, TrackPose{0, 0, 0, 0, 0, 0});
+  const auto late = world.add(12, 5000, TrackPose{500, 0, 0, 0, 0, 0});
   (void)late;
   recorder.clear();
   stream.on_scan_complete(12);
@@ -408,6 +408,65 @@ TEST_CASE("stream: a scan pass spawns every entity once, in chunks, before Secto
   CHECK(spawn->entities()->size() == 1);
   CHECK(recorder.count(T(P::MsgType::SectorComplete)) == 1);
 }
+
+TEST_CASE("stream: a hull with no in-sector pose is not spawned at the sector centre", "[authority][stream][spawn][dock]") {
+  World world;
+  const auto flying = world.add(12, 1000, TrackPose{100, 0, 0, 0, 0, 0});
+  const auto docked = world.add(12, 1001, TrackPose{0, 0, 0, 0, 0, 0});  // what the engine answers for a docked hull
+  Recorder recorder;
+  EntityStream stream(world.reader(), recorder.sink());
+  CaptureSet set;
+  REQUIRE(set.apply(3, {{12, 1}}, {}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(12);
+
+  stream.step(1.0, 1000, 0.0, set, world.index);
+
+  REQUIRE(recorder.count(T(P::MsgType::EntitySpawn)) == 1);
+  const auto* spawn = flatbuffers::GetRoot<P::EntitySpawn>(recorder.first(T(P::MsgType::EntitySpawn)).data());
+  REQUIRE(spawn->entities() != nullptr);
+  REQUIRE(spawn->entities()->size() == 1);
+  CHECK(spawn->entities()->Get(0)->net_id() == flying);  // never a ghost parked at the sector centre
+  CHECK(stream.stats().skipped_no_pose >= 1);
+  CHECK(stream.track_count() == 1);
+
+  // It undocks: the next scan pass spawns it where it really is.
+  world.poses[1001] = TrackPose{250, 0, 0, 0, 0, 0};
+  recorder.clear();
+  stream.on_scan_complete(12);
+  stream.step(1.0, 1050, 0.05, set, world.index);
+  REQUIRE(recorder.count(T(P::MsgType::EntitySpawn)) == 1);
+  const auto* again = flatbuffers::GetRoot<P::EntitySpawn>(recorder.first(T(P::MsgType::EntitySpawn)).data());
+  REQUIRE(again->entities() != nullptr);
+  REQUIRE(again->entities()->size() == 1);
+  CHECK(again->entities()->Get(0)->net_id() == docked);
+  CHECK(again->entities()->Get(0)->state()->px() == *wire::quantize_position(250.0));
+}
+
+TEST_CASE("stream: a ship that docks keeps its last real pose instead of jumping to the centre", "[authority][stream][updates][dock]") {
+  World world;
+  world.add(12, 1000, TrackPose{100, 0, 0, 0, 0, 0});
+  Recorder recorder;
+  EntityStream stream(world.reader(), recorder.sink());
+  CaptureSet set;
+  REQUIRE(set.apply(3, {{12, 1}}, {}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(12);
+  stream.step(1.0, 1000, 0.0, set, world.index);
+  REQUIRE(stream.track_count() == 1);
+  recorder.clear();
+
+  // The hull docks: the engine now reports no in-sector pose at all.
+  world.poses[1000] = TrackPose{0, 0, 0, 0, 0, 0};
+  for (int i = 0; i < 25; ++i) stream.step(1.0, 1000 + i * 50, 0.05 * (i + 1), set, world.index);
+
+  const auto before = stream.stats().skipped_no_pose;
+  CHECK(before > 0);
+  for (const auto& [type, payload] : recorder.realtime) {
+    for (const auto& state : states_of(payload)) CHECK(state.px() != 0);  // never the centre
+  }
+}
+
 
 TEST_CASE("stream: every tick emits one WorldUpdate, even with nothing to say", "[authority][stream][clock]") {
   World world;
@@ -425,7 +484,7 @@ TEST_CASE("stream: every tick emits one WorldUpdate, even with nothing to say", 
 
 TEST_CASE("stream: a 200-ship 1 Hz sector is polled once per ship per second, never twice in a tick", "[authority][stream][roundrobin]") {
   World world;
-  for (int i = 0; i < 200; ++i) world.add(12, 2000 + i, TrackPose{0, 0, 0, 0, 0, 0});
+  for (int i = 0; i < 200; ++i) world.add(12, 2000 + i, TrackPose{120, 0, 0, 0, 0, 0});
   Recorder recorder;
   std::unordered_map<std::uint64_t, int> reads;
   auto reader = [&](std::uint64_t component, TrackPose& out) {
@@ -451,7 +510,7 @@ TEST_CASE("stream: a 200-ship 1 Hz sector is polled once per ship per second, ne
 
 TEST_CASE("stream: a ship flying straight is polled but not streamed; a stationary one keyframes", "[authority][stream][updates]") {
   World world;
-  const auto mover = world.add(12, 3000, TrackPose{0, 0, 0, 0, 0, 0});
+  const auto mover = world.add(12, 3000, TrackPose{120, 0, 0, 0, 0, 0});
   const auto still = world.add(12, 3001, TrackPose{500, 0, 0, 0, 0, 0});
   Recorder recorder;
   EntityStream stream(world.reader(), recorder.sink());
@@ -490,7 +549,7 @@ TEST_CASE("stream: a ship flying straight is polled but not streamed; a stationa
 
 TEST_CASE("stream: a sector that leaves interest despawns after the 60 s grace, and re-entry cancels it", "[authority][stream][despawn]") {
   World world;
-  const auto a = world.add(12, 4000, TrackPose{0, 0, 0, 0, 0, 0});
+  const auto a = world.add(12, 4000, TrackPose{120, 0, 0, 0, 0, 0});
   const auto b = world.add(12, 4001, TrackPose{1, 0, 0, 0, 0, 0});
   Recorder recorder;
   EntityStream stream(world.reader(), recorder.sink());
@@ -540,7 +599,7 @@ TEST_CASE("stream: a sector that leaves interest despawns after the 60 s grace, 
 
 TEST_CASE("stream: a row the scan no longer sees despawns once, with the right reason", "[authority][stream][despawn]") {
   World world;
-  const auto gone = world.add(12, 4100, TrackPose{0, 0, 0, 0, 0, 0});
+  const auto gone = world.add(12, 4100, TrackPose{120, 0, 0, 0, 0, 0});
   const auto moved = world.add(12, 4101, TrackPose{1, 0, 0, 0, 0, 0});
   Recorder recorder;
   EntityStream stream(world.reader(), recorder.sink());
@@ -570,7 +629,7 @@ TEST_CASE("stream: a row the scan no longer sees despawns once, with the right r
 
 TEST_CASE("stream (M5-07): a kill despawns once as Destroyed and carries the killer", "[authority][stream][despawn][m507]") {
   World world;
-  const auto victim = world.add(12, 4300, TrackPose{0, 0, 0, 0, 0, 0});
+  const auto victim = world.add(12, 4300, TrackPose{120, 0, 0, 0, 0, 0});
   Recorder recorder;
   EntityStream stream(world.reader(), recorder.sink());
   CaptureSet set;
@@ -600,7 +659,7 @@ TEST_CASE("stream (M5-07): a kill despawns once as Destroyed and carries the kil
 
 TEST_CASE("stream (M5-11): a player's death despawns the avatar once as PlayerLeft", "[authority][stream][despawn][m511]") {
   World world;
-  const auto victim = world.add(12, 4300, TrackPose{0, 0, 0, 0, 0, 0});
+  const auto victim = world.add(12, 4300, TrackPose{120, 0, 0, 0, 0, 0});
   Recorder recorder;
   EntityStream stream(world.reader(), recorder.sink());
   CaptureSet set;
@@ -630,7 +689,7 @@ TEST_CASE("stream (M5-11): a player's death despawns the avatar once as PlayerLe
 
 TEST_CASE("stream: an owner change emits one EntityChange, a hull change one status entry", "[authority][stream][change]") {
   World world;
-  const auto id = world.add(12, 4200, TrackPose{0, 0, 0, 0, 0, 0});
+  const auto id = world.add(12, 4200, TrackPose{120, 0, 0, 0, 0, 0});
   Recorder recorder;
   EntityStream stream(world.reader(), recorder.sink());
   CaptureSet set;
@@ -708,7 +767,7 @@ TEST_CASE("stream: an entity inside a focus sphere is polled every tick", "[auth
 
 TEST_CASE("stream: a failed send is retried, not counted as spawned", "[authority][stream][send]") {
   World world;
-  world.add(12, 4400, TrackPose{0, 0, 0, 0, 0, 0});
+  world.add(12, 4400, TrackPose{120, 0, 0, 0, 0, 0});
   Recorder recorder;
   recorder.fail = true;
   EntityStream stream(world.reader(), recorder.sink());

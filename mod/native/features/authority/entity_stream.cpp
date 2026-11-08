@@ -24,6 +24,14 @@ constexpr std::uint16_t kChangeOwnerTeam = 1u << 1;
 constexpr std::uint16_t kChangeOwnerPlayer = 1u << 2;
 constexpr std::uint16_t kChangeMacro = 1u << 5;
 
+// The engine answers (0,0,0) for a hull that has no position inside the sector at all - one docked to a station or landed in a
+// hangar reports no in-sector pose. Streaming that puts a ghost at the sector centre, where the engine refuses to keep it: the
+// client sees 46-51 km 'the game moved our object' fights and the guard gives up for 30 s (guest log 12:39, 2026-11-06). The
+// hull is skipped until it undocks and reports a real pose; the next scan pass picks it up then.
+[[nodiscard]] bool no_space_pose(const TrackPose& p) noexcept {
+  return std::fabs(p.x) < 0.01 && std::fabs(p.y) < 0.01 && std::fabs(p.z) < 0.01;
+}
+
 }  // namespace
 
 EntityStream::EntityStream(PoseReader reader, Sink sink, StreamConfig cfg)
@@ -301,6 +309,10 @@ void EntityStream::spawn_due(double game_time, double now_s, const CaptureSet& s
         ++stats_.poll_failed;
         continue;
       }
+      if (no_space_pose(pose)) {
+        ++stats_.skipped_no_pose;  // docked/landed: retried on the next scan pass
+        continue;
+      }
       const auto qx = wire::quantize_position(pose.x), qy = wire::quantize_position(pose.y), qz = wire::quantize_position(pose.z);
       const auto ry = wire::quantize_rotation(pose.yaw), rp = wire::quantize_rotation(pose.pitch),
                  rr = wire::quantize_rotation(pose.roll);
@@ -386,6 +398,12 @@ void EntityStream::visit(EntityTrack& track, std::uint16_t sector, double now_s,
   TrackPose pose;
   if (!reader_(track.component, pose) || !is_finite(pose)) {
     ++stats_.poll_failed;
+    return;
+  }
+  if (no_space_pose(pose)) {
+    // Docked or landed: no in-sector position. Keep the last real pose the client already holds instead of dragging the ghost
+    // to the sector centre and fighting the engine over it.
+    ++stats_.skipped_no_pose;
     return;
   }
   ++stats_.polls;
