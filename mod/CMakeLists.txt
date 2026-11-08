@@ -513,6 +513,7 @@ if(X4MP_TESTS)
     tests/ghost/alloc_counter.cpp
     tests/ghost/test_math.cpp
     tests/ghost/test_interpolator.cpp
+    tests/ghost/test_hint_gate.cpp
     tests/ghost/test_tracks.cpp
     tests/ghost/test_registry.cpp
     tests/ghost/test_replication.cpp

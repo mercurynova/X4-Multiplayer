@@ -913,7 +913,7 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
       if (av.vel.valid()) {
         const auto v = av.vel.velocity();
         const double sp = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        const bool too_fast = !diag_.hints_all_speeds && (sp > kHintMaxMps || !av.gate.allow(now_s_));  // F32: also until the gate saw calm, real data since the last jump  // M3-34: at travel speed the engine would fly the inert ship by the hint
+        const bool too_fast = !diag_.hints_all_speeds && !av.gate.allow(now_s_, sp);  // F32: also until the gate saw calm, real data since the last jump  // M3-34: at travel speed the engine would fly the inert ship by the hint
         if (too_fast) {
           if (av.hint_nonzero || zero_owed) hints.push_back({av.local_id, 0, 0, 0});
           av.hint_nonzero = false;

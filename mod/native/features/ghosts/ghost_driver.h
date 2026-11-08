@@ -301,6 +301,7 @@ class GhostDriver {
   void guard_check(Ghost& g, std::int64_t now_us, double speed_mps);  // M3-34 engine guard
   void process_removals();
   void erase_record(std::uint32_t net_id);
+  [[nodiscard]] ghost::HintGate make_gate() const;  // F32: the ONE place a ghost's gate is built (spawn and restore); cfg_ is fixed after construction
 
   GhostConfig cfg_;
   LogFn log_;

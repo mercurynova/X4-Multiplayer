@@ -57,6 +57,8 @@ bool pose_differs(const Pose& a, const Pose& b, double eps_m, double eps_rad) {
 }
 }  // namespace
 
+ghost::HintGate GhostDriver::make_gate() const { return ghost::HintGate({cfg_.hint_max_mps, static_cast<double>(cfg_.hint_settle_us) / 1e6}); }
+
 GhostDriver::GhostDriver(GhostConfig cfg, LogFn log) : cfg_(cfg), log_(std::move(log)), streams_(interp_config(cfg)) { ghosts_.reserve(16); hint_batch_.reserve(16); }
 
 void GhostDriver::log(int level, const std::string& text) const {
@@ -111,6 +113,7 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
   if (!g) {
     ghosts_.emplace_back();
     g = &ghosts_.back();
+    g->gate = make_gate();
     g->first_seen_us = now_us;
     g->spawn_not_before_us = 0;
     streams_.ensure(info.net_id);
@@ -298,6 +301,7 @@ void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
   if (moved) {
     g.guard_hot_until_us = now_us + cfg_.guard_hot_us;
     g.force_place = true;
+    g.gate.discontinuity();  // F32: an engine move is a placement jump like any other: the calm period restarts
     if (!cfg_.hints_off) {
       hint_batch_.push_back({g.local_id, 0, 0, 0});
       g.hint_was_zero = true;
@@ -507,7 +511,7 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       const double sp = ghost::length(v);
       // M3-34: at travel speed the engine would fly the inert ship by the hint between our placements (and may capture it into a highway): zero then.
       // F32: also not before the gate has seen `hint_settle_us` of real, calm data since the last jump (a sector change at superhighway speed lets no hint out).
-      const bool too_fast = !cfg_.hints_all_speeds && (sp > cfg_.hint_max_mps || !g.gate.allow(now_s));
+      const bool too_fast = !cfg_.hints_all_speeds && !g.gate.allow(now_s, sp);
       // the engine guard fired lately (guard_hot_us): the engine just threw this object away from its placed pose, so no hint for it (F23c, 2026-10-28 evidence)
       const bool guard_hot = now_us < g.guard_hot_until_us;
       if (sp > 0.05 && !too_fast && !g.braking && !guard_hot) {
@@ -620,7 +624,7 @@ bool GhostDriver::restore(std::string_view meta, std::int64_t now_us) {
     }
     if (f[0] != "G" || f.size() != 10) return false;
     Ghost g;
-    g.gate = ghost::HintGate({cfg_.hint_max_mps, static_cast<double>(cfg_.hint_settle_us) / 1e6});
+    g.gate = make_gate();
     std::uint32_t net = 0;
     unsigned player = 0, controller = 0, team = 0;
     std::uint64_t local = 0;
