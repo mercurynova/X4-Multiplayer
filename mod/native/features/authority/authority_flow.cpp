@@ -998,13 +998,15 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   if (now - next_stream_log_ >= std::chrono::seconds(10)) {
     next_stream_log_ = now;
     const auto& s = stream_.stats();
-    const std::uint32_t total = s.spawns + s.updates + s.skipped_no_pose + s.skipped_far + s.skipped_no_macro + s.encode_failed + s.send_failed;
+    const std::uint32_t total = s.spawns + s.updates + s.skipped_no_pose + s.skipped_far + s.skipped_no_macro + s.encode_failed +
+                                s.velocity_clamped + s.send_failed;
     if (total != stream_logged_total_) {
       stream_logged_total_ = total;
       X4MP_CLOG(ctx.log, Cat::Save, Level::Info,
-                "[sync] stream: spawns={} updates={} polls={} skipped_no_macro={} skipped_no_pose={} skipped_far={} encode_failed={} send_failed={} sectors_complete={}",
-                s.spawns, s.updates, s.polls, s.skipped_no_macro, s.skipped_no_pose, s.skipped_far, s.encode_failed, s.send_failed,
-                s.sectors_complete);
+                "[sync] stream: spawns={} updates={} polls={} skipped_no_macro={} skipped_no_pose={} skipped_far={} encode_failed={} "
+                "velocity_clamped={} send_failed={} sectors_complete={}",
+                s.spawns, s.updates, s.polls, s.skipped_no_macro, s.skipped_no_pose, s.skipped_far, s.encode_failed, s.velocity_clamped,
+                s.send_failed, s.sectors_complete);
     }
   }
 

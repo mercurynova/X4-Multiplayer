@@ -474,14 +474,22 @@ void EntityStream::visit(EntityTrack& track, std::uint16_t sector, double now_s,
     return;
   }
   const bool coarse = wire::needs_coarse_velocity(track.velocity.x, track.velocity.y, track.velocity.z).value_or(false);
-  const auto vx = wire::quantize_velocity(track.velocity.x, coarse), vy = wire::quantize_velocity(track.velocity.y, coarse),
-             vz = wire::quantize_velocity(track.velocity.z, coarse);
+  auto vx = wire::quantize_velocity(track.velocity.x, coarse), vy = wire::quantize_velocity(track.velocity.y, coarse),
+       vz = wire::quantize_velocity(track.velocity.z, coarse);
+  bool vel_coarse = coarse;
   if (!vx || !vy || !vz) {
-    ++stats_.encode_failed;
-    return;
+    // The finite difference between two reads can exceed what the wire carries (|v| > 131 072 m/s in the coarse step of 4 m/s):
+    // a hull repositioned inside its sector between two polls, a highway exit, a dock. Dropping the whole update left the client
+    // on the pose it already had; the pose is valid, so send it with zero velocity instead and count the clamp. The interpolator
+    // then stops predicting the hull and holds it where the pose says.
+    ++stats_.velocity_clamped;
+    vx = 0;
+    vy = 0;
+    vz = 0;
+    vel_coarse = false;
   }
 
-  std::uint16_t flags = coarse ? kFlagVelCoarse : 0;
+  std::uint16_t flags = vel_coarse ? kFlagVelCoarse : 0;
   if (reason == UpdateReason::Keepalive) flags |= kFlagKeyframe;
 
   StateSample sample;

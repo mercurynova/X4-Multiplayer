@@ -69,6 +69,7 @@ struct StreamStats {
   std::uint32_t skipped_no_pose = 0;   // the engine answered (0,0,0): a docked or landed hull has no in-sector position
   std::uint32_t skipped_far = 0;       // the pose is outside the wire's +-33 554 km position range, so it cannot be encoded at all
   std::uint32_t encode_failed = 0;
+  std::uint32_t velocity_clamped = 0;  // the finite difference between two reads was faster than the wire can carry: sent with zero velocity
   std::uint32_t send_failed = 0;
   std::uint32_t reason_threshold = 0, reason_rotation = 0, reason_flags = 0, reason_sector = 0, reason_keepalive = 0;
 };

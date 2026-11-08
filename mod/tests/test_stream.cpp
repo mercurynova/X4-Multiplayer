@@ -515,6 +515,43 @@ TEST_CASE("stream: a hull beyond the wire's 33 554 km position range is skipped,
   }
 }
 
+TEST_CASE("stream: a hull that jumps faster than the wire can carry keeps its pose and loses only its velocity", "[authority][stream][velocity]") {
+  // The finite difference of two reads is not physics: a hull repositioned inside its sector (a highway exit, a dock, a script)
+  // can yield a speed the velocity field cannot hold - int16 at 4 m/s per step stops at 131 072 m/s. The update used to be
+  // dropped whole, so the client stayed on the old pose and the counter read encode_failed, i.e. like an encoder bug.
+  World world;
+  const auto net = world.add(12, 1000, TrackPose{200'000, 0, 0, 0, 0, 0});
+  Recorder recorder;
+  EntityStream stream(world.reader(), recorder.sink());
+  CaptureSet set;
+  REQUIRE(set.apply(3, {{12, 1}}, {}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(12);
+  stream.step(1.0, 1000, 0.0, set, world.index);
+  REQUIRE(recorder.count(T(P::MsgType::EntitySpawn)) == 1);
+
+  // One tick at the old pose first: the finite difference needs a previous read, otherwise the first update simply has no velocity.
+  stream.step(1.5, 1500, 0.5, set, world.index);
+  recorder.clear();
+  world.poses[1000] = TrackPose{400'000, 0, 0, 0, 0, 0};  // 200 km in half a second: far past the coarse range
+  for (int i = 0; i < 3; ++i) stream.step(2.0, 2000 + i * 50, 1.0 + 0.05 * (i + 1), set, world.index);
+
+  CHECK(stream.stats().velocity_clamped >= 1);
+  CHECK(stream.stats().encode_failed == 0);
+  bool seen = false;
+  for (const auto& [type, payload] : recorder.realtime) {
+    for (const auto& state : states_of(payload)) {
+      if (state.net_id() != net) continue;
+      seen = true;
+      CHECK(state.px() == wire::quantize_position(400'000).value());
+      CHECK(state.vx() == 0);
+      CHECK(state.vy() == 0);
+      CHECK(state.vz() == 0);
+    }
+  }
+  CHECK(seen);  // the pose still reached the client
+}
+
 TEST_CASE("stream: every tick emits one WorldUpdate, even with nothing to say", "[authority][stream][clock]") {
   World world;
   Recorder recorder;
