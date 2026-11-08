@@ -992,6 +992,21 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   const auto now_s = std::chrono::duration<double>(now.time_since_epoch()).count();
   stream_.step(*game_time, server_now, now_s, capture_, index_);
 
+  // M2: the streamer's own counters. `skipped_no_pose` is the whole point: a docked or landed hull answers (0,0,0) from
+  // GetObjectPositionInSector, so it is skipped instead of spawned at the sector centre, and without this line the only evidence
+  // was a ghost that never appeared. One line per 10 s, and only when one of the counters moved.
+  if (now - next_stream_log_ >= std::chrono::seconds(10)) {
+    next_stream_log_ = now;
+    const auto& s = stream_.stats();
+    const std::uint32_t total = s.spawns + s.updates + s.skipped_no_pose + s.skipped_no_macro + s.encode_failed + s.send_failed;
+    if (total != stream_logged_total_) {
+      stream_logged_total_ = total;
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Info,
+                "[sync] stream: spawns={} updates={} polls={} skipped_no_macro={} skipped_no_pose={} encode_failed={} send_failed={} sectors_complete={}",
+                s.spawns, s.updates, s.polls, s.skipped_no_macro, s.skipped_no_pose, s.encode_failed, s.send_failed, s.sectors_complete);
+    }
+  }
+
   if (!wu_logged_) {
     wu_logged_ = true;
     X4MP_CLOG(ctx.log, Cat::Save, Level::Info,

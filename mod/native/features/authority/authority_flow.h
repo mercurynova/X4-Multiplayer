@@ -193,6 +193,9 @@ class AuthorityFlow {
   void step_world_clock(host::HostContext& ctx);
   Clock::time_point next_wu_{};
   bool wu_logged_ = false;
+  // M2: the streamer's counters had no line of their own, so nothing on the stand showed a hull being skipped for having no in-sector pose.
+  Clock::time_point next_stream_log_{};
+  std::uint32_t stream_logged_total_ = 0;
 
   // M4-01/02: the server's interest and the entities we know. `capture_stale_` counts resends (refused, not an error), `capture_bad_` broken
   // messages, `scan_no_sector_` scans of a sector macro the galaxy map does not know.
