@@ -94,6 +94,9 @@ struct GameFns {
   UniverseId (*GetPlayerID)() = nullptr;
   UniverseId (*GetPlayerObjectID)() = nullptr;
   UniverseId (*GetPlayerContainerID)() = nullptr;
+  // M4 guard: the zone the player stands in (walks the player chain for class 108). Used to tell a trustworthy engine read-back
+  // (the player's own zone) from one taken in a low-attention zone, where the ghost's stored position is not what we wrote.
+  UniverseId (*GetPlayerZoneID)() = nullptr;
   UniverseId (*GetContextByClass)(UniverseId componentid, const char* classname, bool includeself) = nullptr;
   bool (*IsValidComponent)(UniverseId componentid) = nullptr;
   // On-foot facing (M3): the direction the player looks along, which is the body heading of the avatar other players see.
@@ -135,8 +138,9 @@ struct GameFns {
   void (*AddPlayerMoney)(std::int64_t money) = nullptr;
 };
 
-// Number of exports in GameFns (keep in step with resolve_game_fns / missing_exports; the self-test reports resolved/total).
-inline constexpr std::size_t kGameFnCount = 35;
+// Number of names missing_exports() checks, i.e. the exports GameFns can bind (a test asserts it): the self-test reports resolved/total
+// from it, so it has to be the real count or the report lies by the difference.
+inline constexpr std::size_t kGameFnCount = 37;
 
 // Upper bound on the cargo lines one read copies (far above any real hold; keeps a bad export from allocating forever).
 inline constexpr std::uint32_t kMaxCargoLines = 4096;
@@ -184,6 +188,9 @@ class GameApi {
   [[nodiscard]] UniverseId player_id() const noexcept;
   [[nodiscard]] UniverseId player_object() const noexcept;
   [[nodiscard]] UniverseId player_container() const noexcept;
+  // M4 guard: the zone the player is in (class 108 in the player chain); 0 when the export is missing or the read fails. The zone is
+  // what SetObjectSectorPos re-parents an object to when its position crosses a zone border, so it names the frame the read-back is in.
+  [[nodiscard]] UniverseId player_zone() const noexcept;
   [[nodiscard]] UniverseId context_by_class(UniverseId id, const char* classname, bool include_self) const noexcept;
   // Radians (the same convention as PosRotPod). nullopt when the export is missing; used for the on-foot body heading.
   [[nodiscard]] std::optional<RotationPod> camera_rotation() const noexcept;

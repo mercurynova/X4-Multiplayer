@@ -74,6 +74,16 @@ std::string GhostsApi::name(UniverseId id) const { return api_.component_name(id
 
 UniverseId GhostsApi::sector_of(UniverseId id) const { return api_.context_by_class(id, "sector", false); }
 
+UniverseId GhostsApi::zone_of(UniverseId id) const { return id != 0 ? api_.context_by_class(id, "zone", false) : 0; }
+
+UniverseId GhostsApi::player_zone() {
+  if (zone_cache_ == 0 || ++zone_calls_ >= 32) {  // one chain walk per 32 guard reads; the player does not change zone that fast
+    zone_calls_ = 0;
+    zone_cache_ = api_.player_zone();
+  }
+  return zone_cache_;
+}
+
 bool GhostsApi::in_highway(UniverseId id) const { return id != 0 && api_.context_by_class(id, "highway", true) != 0; }
 
 UniverseId GhostsApi::local_ship() const {

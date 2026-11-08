@@ -58,6 +58,11 @@ class GhostsApi {
   [[nodiscard]] std::string id_code(UniverseId id) const;
   [[nodiscard]] std::string name(UniverseId id) const;
   [[nodiscard]] UniverseId sector_of(UniverseId id) const;  // GetContextByClass(id, "sector"); 0 = unknown
+  // GetContextByClass(id, "zone", self): the zone the object currently lives in (a tempzone exists at every position we spawn or place
+  // into), 0 = unknown. The guard uses it to tell its own zone from a low-attention one.
+  [[nodiscard]] UniverseId zone_of(UniverseId id) const;
+  // The player's zone (GetPlayerZoneID, class 108 in the player chain), cached for 32 reads; 0 when the export is missing.
+  [[nodiscard]] UniverseId player_zone();
   // GetContextByClass(id, "highway", self): true while the engine has the object in a (local or super) highway (M3-34 engine guard).
   [[nodiscard]] bool in_highway(UniverseId id) const;
 
@@ -77,6 +82,8 @@ class GhostsApi {
   GetFunctionFn get_;
   std::vector<std::string> factions_;
   bool factions_known_ = false;
+  UniverseId zone_cache_ = 0;  // GhostsApi::player_zone cache
+  int zone_calls_ = 0;
 };
 
 }  // namespace x4mp::game

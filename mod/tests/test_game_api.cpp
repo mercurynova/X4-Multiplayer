@@ -31,12 +31,13 @@ bool fk_paused() { return g_paused; }
 GameVersionPod fk_version() { return {9, 0}; }
 const char* fk_suffix() { return "611726"; }
 
-UniverseId g_occupied = 0, g_controlled = 0, g_player = 0, g_object = 0, g_container = 0;
+UniverseId g_occupied = 0, g_controlled = 0, g_player = 0, g_object = 0, g_container = 0, g_player_zone = 0;
 UniverseId fk_occupied() { return g_occupied; }
 UniverseId fk_controlled() { return g_controlled; }
 UniverseId fk_player() { return g_player; }
 UniverseId fk_object() { return g_object; }
 UniverseId fk_container() { return g_container; }
+UniverseId fk_player_zone() { return g_player_zone; }
 UniverseId fk_context(UniverseId id, const char* cls, bool) {
   if (std::string(cls) == "ship" && id == 50) return 500;  // the player object sits in ship 500
   return 0;
@@ -169,6 +170,7 @@ void* lookup_all(const char* name) {
   if (n == "GetPlayerID") return reinterpret_cast<void*>(&fk_player);
   if (n == "GetPlayerObjectID") return reinterpret_cast<void*>(&fk_object);
   if (n == "GetPlayerContainerID") return reinterpret_cast<void*>(&fk_container);
+  if (n == "GetPlayerZoneID") return reinterpret_cast<void*>(&fk_player_zone);
   if (n == "GetContextByClass") return reinterpret_cast<void*>(&fk_context);
   if (n == "IsValidComponent") return reinterpret_cast<void*>(&fk_valid);
   if (n == "SpawnObjectAtPos2") return reinterpret_cast<void*>(&fk_spawn);
@@ -228,13 +230,16 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
   CHECK(v->major == 9);
   CHECK(v->minor == 0);
   CHECK(api.build_version_suffix() == "611726");
+  g_player_zone = 777;  // 2026-11-08: the zone the player stands in (the engine guard's trust test)
+  CHECK(api.player_zone() == 777);
+  g_player_zone = 0;
   CHECK(api.info().game_version == "9.00");
 }
 
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 36);
+  CHECK(missing_exports(api.fns()).size() == 37);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -251,7 +256,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 36);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 37);
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -297,7 +302,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 35);
+  CHECK(missing_exports(api.fns()).size() == 36);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {

@@ -77,6 +77,12 @@ class IGhostWorld {
   // it (the default: fakes, an old game). The engine guard compares it with the pose we placed: a difference means the engine moved our object.
   struct ObjectState {
     std::uint64_t sector = 0;
+    // 2026-11-08: the zone the object lives in and the zone the player stands in (both 0 = unknown / the world does not model zones).
+    // The engine keeps a low-attention object's position in its own zone frame; the read-back of a ghost outside the player's zone is
+    // not the pose that was placed (live: whole groups of ghosts answered with one identical 51-362 km translation), so the guard
+    // must not fight it there.
+    std::uint64_t zone = 0;
+    std::uint64_t player_zone = 0;
     Pose pose;
     bool in_highway = false;
   };
@@ -187,6 +193,9 @@ struct DriverCounters {
   std::uint64_t spawn_failed = 0, faction_missing = 0, invalid_dropped = 0, blocked_removals = 0, remove_failed = 0;
   std::uint64_t places = 0, sector_changes = 0, hints_sent = 0, redressed = 0, unmapped_frames = 0, deferred_clearance = 0;
   std::uint64_t guard_reads = 0, engine_moved = 0, engine_sector = 0, engine_highway = 0;  // M3-34 engine guard
+  // 2026-11-08: a read that would have counted as "the engine moved it" but was taken outside the player's zone, where the game's
+  // answer is a frame of its own and not the pose we placed. Not a repair: the guard skipped it on purpose.
+  std::uint64_t guard_zone_skip = 0;
   // M4-23: a spawn that landed inside the player's 5 km bubble. Zero is the acceptance criterion on a highway transit; a non-zero value
   // names the sector and the net id in the log line that counted it.
   std::uint64_t spawn_near = 0;

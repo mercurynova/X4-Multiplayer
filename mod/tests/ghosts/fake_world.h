@@ -19,6 +19,7 @@ struct FakeObj {
   std::uint64_t id = 0;
   std::string macro, owner, name, idcode;
   std::uint64_t sector = 0;
+  std::uint64_t zone = 0;  // the zone the object lives in (0 = the fake does not model zones)
   Pose pose{};
   bool inert = false;
   bool valid = true;
@@ -112,6 +113,7 @@ class FakeWorld final : public IGhostWorld {
   }
   // ---- M3-34: the game's own idea of the objects (what the engine guard reads) and a crude engine that moves them by itself ----
   std::set<std::uint64_t> highway_ids;        // objects the "engine" has in a highway context
+  std::uint64_t player_zone = 0;              // the zone "the player" stands in (0 = zones not modelled: every read is trusted)
   int read_calls = 0;
   std::optional<ObjectState> read_state(std::uint64_t id) override {
     ++read_calls;
@@ -119,6 +121,8 @@ class FakeWorld final : public IGhostWorld {
     if (it == objs.end()) return std::nullopt;
     ObjectState s;
     s.sector = it->second.sector;
+    s.zone = it->second.zone;
+    s.player_zone = player_zone;
     s.pose = it->second.pose;
     s.in_highway = highway_ids.count(id) != 0;
     return s;

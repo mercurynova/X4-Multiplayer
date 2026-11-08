@@ -28,6 +28,7 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "GetPlayerID", f.GetPlayerID);
   bind(get, "GetPlayerObjectID", f.GetPlayerObjectID);
   bind(get, "GetPlayerContainerID", f.GetPlayerContainerID);
+  bind(get, "GetPlayerZoneID", f.GetPlayerZoneID);
   bind(get, "GetContextByClass", f.GetContextByClass);
   bind(get, "IsValidComponent", f.IsValidComponent);
   bind(get, "SpawnObjectAtPos2", f.SpawnObjectAtPos2);
@@ -72,6 +73,7 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.GetPlayerID), "GetPlayerID");
   check(reinterpret_cast<const void*>(f.GetPlayerObjectID), "GetPlayerObjectID");
   check(reinterpret_cast<const void*>(f.GetPlayerContainerID), "GetPlayerContainerID");
+  check(reinterpret_cast<const void*>(f.GetPlayerZoneID), "GetPlayerZoneID");
   check(reinterpret_cast<const void*>(f.GetContextByClass), "GetContextByClass");
   check(reinterpret_cast<const void*>(f.IsValidComponent), "IsValidComponent");
   check(reinterpret_cast<const void*>(f.SpawnObjectAtPos2), "SpawnObjectAtPos2");
@@ -162,6 +164,9 @@ UniverseId GameApi::player_object() const noexcept {
 }
 UniverseId GameApi::player_container() const noexcept {
   return (fns_.GetPlayerContainerID && assert_main_thread("GetPlayerContainerID")) ? fns_.GetPlayerContainerID() : 0;
+}
+UniverseId GameApi::player_zone() const noexcept {
+  return (fns_.GetPlayerZoneID && assert_main_thread("GetPlayerZoneID")) ? fns_.GetPlayerZoneID() : 0;
 }
 std::optional<RotationPod> GameApi::camera_rotation() const noexcept {
   if (!fns_.GetCameraRotation || !assert_main_thread("GetCameraRotation")) return std::nullopt;

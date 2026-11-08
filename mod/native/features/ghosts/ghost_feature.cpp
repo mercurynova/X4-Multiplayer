@@ -299,11 +299,11 @@ void GhostFeature::report(host::HostContext& ctx, std::int64_t) {
   frame_cost_us_.clear();
   frame_cost_max_us_ = 0;
   // M3-34: the engine guard's totals, one line, only when the totals changed (the engine touched one of our objects)
-  if (k.engine_moved + k.engine_sector + k.engine_highway != last_guard_hits_) {
-    last_guard_hits_ = k.engine_moved + k.engine_sector + k.engine_highway;
+  if (k.engine_moved + k.engine_sector + k.engine_highway + k.guard_zone_skip != last_guard_hits_) {
+    last_guard_hits_ = k.engine_moved + k.engine_sector + k.engine_highway + k.guard_zone_skip;
     ctx.log.raw(Cat::Ghost, Level::Info,
-                std::format("[sync] engine guard: ghosts moved by the game={} into another sector={} in a highway context={} (reads {})", k.engine_moved,
-                            k.engine_sector, k.engine_highway, k.guard_reads));
+                std::format("[sync] engine guard: ghosts moved by the game={} into another sector={} in a highway context={} (reads {}), skipped outside your zone={}",
+                            k.engine_moved, k.engine_sector, k.engine_highway, k.guard_reads, k.guard_zone_skip));
   }
 }
 

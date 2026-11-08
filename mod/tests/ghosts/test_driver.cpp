@@ -785,6 +785,39 @@ TEST_CASE("M3-34: the engine guard puts back an object the engine moved (a highw
   CHECK(off.world.read_calls == 0);
 }
 
+TEST_CASE("a far engine read outside the player's zone is skipped, the same read inside it is repaired", "[ghosts][driver][m334][zone]") {
+  // Live finding (2026-11-08): ghosts of a zone the player is not in answer GetObjectPositionInSector in the game's own frame - whole
+  // groups of distinct hulls came back displaced by ONE identical 51-362 km vector with y untouched, and the guard spent the session
+  // "repairing" them (14 700 moved hits, 120 give-ups in 25 minutes). A far read there is not a move: skip it, count it, do not repair.
+  Rig r;
+  r.add(11, line_track(0.0), Rig::info(11, 2, "Pax", 2));
+  r.run(2.0);
+  REQUIRE(r.world.only() != nullptr);
+  const std::uint64_t id = r.world.only()->id;
+  const Vec3 home = r.world.only()->pose.pos;
+  r.world.objs[id].zone = 7001;   // the ghost's own tempzone
+  r.world.player_zone = 7002;     // the player stands in another one
+  int steps = 0;
+  while (steps < 30 && r.driver->counters().guard_zone_skip == 0) {
+    r.world.objs[id].pose.pos = home + Vec3{300'000, 0, 0};  // what the game answers from that zone
+    (void)r.step();
+    ++steps;
+  }
+  CHECK(r.driver->counters().guard_zone_skip >= 1);
+  CHECK(r.driver->counters().engine_moved == 0);  // not counted as a move, so no give-up can follow
+
+  // The player comes into that zone (or the ghost into the player's): the same read is now evidence and must be repaired.
+  r.world.objs[id].zone = r.world.player_zone;
+  steps = 0;
+  while (steps < 30 && r.driver->counters().engine_moved == 0) {
+    r.world.objs[id].pose.pos = home + Vec3{300'000, 0, 0};
+    (void)r.step();
+    ++steps;
+  }
+  CHECK(r.driver->counters().engine_moved >= 1);
+  CHECK(dist(r.world.objs[id].pose.pos, home) < 0.01);  // placed back on the frame the guard read it
+}
+
 TEST_CASE("M3-34: a re-hosted authority's ghost spawns without any sample, shows nothing until the real pose, then holds exactly that pose (Finding 22)", "[ghosts][driver][m334]") {
   // The spawn carries no state (the server withholds a pose-less self-spawn); the first Replication entry is the real pose; then only keyframes
   // of the resting ship arrive, every 15 s, with ever-newer times and the SAME pose. The ghost must never be anywhere else.

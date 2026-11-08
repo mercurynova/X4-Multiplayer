@@ -32,6 +32,8 @@ std::optional<IGhostWorld::ObjectState> GameGhostWorld::read_state(std::uint64_t
   if (!p) return std::nullopt;
   ObjectState s;
   s.sector = api_.sector_of(id);
+  s.zone = api_.zone_of(id);
+  s.player_zone = api_.player_zone();
   s.pose.pos = {p->x, p->y, p->z};
   s.pose.rot = {p->yaw, p->pitch, p->roll};
   s.in_highway = api_.in_highway(id);

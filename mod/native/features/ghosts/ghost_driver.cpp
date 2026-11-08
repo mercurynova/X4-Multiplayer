@@ -325,6 +325,16 @@ void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
   const double d = other_sector ? 0.0 : ghost::distance(st->pose.pos, g.last_pose.pos);
   const double tol = cfg_.guard_min_m + speed_mps * cfg_.guard_speed_s;
   const bool far = !other_sector && d > tol;
+  // 2026-11-08: outside the player's zone the game answers in its own frame, not the pose we placed: whole groups of ghosts came back
+  // with ONE identical translation (7 nets shared exactly (85770.7, 0.0, -93376.3) at d=126790.2 m; another group (-31500,-12500,38200)
+  // at 51059.1 m) while their placed poses were spread over ~150 km, which no engine can do to distinct hulls. That read says nothing
+  // about the object, so it is skipped instead of repaired (14 700 repairs and 120 give-ups in 25 live minutes on the stand).
+  const bool untrusted_zone = far && st->zone != 0 && st->player_zone != 0 && st->zone != st->player_zone;
+  if (untrusted_zone) {
+    ++counters_.guard_zone_skip;
+    g.guard_hits = 0;  // a hit in an untrusted zone says nothing about the next read
+    return;
+  }
   const bool moved = other_sector || far;
   if (!moved && !st->in_highway) {
     g.guard_hits = 0;  // it stayed where the last placement left it
@@ -347,12 +357,13 @@ void GhostDriver::guard_check(Ghost& g, std::int64_t now_us, double speed_mps) {
       g.guard_hits = 0;
       g.guard_skip_until_us = now_us + cfg_.guard_giveup_us;
       // The four repeating distances on the stand (51059.1, 33496.0, 50660.8, 49525.4 m) are shared by dozens of ghosts, so the pair of
-      // positions and sector ids is the only way to tell a frame offset from a pinned hull. Kept on the give-up line: one per 30 s per
-      // offender, not a per-frame trace.
-      log(kWarn, std::format("ghost guard gives up for {} s: net={} local={} label='{}' the game keeps moving it ({:.1f} m from the placed pose), sector {} vs {}, at ({:.1f},{:.1f},{:.1f}) want ({:.1f},{:.1f},{:.1f}) highway {}",
-                             cfg_.guard_giveup_us / 1'000'000, g.info.net_id, g.local_id, g.label, d, st->sector, g.sector_id, st->pose.pos.x,
+      // positions, the sector ids and the two zone ids are the only way to tell a frame offset from a pinned hull. Kept on the give-up
+      // line: one per 30 s per offender, not a per-frame trace. The line must stay under log::kMaxLineChars (240, core/log/log.h) or the
+      // tail is cut silently: this format is ~195 characters with 8-digit ids, so there is room for the zone pair and nothing more.
+      log(kWarn, std::format("ghost guard gives up for {} s: net={} local={} moved {:.1f} m, sector {} vs {}, at ({:.1f},{:.1f},{:.1f}), want ({:.1f},{:.1f},{:.1f}), hw {}, zone {} vs {}",
+                             cfg_.guard_giveup_us / 1'000'000, g.info.net_id, g.local_id, d, st->sector, g.sector_id, st->pose.pos.x,
                              st->pose.pos.y, st->pose.pos.z, g.last_pose.pos.x, g.last_pose.pos.y, g.last_pose.pos.z,
-                             st->in_highway ? "YES" : "no"));
+                             st->in_highway ? "YES" : "no", st->zone, st->player_zone));
     }
   }
   if (g.last_guard_log_us == 0 || now_us - g.last_guard_log_us >= cfg_.guard_log_interval_us) {
