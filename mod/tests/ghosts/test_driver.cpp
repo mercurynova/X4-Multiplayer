@@ -818,6 +818,30 @@ TEST_CASE("a far engine read outside the player's zone is skipped, the same read
   CHECK(dist(r.world.objs[id].pose.pos, home) < 0.01);  // placed back on the frame the guard read it
 }
 
+TEST_CASE("the guard tolerates the read-back's own lag of about a second of travel, but not a real move", "[ghosts][driver][m334][tolerance]") {
+  // 2026-11-08: the stand's remaining hits were 41.7-52.0 m against tolerances of 40-43 m at 40-52 m/s - d/speed was ~1.2 s every time, i.e.
+  // the game animates a placement (or its logical position updates slower than we place) instead of teleporting the hull. Tolerating the lag
+  // is what keeps the guard from repairing good ghosts ~5 times a second; a move of kilometres must still be caught.
+  Rig r;
+  r.add(11, line_track(50.0), Rig::info(11, 2, "Pax", 2));  // 50 m/s: the old 0.3 s gate allowed only 45 m
+  r.run(2.0);
+  REQUIRE(r.world.only() != nullptr);
+  const std::uint64_t id = r.world.only()->id;
+  for (int i = 0; i < 40; ++i) {
+    r.world.objs[id].pose.pos = r.world.objs[id].pose.pos + Vec3{60, 0, 0};  // 1.2 s of travel behind our placement
+    (void)r.step();
+  }
+  CHECK(r.driver->counters().engine_moved == 0);  // 60 m at 50 m/s is the engine's lag, not a move
+
+  int steps = 0;
+  while (steps < 20 && r.driver->counters().engine_moved == 0) {
+    r.world.objs[id].pose.pos = r.world.objs[id].pose.pos + Vec3{5000, 0, 0};  // 5 km: no lag explains that
+    (void)r.step();
+    ++steps;
+  }
+  CHECK(r.driver->counters().engine_moved >= 1);
+}
+
 TEST_CASE("M3-34: a re-hosted authority's ghost spawns without any sample, shows nothing until the real pose, then holds exactly that pose (Finding 22)", "[ghosts][driver][m334]") {
   // The spawn carries no state (the server withholds a pose-less self-spawn); the first Replication entry is the real pose; then only keyframes
   // of the resting ship arrive, every 15 s, with ever-newer times and the SAME pose. The ghost must never be anywhere else.

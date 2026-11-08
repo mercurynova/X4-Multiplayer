@@ -180,7 +180,12 @@ struct GhostConfig {
   std::int64_t guard_hot_interval_us = 50'000;       // ... but no more often than this (20 Hz), not once per frame
   std::int64_t guard_log_interval_us = 20'000'000;
   double guard_min_m = 30.0;
-  double guard_speed_s = 0.3;
+  // 2026-11-08: the read-back lags our placement by about 1.1-1.3 s of travel, not by a fixed distance. The stand's remaining hits were all
+  // 41.7-52.0 m at 40-52 m/s (tolerance 40-43 m with the old 0.3), i.e. d/speed was the same second every time: the engine animates a
+  // SetObjectSectorPos instead of teleporting it (and a low-attention object's logical position updates slower than we place). At 0.3 s the
+  // gate sat inside that lag and repaired ~5 good ghosts a second for nothing. 1.5 s covers the lag and still catches a real move (286 km
+  // captures, the 126-187 km reads) by three orders of magnitude.
+  double guard_speed_s = 1.5;
   // A ghost the engine keeps putting back where it wants it (a docked hull the game pins, a placement that never sticks) would be read
   // back and re-placed for the whole session: the two-client stand logged 17.6k repairs and 284k reads in 15 minutes, which is real
   // frame time. After this many hits in a row the guard drops that ghost for guard_giveup_us.
