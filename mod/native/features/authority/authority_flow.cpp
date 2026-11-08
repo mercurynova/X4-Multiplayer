@@ -501,7 +501,7 @@ void AuthorityFlow::step_hashing(host::HostContext& ctx) {
   // answers "saved" (it stores the upload first), so the confirmation can arrive after the node is gone: the save was then missing from the ledger and
   // the re-hosted authority that loaded exactly this checkpoint dropped every avatar record (a connected player's avatar was swept as a leftover).
   note_checkpoint_in_ledger(true);
-  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: the checkpoint joined the avatar ledger (pending) as its upload starts (save {}, {} avatar(s))", hex12(ready_.save.sha256), manifest_avatars_.size());
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: the checkpoint joined the avatar ledger as its upload starts (pending; save {}, {} avatar(s))", hex12(ready_.save.sha256), manifest_avatars_.size());
   spawn_ship_ = collected_.ship();
   late_ship_ = false;
   ship_wait_ = false;  // this checkpoint decides again below (a newer collection supersedes an older ship question)
