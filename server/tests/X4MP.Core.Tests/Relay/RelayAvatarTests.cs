@@ -231,6 +231,68 @@ public class RelayAvatarTests
     }
 
     [Fact]
+    public async Task TheAdoptionRequestBacksOffWhileTheAvatarStaysUnboundAndStartsAfreshAfterABind()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(bob, netId: 500));
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, 0));
+
+        async Task NameParkedAsync(ushort seq)
+        {
+            await rig.SendAsync(bob, MsgType.PlayerState, RelayFrames.State(seq, 1_000_000UL + seq * 50_000UL, px: 700, sector: 5, netId: 500));
+            await rig.Actor.FlushAsync();
+        }
+
+        await NameParkedAsync(1); // t=0: request 1 (next gap 1 s)
+        Assert.Equal(1L, rig.Relay.Stats.AvatarsAdopted);
+        await rig.AdvanceAsync(1.1);
+        await NameParkedAsync(2); // t=1.1: request 2 (next gap 2 s)
+        Assert.Equal(2L, rig.Relay.Stats.AvatarsAdopted);
+        await rig.AdvanceAsync(1.1);
+        await NameParkedAsync(3); // t=2.2: only 1.1 s after request 2: backed off
+        Assert.Equal(2L, rig.Relay.Stats.AvatarsAdopted);
+        await rig.AdvanceAsync(1.0);
+        await NameParkedAsync(4); // t=3.2: 2.1 s after request 2: request 3 (next gap 4 s)
+        Assert.Equal(3L, rig.Relay.Stats.AvatarsAdopted);
+        await rig.AdvanceAsync(3.0);
+        await NameParkedAsync(5); // 3 s after request 3: still backed off
+        Assert.Equal(3L, rig.Relay.Stats.AvatarsAdopted);
+        Assert.Equal(3, Ships(authority).Count);
+
+        // bound: the client's states carry its piloted avatar, the backoff is forgotten; a later park is answered after 1 s again
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, (ushort)bob.PlayerId));
+        await rig.AdvanceAsync(1.0);
+        await NameParkedAsync(6);
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, 0));
+        await rig.AdvanceAsync(1.0);
+        await NameParkedAsync(7);
+        Assert.Equal(4L, rig.Relay.Stats.AvatarsAdopted);
+    }
+
+    [Fact]
+    public async Task APlayerWhoLeavesDropsItsAdoptionBackoff()
+    {
+        await using var rig = new RelayRig();
+        var authority = await rig.JoinAuthorityAsync();
+        var bob = await rig.JoinInGameAsync("Bob");
+        await rig.SendPayloadAsync(authority, MsgType.EntitySpawn, AvatarSpawn(bob, netId: 500));
+        await rig.SendPayloadAsync(authority, MsgType.EntityChange, MessageEncoderHelper.Change(500, ChangeField.Controller, 0));
+        await rig.SendAsync(bob, MsgType.PlayerState, RelayFrames.State(1, 1_000_000, px: 700, sector: 5, netId: 500));
+        await rig.Actor.FlushAsync();
+        Assert.Equal(1L, rig.Relay.Stats.AvatarsAdopted);
+
+        var field = typeof(RelayModule).GetField("_adoptNext", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        Assert.Single((System.Collections.IDictionary)field.GetValue(rig.Relay)!);
+
+        await rig.Rig.DisconnectAsync(bob, DisconnectCode.ClientQuit);
+        await rig.Actor.FlushAsync();
+
+        Assert.Empty((System.Collections.IDictionary)field.GetValue(rig.Relay)!);
+    }
+
+    [Fact]
     public async Task APlayerStateNamingAnAvatarOfAnotherPlayerNeverAsksTheAuthority()
     {
         await using var rig = new RelayRig();

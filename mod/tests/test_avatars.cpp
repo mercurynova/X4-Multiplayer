@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "features/avatars/avatar_director.h"
+#include "features/avatars/avatar_hub.h"
 #include "features/avatars/avatar_plan.h"
 #include "features/avatars/avatar_wire.h"
 
@@ -1494,6 +1495,97 @@ TEST_CASE("avatars.director (M3-34): the engine guard puts back a held avatar wi
     fly(d3, env3, c3, net3, 300.0, 0.02);
   }
   CHECK(d3.stats().engine_moved == 0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// F28 review: a repeated PlayerShip (the server re-asks on a slow bind) must not wipe the motion state of an avatar that is already online.
+TEST_CASE("avatars.director (F28): a repeated PlayerShip of an online avatar refreshes the answer without wiping its motion", "[avatars][f28]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  const auto id = provision(d, env, c, 2, 1, "Alice");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  for (int i = 0; i < 30; ++i) {
+    c.t += 0.05;
+    PlayerStateIn s;
+    s.net_id = net;
+    s.sector = 1;
+    s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+    s.pose = {2000 + 100.0 * c.t, 0, 0, 0, 0, 0};
+    d.on_player_state(s, s.sample_time_us);
+  }
+  const auto samples_before = d.views()[0].samples;
+  REQUIRE(samples_before == 30);
+  const auto announced_before = env.spawns_sent.size();
+
+  d.on_player_ship(request(2));  // the second, third ... request of a slow bind
+  CHECK(d.views()[0].samples == samples_before);  // the motion state survived
+  run(d, c, 0.2);
+  CHECK(d.views()[0].local_id == id);
+  CHECK(env.spawns_sent.size() == announced_before + 1);  // the answer went out again
+  CHECK(env.spawns_sent.back().at(0).controller_player == 2);
+}
+
+TEST_CASE("avatars.director (F28): a PlayerShip of a parked avatar starts its motion state afresh", "[avatars][f28]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  provision(d, env, c, 2, 1, "Alice");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  PlayerStateIn s;
+  s.net_id = net;
+  s.sector = 1;
+  s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+  s.pose = {2000, 0, 0, 0, 0, 0};
+  d.on_player_state(s, s.sample_time_us);
+  REQUIRE(d.views()[0].samples == 1);
+  RosterIn gone;
+  gone.removed.push_back(2);
+  d.on_roster(gone);  // the player left: the avatar is parked
+  REQUIRE_FALSE(d.views()[0].rec.online);
+  d.on_roster(roster_with({{2, {"Alice", 1}}}, false));
+  d.on_player_ship(request(2));
+  CHECK(d.views()[0].samples == 0);
+  CHECK(d.views()[0].rec.online);
+}
+
+TEST_CASE("avatars.director (F28): a checkpoint whose upload never finished leaves the ledger again", "[avatars][f28]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  d.on_checkpoint_stored("ck1", {"A"});
+  d.on_checkpoint_stored("ck2", {"B"});
+  d.on_checkpoint_dropped("ck2");
+  REQUIRE(d.lineage().ledger.size() == 1);
+  CHECK(d.lineage().ledger[0].sha == "ck1");
+  d.on_checkpoint_dropped("unknown");  // no such entry: nothing changes
+  d.on_checkpoint_dropped("");
+  CHECK(d.lineage().ledger.size() == 1);
+
+  SECTION("failed uploads do not evict the real checkpoints") {
+    for (int i = 0; i < 20; ++i) {
+      const auto sha = "f" + std::to_string(i);
+      d.on_checkpoint_stored(sha, {});
+      d.on_checkpoint_dropped(sha);
+    }
+    REQUIRE(d.lineage().ledger.size() == 1);
+    CHECK(d.lineage().ledger[0].sha == "ck1");
+  }
+}
+
+TEST_CASE("avatars.hub (F28): note_checkpoint_dropped queues a CheckpointDropped lineage event in order", "[avatars][f28]") {
+  auto& hub = x4mp::features::avatars::avatar_hub();
+  hub.reset();
+  hub.note_checkpoint("abc", {"A"});
+  hub.note_checkpoint_dropped("abc");
+  const auto in = hub.take_inputs();
+  REQUIRE(in.lineage.size() == 2);
+  using K = x4mp::features::avatars::HubInputs::LineageEvent::Kind;
+  CHECK(in.lineage[0].kind == K::Checkpoint);
+  CHECK(in.lineage[1].kind == K::CheckpointDropped);
+  CHECK(in.lineage[1].text == "abc");
+  hub.reset();
 }
 
 TEST_CASE("avatars.director (F32): an engine guard hit restarts the calm period: no non-zero hint before the settle time", "[avatars][f32]") {

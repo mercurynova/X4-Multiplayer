@@ -264,6 +264,7 @@ void AvatarTakeover::start(double now_s, std::uint16_t player, std::uint64_t shi
   host_id_ = ship;
   host_idcode_ = env_.idcode(ship);
   stage_ = Stage::Requesting;
+  parked_logged_ = false;
   next_action_ = now_s;
   stage_since_ = now_s;
   log(LogLevel::Info, std::format("standing in ship {} ({}): requesting the avatar", ship, host_idcode_));
@@ -337,24 +338,31 @@ bool AvatarTakeover::resume_from_record(double now_s, std::uint16_t player, std:
 }
 
 void AvatarTakeover::step_requesting(double now_s, std::uint16_t player) {
+  // The grant is the avatar the authority bound to us (controller == player). F28 review: an avatar that is only OWNED by us (controller 0) is the parked
+  // avatar of an earlier session, replicated to us on a fresh rejoin: it is the right ship but the authority does not know we are back (an earlier request
+  // may have been dropped by the server's phase gate, sent right behind NodeReady). It is NOT a grant: the request keeps going out (same backoff as with no
+  // avatar at all) until the authority's answer names us as the controller. The server also asks on our behalf when our PlayerState names the parked avatar.
+  const AvatarInfo* bound = nullptr;
+  bool parked = false;
   for (const auto& [id, a] : seen_) {
-    if (a.owner_player == player || a.controller_player == player) {
-      grant_ = a;
+    if (a.controller_player == player) {
+      bound = &a;
       break;
     }
+    if (a.owner_player == player) parked = true;
   }
-  if (grant_) {
-    // F28: an avatar nobody pilots (controller 0) that is named for us without any answer is the parked avatar of an earlier session, replicated to us on a
-    // fresh rejoin: it is the right ship but the authority does not know we are back, and an earlier request may have been dropped by the server's phase gate
-    // (sent right behind NodeReady). Ask now, so the authority puts the avatar online again and answers with the controller; the server also asks on our behalf
-    // when our PlayerState names the parked avatar.
-    if (grant_->controller_player != player && env_.send_request(host_id_)) ++stats_.requests;
+  if (bound) {
+    grant_ = *bound;
     ++stats_.grants;
     log(LogLevel::Info, std::format("avatar granted: net_id={} idcode={} name='{}' sector {} after {:.1f} s", grant_->net_id, grant_->idcode, grant_->name, grant_->sector, now_s - started_));
     stage_ = Stage::Locating;
     stage_since_ = now_s;
     next_action_ = now_s;
     return;
+  }
+  if (parked && !parked_logged_) {
+    parked_logged_ = true;
+    log(LogLevel::Info, "the parked avatar of an earlier session is replicated, but the authority has not bound it to us yet: asking it to put the avatar online");
   }
   if (now_s < next_action_) return;
   if (env_.send_request(host_id_)) {

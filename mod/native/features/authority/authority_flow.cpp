@@ -149,6 +149,7 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
   const auto generation = uploader_.new_connection(resumed);
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: connection generation {} ({})", generation, resumed ? "resumed" : "fresh join");
   if (!resumed) {
+    drop_checkpoint_from_ledger();  // a fresh join discards the pending upload: the server never stores that checkpoint
     step_ = Step::Idle;
     spawn_due_ = false;
     ship_wait_ = ship_pending_ = late_ship_ = false;
@@ -222,6 +223,7 @@ void AuthorityFlow::begin_request(host::HostContext& ctx, std::uint32_t request_
 
 void AuthorityFlow::fail(host::HostContext& ctx, const std::string& why) {
   X4MP_CLOG(ctx.log, Cat::Save, Level::Error, "authority: checkpoint request {} failed: {}", request_id_, why);
+  drop_checkpoint_from_ledger();
   step_ = Step::Idle;
   watcher_.reset();
   if (prepared_.valid()) prepared_.wait();
@@ -498,6 +500,7 @@ void AuthorityFlow::step_hashing(host::HostContext& ctx) {
   // answers "saved" (it stores the upload first), so the confirmation can arrive after the node is gone: the save was then missing from the ledger and
   // the re-hosted authority that loaded exactly this checkpoint dropped every avatar record (a connected player's avatar was swept as a leftover).
   note_checkpoint_in_ledger();
+  ledger_noted_ = true;
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: the checkpoint joined the avatar ledger as its upload starts (save {}, {} avatar(s))", hex12(ready_.save.sha256), manifest_avatars_.size());
   spawn_ship_ = collected_.ship();
   late_ship_ = false;
@@ -529,7 +532,16 @@ void AuthorityFlow::note_checkpoint_in_ledger() {
   avatars::avatar_hub().note_checkpoint(crypto::to_hex(std::span<const std::uint8_t>(ready_.save.sha256)), std::move(idcodes));
 }
 
+// F28 review: only a checkpoint that was entered at the upload's start and then never stored leaves again. After a successful "saved" answer
+// (on_checkpoint_stored) it stays, even when the session ends right behind it.
+void AuthorityFlow::drop_checkpoint_from_ledger() {
+  if (!ledger_noted_) return;
+  ledger_noted_ = false;
+  avatars::avatar_hub().note_checkpoint_dropped(crypto::to_hex(std::span<const std::uint8_t>(ready_.save.sha256)));
+}
+
 void AuthorityFlow::on_checkpoint_stored(host::HostContext& ctx) {
+  ledger_noted_ = false;
   ++stored_total_;
   ++state_.checkpoints;
   state_.loaded_sha = ready_.save.sha256;  // this game is the source of that checkpoint

@@ -72,12 +72,14 @@ public sealed partial class RelayModule
         if (node.ShipNetId != 0)
         {
             state.NetId = node.ShipNetId; // the server knows the avatar even when the client has not learnt its id yet
+            _adoptNext.Remove(node.PlayerId); // bound: the next park starts the adoption backoff afresh
         }
         else if (state.NetId != 0 && _mirror is not null)
         {
             if (_mirror.TryGet(state.NetId, out var claimed) && claimed.ControllerPlayer == node.PlayerId)
             {
                 // the client's own, piloted avatar: the id is fed as it is
+                _adoptNext.Remove(node.PlayerId); // bound: the next park starts the adoption backoff afresh
             }
             else if (claimed is not null && IsParkedAvatarOf(claimed, node.PlayerId))
             {
@@ -210,22 +212,31 @@ public sealed partial class RelayModule
     private static bool IsParkedAvatarOf(MirrorEntity entity, int playerId) =>
         entity.Origin == EntityOrigin.PlayerShip && entity.ControllerPlayer == 0 && entity.OwnerPlayer == playerId;
 
-    private readonly Dictionary<int, long> _adoptNext = [];
+    /// <summary>Per player: when the next adoption request may go out, and the gap that follows it (1, 2, 4, 8 s: capped, doubled per unanswered request).</summary>
+    private readonly Dictionary<int, (long Next, long Gap)> _adoptNext = [];
+
+    private const int AdoptMaxGapSeconds = 8;
 
     /// <summary>
     /// F28: the server asks the authority for the player's parked avatar on the player's behalf (a PlayerShip stamped with the player id: the
-    /// authority answers an existing avatar with a controller change). Repeated at most once a second until the avatar is bound; the request is also
+    /// authority answers an existing avatar with a controller change). Repeated with a growing gap (1, 2, 4, 8 s) until the avatar is bound; the request is also
     /// kept like the player's own, so a world rollback that removes the avatar re-provisions it (M3-29) and an authority resume forwards it again.
     /// </summary>
     private void AdoptParkedAvatar(SessionNode node, MirrorEntity avatar, PlayerStateT state)
     {
         long now = Now;
-        if (_adoptNext.TryGetValue(node.PlayerId, out long next) && now < next)
+        long gap = _time.TimestampFrequency;
+        if (_adoptNext.TryGetValue(node.PlayerId, out var due))
         {
-            return;
+            if (now < due.Next)
+            {
+                return;
+            }
+
+            gap = Math.Min(due.Gap * 2, AdoptMaxGapSeconds * _time.TimestampFrequency);
         }
 
-        _adoptNext[node.PlayerId] = now + _time.TimestampFrequency;
+        _adoptNext[node.PlayerId] = (now + gap, gap);
         var ship = new PlayerShipT
         {
             PlayerId = (ushort)node.PlayerId,
