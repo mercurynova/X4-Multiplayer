@@ -100,6 +100,9 @@ When one is merged, verified and its worktrees are cleaned up, the lead ends its
 
 1. **Code review.** Suggest `/code-review` on the merged range (the user may pick `/code-review ultra` for a deep
    multi-agent cloud review, which the user starts and is billed for). Findings go to a Sonnet fix agent like any task.
+   Review-fix PRs count too (user question, 2026-11-07): the lead's check of a fix is anchored on its own findings, so
+   run the review **from a fresh session**, on the merged range, before the next in-game session. Skip it for docs,
+   Dependabot bumps and small mechanical fixes (CI plus the lead's diff check is enough there).
 2. **Fresh session.** Suggest starting a new session for the next step. Before that the lead makes sure everything the
    next session needs is in the repo (roadmap status note, handoff notes, findings docs, open decisions), so nothing
    lives only in the chat. Name the doc the new session should read first.
