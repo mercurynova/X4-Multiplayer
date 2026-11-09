@@ -256,6 +256,20 @@ trades when `TradeRequiresProximity` is on (`EconomyService.Trades.cs:1007-1011`
 in one known sector). The `event.param3` nesting note in `md/x4mp_actions.xml:17-18` is still
 marked `[VERIFY]` in game; on the stand the trade path is exercised through the fake node.
 
+## KI-5: a session string-table alias turns an owner into a ship macro
+
+Seen in session 9 (the two-instance stand) right after a restart: the client refused thousands of ghosts with
+`ghost spawn refused: faction '<ship macro>' does not exist in this game (net=...)`, the owner field carrying
+the ship's own macro. The string table is per session, but the client restores its table and ghost records from
+the DLL stash, while the authority on a fresh join sends the galaxy plan and then sets `state_.string_count` to
+the plan size (`authority_flow.cpp:1057-1070`). Strings interned before that send sit above the new counter, and
+the next `string_ref` (`authority_flow.cpp:164-178`) can hand out an index already used for a different value;
+`StringTable::set` overwrites by index (`ghost_core.cpp:40-47`), so a restored ghost's `owner_ref` resolves to a
+macro. Counts: 5,573 refusals in the 14:47 rotation, 53,347 in the 13:48 one, 48,641 in the 13:32 one; the
+current log has 0 and `ghosts health` reports `spawn_failed=0`, i.e. the alias lives only while a new session's
+table is being rebuilt. Not fixed: the fix is a table epoch (clear the client table + ghosts when the session
+epoch changes, or never move the authority counter backwards) and needs its own test and stand run.
+
 ## Not bugs (checked, do not re-report)
 
 - **`x4mp.log` grows to ~18 MB.** Rotation is implemented: 20 MiB per file, 5 files kept

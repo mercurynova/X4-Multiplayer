@@ -267,3 +267,25 @@ Then fill a copy of this table into `docs/in-game-session-9.md`:
 - A Release server build on this box needs `-p:SkipWebBuild=true` (step 1 of section 2): Node 18.16.1 is too old
   for vite 8, and a machine-wide `NODE_ENV=production` makes `npm ci` skip typescript. Neither affects the mod or
   the protocol; both only stop the React GUI from being rebuilt.
+
+## 7. Session 9 on the stand (2026-11-09, two instances on one PC)
+
+This was not the two-PC sitting: the authority and one client ran on this PC under one relay
+(`../mod/docs/two-instances-one-pc.md`), on build `8b4d6e7`, checkpoint `543e55e6f004681187e593fb85e5077c`.
+
+| AC | Verdict | Quoted line |
+|---|---|---|
+| 1 | PASS | `events: the MD half said hello, 7 hooks armed` (authority 06:58:07.857Z, 06:58:12.668Z; guest 07:03:05.380Z, 07:03:15.145Z); budget `hooks=alive md=7 fired=4` |
+| 2 | PASS (two nodes) | authority `08:29:27.034Z authority: net 249 killed by player 1 (net 166), despawn queued`; guest `08:29:27.429Z [sync] ghosts tracked=133 ... removed=1` (was 134 at 08:29:21.952Z) |
+| 3 | not exercised | the destroyed ship was not `player.occupiedship`, so the MD raised `X;`, not `P;` (`md/x4mp_events.xml:90-94`); no `PlayerDeath` intent, no `authority: player 1 died ...` |
+
+The ring itself was dead at the start of the run: `events: no MD hello after 30s` on every load, because
+`events_feature.cpp` parsed the bridge envelope instead of the bare MD line. Fixed in `8b4d6e7`
+(`auth::scan_payload`, test `[events][m501][bridge]`); the hello above is the live proof.
+
+The stand also exposed a session string-table alias (KI-5 in `../mod/docs/known-issues.md`): right after the
+restart the client refused thousands of ghosts with `ghost spawn refused: faction '<ship macro>' does not
+exist`, and the refusals stopped once the new table was rebuilt (`spawn_failed=0` in the current log).
+
+What still needs the sitting or the player: AC 3 (die and rejoin), AC 4 (sell 500), AC 5 (build), AC 6
+(capture), AC 7 and 9-12.

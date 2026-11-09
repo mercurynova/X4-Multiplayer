@@ -56,8 +56,8 @@ failing names were not captured - treat that pair as flaky until a run reproduce
 
 | # | Criterion (roadmap M5, MOD §9) | Verdict | Evidence |
 |---|---|---|---|
-| 1 | MD capture ring plus fallbacks; the `md_hook` state is reported | PASS (CI) | `[capture]` counters in `%LOCALAPPDATA%\X4MP\logs\x4mp.log`; `[=ERROR=] [X4MP] events: event capture armed (MD half md/x4mp_events.xml)` in the dev log |
-| 2 | A client kills an NPC ghost: gone within 500 ms on the authority and on a second client; an NPC killed by NPCs disappears for all | PENDING (session 9) | needs the second node; the ghost path itself ran (`ghosts: init (restored 0 ghost records ... spawn export yes, move export yes)`) |
+| 1 | MD capture ring plus fallbacks; the `md_hook` state is reported | PASS (session 9) | the ring runs in game: `events: the MD half said hello, 7 hooks armed` on both nodes (authority 2026-11-09 06:58:07.857Z and 06:58:12.668Z; guest 07:03:05.380Z and 07:03:15.145Z), and the budget line carries the state `hooks=hooks=alive md=7 fired=4`. Before the fix the only line was `events: no MD hello after 30s`: the parser was fed the bridge envelope, fixed in `8b4d6e7` (the third instance after statics and capture) |
+| 2 | A client kills an NPC ghost: gone within 500 ms on the authority and on a second client; an NPC killed by NPCs disappears for all | PASS (session 9, two nodes) | authority `2026-11-09 08:29:27.034Z [auth] authority: net 249 killed by player 1 (net 166), despawn queued`; guest `08:29:27.429Z [sync] ghosts tracked=133 visible=133 spawned=134 respawned=0 hidden=0 removed=1` against `tracked=134` at `08:29:21.952Z` - the ghost was gone 0.4 s after the claim. The stand has the authority and one client; the "second client" half still needs the two-PC sitting |
 | 3 | The client dies, its ghost disappears, it re-joins after a reload with no duplicate ghost | PENDING (session 9) | needs the second node; `[sess] onfoot: ... roster=2` shows the presence roster is live |
 | 4 | A client sells 500 units: the authority station stock rises by 500 within 10 s, no frame spike over 2 ms | PENDING (session 9) | needs the second node; the budget side is proven: `[perf] stats: ... mod_p95=0.214ms mod_max=0.626ms` |
 | 5 | A client-built station appears for the authority and the other clients at the same position, no duplicate on the builder | PENDING (session 9) | needs the second node |
@@ -452,6 +452,39 @@ between the two players is refused `SameWallet` (the stand needed `Economy:Credi
 accept or decline a loan offer, so the checklist's step 9 can only be run with a fake node as the
 offering side. The server half is ready for both (`LoanRespond` is dispatched and `LoanAccept` is
 published); the missing pieces are encoders and screen rows.
+
+## 4.10 The session-9 stand: the event ring, the first kill, and a string-table alias
+
+The M5-33 stand is the two-instance setup from [`../mod/docs/two-instances-one-pc.md`](../mod/docs/two-instances-one-pc.md):
+the authority runs the stock install, the client runs the patched `X4b.exe`, both under one relay. On 2026-11-09 it ran
+build `8b4d6e7` on checkpoint `543e55e6f004681187e593fb85e5077c` (61,796,920 bytes, manifest 102,136 bytes, 1,316 rows,
+40/40 stations matched over 3 sectors). What it proved and what it found:
+
+- **AC 1, the ring is alive.** The first run of the day had no event at all: `events: capture armed` and
+  `events: a universe is ready`, then `events: no MD hello after 30s`. The cause was the same bridge-envelope defect
+  already fixed in statics and capture: `events_feature.cpp` handed the raw platform text
+  (`{"v":1,"data":"H;7"}`) to `parse_event_line`, which expects a bare `H;`/`K;` line, so every line was counted
+  `bad_`. Fixed by parsing `auth::scan_payload(text)` and pinned by the `[events][m501][bridge]` case; the hello then
+  arrived on both nodes and `hooks=alive md=7` in the budget line.
+- **AC 2, the first kill.** The client killed an NPC; the authority logged `authority: net 249 killed by player 1
+  (net 166), despawn queued` at 08:29:27.034Z and the client dropped the ghost at 08:29:27.429Z (`tracked` 134 -> 133,
+  `removed=1`). 0.4 s end to end on the stand.
+- **AC 3, attempted, not yet exercised.** The client destroyed a ship, but the player was in a spacesuit, so the MD
+  rule `$Killed == player.occupiedship` (`md/x4mp_events.xml:90-94`) raised `X;` (lost asset), not `P;` (death):
+  no `PlayerDeath` intent and no `authority: player 1 died ...` line exists. The criterion still needs the player
+  character to die and then rejoin.
+- **A defect the stand exposed: a session string-table alias.** After the 13:47 restart the client refused thousands of
+  ghosts with `ghost spawn refused: faction '<ship macro>' does not exist in this game` - the owner field held the
+  ship's own macro. The table is per session and the client restores its `StringTable` and ghost records from the DLL
+  stash, while the authority on a fresh join re-sends the galaxy plan and sets `state_.string_count` to the plan size
+  (`authority_flow.cpp:1057-1070`). The working explanation is that strings interned before that send sit above the
+  new counter, so a later `string_ref` (`authority_flow.cpp:164-178`) hands out an index already used for another
+  value; `StringTable::set` overwrites by index (`ghost_core.cpp:40-47`), so a restored ghost's `owner_ref` can
+  resolve to a macro. Counts: 5,573 refusals in the 14:47 rotation, 53,347 in the 13:48 one, 48,641 in the 13:32 one;
+  the current log has 0 and `ghosts health` shows `spawn_failed=0`, so the alias only lives while a session's table is
+  being rebuilt. The fix needs a table epoch (clear the client table and ghosts on a new session epoch, or never move
+  the authority counter backwards) and a dedicated test; it is recorded in
+  [`../mod/docs/known-issues.md`](../mod/docs/known-issues.md) as KI-5.
 
 ## 5. What M5 needs next
 
