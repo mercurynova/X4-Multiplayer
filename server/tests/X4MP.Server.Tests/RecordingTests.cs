@@ -445,6 +445,28 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
+    public void RecordMirrorRewritesTheSeriesAndComparesIdentical()
+    {
+        RecordSampleStream();
+        string mirrorDir = Path.Combine(_dir, "mirror");
+
+        var (mirrorCode, mirrorOutput) = RunRecord("mirror", _dir, mirrorDir);
+        Assert.Equal(0, mirrorCode);
+        Assert.Contains("ok mirrored=3", mirrorOutput, StringComparison.Ordinal);
+        Assert.Contains("reencoded=3", mirrorOutput, StringComparison.Ordinal);
+
+        // The replayed series is the same stream: same types, lanes and payloads (the stream id is not compared by default).
+        var (compareCode, compareOutput) = RunRecord("compare", _dir, mirrorDir);
+        Assert.Equal(0, compareCode);
+        Assert.Contains("divergence=0", compareOutput, StringComparison.Ordinal);
+
+        // A mirror directory is written once; a second run refuses instead of mixing two series.
+        var (againCode, againOutput) = RunRecord("mirror", _dir, mirrorDir);
+        Assert.NotEqual(0, againCode);
+        Assert.Contains("already holds", againOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RecordUsageNeedsAKnownSubcommand()
     {
         Assert.Equal(2, RunRecord("nonsense", _dir).Code);

@@ -12,6 +12,7 @@ namespace X4MP.Server.Hosting;
 /// <code>
 /// record info    &lt;dir|file&gt;              header, part count, message counts
 /// record verify  &lt;dir&gt; [--real-time] [--speed x]   replay the stream and re-encode every frame
+/// record mirror  &lt;authority&gt; &lt;mirrorDir&gt;          replay into a second recording (the mirror arm of M4-28)
 /// record compare &lt;authority&gt; &lt;mirror&gt; [--streams]  divergence report (M4-28)
 /// </code>
 /// </remarks>
@@ -30,7 +31,7 @@ public static class RecordCommands
 
         if (args.Count == 0)
         {
-            error.WriteLine("record: expected 'info', 'verify' or 'compare'.");
+            error.WriteLine("record: expected 'info', 'verify', 'mirror' or 'compare'.");
             return 2;
         }
 
@@ -75,6 +76,8 @@ public static class RecordCommands
                     return positional.Count == 1 ? Info(positional[0], output, error) : Usage(error);
                 case "verify":
                     return positional.Count == 1 ? Verify(positional[0], realTime, speed, output, error) : Usage(error);
+                case "mirror":
+                    return positional.Count == 2 ? Mirror(positional[0], positional[1], output, error) : Usage(error);
                 case "compare":
                     return positional.Count == 2 ? Compare(positional[0], positional[1], compareStreams, output, error) : Usage(error);
                 default:
@@ -101,7 +104,7 @@ public static class RecordCommands
 
     private static int Usage(TextWriter error)
     {
-        error.WriteLine("usage: record info <dir|file> | record verify <dir> [--real-time] [--speed x] | record compare <authority> <mirror> [--streams]");
+        error.WriteLine("usage: record info <dir|file> | record verify <dir> [--real-time] [--speed x] | record mirror <authority> <mirrorDir> | record compare <authority> <mirror> [--streams]");
         return 2;
     }
 
@@ -166,6 +169,59 @@ public static class RecordCommands
         long elapsedMs = Environment.TickCount64 - started;
 
         output.WriteLine($"ok {replayer.Stats.Describe()} reencoded={reencoded} mode={(realTime ? "real-time" : "as-fast-as-possible")} speed={speed} elapsed_ms={elapsedMs}");
+        return 0;
+    }
+
+    /// <summary>
+    /// Replays an authority recording into a second recording, the executable form of the M4-28 mirror arm: the CI test
+    /// does the same through a <c>PipeNodeConnection</c>, and this drives the writer directly so a large live recording
+    /// cannot stall on pipe backpressure. Stream ids are written as 0, exactly what the send observer path records, so
+    /// <c>record compare</c> without <c>--streams</c> is the right comparison (the ids are assigned per server).
+    /// </summary>
+    private static int Mirror(string authorityPath, string mirrorPath, TextWriter output, TextWriter error)
+    {
+        var parts = RecordingReader.EnumerateSeries(authorityPath);
+        if (parts.Count == 0)
+        {
+            error.WriteLine($"record: no {RecordingFormat.Extension} parts in '{authorityPath}'.");
+            return 1;
+        }
+
+        var existing = RecordingReader.EnumerateSeries(mirrorPath);
+        if (existing.Count > 0)
+        {
+            error.WriteLine($"record: mirror directory '{mirrorPath}' already holds {RecordingFormat.Extension} parts; use a fresh directory.");
+            return 1;
+        }
+
+        var records = RecordingReader.ReadSeries(authorityPath);
+
+        // Same re-encode gate as verify: the mirror must be a copy of frames that still decode, not a copy of bytes.
+        int reencoded = 0;
+        foreach (var record in records)
+        {
+            var frame = record.EncodeFrame();
+            if (!FrameCodec.TryDecode(frame, out Frame decoded, out int consumed) || consumed != frame.Length || decoded.Type != record.Type || decoded.Lane != record.Lane)
+            {
+                error.WriteLine($"record: message {reencoded} ({record.Type}, t={record.TimeUs}us) does not re-encode");
+                return 1;
+            }
+
+            reencoded++;
+        }
+
+        using (var recorder = new MessageRecorder(new MessageRecorderOptions { Directory = mirrorPath }))
+        {
+            foreach (var record in records)
+            {
+                // The explicit timestamp keeps the authority's monotonic clock; stream 0 matches Record(OutboundFrame).
+                recorder.Record(record.TimeUs, record.Type, record.Lane, record.Flags, 0, record.Payload);
+            }
+
+            recorder.Flush();
+        }
+
+        output.WriteLine($"ok mirrored={records.Count} reencoded={reencoded} dir={mirrorPath}");
         return 0;
     }
 

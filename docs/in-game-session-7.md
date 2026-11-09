@@ -10,8 +10,9 @@
 > `x4mp_ckpt_dc84b1b0a2e4d3e5`) produced `tracked=visible=spawned=119`, `authority_ms` p95 0.821 ms and
 > `per_client=10993B/s` - see [m4-exit-report.md](m4-exit-report.md) section 2a for the log lines. Every `Record:` line
 > below now carries a `Stand 2026-11-08:` note holding what that stand measured, or why it could not. Still owed to a
-> real two-machine session: the station manifest report (7.2), a 200-ship sector (7.5), a highway transit (7.6), the
-> attention A/B (7.8) and the server recording (7.9).
+> real two-machine session: the station manifest report (7.2), a 200-ship sector (7.5), a highway transit (7.6) and the
+> attention A/B (7.8). The server recording (7.9) was produced on 2026-11-09: 15 845 messages, `record verify` and
+> `record mirror` pass, `record compare` reports `divergence=0`.
 
 M4 is "authority world streaming, manifest matching, server interest/prefetch, ghost-only clients, record/replay"
 ([roadmap.md](roadmap.md) row M4, [m4-plan.md](m4-plan.md)). Eight waves landed; the plan's Q1-Q8 decided the shape.
@@ -209,16 +210,23 @@ With `Net:RecordDirectory` set, the server recorded the whole session.
 1. `x4mp-server.exe record info <dir>` - prints `parts=N bytes=.. protocol=0x.. session=0x..` and the message counts.
 2. `x4mp-server.exe record verify <dir>` - re-encodes every message and replays the file; it must print
    `ok messages=.. ... reencoded=..`. A decode error fails here.
-3. For the mirror arm: replay the authority's recording into a second recording and compare:
-   `x4mp-server.exe record compare <authority dir> <mirror dir> --streams`. Expect `divergence=0`. Without `--streams`
-   the stream id is not compared (the replay driver sends through one node connection, so the ids differ by design).
+3. For the mirror arm: replay the authority's recording into a second recording, then compare:
+   `x4mp-server.exe record mirror <authority dir> <mirror dir>`, then
+   `x4mp-server.exe record compare <authority dir> <mirror dir>`. Expect `divergence=0`. Do not pass `--streams`:
+   the replay driver sends through one node connection, so a mirror numbers its stream ids differently by design.
 
-Record: `parts = ____`, `messages = ____`, `verify = ____`, `divergence = ____`.
+Record: `parts = 1`, `messages = 15845`, `verify = ok reencoded=15845 elapsed_ms=47`, `divergence = 0`.
 
-Stand 2026-11-08: **not produced.** The relay ran without `Net:RecordDirectory` (no recording exists for the run), so
-`record info` / `record verify` / `record compare` had nothing to read. The wave's own criterion is already covered by
-CI - `RecordingTests` re-encodes every recorded message and compares, and the ten-minute synthetic session plays back
-with no decode error - but criterion 10 stays open until a live session is recorded.
+Stand 2026-11-09: **produced from a live two-instance session.** The relay ran with `X4MP__Net__RecordDirectory` set
+(2026-11-09 01:52-02:20Z, stand 08:52-09:20 local) while the guest streamed 114 ghosts of save
+`x4mp_ckpt_916aa7ed93922c0c` (`spawn_near=38`, `respawned=0`, no give-ups). The recording holds **15 845 messages over
+1 177.3 s**: `record info` -> `parts=1 bytes=3014608 protocol=0x0001 session=0x0000000000000000` and
+`created=2026-11-09 01:52:17Z messages=15845 streams=1 span=1177.3s Replication=9732 Pong=2070 Ping=1806 ...`;
+`record verify` -> `ok messages=15845 ... reencoded=15845 mode=as-fast-as-possible speed=1 elapsed_ms=47`;
+`record mirror` -> `ok mirrored=15845 reencoded=15845`; `record compare` -> `divergence=0 authority=15845
+mirror=15845`. The relay was stopped with `Stop-Process -Force`, so the original part (3 014 656 bytes) ended with one
+half-written record (`record 15845: truncated payload, 24 of 217 bytes`); the run above used the complete prefix
+(3 014 608 bytes, all 15 845 records, original kept). A graceful stop needs no trim.
 
 ## 7.10 What to send back
 

@@ -27,7 +27,7 @@ produce (a station manifest report, a 200-ship sector, a highway transit).
 | Lua (`python mod/tests/lua/run_lupa.py`) | 252 passed, 0 failed |
 | .NET `X4MP.Core.Tests` | 1378 / 1378 |
 | .NET `X4MP.Server.Tests` | 597 passed, 1 skipped. One timing test is a known flake and passes alone: `Saves.SaveLatencyTests.ATransferRaisesAnInGameNodesP99LatencyByNoMoreThan10Ms` (p99 rise 19.7 ms against a 10 ms allowance) |
-| `X4MP.Server.Tests` recording suite (M4-26..M4-28) | 13 / 13, including a ten-minute synthetic session that records and reads back with no decode error |
+| `X4MP.Server.Tests` recording suite (M4-26..M4-28) | 14 / 14, including a ten-minute synthetic session that records and reads back with no decode error, and the `record mirror` CLI arm |
 
 ---
 
@@ -44,10 +44,14 @@ produce (a station manifest report, a 200-ship sector, a highway transit).
 | 7 | No despawn/respawn of the same `net_id` within 10 s while in interest | **PASS (stand)** | `[sync] ghosts ... respawned=N` plus the per-net `[sync] net=.. snaps=..` lines. The near-tier dead-band (`58d5c71`) and the 60 s evict grace are the mechanism. Stand, every 5 s line of rounds 4-6: `respawned=0 hidden=0 removed=0 adopted=0` with `tracked == visible == spawned` (e.g. 06:49:07.393Z `tracked=119 visible=119 spawned=119 respawned=0 hidden=0 removed=0 adopted=0`). The only correction the ghosts needed was the interpolator's own blend, visible as `snaps=4` on one 4567 m/s hull in `net=294 ... snaps=4`, which is not a respawn |
 | 8 | UDP realtime lane active in the mod | **PASS (CI and live stand)** | The lane is implemented and unit-tested end to end (`UdpLane`, `Off -> Binding -> Active/Fallback`, 3 s handshake, automatic TCP fallback), and M4-25 puts every lane counter on the session line: `stats: ... udp=active udp_frames=OUT/IN udp_dgram=OUT/IN udp_loss=..% udp_binds=.. udp_fb=.. udp_reprobe=.. udp_bad=.. udp_dup=..`. `test_udp_lane.cpp` `[m425]` proves the line reports `udp=active` after a bind and `udp=fallback` after a 3.5 s blocked handshake. **And it comes up on the real server from the real game:** guest 2026-11-08 06:48:52.230Z `[perf] stats: fps=7.7 frame_p95=143.07ms mod_p95=4.397ms mod_max=5.171ms connected=1 rtt=0.6ms rx=6629B/s tx=696B/s node_stats_sent=594 udp=active udp_frames=1984/20002 udp_dgram=19245/20660 udp_loss=0.0% udp_binds=1 udp_fb=0 udp_reprobe=0` - one bind, no fallback, no reprobe, and the authority's `budget:` line of the same window also reads `udp=active` |
 
-**Wave AC.** "A recorded session replays byte-identically" - **PASS (CI)**: `RecordingTests` re-encodes every recorded
-message through `FrameCodec` and compares, and `x4mp-server record verify <dir>` does the same from the CLI. The mirror
-run compares an authority recording against a replay recording with `RecordingDivergence.Compare` and reports
-`divergence=0`.
+**Wave AC.** "A recorded session replays byte-identically" - **PASS (CI and live stand)**: `RecordingTests` re-encodes
+every recorded message through `FrameCodec` and compares, and `x4mp-server record verify <dir>` does the same from the
+CLI. The mirror run compares an authority recording against a replay recording with `RecordingDivergence.Compare` and
+reports `divergence=0`. **On the stand (2026-11-09) a live session was recorded and read back:** 15 845 messages over
+1 177.3 s, `record verify` -> `ok ... reencoded=15845 mode=as-fast-as-possible speed=1 elapsed_ms=47`,
+`record mirror` -> `ok mirrored=15845 reencoded=15845`, `record compare` -> `divergence=0 authority=15845
+mirror=15845` (one half-written record at the tail was trimmed before reading because the relay was force-stopped; see
+[in-game-session-7.md](in-game-session-7.md) 7.9).
 
 ---
 
