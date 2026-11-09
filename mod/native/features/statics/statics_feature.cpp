@@ -1,5 +1,6 @@
 #include "features/statics/statics_feature.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -9,6 +10,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "features/authority/capture_ingest.h"
 #include "features/avatars/avatar_hub.h"
 #include "features/diag/diag_hub.h"
 #include "features/ghosts/ghost_hub.h"
@@ -35,6 +37,15 @@ constexpr std::uint32_t kMissesLoggedPerSector = 12;
 constexpr std::size_t kReportKeys = 16;
 // The scan answer is a text message of a few hundred bytes per chunk; anything near this is not one of ours.
 constexpr std::size_t kMaxScanBytes = 512 * 1024;
+// M4-21: the census driver. A sector scan with no answer after kCensusMaxAsks requests is abandoned for this pass (the previous
+// pass's rows stay in the manifest); sectors are asked a few per frame, with at most kCensusInFlight unanswered at a time.
+constexpr std::int64_t kCensusRetryUs = 2'000'000;
+constexpr std::size_t kCensusInFlight = 4;
+constexpr std::size_t kCensusAsksPerFrame = 2;
+constexpr std::uint32_t kCensusMaxAsks = 3;
+// A new census starts at most this often: one checkpoint per ten minutes is already a fast save loop.
+constexpr std::int64_t kCensusRefreshUs = 10 * 60 * 1'000'000;
+std::int64_t g_census_started_us = 0;  // when the last census started (0 = never, or a new universe)
 
 std::int64_t steady_us() {
   return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -56,6 +67,23 @@ void request_station_scan(std::uint16_t sector) {
   if (sector == 0) return;
   const std::lock_guard lock(g_request_mutex);
   if (g_requested.size() < 64) g_requested.insert(sector);
+}
+
+bool ensure_station_census(const std::vector<std::string>& sector_macros, std::int64_t now_us) {
+  auto& hub = statics::statics_hub();
+  if (hub.census_active()) return false;  // a pass is under way; its committed rows are what the manifest uses
+  if (g_census_started_us != 0 && now_us - g_census_started_us < kCensusRefreshUs) return false;
+  const selfship::GalaxyMap* map = selfship::selfship_hub().map();
+  if (map == nullptr || !map->ready() || map->size() == 0) return false;  // without the sector map no scan answer can be placed
+  std::vector<std::string> macros;
+  macros.reserve(sector_macros.size());
+  for (const auto& macro : sector_macros) {
+    if (!macro.empty()) macros.push_back(macro);
+  }
+  if (macros.empty()) return false;
+  hub.start_census(std::move(macros));
+  g_census_started_us = now_us;
+  return true;
 }
 
 void StaticsInbox::push(std::string text) {
@@ -89,6 +117,13 @@ void StaticsFeature::on_game_loaded(host::HostContext& ctx) {
   first_ask_us_ = 0;
   statics::statics_hub().clear_bindings();
   statics::statics_hub().clear_report();
+  // M4-21: the census rows name components of the universe that is gone.
+  statics::statics_hub().clear_census();
+  census_asked_.clear();
+  census_gen_ = 0;
+  census_failed_ = 0;
+  census_was_active_ = false;
+  g_census_started_us = 0;
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: a new universe was loaded: station bindings dropped ({} manifest rows kept)",
             statics::statics_hub().index().size());
 }
@@ -101,7 +136,37 @@ void StaticsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& inf
   const std::int64_t now = steady_us();
   // The authority has no manifest file (it writes one, it never reads one): its station ids are the shared match-key hash. It still needs
   // the scan, because a trade names a station by net id and only the scan turns that back into a local component (M5-16).
-  if (!on_authority_) load_manifest(ctx, now);
+  if (!on_authority_) {
+    load_manifest(ctx, now);
+  } else if (statics::statics_hub().census_generation() == 0) {
+    // M4-21: the census behind the checkpoint manifest. It waits for the galaxy map (a scan answer names a sector macro, and only the
+    // map turns that into the wire sector index), then asks every sector once. A map that never gets ready costs nothing: the manifest is
+    // then written without static rows.
+    if (const selfship::GalaxyMap* map = selfship::selfship_hub().map(); map != nullptr && map->ready() && map->size() > 0) {
+      std::vector<std::string> macros;
+      macros.reserve(map->size());
+      for (std::size_t index = 1; index <= map->size(); ++index) {
+        const std::string_view macro = map->macro_of(static_cast<std::uint16_t>(index));
+        if (!macro.empty()) macros.emplace_back(macro);
+      }
+      // The sector the player is in is the one a checkpoint needs first: it is the sector the other node's interest names.
+      if (api_) {
+        const auto ship = api_->local_ship();
+        const auto universe = ship != 0 ? api_->sector_of(ship) : 0;
+        const std::uint16_t own = universe != 0 ? map->index_of(universe) : std::uint16_t{0};
+        if (own != 0) {
+          const std::string_view own_macro = map->macro_of(own);
+          if (const auto it = std::find(macros.begin(), macros.end(), own_macro); it != macros.end()) {
+            std::iter_swap(macros.begin(), it);
+          }
+        }
+      }
+      if (ensure_station_census(macros, now)) {
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: station census started over {} sector(s) (the checkpoint manifest)",
+                  macros.size());
+      }
+    }
+  }
   pump(ctx, now);
 }
 
@@ -152,9 +217,10 @@ void StaticsFeature::load_manifest(host::HostContext& ctx, std::int64_t now_us) 
 void StaticsFeature::pump(host::HostContext& ctx, std::int64_t now_us) {
   const selfship::GalaxyMap* map = selfship::selfship_hub().map();
 
-  // M4-18: the scan answers. A chunk carries rows, the closing count carries the total of the pass.
+  // M4-18: the scan answers. A chunk carries rows, the closing count carries the total of the pass. The platform event carries the
+  // bridge envelope ({"v":1,"data":"S;..."}), not the bare batch the parser reads (the capture scans were hit by the same bug).
   for (std::string& text : inbox_->take()) {
-    const auto batch = statics::parse_station_batch(text);
+    const auto batch = statics::parse_station_batch(auth::scan_payload(text));
     if (!batch) {
       ++bad_;
       continue;
@@ -166,6 +232,9 @@ void StaticsFeature::pump(host::HostContext& ctx, std::int64_t now_us) {
     }
     on_batch(ctx, sector, *batch);
   }
+
+  // M4-21: the census runs alongside the matching pass and uses the very same request path.
+  if (on_authority_) drive_census(ctx, now_us);
 
   // Which sectors to scan: a client matches its interest (InterestUpdate, W3/W5); the authority scans what a trade asked for plus the
   // sector its own player is in. Until the server sends an interest update, the player's sector is the honest fallback, so a
@@ -227,6 +296,74 @@ void StaticsFeature::pump(host::HostContext& ctx, std::int64_t now_us) {
   }
 }
 
+void StaticsFeature::drive_census(host::HostContext& ctx, std::int64_t now_us) {
+  auto& hub = statics::statics_hub();
+  if (hub.census_generation() != census_gen_) {
+    census_gen_ = hub.census_generation();
+    census_asked_.clear();
+    census_failed_ = 0;
+  }
+  if (!hub.census_active()) {
+    if (census_was_active_) {
+      census_was_active_ = false;
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Info,
+                "statics: station census closed: {} station row(s) over {} sector(s) ({} sector(s) unanswered)", hub.census_size(),
+                hub.census_sectors(), census_failed_);
+    }
+    return;
+  }
+  census_was_active_ = true;
+
+  // Retire the sectors the answers closed and give up on the ones that stayed silent (their earlier rows stay in the manifest).
+  for (auto it = census_asked_.begin(); it != census_asked_.end();) {
+    if (!hub.census_open().contains(it->first)) {
+      it = census_asked_.erase(it);
+      continue;
+    }
+    if (now_us - it->second.asked_us < kCensusRetryUs) {
+      ++it;
+      continue;
+    }
+    if (it->second.attempts >= kCensusMaxAsks) {
+      hub.census_abandon_sector(it->first);
+      ++census_failed_;
+      it = census_asked_.erase(it);
+      continue;
+    }
+    it->second.asked_us = 0;  // owed another request
+    ++it;
+  }
+
+  const selfship::GalaxyMap* map = selfship::selfship_hub().map();
+  if (map == nullptr) return;  // no sector map, no scan answer can be placed: nothing to ask
+  std::size_t budget = kCensusAsksPerFrame;
+  const auto ask = [&](const std::string& macro) {
+    nlohmann::json j;
+    j["v"] = 1;
+    j["sector"] = macro;
+    return ctx.platform.raise_lua("x4mp.statics_request", j.dump());
+  };
+  for (auto& [macro, entry] : census_asked_) {
+    if (budget == 0) break;
+    if (entry.asked_us != 0 || !hub.census_open().contains(macro)) continue;
+    if (!ask(macro)) {
+      entry.asked_us = now_us;  // try again after the retry window instead of hammering a missing bridge
+      continue;
+    }
+    ++entry.attempts;
+    entry.asked_us = now_us;
+    --budget;
+  }
+  for (const std::string& macro : hub.census_open()) {
+    if (budget == 0) break;
+    if (census_asked_.size() >= kCensusInFlight || census_asked_.contains(macro)) continue;
+    if (!ask(macro)) break;
+    hub.census_begin_sector(macro);
+    census_asked_[macro] = CensusAsk{now_us, 1};
+    --budget;
+  }
+}
+
 void StaticsFeature::on_batch(host::HostContext& ctx, std::uint16_t sector, const statics::StationBatch& batch) {
   SectorState& state = sectors_[sector];
   statics::SectorMatch& match = statics::statics_hub().sector(sector);
@@ -240,6 +377,20 @@ void StaticsFeature::on_batch(host::HostContext& ctx, std::uint16_t sector, cons
     // same key (the fallback the on-foot flow uses). Without a manifest (the authority) it is always the hash.
     statics::statics_hub().note_station(sector, row.component, hit != nullptr ? hit->net_id : onfoot::matched_container_id(key),
                                        batch.sector_macro, false, row.owner);
+    if (on_authority_) {
+      // M4-21: the manifest's static row. Its net id is the one note_station just settled (a pinned id wins over the key hash), which is
+      // exactly what this node names on the wire - and what the client derives from the same key.
+      statics::StaticsHub::CensusRow census;
+      census.net_id = statics::statics_hub().station_net_id(row.component);
+      census.component = row.component;
+      census.sector_macro = batch.sector_macro;
+      census.macro = row.macro;
+      census.owner = row.owner;
+      census.x = row.x;
+      census.y = row.y;
+      census.z = row.z;
+      statics::statics_hub().census_add(batch.sector_macro, census);
+    }
     state.seen.insert(row.component);
     if (!index.loaded()) continue;  // no manifest on this node: there is nothing to match, only ids to note
     ++match.stations;
@@ -272,6 +423,8 @@ void StaticsFeature::on_batch(host::HostContext& ctx, std::uint16_t sector, cons
   pruned_ += statics::statics_hub().prune_sector(sector, state.seen);
   const std::size_t dropped_ids = statics::statics_hub().prune_stations(sector, state.seen);
   state.seen.clear();
+  // M4-21: a census pass commits its sector when the closing count arrives; any other scan of the same sector only added rows.
+  if (on_authority_) statics::statics_hub().census_close_sector(batch.sector_macro);
   if (index.loaded()) {
     X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "statics: {} closed: {} stations, {} matched, {} missed, {} bound in total", batch.sector_macro,
               match.stations, match.matched, match.missed, statics::statics_hub().bound());

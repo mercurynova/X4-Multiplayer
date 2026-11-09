@@ -21,6 +21,7 @@ void StaticsHub::clear() {
   sectors_.clear();
   clear_stations();
   clear_report();
+  clear_census();
 }
 
 std::uint32_t StaticsHub::net_id_for(std::string_view key, std::string_view idcode) const {
@@ -194,6 +195,75 @@ void StaticsHub::reset_stats() {
     (void)sector;
     m = SectorMatch{};
   }
+}
+
+// ---- M4-21: the authority's station census ----
+
+void StaticsHub::start_census(std::vector<std::string> sector_macros) {
+  ++census_generation_;
+  // Only the staging half is new: a sector whose scan does not answer keeps the rows of the previous pass.
+  census_staging_.clear();
+  census_open_.clear();
+  for (auto& macro : sector_macros) {
+    if (!macro.empty()) census_open_.insert(std::move(macro));
+  }
+  census_active_ = !census_open_.empty();
+}
+
+void StaticsHub::census_begin_sector(const std::string& sector_macro) {
+  census_staging_[sector_macro] = CensusSector{};
+}
+
+void StaticsHub::census_add(const std::string& sector_macro, const CensusRow& row) {
+  if (sector_macro.empty() || row.component == 0 || row.net_id == 0) return;
+  CensusSector& target = census_open_.contains(sector_macro) ? census_staging_[sector_macro] : census_[sector_macro];
+  if (!target.components.insert(row.component).second) return;  // a retried scan must not double a station
+  target.rows.push_back(row);
+}
+
+void StaticsHub::census_close_sector(const std::string& sector_macro) {
+  if (census_open_.erase(sector_macro) == 0) return;  // not a census pass (an extra scan): its rows already landed
+  const auto it = census_staging_.find(sector_macro);
+  if (it != census_staging_.end()) {
+    census_[sector_macro] = std::move(it->second);
+    census_staging_.erase(it);
+  }
+  census_active_ = !census_open_.empty();
+}
+
+void StaticsHub::census_abandon_sector(const std::string& sector_macro) {
+  census_staging_.erase(sector_macro);
+  census_open_.erase(sector_macro);
+  census_active_ = !census_open_.empty();
+}
+
+std::size_t StaticsHub::census_size() const {
+  std::size_t n = 0;
+  for (const auto& [macro, sector] : census_) {
+    (void)macro;
+    n += sector.rows.size();
+  }
+  return n;
+}
+
+std::size_t StaticsHub::census_sectors() const { return census_.size(); }
+
+std::vector<StaticsHub::CensusRow> StaticsHub::census_rows() const {
+  std::vector<CensusRow> out;
+  out.reserve(census_size());
+  for (const auto& [macro, sector] : census_) {
+    (void)macro;
+    out.insert(out.end(), sector.rows.begin(), sector.rows.end());
+  }
+  return out;
+}
+
+void StaticsHub::clear_census() {
+  census_.clear();
+  census_staging_.clear();
+  census_open_.clear();
+  census_generation_ = 0;
+  census_active_ = false;
 }
 
 StaticsHub& statics_hub() {

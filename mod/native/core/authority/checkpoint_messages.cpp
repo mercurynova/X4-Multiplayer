@@ -45,21 +45,44 @@ std::optional<Payload> encode_save_started(std::uint32_t request_id, const sessi
 
 std::optional<Payload> encode_manifest(const session::Id128& checkpoint, double game_time, std::uint32_t next_net_id,
                                        const std::vector<StringDesc>& strings, const std::vector<SectorDesc>& sectors,
-                                       const std::vector<ManifestAvatar>& avatars) {
+                                       const std::vector<ManifestAvatar>& avatars, const std::vector<ManifestStatic>& statics) {
   if (!EntitySpawnBuilder::is_valid_game_time(game_time)) return std::nullopt;
   flatbuffers::FlatBufferBuilder fbb(1024);
   const P::Id128 cp(checkpoint.lo, checkpoint.hi);
   const auto str = make_strings(fbb, strings);
   const auto sec = make_sectors(fbb, sectors);
   std::vector<flatbuffers::Offset<P::ManifestEntry>> entries;
-  std::vector<const ManifestAvatar*> sorted;
-  for (const auto& a : avatars) sorted.push_back(&a);
-  std::sort(sorted.begin(), sorted.end(), [](const ManifestAvatar* a, const ManifestAvatar* b) { return a->net_id < b->net_id; });  // entries are sorted by net_id
-  for (const auto* a : sorted) {
-    const P::Vec3f pos(a->x, a->y, a->z);
-    entries.push_back(P::CreateManifestEntryDirect(fbb, a->net_id, static_cast<P::EntityKind>(a->kind), 0, a->macro_ref, a->owner_ref, a->owner_team,
-                                                   a->owner_player, a->sector, a->idcode.c_str(), &pos, 0, P::EntityOrigin::PlayerShip,
-                                                   a->controller_player));
+  // Stations (origin Manifest) and avatars (origin PlayerShip) share one list so the entries come out sorted by net_id.
+  struct Pending {
+    std::uint32_t net_id = 0;
+    std::uint8_t kind = 0;
+    std::uint64_t component_id = 0;
+    std::uint32_t macro_ref = 0;
+    std::uint32_t owner_ref = 0;
+    std::uint16_t owner_team = 0;
+    std::uint16_t owner_player = 0;
+    std::uint16_t sector = 0;
+    const std::string* idcode = nullptr;
+    float x = 0, y = 0, z = 0;
+    std::uint16_t controller_player = 0;
+    P::EntityOrigin origin = P::EntityOrigin::Manifest;
+  };
+  std::vector<Pending> sorted;
+  sorted.reserve(avatars.size() + statics.size());
+  for (const auto& a : avatars) {
+    sorted.push_back(Pending{a.net_id, a.kind, 0, a.macro_ref, a.owner_ref, a.owner_team, a.owner_player, a.sector, &a.idcode,
+                             a.x, a.y, a.z, a.controller_player, P::EntityOrigin::PlayerShip});
+  }
+  for (const auto& s : statics) {
+    sorted.push_back(Pending{s.net_id, s.kind, s.component_id, s.macro_ref, s.owner_ref, 0, 0, s.sector, &s.idcode,
+                             s.x, s.y, s.z, 0, P::EntityOrigin::Manifest});
+  }
+  std::stable_sort(sorted.begin(), sorted.end(), [](const Pending& a, const Pending& b) { return a.net_id < b.net_id; });  // entries are sorted by net_id
+  for (const auto& e : sorted) {
+    const P::Vec3f pos(e.x, e.y, e.z);
+    entries.push_back(P::CreateManifestEntryDirect(fbb, e.net_id, static_cast<P::EntityKind>(e.kind), e.component_id, e.macro_ref,
+                                                   e.owner_ref, e.owner_team, e.owner_player, e.sector, e.idcode->c_str(), &pos, 0,
+                                                   e.origin, e.controller_player));
   }
   P::FinishManifestBuffer(fbb, P::CreateManifestDirect(fbb, &cp, game_time, next_net_id, &str, &sec, &entries));
   return to_payload(fbb);

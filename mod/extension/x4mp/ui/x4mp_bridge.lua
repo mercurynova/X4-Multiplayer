@@ -75,7 +75,7 @@ if X4MPBridge and X4MPBridge.loaded then return end
 local B = { loaded = true, version = 1, handlers = {}, pending = {} }
 X4MPBridge = B
 
-B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true, onfoot_room = true, onfoot_actor = true, onfoot_rooms = true, capture_scan = true }
+B.VERBS = { join = true, disconnect = true, ui_ready = true, request_status = true, extensions = true, load_session = true, chat_send = true, onfoot_room = true, onfoot_actor = true, onfoot_rooms = true, capture_scan = true, statics_scan = true }
 B.TOPICS = { "status", "notify", "error", "load_save", "open", "wallet" }
 local queueable = { ui_ready = true, request_status = true, extensions = true }
 

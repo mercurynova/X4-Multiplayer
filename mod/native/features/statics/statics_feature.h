@@ -34,6 +34,11 @@ namespace x4mp::features {
 // already drives its own pass set. Any thread may ask; the frame thread drains the queue in pump().
 void request_station_scan(std::uint16_t sector);
 
+// M4-21: starts a fresh station census (the authority's manifest rows) over these sector macros, unless one is already running or the
+// galaxy map is not ready. Called from the checkpoint flow before the save is written; returns true when a census actually started.
+// It never waits for the scan: the manifest is written from the rows committed so far.
+[[nodiscard]] bool ensure_station_census(const std::vector<std::string>& sector_macros, std::int64_t now_us);
+
 // M4-18: the station scan answers (x4mp.statics_scan) arrive on the platform's event thread; the frame thread drains them.
 struct StaticsInbox {
   std::mutex mutex;
@@ -63,6 +68,8 @@ class StaticsFeature final : public host::IFeature {
 
   void load_manifest(host::HostContext& ctx, std::int64_t now_us);
   void pump(host::HostContext& ctx, std::int64_t now_us);
+  // M4-21: drives the authority's census (one sector request at a time, bounded retries, no wait for the answers).
+  void drive_census(host::HostContext& ctx, std::int64_t now_us);
   void on_batch(host::HostContext& ctx, std::uint16_t sector, const statics::StationBatch& batch);
   [[nodiscard]] bool all_complete() const;
   void publish_report(host::HostContext& ctx);
@@ -82,6 +89,16 @@ class StaticsFeature final : public host::IFeature {
   bool warned_no_manifest_ = false;
   bool warned_no_interest_ = false;
   bool on_authority_ = false;
+
+  // M4-21: the census driver. `census_asked_` holds the sectors whose scan request went out but whose end marker has not come back.
+  struct CensusAsk {
+    std::int64_t asked_us = 0;
+    std::uint32_t attempts = 0;
+  };
+  std::map<std::string, CensusAsk> census_asked_;
+  std::uint32_t census_gen_ = 0;      // the generation this driver's bookkeeping belongs to
+  std::uint64_t census_failed_ = 0;   // sectors abandoned in this generation (no answer after kCensusMaxAsks)
+  bool census_was_active_ = false;    // the last pass finished: the summary line is still owed
 };
 
 }  // namespace x4mp::features

@@ -55,11 +55,26 @@ struct ManifestAvatar {
   std::uint16_t controller_player = 0;  // 0 = parked
 };
 
-// The checkpoint manifest (file identifier "X4MF"): the entities are the avatars (origin PlayerShip); stations etc. are M4.
-// nullopt for an invalid game_time.
+// One static entity (a station) of the manifest (M4-21). Its net_id is the one both nodes derive from the match key
+// (features/onfoot/station_match_key -> matched_container_id) unless the authority pinned a different id. component_id is the
+// authority's in-game component, kept as a diagnostic; macro_ref/owner_ref index the manifest's string table.
+struct ManifestStatic {
+  std::uint32_t net_id = 0;
+  std::uint8_t kind = 6;  // EntityKind::Station
+  std::uint64_t component_id = 0;
+  std::uint32_t macro_ref = 0;
+  std::uint32_t owner_ref = 0;
+  std::uint16_t sector = 0;
+  std::string idcode;
+  float x = 0, y = 0, z = 0;
+};
+
+// The checkpoint manifest (file identifier "X4MF"): one entry per persistent entity - the stations of the census (origin
+// Manifest) and the avatars (origin PlayerShip). Entries are written sorted by net_id. nullopt for an invalid game_time.
 [[nodiscard]] std::optional<Payload> encode_manifest(const session::Id128& checkpoint, double game_time, std::uint32_t next_net_id,
                                                      const std::vector<StringDesc>& strings, const std::vector<SectorDesc>& sectors,
-                                                     const std::vector<ManifestAvatar>& avatars = {});
+                                                     const std::vector<ManifestAvatar>& avatars = {},
+                                                     const std::vector<ManifestStatic>& statics = {});
 
 [[nodiscard]] Payload encode_galaxy_metadata(std::span<const std::uint8_t> save_sha256, const std::vector<SectorDesc>& sectors,
                                              const std::vector<LinkDesc>& links);

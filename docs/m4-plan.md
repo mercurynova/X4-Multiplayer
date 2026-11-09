@@ -236,11 +236,27 @@ did not close in time, or there is no manifest, it sends the M2 count-only body 
 filter, the duplicate-key tie-break, the on-foot container id, pruning, the report aggregate), full ctest **625/625**, MD XML
 well-formed and the Lua half loads.
 
+**Built (2026-11-09, the authority station export).** The manifest now carries stations next to the avatars: the authority runs a
+station census (`StaticsFeature::drive_census`, four sectors in flight, two asks per frame, retry 2 s, abandon after three attempts) over
+every sector of the galaxy map, and `StaticsHub` commits each sector's rows when its `E;` marker arrives. `encode_manifest` takes
+`ManifestStatic` rows (`origin=Manifest`, `kind=Station`, the real `component_id`) and sorts them with the avatars by net id; the net id is
+`station_net_id(component)`, i.e. the same FNV container hash the client computes, so both nodes agree without a new id space. A
+checkpoint taken while a pass runs carries the sectors committed so far; the full census closes in ~40 s on the stand. `tests/test_statics.cpp`
+adds the census lifecycle and a manifest encode -> `ManifestIndex` round trip. **Two defects blocked every earlier live scan and are fixed
+here:** the Lua bridge verb allowlist lacked `statics_scan` (`mod/extension/x4mp/ui/x4mp_bridge.lua:78`), so `B.send` returned
+`unknown_verb` for every MD reply; and `StaticsFeature::pump` parsed the bridge JSON envelope as a bare `S;`/`E;` batch, so
+`parse_station_batch` rejected every event (the capture scan had the same bug, fixed in `ghost_feature.cpp:240-246`; statics now unwraps
+with `auth::scan_payload`). Live, two clients on one PC: authority `manifest lists 1316 station(s) over 152 sector(s)`, guest
+`[statics] manifest report 400aac0e...: 40/40 stations matched over 3 sector(s) (0 unmatched, 0 ambiguous ... 1317 manifest rows, 105 ms)`
+at `2026-11-09 06:22:53.197Z` - 100 % on a real save. Unit evidence: `x4mp_host_tests '[statics]'` 15 cases / 208 assertions, full ctest
+732/733 (only the known `guard.installer` failure while the game runs).
+
 **Not done, deliberately.** The id-code tie-break is implemented in the index (`lookup(key, idcode)`) and the scan parser reads an
-optional sixth field, but `md/x4mp_statics.xml` still sends five fields: `$St.idcode` is not proven on every station class in game, and a
-wrong expression would kill the whole scan rather than one tie-break. The owner tie-break is not measurable from the scan (it carries no
-owner), so `tiebreak_owner` is always 0. `unmatched_sample` stays empty: an unmatched row has no net id to sample. The in-game
-two-client measurement of the ≥ 99 % AC is still the open W7 item.
+optional sixth field, but `md/x4mp_statics.xml` still leaves that field empty: `$St.idcode` is not proven on every station class in game, and a
+wrong expression would kill the whole scan rather than one tie-break. The owner tie-break is not measurable: the scan row now carries the owner as
+a seventh field (M5-17), but the key does not use it, so `tiebreak_owner` is always 0. `unmatched_sample` stays empty: an unmatched row has no net
+id to sample. The in-game
+two-client measurement of the ≥ 99 % AC is now measured on the two-client stand: 40/40 stations over 3 interest sectors, 2026-11-09, see `m4-exit-report.md` row 1.
 
 ### W5 — Pops, interest and the highway (M4-22..M4-24)
 

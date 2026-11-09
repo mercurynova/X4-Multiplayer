@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <unordered_set>
 
 #include <nlohmann/json.hpp>
 
@@ -1025,6 +1026,19 @@ void AuthorityFlow::step_collecting(host::HostContext& ctx) {
     if (plan_.sectors.empty()) return fail(ctx, "MD reported no sectors");
     X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: galaxy collected: {} sectors, {} links, {} strings, ship {}", plan_.sectors.size(),
               plan_.links.size(), plan_.strings.size(), collected_.ship() ? collected_.ship()->macro : std::string("(none)"));
+    // M4-21: the checkpoint manifest carries one row per station, and only a scan produces them. Start a census over the collected
+    // sectors unless one is already running; the save is requested at once, so a pass that is still running simply exports fewer rows
+    // instead of holding the checkpoint back.
+    std::vector<std::string> census_macros;
+    census_macros.reserve(plan_.sectors.size());
+    for (const auto& sector : plan_.sectors) {
+      if (!sector.macro.empty()) census_macros.push_back(sector.macro);
+    }
+    const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+    if (ensure_station_census(census_macros, now_us)) {
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: station census started over {} sector(s) for the manifest",
+                census_macros.size());
+    }
     request_save(ctx);
   } else if (now - step_since_ > kCollectTimeout) {
     fail(ctx, "MD did not deliver the galaxy metadata in 20 s (is md/x4mp_galaxy.xml loaded?)");
@@ -1109,18 +1123,19 @@ void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
   auto strings = plan_.strings;
   const auto sectors = plan_.sectors;
   const std::string name = save_name_;
-  // M3-11: the avatars become manifest entries; their macro / faction strings join the manifest's own table
+  // M3-11: the avatars become manifest entries; their macro / faction strings join the manifest's own table. M4-21: the census
+  // stations use the same table, so the ref helper lives above both.
+  std::uint32_t top = 0;
+  for (const auto& s : strings) top = std::max(top, s.index);
+  const auto ref = [&](std::uint8_t kind, const std::string& value) -> std::uint32_t {
+    for (const auto& s : strings) {
+      if (s.kind == kind && s.value == value) return s.index;
+    }
+    strings.push_back({++top, kind, value});
+    return top;
+  };
   std::vector<x4mp::authority::ManifestAvatar> avs;
   {
-    std::uint32_t top = 0;
-    for (const auto& s : strings) top = std::max(top, s.index);
-    const auto ref = [&](std::uint8_t kind, const std::string& value) -> std::uint32_t {
-      for (const auto& s : strings) {
-        if (s.kind == kind && s.value == value) return s.index;
-      }
-      strings.push_back({++top, kind, value});
-      return top;
-    };
     for (const auto& r : manifest_avatars_) {
       x4mp::authority::ManifestAvatar m;
       m.net_id = r.net_id;
@@ -1141,6 +1156,57 @@ void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
     }
     if (!avs.empty()) X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: manifest lists {} avatar(s)", avs.size());
   }
+  // M4-21: the census stations. A row names its sector by macro; the manifest carries the collected plan's sector index. A row whose
+  // sector the plan does not name (or a duplicate net id) is dropped rather than written with a wrong sector.
+  std::vector<x4mp::authority::ManifestStatic> sts;
+  {
+    std::unordered_set<std::uint32_t> ids;
+    std::size_t no_sector = 0;
+    std::size_t duplicated = 0;
+    for (const auto& r : statics::statics_hub().census_rows()) {
+      if (r.net_id == 0) continue;
+      if (!ids.insert(r.net_id).second) {
+        ++duplicated;
+        continue;
+      }
+      std::uint16_t sector_index = 0;
+      for (const auto& sec : sectors) {
+        if (sec.macro == r.sector_macro) {
+          sector_index = sec.index;
+          break;
+        }
+      }
+      if (sector_index == 0) {
+        ++no_sector;
+        continue;
+      }
+      x4mp::authority::ManifestStatic m;
+      m.net_id = r.net_id;
+      m.kind = static_cast<std::uint8_t>(P::EntityKind::Station);
+      m.component_id = r.component;
+      m.macro_ref = ref(static_cast<std::uint8_t>(P::StringKind::Macro), r.macro);
+      if (!r.owner.empty()) m.owner_ref = ref(static_cast<std::uint8_t>(P::StringKind::Faction), r.owner);
+      m.sector = sector_index;
+      m.x = static_cast<float>(r.x);
+      m.y = static_cast<float>(r.y);
+      m.z = static_cast<float>(r.z);
+      sts.push_back(std::move(m));
+    }
+    if (!sts.empty()) {
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: manifest lists {} station(s) over {} sector(s)", sts.size(),
+                statics::statics_hub().census_sectors());
+    }
+    if (no_sector != 0 || duplicated != 0) {
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Warn,
+                "authority: manifest skipped {} station row(s) ({} without a sector in the plan, {} duplicate net id)", no_sector + duplicated,
+                no_sector, duplicated);
+    }
+    if (statics::statics_hub().census_active()) {
+      X4MP_CLOG(ctx.log, Cat::Save, Level::Warn,
+                "authority: the station census is still running ({} sector(s) open): the manifest carries the rows committed so far",
+                statics::statics_hub().census_open_count());
+    }
+  }
   prepared_ = std::async(std::launch::async, [=]() -> Prepared {
     Prepared out;
     auto save = x4mp::authority::describe_upload_file(session::TransferKind::Save, save_path, name);
@@ -1148,7 +1214,7 @@ void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
       out.error = "cannot read the save file";
       return out;
     }
-    const auto manifest = x4mp::authority::encode_manifest(cp, gt, next_id, strings, sectors, avs);
+    const auto manifest = x4mp::authority::encode_manifest(cp, gt, next_id, strings, sectors, avs, sts);
     if (!manifest) {
       out.error = "invalid game time for the manifest";
       return out;

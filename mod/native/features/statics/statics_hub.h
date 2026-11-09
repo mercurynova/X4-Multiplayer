@@ -110,7 +110,43 @@ class StaticsHub {
   // A new checkpoint or a new universe invalidates the report with the bindings.
   void clear_report() { report_ = MatchReport{}; matching_done_ = false; }
 
+  // ---- M4-21: the authority's station census (the manifest's static rows) ----
+  // The authority scans every sector once and keeps the rows here; a checkpoint manifest is written from a snapshot of them
+  // (authority_flow builds the rows just before encoding, so an interrupted pass still exports what it has).
+  struct CensusRow {
+    std::uint32_t net_id = 0;
+    std::uint64_t component = 0;
+    std::string sector_macro;
+    std::string macro;
+    std::string owner;
+    double x = 0, y = 0, z = 0;
+  };
+  // Opens a new pass over these sector macros (a new generation). Rows committed by earlier passes stay: a sector whose scan never
+  // answers keeps its last known rows instead of losing them.
+  void start_census(std::vector<std::string> sector_macros);
+  [[nodiscard]] bool census_active() const noexcept { return census_active_; }
+  [[nodiscard]] std::uint32_t census_generation() const noexcept { return census_generation_; }
+  [[nodiscard]] const std::unordered_set<std::string>& census_open() const noexcept { return census_open_; }
+  [[nodiscard]] std::size_t census_open_count() const noexcept { return census_open_.size(); }
+  // The scan of this sector starts: its staging rows are dropped (a retry must not double them).
+  void census_begin_sector(const std::string& sector_macro);
+  // One station of a sector scan. Into staging while the sector is open, straight into the committed set otherwise. A component seen
+  // twice in one pass counts once.
+  void census_add(const std::string& sector_macro, const CensusRow& row);
+  // The end marker of a sector scan: staging replaces that sector's committed rows.
+  void census_close_sector(const std::string& sector_macro);
+  // The scan never answered: the staged rows are dropped and the sector's earlier rows stay.
+  void census_abandon_sector(const std::string& sector_macro);
+  [[nodiscard]] std::size_t census_size() const;
+  [[nodiscard]] std::size_t census_sectors() const;
+  [[nodiscard]] std::vector<CensusRow> census_rows() const;
+  void clear_census();
+
  private:
+  struct CensusSector {
+    std::vector<CensusRow> rows;
+    std::unordered_set<std::uint64_t> components;
+  };
   ManifestIndex index_;
   std::unordered_map<std::uint32_t, std::uint64_t> components_;            // net_id -> local component
   std::unordered_map<std::uint16_t, std::unordered_set<std::uint32_t>> by_sector_;  // sector -> net ids bound there
@@ -130,6 +166,14 @@ class StaticsHub {
   std::unordered_map<std::uint64_t, LocalStation> station_by_component_;
   std::unordered_map<std::uint32_t, std::uint64_t> component_by_station_;
   std::unordered_map<std::uint16_t, std::unordered_set<std::uint64_t>> stations_by_sector_;
+
+  // M4-21: the census. `census_` holds the rows of finished scans (what the manifest reads), `census_staging_` the rows of the scans
+  // still in flight; closing a sector moves its staging set over.
+  std::map<std::string, CensusSector> census_;
+  std::map<std::string, CensusSector> census_staging_;
+  std::unordered_set<std::string> census_open_;
+  std::uint32_t census_generation_ = 0;
+  bool census_active_ = false;
 };
 
 [[nodiscard]] StaticsHub& statics_hub();
