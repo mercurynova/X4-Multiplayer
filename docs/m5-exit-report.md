@@ -475,15 +475,17 @@ build `8b4d6e7` on checkpoint `543e55e6f004681187e593fb85e5077c` (61,796,920 byt
   character to die and then rejoin.
 - **A defect the stand exposed: a session string-table alias.** After the 13:47 restart the client refused thousands of
   ghosts with `ghost spawn refused: faction '<ship macro>' does not exist in this game` - the owner field held the
-  ship's own macro. The table is per session and the client restores its `StringTable` and ghost records from the DLL
-  stash, while the authority on a fresh join re-sends the galaxy plan and sets `state_.string_count` to the plan size
-  (`authority_flow.cpp:1057-1070`). The working explanation is that strings interned before that send sit above the
-  new counter, so a later `string_ref` (`authority_flow.cpp:164-178`) hands out an index already used for another
-  value; `StringTable::set` overwrites by index (`ghost_core.cpp:40-47`), so a restored ghost's `owner_ref` can
-  resolve to a macro. Counts: 5,573 refusals in the 14:47 rotation, 53,347 in the 13:48 one, 48,641 in the 13:32 one;
-  the current log has 0 and `ghosts health` shows `spawn_failed=0`, so the alias only lives while a session's table is
-  being rebuilt. The fix needs a table epoch (clear the client table and ghosts on a new session epoch, or never move
-  the authority counter backwards) and a dedicated test; it is recorded in
+  ship's own macro. The table belongs to the session: the server replays the full table on join
+  (`protocol/schema/session.fbs:231-233`), but the client merges the entries into the table it restored from the DLL
+  stash (`ghost_core.cpp:182-193`) and restores the ghost records with their refs unconditionally
+  (`ghost_feature.cpp:119-128`; `kRegistryEpoch` is a fixed format version, not a universe epoch,
+  `ghost_driver.h:40`). A fresh authority join numbers strings from 1 again (`authority_flow.cpp:187-207`), and a new
+  session or save orders them differently, so a restored `owner_ref` can index a macro in the new table;
+  `StringTable::set` overwrites by index (`ghost_core.cpp:40-47`). Counts: 5,573 refusals in the 14:47 rotation,
+  53,347 in the 13:48 one, 48,641 in the 13:32 one; the current log has 0 and `ghosts health` shows `spawn_failed=0`,
+  so the alias only lives until the new session's table and refs settle. The fix is a table epoch (clear the client
+  table and invalidate the restored ghost refs when the join replay arrives, or tag the table with a session epoch)
+  and a dedicated test; it is recorded in
   [`../mod/docs/known-issues.md`](../mod/docs/known-issues.md) as KI-5.
 
 ## 5. What M5 needs next
