@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "events_generated.h"
+#include "features/authority/capture_ingest.h"
 #include "features/events/death_report.h"
 #include "features/events/event_bus.h"
 #include "features/events/event_types.h"
@@ -85,6 +86,27 @@ TEST_CASE("M5-01: every MD line kind parses, and a bad line is refused rather th
   CHECK_FALSE(parse_event_line("", event));
   CHECK_FALSE(parse_event_line(";", event));
   CHECK_FALSE(parse_event_line("T;0x1;ware;five;120", event));
+}
+
+TEST_CASE("M5-01: the bridge envelope is unwrapped before an MD line is parsed", "[events][m501][bridge]") {
+  MdEvent event;
+  // The platform event is the bridge envelope ({"v":1,"data":"<line>"}), exactly as statics and capture deliver it; the
+  // hello used to be counted bad here, so the whole hook ring stayed dead in session 9.
+  REQUIRE(parse_event_line(x4mp::features::auth::scan_payload(R"({"v":1,"data":"H;7"})"), event));
+  CHECK(event.kind == EventKind::HookHello);
+  CHECK(event.amount == 7);
+
+  REQUIRE(parse_event_line(
+      x4mp::features::auth::scan_payload(
+          R"({"v":1,"data":"K;0x1b1d;ship_spl_s_heavyfighter_01_a_macro;split;0x1b20;weapon_laser"})"),
+      event));
+  CHECK(event.kind == EventKind::Kill);
+  CHECK(event.component == 0x1b1d);
+  CHECK(event.owner == "split");
+
+  // A bare line (the test and hostsim path) still parses unchanged.
+  REQUIRE(parse_event_line(x4mp::features::auth::scan_payload("H;9"), event));
+  CHECK(event.amount == 9);
 }
 
 TEST_CASE("M5-01: parse_id takes what MD prints, and nothing else", "[events][m501]") {

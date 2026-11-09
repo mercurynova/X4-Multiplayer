@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "features/authority/capture_ingest.h"
 #include "features/economy/economy_hub.h"
 #include "features/builds/builds_feature.h"
 #include "features/events/events_hub.h"
@@ -95,7 +96,10 @@ void EventsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
       }
       ++handled;
       events::MdEvent event;
-      if (!events::parse_event_line(text, event)) {
+      // The platform event carries the bridge envelope ({"v":1,"data":"H;7"}), not the bare line the parser reads. Same
+      // defect the capture and statics paths had (ghost_feature.cpp:240, statics_feature.cpp): every line was counted bad,
+      // so the MD half never said hello and no kill, trade or capture ever reached the authority.
+      if (!events::parse_event_line(auth::scan_payload(text), event)) {
         ++bad_;
         continue;
       }
