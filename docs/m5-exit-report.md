@@ -58,7 +58,7 @@ failing names were not captured - treat that pair as flaky until a run reproduce
 |---|---|---|---|
 | 1 | MD capture ring plus fallbacks; the `md_hook` state is reported | PASS (session 9) | the ring runs in game: `events: the MD half said hello, 7 hooks armed` on both nodes (authority 2026-11-09 06:58:07.857Z and 06:58:12.668Z; guest 07:03:05.380Z and 07:03:15.145Z), and the budget line carries the state `hooks=hooks=alive md=7 fired=4`. Before the fix the only line was `events: no MD hello after 30s`: the parser was fed the bridge envelope, fixed in `8b4d6e7` (the third instance after statics and capture) |
 | 2 | A client kills an NPC ghost: gone within 500 ms on the authority and on a second client; an NPC killed by NPCs disappears for all | PASS (session 9, two nodes) | authority `2026-11-09 08:29:27.034Z [auth] authority: net 249 killed by player 1 (net 166), despawn queued`; guest `08:29:27.429Z [sync] ghosts tracked=133 visible=133 spawned=134 respawned=0 hidden=0 removed=1` against `tracked=134` at `08:29:21.952Z` - the ghost was gone 0.4 s after the claim. The stand has the authority and one client; the "second client" half still needs the two-PC sitting |
-| 3 | The client dies, its ghost disappears, it re-joins after a reload with no duplicate ghost | PENDING (session 9) | needs the second node; `[sess] onfoot: ... roster=2` shows the presence roster is live |
+| 3 | The client dies, its ghost disappears, it re-joins after a reload with no duplicate ghost | PASS (session 9, two nodes) | authority `2026-11-09 18:36:43.449Z [auth] authority: player 1 died (killer net 0); avatar net 902 despawned as PlayerLeft, record dropped`, 103 ms after the record was forgotten; the guest ring fired `P;` (`fired=3`). Rejoin: server `01:56:55.371 player 1 (Guest) resumed (baseline epoch 3)`, `conn 9: admitted Guest (player 1)`; authority `[md] onfoot: avatar pid=1` every 5 s, `[sess] onfoot: ... remotes=1 actors=1/1`, and the next checkpoint used `next_net_id 903` (902 was not reused) |
 | 4 | A client sells 500 units: the authority station stock rises by 500 within 10 s, no frame spike over 2 ms | PENDING (session 9) | needs the second node; the budget side is proven: `[perf] stats: ... mod_p95=0.214ms mod_max=0.626ms` |
 | 5 | A client-built station appears for the authority and the other clients at the same position, no duplicate on the builder | PENDING (session 9) | needs the second node |
 | 6 | A capture changes the owner on all nodes; the captured ship survives an authority save/load under the right faction | PENDING (session 9) | needs the second node; the authority checkpoint save ran: `[X4MP] authority: SaveGame called for x4mp_ckpt_1b96d95b2d2cd8cb` |
@@ -469,10 +469,15 @@ build `8b4d6e7` on checkpoint `543e55e6f004681187e593fb85e5077c` (61,796,920 byt
 - **AC 2, the first kill.** The client killed an NPC; the authority logged `authority: net 249 killed by player 1
   (net 166), despawn queued` at 08:29:27.034Z and the client dropped the ghost at 08:29:27.429Z (`tracked` 134 -> 133,
   `removed=1`). 0.4 s end to end on the stand.
-- **AC 3, attempted, not yet exercised.** The client destroyed a ship, but the player was in a spacesuit, so the MD
-  rule `$Killed == player.occupiedship` (`md/x4mp_events.xml:90-94`) raised `X;` (lost asset), not `P;` (death):
-  no `PlayerDeath` intent and no `authority: player 1 died ...` line exists. The criterion still needs the player
-  character to die and then rejoin.
+- **AC 3, PASS on the second attempt.** The first attempt destroyed a ship the player was not in, so the MD rule
+  `$Killed == player.occupiedship` (`md/x4mp_events.xml:90-94`) raised `X;` (lost asset), not `P;` (death). On the
+  second attempt the player died in the spacesuit (oxygen): the guest's ring fired `P;` (`fired=3` at 18:36:58.899Z),
+  and the authority logged `authority: player 1 died (killer net 0); avatar net 902 despawned as PlayerLeft, record
+  dropped` at 18:36:43.449Z, 103 ms after `avatars: the record of player 1 is forgotten (death)` at 18:36:43.346Z.
+  After the reload and rejoin the server resumed the **same** player 1 (`player 1 (Guest) resumed (baseline epoch 3)`,
+  `conn 9: admitted Guest (player 1) as "Client"`), each node followed exactly one remote avatar (authority
+  `[md] onfoot: avatar pid=1` every 5 s; guest `avatar pid=2`), `[sess] onfoot: ... remotes=1 actors=1/1`, and the next
+  checkpoint used `next_net_id 903` (902 was not reused). No duplicate ghost.
 - **A defect the stand exposed: a session string-table alias.** After the 13:47 restart the client refused thousands of
   ghosts with `ghost spawn refused: faction '<ship macro>' does not exist in this game` - the owner field held the
   ship's own macro. The table belongs to the session: the server replays the full table on join

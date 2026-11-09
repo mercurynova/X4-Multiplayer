@@ -277,7 +277,7 @@ This was not the two-PC sitting: the authority and one client ran on this PC und
 |---|---|---|
 | 1 | PASS | `events: the MD half said hello, 7 hooks armed` (authority 06:58:07.857Z, 06:58:12.668Z; guest 07:03:05.380Z, 07:03:15.145Z); budget `hooks=alive md=7 fired=4` |
 | 2 | PASS (two nodes) | authority `08:29:27.034Z authority: net 249 killed by player 1 (net 166), despawn queued`; guest `08:29:27.429Z [sync] ghosts tracked=133 ... removed=1` (was 134 at 08:29:21.952Z) |
-| 3 | not exercised | the destroyed ship was not `player.occupiedship`, so the MD raised `X;`, not `P;` (`md/x4mp_events.xml:90-94`); no `PlayerDeath` intent, no `authority: player 1 died ...` |
+| 3 | PASS | authority `18:36:43.449Z [auth] authority: player 1 died (killer net 0); avatar net 902 despawned as PlayerLeft, record dropped` (103 ms after the death); rejoin `01:56:55.371 player 1 (Guest) resumed (baseline epoch 3)`, `actors=1/1`, `next_net_id 903`; no duplicate |
 
 The ring itself was dead at the start of the run: `events: no MD hello after 30s` on every load, because
 `events_feature.cpp` parsed the bridge envelope instead of the bare MD line. Fixed in `8b4d6e7`
@@ -287,5 +287,4 @@ The stand also exposed a session string-table alias (KI-5 in `../mod/docs/known-
 restart the client refused thousands of ghosts with `ghost spawn refused: faction '<ship macro>' does not
 exist`, and the refusals stopped once the new table was rebuilt (`spawn_failed=0` in the current log).
 
-What still needs the sitting or the player: AC 3 (die and rejoin), AC 4 (sell 500), AC 5 (build), AC 6
-(capture), AC 7 and 9-12.
+What still needs the sitting or the player: AC 4 (sell 500), AC 5 (build), AC 6 (capture), AC 7 and 9-12.
