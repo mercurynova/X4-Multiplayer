@@ -239,6 +239,9 @@ TEST_CASE("SyncStats: a long extrapolation gap is stale even when the represente
   CHECK(r.n_stale == 1);
   CHECK(r.n_all == 0);
   CHECK(r.n_near == 0);
+  // The extrapolation bucket is a subset of err_all: a stale pose is not scored as extrapolation error either, which is why
+  // a live window with extrap=70 of 76 frames can legitimately report ex_n=0.
+  CHECK(r.n_extrap == 0);
   CHECK(r.err_stale_p95 > 9.9);
   CHECK(r.err_stale_p95 < 10.1);
 }
