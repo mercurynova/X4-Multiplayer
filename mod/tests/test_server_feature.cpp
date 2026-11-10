@@ -184,12 +184,14 @@ TEST_CASE("server: the snapshot always carries every field the screen reads", "[
   status.pid = 7;
   status.exit_code = 0;
   status.listening = true;
+  status.external = true;
 
   const std::string text = status_json(status, plan);
   CHECK(text.find("\"v\":1") != std::string::npos);
   CHECK(text.find("\"state\":\"running\"") != std::string::npos);
   CHECK(text.find("\"pid\":7") != std::string::npos);
   CHECK(text.find("\"listening\":true") != std::string::npos);
+  CHECK(text.find("\"external\":true") != std::string::npos);
   CHECK(text.find("\"port\":47780") != std::string::npos);
   CHECK(text.find("\"http_port\":47790") != std::string::npos);
   CHECK(text.find("\"auto_stop\":true") != std::string::npos);
@@ -242,15 +244,65 @@ TEST_CASE("server: a start says starting until the port answers, and a stop brin
   CHECK_FALSE(launcher.owns_process());
 }
 
-TEST_CASE("server: a process that dies is reported as exited with its code and the log path", "[server]") {
+TEST_CASE("server: a port that already answers refuses the start without spawning", "[server]") {
   TempTree tree;
   const Plan plan = plan_from(ServerConfig{}, tree.root / "extension", tree.root / "state");
+  REQUIRE(plan.error.empty());
   auto host = std::make_unique<FakeProcessHost>();
   FakeProcessHost* fake = host.get();
   Launcher launcher(std::move(host), [](std::uint16_t) { return true; });
   Status status;
 
+  CHECK_FALSE(launcher.start(plan, 0.0, status));
+  // The server the launcher started is the host's server: the game reports it as running, and says why it will not
+  // start a second one.
+  CHECK(status.state == "running");
+  CHECK(status.listening);
+  CHECK(status.external);
+  CHECK(status.error == "a server is already listening on port 47780");
+  CHECK(fake->spawns == 0);
+  CHECK_FALSE(launcher.owns_process());
+}
+
+TEST_CASE("server: an external server is reported and never stopped by the game", "[server]") {
+  TempTree tree;
+  const Plan plan = plan_from(ServerConfig{}, tree.root / "extension", tree.root / "state");
+  REQUIRE(plan.error.empty());
+  auto host = std::make_unique<FakeProcessHost>();
+  FakeProcessHost* fake = host.get();
+  bool listening = true;
+  Launcher launcher(std::move(host), [&listening](std::uint16_t) { return listening; });
+
+  Status status = launcher.poll(plan, 0.0);
+  CHECK(status.state == "running");
+  CHECK(status.external);
+  CHECK(status.listening);
+  CHECK_FALSE(launcher.owns_process());
+
+  // The port closes: this is not "exited", because this game never owned the process.
+  listening = false;
+  status = launcher.poll(plan, 1.0);
+  CHECK(status.state == "stopped");
+  CHECK_FALSE(status.external);
+
+  CHECK_FALSE(launcher.stop(status));
+  CHECK(status.error == "the server was not started by this game");
+  CHECK(fake->stops == 0);
+}
+
+TEST_CASE("server: a process that dies is reported as exited with its code and the log path", "[server]") {
+  TempTree tree;
+  const Plan plan = plan_from(ServerConfig{}, tree.root / "extension", tree.root / "state");
+  auto host = std::make_unique<FakeProcessHost>();
+  FakeProcessHost* fake = host.get();
+  bool listening = false;
+  Launcher launcher(std::move(host), [&listening](std::uint16_t) { return listening; });
+  Status status;
+
   REQUIRE(launcher.start(plan, 0.0, status));
+  CHECK(status.state == "starting");
+  listening = true;
+  status = launcher.poll(plan, 0.5);
   CHECK(status.state == "running");
 
   fake->die(3);

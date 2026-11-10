@@ -10,5 +10,5 @@ globals = {
 -- globals provided by the game / X4Native
 read_globals = {
 	"DebugError", "RegisterEvent", "AddUITriggeredEvent", "ReadText", "OpenMenu", "LoadGame", "getElapsedTime",
-	"GetExtensionList", "Helper", "Color",
+	"GetExtensionList", "Helper", "Color", "Pause", "Unpause",
 }

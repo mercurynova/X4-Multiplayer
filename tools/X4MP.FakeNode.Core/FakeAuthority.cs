@@ -206,11 +206,14 @@ public sealed class FakeAuthority
 
     // ---------------- startup messages ----------------
 
-    /// <summary>StringTableAdd chunks + GalaxyMetadata (sent once after the handshake / upload of the save).</summary>
+    /// <summary>StringTableAdd chunks + GalaxyMetadata (sent once after the handshake / upload of the save) + the live map.</summary>
     public IReadOnlyList<OutMessage> StartupMessages(byte[]? saveSha256 = null)
     {
         var list = new List<OutMessage>(StringTableMessages());
         list.Add(BuildGalaxyMetadata(saveSha256));
+        // T1.7: the real authority polls its universe for the strategic map; the fake one derives it from the fake galaxy, so a
+        // two-client hostsim session exercises the same server fan-out and client merge as the game.
+        list.Add(BuildKnownSectors());
         return list;
     }
 
@@ -270,6 +273,42 @@ public sealed class FakeAuthority
     }
 
     private static Vec3fT ToVec3f(Vec3 v) => new() { X = (float)v.X, Y = (float)v.Y, Z = (float)v.Z };
+
+    /// <summary>
+    /// The live strategic map (<c>KnownSectors</c>, T1.6/T1.7): every sector with its faction id as <c>owner</c> and every gate as one
+    /// undirected <c>MapLink</c> (<c>from &lt; to</c>). The real authority polls this from the running universe; the fake one derives it
+    /// from <see cref="FakeGalaxy"/>, which is deterministic per seed, so two clients must end up with exactly the same map.
+    /// </summary>
+    public OutMessage BuildKnownSectors(ulong revision = 1)
+    {
+        var g = World.Galaxy;
+        var known = new KnownSectorsT
+        {
+            Revision = revision,
+            Sectors =
+            [
+                .. g.Sectors.Select(s => new MapSectorT
+                {
+                    Index = s.Index,
+                    Macro = s.Macro,
+                    ClusterMacro = s.ClusterMacro,
+                    Name = s.Name,
+                    Owner = g.Factions[s.OwnerFaction],
+                    GalaxyPos = new Vec3fT { X = (float)s.GalaxyPos.X, Y = (float)s.GalaxyPos.Y, Z = (float)s.GalaxyPos.Z },
+                }),
+            ],
+            Links =
+            [
+                .. g.Links.Select(l => new MapLinkT
+                {
+                    From = Math.Min(l.A, l.B),
+                    To = Math.Max(l.A, l.B),
+                    Kind = l.Kind,
+                }),
+            ],
+        };
+        return new OutMessage(MsgType.KnownSectors, MessageEncoder.EncodePayload(b => KnownSectors.Pack(b, known), 65536));
+    }
 
     // ---------------- capture ----------------
 

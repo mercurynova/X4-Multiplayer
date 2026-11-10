@@ -40,6 +40,26 @@ public sealed class AuthorityAndVerifierTests
     }
 
     [Fact]
+    public void StartupMessagesCarryTheLiveStrategicMap()
+    {
+        var w = NewWorld();
+        var a = new FakeAuthority(w);
+        var msgs = a.StartupMessages();
+        var known = Decode<KnownSectors>(msgs.Single(m => m.Type == MsgType.KnownSectors)).UnPack();
+        Assert.Equal(1UL, known.Revision);
+        Assert.Equal(w.Galaxy.Sectors.Count, known.Sectors.Count);
+        // The map link is undirected, so it is sent once per gate (GalaxyMetadata carries both directions).
+        Assert.Equal(w.Galaxy.Links.Count, known.Links.Count);
+        Assert.All(known.Links, l => Assert.True(l.From < l.To));
+        var first = w.Galaxy.Sectors[0];
+        var row = known.Sectors.Single(s => s.Index == first.Index);
+        Assert.Equal(first.Macro, row.Macro);
+        Assert.Equal(first.Name, row.Name);
+        Assert.Equal(w.Galaxy.Factions[first.OwnerFaction], row.Owner);
+        Assert.All(msgs, m => Assert.True(m.ToFrame().Length <= FrameCodec.DefaultMaxFrameBytes));
+    }
+
+    [Fact]
     public void SectorCompleteOnlyAfterIndexPassAndAfterEverySpawn()
     {
         var w = NewWorld();

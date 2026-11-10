@@ -609,7 +609,9 @@ public class SessionActorTests
         var bob = await rig.JoinAsync("Bob");
         await DropAsync(rig, boss);
 
-        await rig.AdvanceSecondsAsync(119.9);
+        // M4-23: the phase deadline now uses max(ResumeGraceSeconds, AuthorityGraceSeconds) = 300 s by default, so a host
+        // restart that needs 160-195 s to reach the main menu can still resume.
+        await rig.AdvanceSecondsAsync(299.9);
         Assert.Equal(SessionPhase.AuthorityLost, await PhaseAsync(rig));
         await rig.AdvanceSecondsAsync(0.2);
         Assert.Equal(SessionPhase.Stopping, await PhaseAsync(rig));
@@ -841,6 +843,49 @@ public class SessionActorTests
         {
             gate.Set();
         }
+    }
+
+    [Fact]
+    public async Task SaveInProgressPausesAndResumesTheSession()
+    {
+        await using var rig = new ActorRig();
+        var alice = await rig.JoinAsync("Alice");
+        Assert.True(alice.Accepted);
+        int States() => alice.Connection.SentOf(MsgType.SessionState).Count;
+
+        // A save starts: every client sees paused + the reason.
+        int before = States();
+        await rig.Actor.CallAsync(() =>
+        {
+            rig.Actor.SetSaveInProgress(true);
+            return true;
+        });
+        await rig.Actor.FlushAsync();
+        Assert.Equal(before + 1, States());
+        var saving = alice.Connection.SentOf(MsgType.SessionState).Last().Decode<SessionState>();
+        Assert.True(saving.Paused);
+        Assert.Equal("Saving", saving.PauseReason);
+
+        // The same flag again must not rebroadcast: a repeated broadcast would re-pause a player who used Esc in the meantime.
+        await rig.Actor.CallAsync(() =>
+        {
+            rig.Actor.SetSaveInProgress(true);
+            return true;
+        });
+        await rig.Actor.FlushAsync();
+        Assert.Equal(before + 1, States());
+
+        // The save ended: the session is playable again and the reason is cleared.
+        await rig.Actor.CallAsync(() =>
+        {
+            rig.Actor.SetSaveInProgress(false);
+            return true;
+        });
+        await rig.Actor.FlushAsync();
+        Assert.Equal(before + 2, States());
+        var resumed = alice.Connection.SentOf(MsgType.SessionState).Last().Decode<SessionState>();
+        Assert.False(resumed.Paused);
+        Assert.True(string.IsNullOrEmpty(resumed.PauseReason));
     }
 
     [Fact]

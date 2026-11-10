@@ -40,6 +40,9 @@ public sealed partial class SaveService
         uint requestId = _nextRequestId++;
         string slot = $"x4mp_{Math.Max(0, _sessionId)}_{++_slotCounter}";
         _inFlight = new Pending(requestId, reason, _time.GetTimestamp());
+        // Freeze the clients before the authority takes the snapshot: the save service writes the universe the clients
+        // are looking at, and their input would otherwise keep moving it while the files are written.
+        _driver?.SetSaveInProgress(true);
         var frame = ControlFrames.Encode(
             MsgType.RequestSave,
             fbb => RequestSave.CreateRequestSave(fbb, requestId, reason, fbb.CreateString(slot)).Value,
@@ -203,6 +206,12 @@ public sealed partial class SaveService
             _inFlight = null;
         }
 
+        if (_inFlight is null)
+        {
+            // No request remains (this one ended, or a stale marker was resolved while another request is still running).
+            _driver?.SetSaveInProgress(false);
+        }
+
         if (!cp.IsCurrent)
         {
             _lastRequestFailedAt = _time.GetTimestamp();
@@ -280,6 +289,9 @@ public sealed partial class SaveService
             _inFlight = null;
         }
 
+        // A detached authority cannot finish the save, and a socket that dropped may stay away for the whole request
+        // timeout: never leave the clients paused for that long. The request itself stays outstanding when keepRequest.
+        _driver?.SetSaveInProgress(false);
         PublishStatus();
         if (_stopPending)
         {

@@ -50,6 +50,7 @@
     <file name="ui/x4mp_money.lua" />
     <file name="ui/x4mp_economy.lua" />
     <file name="ui/x4mp_server.lua" />
+    <file name="ui/x4mp_map.lua" />
     <dependency name="ego_detailmonitorHelper" />
     <savedvariable name="__X4MP_USER" storage="userdata" />
   </environment>

@@ -242,7 +242,7 @@ S -> N  Welcome {ids, caps, conn_id/udp, timers, team_id, team_role, faction_slo
         or Disconnect{code, message, expected}, then close
 N -> S  UdpHello (UDP, repeated);  S -> N UdpHelloAck
 S -> N  SessionState, RosterUpdate(full), StringTableAdd(full), GalaxyMetadata (if a universe exists),
-        WalletUpdate (own + team wallets)
+        MapSnapshot (if the server holds a live map), WalletUpdate (own + team wallets)
 ```
 
 The whole handshake must complete within **10 s** of the TCP accept, otherwise the
@@ -334,7 +334,10 @@ On the server, a node can also be `Detached` (inside resume grace) or `Failed`.
 
 1. S → A: `RequestSave{request_id, reason, slot_name}`. Reasons include `SessionStart`,
    `Autosave` (every `AutosaveMinutes`), `JoinRequested`, `Migration`, `Admin` and
-   `Shutdown`.
+   `Shutdown`. **Before** the request, the server broadcasts `SessionState` with
+   `paused=true` and `pause_reason="Saving"`; clients freeze on a pause lease (§7). The
+   flag is cleared when the request ends (stored, failed, timed out, or the authority
+   disconnected).
 2. **In one frame**, the authority does the following:
    - removes or hides every tagged ghost (save hygiene, a reference lesson; avatars stay);
    - calls `SaveGame(slot, name)`;
@@ -475,7 +478,13 @@ new authority re-owns nothing.
 - **Game time:** `SessionState.game_time` and `Replication.authority_game_time`. SETA is
   disabled on clients. `time_scale` is admin-controlled; see §25.
 - **Pause:** `SessionState.paused` is authoritative. The authority pauses its game, and
-  clients pause theirs.
+  clients pause theirs. A checkpoint sets `paused=true` with `pause_reason="Saving"`
+  before `RequestSave` and clears it once the checkpoint is stored or the request fails
+  or times out; a disconnected authority clears it immediately so clients are not held
+  for the whole request timeout. Clients apply a **pause lease**: they pause only when
+  the game was not already paused (an Esc pause is never undone by the mod), remember
+  that they own the pause, and unpause only that pause when the save ends. The HUD shows
+  "Saving the session…" and "Save complete".
 
 ---
 
@@ -522,7 +531,32 @@ manifest. The authority keeps `UniverseID ↔ net_id`. Every node keeps
   the same station compute the same key. M4 replaces these ids with manifest `net_id`s
   without a wire change.
 
-### 8.3 Kinds, scope and client representation
+### 8.3 Strategic map (T1.6)
+
+The strategic map is **session-wide and mandatory**: a node must not have to visit a sector to know who owns it. It is separate
+from the tactical `CaptureSet` (which only decides what an authority reads and what a client renders) and does not depend on
+a node's interest sectors.
+
+- The authority polls its running universe every 10 s through the `X4MP_Galaxy_MapData` MD cue (40 sectors per message) and
+  sends `KnownSectors` only when the map hash changes. The revision is authority-local and monotonic; the server ignores a
+  stale revision and an empty map.
+- The server validates every index (nonzero, unique), every link (both endpoints known, normalized `from < to`) and keeps one
+  map per session. On attach it sends the cached `GalaxyMetadata` first (the checkpoint fallback) and then a `MapSnapshot` if
+  it holds a live map.
+- A change is sent as a `MapDelta` when every change fits its upsert/removal form. Removing a link between two live sectors
+  cannot be expressed, so that case (and the first map) sends a `MapSnapshot` instead.
+- `MapSector.owner` is the game **faction id string** (`argon`, `xenon`, …), empty for unowned. It is not a string-table ref,
+  so a map screen never waits for `StringTableAdd` delivery. `GalaxyMetadata`'s `SectorInfo.owner_ref` cannot be resolved to a
+  faction id on a node without the save's string table, so the checkpoint fallback shows owners as empty.
+- `MapLink` is undirected (`from < to`); v1 carries `Gate` links only. `MapSector.index` is the same 1-based rank of the sorted
+  sector macro used by `GalaxyMetadata` and `build_plan`, so the live map, the checkpoint and the wire indices line up.
+- A node that receives a delta with a version gap (or a delta before any snapshot) drops its map and reports "no map" until
+  the next snapshot/attach. A silently divergent map is worse than a missing one. A stale delta (`version <= current`) is
+  ignored.
+- The in-game screen is `ui/x4mp_map.lua` (screen `map`): topic `x4mp.map`, verb `x4mp.map_request`, summary, owner filter,
+  16 rows per page, Refresh/Prev/Next. It is offered only inside a session.
+
+### 8.4 Kinds, scope and client representation
 
 | Kind | Scope | Client representation |
 |---|---|---|
@@ -754,7 +788,7 @@ On a sector change, or a Near-grid cell change:
 ### 12.3 Object budget
 
 The reference crashed with `AutoIDMap::Insert(): ID map is full` after about 83k ghosts.
-`Welcome.max_ghosts` (default 4000) caps materialised ghosts per node. When over budget,
+`Welcome.max_ghosts` (default 500) caps materialised ghosts per node. When over budget,
 the server:
 1. drops XS, S and M ships from the Adjacent and Linger tiers (keeping L, XL and player
    ships there);
@@ -1420,6 +1454,9 @@ carries `request_key` (idempotency), which is not repeated below.
 | 0x0115 | GalaxySummary | A→S | Ctl | per-sector ship counts by class, station count (0.2 Hz; feeds the GUI galaxy map) |
 | 0x0116 | ServerSettingsUpdate | S→N | Ctl | version (ulong), entries[key, value] (strings). The **full** set of node-relevant live settings (`PushToNodes`), sent right after Welcome/SessionState/roster and whenever one changes. Value text: strings and enum names unquoted, other JSON raw (`true`, `30`). Nodes ignore a lower version than they hold. |
 | 0x0117 | ModPolicyChanged | S→N | Ctl | policy (ModPolicy: version, source_mode, unknown_default, enforcement, entries[ModPolicyEntry]). Pushed when the admin edits the session mod list; nodes are not kicked, it applies at the next join (mod-management 3.3). Added with M1-X1; the push itself is M1-X4. |
+| 0x0118 | KnownSectors | A→S | Ctl | revision (ulong, authority-local, monotonic), sectors[MapSector{index, macro, cluster_macro, name, owner, galaxy_pos}], links[MapLink{from, to, kind}]. The authority's live strategic map, polled from the running universe every 10 s; sent only when the map hash changes. The server ignores a revision at or below the one it holds and an empty map. |
+| 0x0119 | MapSnapshot | S→N | Ctl | version (ulong), sectors[MapSector], links[MapLink]. The full live map: sent on attach when the server holds one, on the first map, and when a link between two live sectors is removed (a delta cannot express that). |
+| 0x011A | MapDelta | S→N | Ctl | version (ulong = the previous version + 1), sectors[MapSector] (upsert by index), links[MapLink] (upsert by unordered pair), removed_sectors[ushort] (deleted together with their links). A node that misses a version drops its map; only a snapshot restores it. |
 
 ### World (0x02xx)
 
@@ -1547,7 +1584,7 @@ sequenceDiagram
     S->>C: Welcome(player_id, conn_id, udp_token, team_id, faction_slot, TeamTable, TeamRelations, SessionSettings)
     C-->>S: UdpHello (UDP :47781, repeated)
     S-->>C: UdpHelloAck
-    S->>C: SessionState, RosterUpdate(full), StringTableAdd(full), GalaxyMetadata, WalletUpdate
+    S->>C: SessionState, RosterUpdate(full), StringTableAdd(full), GalaxyMetadata, MapSnapshot, WalletUpdate
     C->>C: set up team factions + relations (activate x4mp_team_k, symmetric mapping)
     S->>C: SessionSaveInfo(sha256, local_file_name, manifest sha)
     alt save not cached
@@ -1749,7 +1786,7 @@ and `InterestUpdate`.
 |---|---|
 | Transport | `TcpPort` 47780, `UdpPort` 47781, `HttpPort` 47790, `MaxFrameBytes` 1 MiB, `TickRateHz` 20, `BandwidthBudgetKBps` 256, `SaveBandwidthCapMBps` 0 |
 | Session | `ResumeGraceSeconds` 60, `AuthorityGraceSeconds` 120, `AutosaveMinutes` 15, `join_checkpoint_policy`, `SupportedGameBuilds` ["900-611726"] |
-| Interest | `NearRadius` 15 km, `PrefetchDepth` 1, `LingerSeconds` 20, `CaptureEvictSeconds` 60, `MaxGhosts` 4000 |
+| Interest | `NearRadius` 15 km, `PrefetchDepth` 1, `LingerSeconds` 20, `CaptureEvictSeconds` 60, `MaxGhosts` 500 |
 | Teams | TeamPolicy (§14) |
 | Economy | EconomySettings (§15) |
 

@@ -273,6 +273,33 @@ public static class SampleMessages
             Version = 5,
             Entries = [new SettingEntryT { Key = "Mods.ModListVisibility", Value = "AdminsAndViewers" }, new SettingEntryT { Key = "Replication.TickRateHz", Value = "30" }],
         }),
+        S(new KnownSectorsT
+        {
+            Revision = 7,
+            Sectors =
+            [
+                new MapSectorT { Index = 1, Macro = "cluster_01_sector001_macro", ClusterMacro = "cluster_01_macro", Name = "Argon Prime", Owner = "argon", GalaxyPos = V(1.5f, -2.5f, 0) },
+                new MapSectorT { Index = 2, Macro = "cluster_02_sector001_macro", ClusterMacro = "cluster_02_macro", Name = "Brennan's Triumph", Owner = "xenon", GalaxyPos = V(4.5f, 0, -3.5f) },
+            ],
+            Links = [new MapLinkT { From = 1, To = 2, Kind = LinkKind.Gate }],
+        }),
+        S(new MapSnapshotT
+        {
+            Version = 9,
+            Sectors =
+            [
+                new MapSectorT { Index = 1, Macro = "cluster_01_sector001_macro", ClusterMacro = "cluster_01_macro", Name = "Argon Prime", Owner = "argon", GalaxyPos = V(1.5f, -2.5f, 0) },
+                new MapSectorT { Index = 2, Macro = "cluster_02_sector001_macro", ClusterMacro = "cluster_02_macro", Name = "Brennan's Triumph", Owner = "", GalaxyPos = V(4.5f, 0, -3.5f) },
+            ],
+            Links = [new MapLinkT { From = 1, To = 2, Kind = LinkKind.Gate }],
+        }),
+        S(new MapDeltaT
+        {
+            Version = 10,
+            Sectors = [new MapSectorT { Index = 2, Macro = "cluster_02_sector001_macro", ClusterMacro = "cluster_02_macro", Name = "Brennan's Triumph", Owner = "xenon", GalaxyPos = V(4.5f, 0, -3.5f) }],
+            Links = [new MapLinkT { From = 1, To = 2, Kind = LinkKind.Gate }],
+            RemovedSectors = [3],
+        }),
 
         // ---- world ----
         S(new EntitySpawnT { JournalSeq = 77, GameTime = 3600.25, Entities = [Record(1001), Record(1002)] }),

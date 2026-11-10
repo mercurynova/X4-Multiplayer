@@ -32,7 +32,7 @@ $problems = New-Object System.Collections.Generic.List[object]
 
 function Fail([string]$Text, [string]$Fix) { [void]$problems.Add((New-Problem 'blocker' $Text $Fix)) }
 function Warn([string]$Text, [string]$Fix) { [void]$problems.Add((New-Problem 'warning' $Text $Fix)) }
-function Note([string]$Text) { [void]$problems.Add((New-Problem 'note' $Text '')) }
+function Note([string]$Text, [string]$Fix = '') { [void]$problems.Add((New-Problem 'note' $Text $Fix)) }
 
 Write-Head 'X4MP Check Install'
 Write-Host ('Installer {0}, for X4 {1} build {2}' -f $script:X4MPInstallerVersion, $script:X4Version, $script:X4BuildKey)
@@ -245,7 +245,7 @@ if ($serverExe -and (Test-Path -LiteralPath $serverExe)) {
     Warn 'The server bundle has no appsettings.json' 'Run Install.bat again: the bundle from the package carries one.'
   }
 } else {
-  Warn 'The server bundle is not installed, so the "Host" button cannot start a server' 'This is fine if you only ever join someone else. Otherwise run Install.bat from the package.'
+  Warn 'The server bundle is not installed, so this game cannot start a server' 'This is fine if you only ever join someone else. Otherwise run Install.bat from the package. The launcher can also host with the server bundle that ships beside it.'
 }
 
 $logDir = Join-Path $env:LOCALAPPDATA 'X4MP\logs'
@@ -260,11 +260,25 @@ try {
 }
 if ($logOk) { Write-Host ('  log folder: {0}' -f $logDir) } else { Warn ('The log folder cannot be written: {0}' -f $logDir) 'Check the permissions on %LOCALAPPDATA%\X4MP, or run Collect Logs.bat after fixing them.' }
 
-# 8. Ports, only worth a note: the server may be running right now and that is normal.
+# 8. Ports and the firewall rule other PCs need. A busy port is normal: the launcher or the game may already be hosting.
 foreach ($port in 47780, 47790) {
   $busy = $null
   try { $busy = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction Stop } catch { }
-  if ($busy) { Note ('Port {0} is already in use, so a server is probably running here' -f $port) }
+  if ($busy) { Note ('TCP port {0} is already in use, so a server is probably running here' -f $port) }
+}
+$udpListening = $null
+try { $udpListening = Get-NetUDPEndpoint -LocalPort 47781 -ErrorAction Stop } catch { }
+if ($udpListening) {
+  Note 'UDP port 47781 is already in use, so a server is probably running here'
+}
+
+# The server listens on all interfaces (TCP 47780/47790, UDP 47781); Windows blocks that inbound traffic by default.
+# A host who only plays alone does not need the rule, so this is a note with the exact command, not a blocker.
+$rule = $null
+try { $rule = @(Get-NetFirewallRule -Direction Inbound -Action Allow -Enabled True -ErrorAction Stop |
+    Where-Object { $_.DisplayName -like 'X4MP*' }) } catch { }
+if (-not $rule -or $rule.Count -eq 0) {
+  Note 'No Windows Firewall rule for X4MP was found, so players on other PCs cannot join this host' 'As administrator, run: New-NetFirewallRule -DisplayName "X4MP" -Direction Inbound -Protocol TCP -LocalPort 47780,47790 -Profile Private -Action Allow; New-NetFirewallRule -DisplayName "X4MP realtime" -Direction Inbound -Protocol UDP -LocalPort 47781 -Profile Private -Action Allow'
 }
 
 # 9. Verdict.

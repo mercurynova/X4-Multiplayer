@@ -48,6 +48,10 @@
 --                   proved loading by name works that way), then sends this topic WITHOUT "fallback": Lua only records that a
 --                   load started (B.loadingSave), so the start menu is not restored over the loading screen. If no reload
 --                   happens within 15 s native sends it again WITH "fallback":true and Lua calls LoadGame(name) 0.1 s later.
+--   x4mp.session_pause {"v":1,"paused":true|false,"reason":"Saving"|"","phase":N,"game_paused":true|false}
+--                   the server's SessionState pause flag changed. reason "Saving" is a checkpoint in progress: the bridge pauses
+--                   the game unless the player was already paused (game_paused) and remembers that in B.pauseLease, so the end of
+--                   the save unpauses only a pause the bridge itself created. B.saving is true while the lease is held.
 --   x4mp.open      {"v":1,"screen":"main|join|status"}                 open the X4MP screen (also: chat "/x4mp [screen]")
 --   x4mp.mod_refusal  (M2-X3, handled by x4mp_join_mods.lua through B.on) {"v":1,"policy_version":N,"install":[ref],"enable":[ref],
 --                   "disable":[ref],"update":[ref],"<group>_more":N}  ref = {"id","name","version","have_version","nexus_url",
@@ -68,7 +72,7 @@
 -- decode(): null inside an object is dropped (field absent), null inside an array is json.null.
 -- encode(): object keys are sorted (stable output); empty tables encode as {} unless made with json.array().
 
--- luacheck: globals X4MPBridge DebugError RegisterEvent LoadGame getElapsedTime Helper
+-- luacheck: globals X4MPBridge DebugError RegisterEvent LoadGame getElapsedTime Helper Pause Unpause
 
 if X4MPBridge and X4MPBridge.loaded then return end
 
@@ -409,7 +413,58 @@ B.status = nil
 B.lastError = nil
 B.lastNotice = nil
 
-B.on("status", function(p) B.status = p end)
+-- Save pause lease (T1.3). The server broadcasts SessionState.paused + pause_reason "Saving" around a checkpoint. A save must not
+-- fight the player's own Esc pause (session 2): the bridge pauses only when the game was not already paused, and unpauses only the
+-- pause it created. B.saving lets screens show the save state; the notification is the in-game overlay cue.
+B.TOPICS[#B.TOPICS + 1] = "session_pause"
+B.saving = false
+B.pauseLease = nil
+
+local function notifyText(text)
+	if type(AddUITriggeredEvent) == "function" then pcall(AddUITriggeredEvent, "X4MP", "notify", text) end
+end
+
+local function gameCall(fn, what)
+	if type(fn) ~= "function" then
+		log("pause lease: " .. what .. " is not available")
+		return false
+	end
+	local ok, err = pcall(fn)
+	if not ok then log("pause lease: " .. what .. " failed: " .. tostring(err)) end
+	return ok
+end
+
+local function releasePauseLease(unpause)
+	local lease = B.pauseLease
+	if not lease then return end
+	B.pauseLease = nil
+	B.saving = false
+	if unpause and not lease.wasPaused then gameCall(Unpause, "Unpause") end
+end
+
+B.on("session_pause", function(p)
+	if type(p) ~= "table" then return end
+	if p.paused == true then
+		if p.reason ~= "Saving" then return end
+		if B.pauseLease then return end -- repeated broadcast: never re-pause a player who used Esc in the meantime
+		local wasPaused = p.game_paused == true
+		B.pauseLease = { wasPaused = wasPaused }
+		B.saving = true
+		if not wasPaused then gameCall(Pause, "Pause") end
+		notifyText("Saving the session...")
+	elseif B.pauseLease then
+		releasePauseLease(true)
+		notifyText("Save complete")
+	end
+end)
+
+B.on("status", function(p)
+	B.status = p
+	if p.state == "disconnected" and B.pauseLease then
+		-- The save cannot finish without a session: give the game back, but only if the bridge paused it.
+		releasePauseLease(true)
+	end
+end)
 B.on("notify", function(p) B.lastNotice = p end)
 B.on("error", function(p)
 	B.lastError = p

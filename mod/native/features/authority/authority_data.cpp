@@ -11,6 +11,7 @@
 
 #include "core/crypto/crypto.h"
 #include "common_generated.h"
+#include "session_generated.h"
 
 namespace x4mp::features::auth {
 
@@ -123,7 +124,7 @@ x4mp::authority::SpawnKind spawn_kind_for_class(std::string_view cls) noexcept {
   return K::ShipS;  // unknown class: a ship of some size (the M2 self-spawn only has to exist)
 }
 
-GalaxyPlan build_plan(const MdCollector& collected) {
+GalaxyPlan build_plan(const MdCollector& collected, std::uint32_t base_index) {
   GalaxyPlan plan;
   if (collected.sectors().empty()) return plan;
   std::map<std::string, std::uint32_t> string_index;
@@ -131,7 +132,7 @@ GalaxyPlan build_plan(const MdCollector& collected) {
     if (value.empty()) return 0;
     const std::string key = std::to_string(static_cast<int>(kind)) + ":" + value;
     if (const auto it = string_index.find(key); it != string_index.end()) return it->second;
-    const auto index = static_cast<std::uint32_t>(plan.strings.size() + 1);
+    const auto index = static_cast<std::uint32_t>(base_index + plan.strings.size() + 1);
     plan.strings.push_back({index, static_cast<std::uint8_t>(kind), value});
     string_index.emplace(key, index);
     return index;
@@ -179,6 +180,51 @@ GalaxyPlan build_plan(const MdCollector& collected) {
     if (const auto it = sector_index.find(ship->sector); it != sector_index.end()) plan.ship_sector = it->second;
   }
   return plan;
+}
+
+x4mp::authority::MapPlan build_map(const MdCollector& collected) {
+  x4mp::authority::MapPlan map;
+  if (collected.sectors().empty()) return map;
+
+  // Same index rule as build_plan(): the 1-based rank of the sector macro in the ordinally sorted list. Every node
+  // derives the same index from its own sector list, so a live map sector lines up with GalaxyMetadata and the wire.
+  std::vector<const SectorRec*> ordered;
+  ordered.reserve(collected.sectors().size());
+  for (const auto& s : collected.sectors()) ordered.push_back(&s);
+  std::stable_sort(ordered.begin(), ordered.end(), [](const SectorRec* a, const SectorRec* b) { return a->macro < b->macro; });
+
+  std::map<std::string, std::uint16_t> sector_index;
+  for (const SectorRec* sp : ordered) {
+    const auto& s = *sp;
+    if (sector_index.size() >= 0xFFFF) break;
+    if (sector_index.contains(s.macro)) continue;  // a duplicate macro would break the unique index
+    x4mp::authority::MapSectorDesc d;
+    d.index = static_cast<std::uint16_t>(sector_index.size() + 1);
+    d.macro = s.macro;
+    d.cluster_macro = s.cluster;
+    d.name = s.name;
+    d.owner = s.owner;
+    d.x = s.x;
+    d.y = s.y;
+    d.z = s.z;
+    sector_index.emplace(s.macro, d.index);
+    map.sectors.push_back(std::move(d));
+  }
+
+  std::set<std::pair<std::uint16_t, std::uint16_t>> links;
+  for (const auto& s : collected.sectors()) {
+    const auto from = sector_index.find(s.macro);
+    if (from == sector_index.end()) continue;
+    for (const auto& g : s.gates) {
+      const auto to = sector_index.find(g);
+      if (to == sector_index.end() || to->second == from->second) continue;
+      const auto key = std::minmax(from->second, to->second);
+      links.insert({key.first, key.second});
+    }
+  }
+  map.links.reserve(links.size());
+  for (const auto& [from, to] : links) map.links.push_back({from, to, static_cast<std::uint8_t>(X4MP::Proto::LinkKind::Gate)});
+  return map;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

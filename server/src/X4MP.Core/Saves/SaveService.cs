@@ -357,6 +357,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         {
             LogRequestTimedOut(pending.RequestId, pending.Reason);
             _inFlight = null;
+            _driver?.SetSaveInProgress(false);
             _lastRequestFailedAt = timestamp;
             if (_stopPending)
             {
@@ -430,6 +431,7 @@ public sealed partial class SaveService : ISessionModule, ISessionActorBound, ID
         _stopPending = false;
         _nextAutosave = long.MaxValue;
         _sessionId = 0;
+        _driver?.SetSaveInProgress(false);
         Tokens.Clear();
         PublishStatus();
     }

@@ -48,6 +48,9 @@ enum MsgType : ushort {
   GalaxySummary        = 0x0115,
   ServerSettingsUpdate = 0x0116,   // session.fbs table
   ModPolicyChanged     = 0x0117,   // mods.fbs table
+  KnownSectors         = 0x0118,   // session.fbs table; A->S live strategic map
+  MapSnapshot          = 0x0119,   // session.fbs table; S->N full strategic map
+  MapDelta             = 0x011A,   // session.fbs table; S->N incremental strategic map
 
   // world.fbs
   EntitySpawn          = 0x0200,

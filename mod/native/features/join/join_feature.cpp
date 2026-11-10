@@ -27,6 +27,7 @@
 #include "features/onfoot/onfoot_hub.h"
 #include "features/join/join_messages.h"
 #include "features/join/join_requests.h"
+#include "features/map/map_hub.h"
 #include "features/selfship/selfship_hub.h"
 #include "features/statics/statics_hub.h"
 #include "features/stats/stats_lane.h"
@@ -56,7 +57,7 @@ constexpr auto kLoadFallbackAfter = seconds(15);         // loadSave raised but 
 constexpr const char* kStateKey = "state";               // stash "join.state"
 constexpr const char* kExtReportedKey = "ext_reported";  // stash "join.ext_reported": the last x4mp.extensions payload from Lua
 
-constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions", "load_session", "remember"};
+constexpr const char* kVerbs[] = {"join", "disconnect", "ui_ready", "request_status", "extensions", "load_session", "remember", "map_request"};
 
 std::string endpoint_text(const std::string& host, std::uint16_t port) {
   return (host.find(':') != std::string::npos ? "[" + host + "]" : host) + ":" + std::to_string(port);
@@ -275,6 +276,8 @@ void JoinFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info) 
   }
 
   pump_session(ctx);
+  // T1.6: the map hub marks itself dirty on every accepted snapshot/delta/checkpoint; raise one event per frame at most.
+  if (map::map_hub().take_dirty()) raise_lua(ctx, "x4mp.map", map::map_hub().json());
   update_diag(ctx);
   publish_status(ctx, false);
 }
@@ -300,6 +303,9 @@ void JoinFeature::drain_inbox(host::HostContext& ctx) {
       on_load_session(ctx);
     } else if (verb == "remember") {
       on_remember(ctx, payload);  // M3-07
+    } else if (verb == "map_request") {
+      // T1.6: the map screen just opened (or asked for a refresh). Answer even when there is no map, so the screen can say so.
+      raise_lua(ctx, "x4mp.map", map::map_hub().json());
     }
     wipe(payload);
   }
@@ -482,11 +488,15 @@ void JoinFeature::stop_session(host::HostContext& ctx, const char* why) {
     stash_->erase(kStateKey);
   }
   universe_pending_ = false;
+  session_paused_ = false;  // the bridge clears its own lease when the status turns disconnected
+  session_pause_reason_.clear();
   chat::chat_hub().session_ended();  // M3-06: roster and chat history belong to the session
   teams::team_hub().session_ended();  // M3-08: the team model belongs to the session
   avatars::avatar_hub().session_ended();  // M3-11: queued avatar inputs belong to the session
   ghosts::ghost_hub().session_ended();  // M3-10: the ghosts belong to the session too (removed on the next frame)
   onfoot::onfoot_hub().session_ended();  // M3b: on-foot samples and the presence roster belong to the session
+  map::map_hub().reset();  // T1.6: the strategic map belongs to the session; tell the screen so it does not keep stale sectors
+  raise_lua(ctx, "x4mp.map", map::map_hub().json());
 }
 
 bool JoinFeature::welcomed() const {
@@ -753,6 +763,10 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
                 static_cast<int>(session_->welcome().granted_roles), session_->welcome().resumed);
       last_net_error_.clear();
       welcomed_at_ = Clock::now();
+      // T1.6: every Welcome attaches a fresh node slot; the server re-sends GalaxyMetadata and (if it has one) a MapSnapshot. Drop the
+      // previous session's map first, otherwise a live map would make the new session's checkpoint map count as "ignored".
+      map::map_hub().reset();
+      raise_lua(ctx, "x4mp.map", map::map_hub().json());
       teams::team_hub().on_welcome(std::span<const std::uint8_t>(e.payload));  // M3-08: team table + relation matrix for the faction setup
       mod_policy_json_ = join::mod_policy_json_from_welcome(std::span<const std::uint8_t>(e.payload));  // M2-X3
       if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
@@ -827,6 +841,8 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       economy_client::economy_client_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload));
       // M5-19: the authority's IntentResult for a build binds the station id this node already has.
       builds::builds_hub().on_frame_message(static_cast<X4MP::Proto::MsgType>(e.type), std::span<const std::uint8_t>(e.payload));
+      // T1.6: GalaxyMetadata (checkpoint fallback), MapSnapshot and MapDelta go to the strategic map hub; it ignores everything else.
+      map::map_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload));
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
@@ -844,6 +860,26 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
           }
           if (roster->removed() != nullptr) {
             for (const auto id : *roster->removed()) roster_.erase(id);
+          }
+        }
+      }
+      if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::SessionState)) {
+        // The server marks paused/pause_reason "Saving" around a checkpoint. Forward only transitions: the Lua bridge turns
+        // them into a pause lease, and a repeated broadcast must not re-pause a player who used Esc in the meantime.
+        flatbuffers::Verifier v(e.payload.data(), e.payload.size());
+        if (v.VerifyBuffer<X4MP::Proto::SessionState>(nullptr)) {
+          const auto* state = flatbuffers::GetRoot<X4MP::Proto::SessionState>(e.payload.data());
+          const bool paused = state->paused();
+          const std::string reason = state->pause_reason() != nullptr ? state->pause_reason()->str() : std::string{};
+          if (paused != session_paused_ || reason != session_pause_reason_) {
+            session_paused_ = paused;
+            session_pause_reason_ = reason;
+            const nlohmann::json payload{{"v", 1},
+                                         {"paused", paused},
+                                         {"reason", reason},
+                                         {"phase", static_cast<int>(state->phase())},
+                                         {"game_paused", ctx.game.game_paused()}};
+            raise_lua(ctx, "x4mp.session_pause", payload.dump());
           }
         }
       }

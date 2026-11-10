@@ -227,6 +227,15 @@ public interface ISessionNodeDriver
     void SetCurrentSave(byte[] sha256, double gameTime)
     {
     }
+
+    /// <summary>
+    /// The save service started or finished a checkpoint. The actor carries it in every <c>SessionState</c> as
+    /// <c>paused</c> + <c>pause_reason = "Saving"</c>, so the clients can freeze their input while the authority
+    /// snapshots the universe instead of fighting a moving world. Actor thread only.
+    /// </summary>
+    void SetSaveInProgress(bool inProgress)
+    {
+    }
 }
 
 /// <summary>A module that wants the <see cref="ISessionNodeDriver"/> (called once, when the actor is constructed).</summary>

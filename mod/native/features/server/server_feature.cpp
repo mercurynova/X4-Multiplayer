@@ -20,6 +20,9 @@ constexpr std::size_t kMaxBody = 256;
 // How often the process is re-read. A start takes a second or two, so this is quick enough to feel instant and cheap
 // enough to leave running for a whole session.
 constexpr double kPollEveryS = 0.25;
+// A server the game did not start (the launcher's sidecar) is found by asking its port. That is a socket connect, so it
+// is checked every few seconds, not on every poll; the last answer is reused in between and nothing flickers.
+constexpr double kExternalProbeEveryS = 2.0;
 
 void raise_notify(host::HostContext& ctx, const std::string& text) {
   nlohmann::json j;
@@ -64,7 +67,9 @@ void ServerFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   if (launcher_ == nullptr) return;
   if (last_poll_s_ >= 0.0 && now_s_ - last_poll_s_ < kPollEveryS) return;
   last_poll_s_ = now_s_;
-  publish(ctx, launcher_->poll(plan(ctx), now_s_), false);
+  const bool probe_external = last_external_probe_s_ < 0.0 || now_s_ - last_external_probe_s_ >= kExternalProbeEveryS;
+  if (probe_external) last_external_probe_s_ = now_s_;
+  publish(ctx, launcher_->poll(plan(ctx), now_s_, probe_external), false);
 }
 
 void ServerFeature::on_shutdown(host::HostContext& ctx) {
@@ -123,7 +128,8 @@ void ServerFeature::drain(host::HostContext& ctx) {
         break;
       }
       case Op::Status:
-        publish(ctx, launcher_->poll(current, now_s_), true);
+        last_external_probe_s_ = now_s_;
+        publish(ctx, launcher_->poll(current, now_s_, true), true);
         break;
     }
   }

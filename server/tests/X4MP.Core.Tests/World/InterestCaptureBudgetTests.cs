@@ -269,9 +269,9 @@ public sealed class InterestCaptureBudgetTests
     }
 
     [Fact]
-    public void MaxGhostsDefaultsTo250PerAdr042()
+    public void MaxGhostsDefaultsTo500PerAdr042()
     {
-        Assert.Equal(250, new InterestOptions().MaxGhosts);
+        Assert.Equal(500, new InterestOptions().MaxGhosts);
         Assert.Equal(1, new InterestOptions().PrefetchDepth);
         Assert.Equal(20, new InterestOptions().LingerSeconds);
         Assert.Equal(60, new InterestOptions().CaptureEvictSeconds);

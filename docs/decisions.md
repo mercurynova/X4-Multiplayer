@@ -29,6 +29,13 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
   `Client`s. The authority's human is also a client player. Only the server listens.
 - **Consequences:** no inbound firewall rules on players' PCs (PIT-055). Authority handoff is
   possible later (ADR-009 makes it cheap). Authority FPS remains the scalability limit (PIT-038).
+- **Amended 2026-11-10 (host-player consolidation):** the product topology is the **host
+  player**. The authority's PC runs X4 + the mod and the local `x4mp-server.exe` sidecar as
+  one installed/launched bundle. The server is still a separate hidden process and the only
+  listener (ADR-006); it is **not** embedded in the C++ mod. A remote/dedicated server is a
+  development/debug option, no longer a product deployment. Lifecycle: launcher -> server
+  health check -> X4 authority -> session; a graceful stop saves, ends the session and stops
+  the sidecar without orphans.
 
 ### ADR-003 Windows-first mod on X4Native (Locked)
 - **Decision:** one native DLL `x4mp.dll` (C++23, MSVC, `/MT`) on X4Native, plus Lua UI and
@@ -77,6 +84,14 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
 - **Consequences:** replaces SRV's 7778/7779/7790 and REQ-001's 7778. REQ-002 ("TCP only
   in v1") is relaxed: UDP is optional and capability-negotiated, never a user-chosen mode.
   The server implements UDP in M1 (can slip without blocking); the mod implements it in M4.
+- **Amended 2026-11-10 (host-player consolidation):** these three ports stay the complete
+  listener set; there is **no port-range expansion** (one UDP socket carries the realtime
+  budget; extra ports only complicate NAT/firewall and debugging). UDP is the primary
+  realtime lane, TCP the reliable Control lane, Bulk TCP for saves; important messages stay
+  on Control. GameNetworkingSockets and QUIC are **not** adopted in v1: both would replace
+  the lane/priority/ack machinery and the identity model for no gain in the host-player LAN
+  topology. The GUI defaults to the local sidecar (`127.0.0.1:47790`) and must warn when
+  `47781/udp` is not reachable from clients.
 
 ### ADR-007 Save transfer: in-band Bulk by default, HTTP fallback (Lead)
 - **Decision:** saves and manifests move as windowed `SaveChunk`s (256 KiB, window 8, ack
@@ -99,7 +114,10 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
   the canonical record of net_ids, avatar registry and `inherit_team` status; the authority
   may also keep a local copy for crash recovery. Team table and wallets are server-owned and
   never in the sidecar. Cadence is **server-driven** (`RequestSave{Autosave}` every
-  `AutosaveMinutes`, default 15); the mod has no autosave timer of its own.
+  `AutosaveMinutes`, default 15); the mod has no autosave timer of its own. A checkpoint
+  freezes the clients through `SessionState.paused` + `pause_reason="Saving"`: the server
+  sets it before `RequestSave` and clears it when the request ends; clients use a **pause
+  lease**, pausing only if the player was not already paused and undoing only that pause.
 
 ### ADR-009 Static entity binding via the manifest, not ID hashing (Lead)
 - **Context:** MOD §3.5 proposed deterministic station NetIds (hash of match key); PROTO
@@ -157,7 +175,7 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
   kinematic ghosts keyed by `net_id`, moved with `SetObjectSectorPos` (Hermite + slerp,
   adaptive interp delay 100–400 ms, extrapolate ≤ 500 ms / 1 s Adjacent). Static objects
   are matched (ADR-009) and updated in place. Bind/pin is not built (`HybridBind` reserved).
-  Ghost spawn ≤ 40/frame, materialised ghosts ≤ `max_ghosts` (4000).
+  Ghost spawn ≤ 40/frame, materialised ghosts ≤ `max_ghosts` (500).
 
 ### ADR-014 Team faction mapping: symmetric (Consolidation)
 - **Context:** PROTO §14.2 and SRV §2.13 map "my own team" to the game's `player` faction
@@ -331,7 +349,7 @@ Doc abbreviations: **REQ** = `requirements.md`, **API** = `x4-api-notes.md`, **P
 | `MaxFrameBytes` | 1 MiB | |
 | `TickRateHz` / `BandwidthBudgetKBps` | 20 / 256 | per client |
 | `NearRadius` / `PrefetchDepth` / `LingerSeconds` / `CaptureEvictSeconds` | 15 km / 1 / 20 / 60 | |
-| `max_ghosts` / ghost spawns per frame | 4000 / 40 | |
+| `max_ghosts` / ghost spawns per frame | 500 / 40 | |
 | `AutosaveMinutes` | 15 | server-driven `RequestSave` (SRV/MOD; PROTO's 20 superseded) |
 | `MaxPlayers` / `MaxConnectionsPerIp` | 8 / 4 | |
 | Intent timeout | 5 s | `Rejected{Timeout}` |
@@ -513,8 +531,10 @@ NuGet versions equal (`tools/flatc/flatc.lock.json`).
 - **Teams (ADR-014) and avatars (ADR-015) are confirmed in game.** The fallbacks are retired.
   `TeleportPlayerTo` is always called with `force=true`, because without it the game gates it behind
   a research unlock.
-- **Ghost budget:** default `max_ghosts = 250`, configurable by the server. Frame cost is
-  rendering (~+5 ms per 250 inert S ships on the test PC), not per-frame repositioning.
+- **Ghost budget:** default `max_ghosts = 500`, configurable by the server. Frame cost is
+  rendering (~15.4 ms at 250 inert S ships and ~25.2 ms at 500 on the test PC), not
+  per-frame repositioning. 500 avoids visibly truncating a busy current sector; raise it
+  only after measuring client FPS.
 - **Save files (confirmed 2026-10-02):** the save header `<player money>` and `<account amount>` are **whole credits**; per-transaction fields (logbook `money`, trade-offer `price`) are **cents** (research/save-analyzer-notes.md, user-confirmed balance).
 - **Money units:** MD `player.money` and `AddPlayerMoney` use cents; Lua `GetPlayerMoney` uses
   credits. The mod converts at that edge, and the wire stays in whole credits. In-game balances
@@ -836,6 +856,33 @@ presence) and ADR-049 (team origins).
     session plus on change; the server stores it for the session only and relays it, which is enough because the client is
     the durable copy and re-sends at every join. The per-build catalogue check on the server remains open (the client
     refuses unknown pairs before they reach the wire).
+
+### ADR-052 Live strategic map: server-held, authority-polled, separate from GalaxyMetadata (T1.6, 2026-11-10)
+
+**Status: accepted; implemented with T1.6 (schema, authority, server, client, screen).**
+- **Context:** the map is mandatory (architecture §1: a player must know who owns a sector without visiting it), but
+  `GalaxyMetadata` is a checkpoint artifact: it is sent once per save, carries `owner_ref` (a string-table ref, not a
+  faction id), and cannot reflect an ownership change until the next save. Reading ownership from the checkpoint would
+  make the map stale for up to 15 minutes and couple the map screen to string-table delivery.
+- **Decision:**
+  - The authority polls its **running universe** every 10 s through the `X4MP_Galaxy_MapData` MD cue (40 sectors per
+    message) and sends `KnownSectors` (revision, `MapSector` with the faction id string as `owner`, undirected `MapLink`)
+    only when the map hash changes.
+  - The server validates and stores one live map per session (`MapModule`). On attach it sends the cached
+    `GalaxyMetadata` first and then a `MapSnapshot`; changes are `MapDelta` (version = previous + 1) or, when a link between
+    two live sectors is removed, a full `MapSnapshot`.
+  - `MapSector.index` reuses the deterministic 1-based rank of the sorted sector macro from `GalaxyMetadata`/`build_plan`,
+    so the live map, the checkpoint and the wire indices line up.
+  - `owner` is the game faction id string (empty = unowned), never a string-table ref: a map screen must not wait for
+    `StringTableAdd`, and the checkpoint fallback (`GalaxyMetadata`) therefore shows owners as empty.
+  - The client (`features/map/map_hub`) keeps the merged map. A delta with a version gap, or a delta before a snapshot,
+    drops the map and the screen says so; only a snapshot restores it. A stale delta is ignored.
+  - The UI is `ui/x4mp_map.lua` (screen `map`, topic `x4mp.map`, verb `x4mp.map_request`): summary, owner filter, 16 rows
+    per page, Refresh/Prev/Next; the main screen offers it only inside a session.
+- **Consequences:** the map is live and independent of the save cadence, at the cost of a 10 s poll and one small
+  `KnownSectors` message when something changes. The server, not a node, is the single fan-out point, so two clients
+  cannot disagree about an owner. `GalaxyMetadata` remains the fallback for a session whose authority has not polled yet.
+  Fog of war is still off in v1 (ADR-038): every node sees the whole map.
 
 ## Part 2. Open questions for the user
 

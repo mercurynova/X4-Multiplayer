@@ -2,6 +2,7 @@
 --
 -- Native drives everything; this file only does what needs the Lua/MD side of the game:
 --   native -> Lua  x4mp.auth_collect {"v":1}                   ask MD (md/x4mp_galaxy.xml) for the sectors and the player's ship
+--                  {"v":1,"map_only":true}                      only the live strategic map (T1.6): MD control "map_data"
 --                  {"v":1,"ship_only":true}                      only the player's ship (close-out A item 3: MD had none at the first checkpoint):
 --                                                               answered with one "P;..." or, when there is none, "N;"
 --   MD -> Lua      x4mp.md_galaxy <string>                      raw messages "G;..." "E;n" "P;..." (format: native
@@ -58,9 +59,20 @@ RegisterEvent("x4mp.md_galaxy", function(_, param)
 	if not ok then log("could not forward a galaxy message: " .. tostring(err)) end
 end)
 
+-- T1.6: the live strategic map (same G;/E; format as the checkpoint collection).
+RegisterEvent("x4mp.md_map", function(_, param)
+	if type(param) ~= "string" or param == "" then return end
+	local ok, err = send("map_md", { data = param })
+	if not ok then log("could not forward a map message: " .. tostring(err)) end
+end)
+
 B.on("auth_collect", function(p)
 	if type(AddUITriggeredEvent) ~= "function" then
 		log("AddUITriggeredEvent is missing, MD cannot be asked for the galaxy")
+		return
+	end
+	if type(p) == "table" and p.map_only == true then
+		pcall(AddUITriggeredEvent, A.MD_SCREEN, "map_data", "1")
 		return
 	end
 	if type(p) == "table" and p.ship_only == true then

@@ -3,10 +3,12 @@
   X4MP galaxy metadata for the authority, MD side (M2-09). Lua side: ui/x4mp_authority.lua; consumer: native features/authority.
 
   Lua -> MD  AddUITriggeredEvent("X4MP_Authority", "collect", "1")   the authority is about to answer a RequestSave: send the galaxy
+  Lua -> MD  AddUITriggeredEvent("X4MP_Authority", "map_data", "1")  native polls the live strategic map (T1.6): the same sectors, no ship
   MD -> Lua  raise_lua_event 'x4mp.md_galaxy' <string>, forwarded unchanged to native (verb x4mp.auth_md). Messages:
                G;<sector>;<sector>;...   at most 40 sectors per message, each  macro|cluster_macro|name|owner_faction|x|y|z|gate,gate
                E;<count>                  all sectors were sent: <count> is the total
                P;macro|name|idcode|sector_macro|class|owner       the ship the player is in (absent when the player is on foot)
+  MD -> Lua  raise_lua_event 'x4mp.md_map' <string>             same G/E messages for the live map (verb x4mp.map_md)
   Lua -> MD  AddUITriggeredEvent("X4MP_Authority", "ship", "1")      only the ship (close-out A item 3: player.occupiedship was still null
              at the first checkpoint, ~2 s after the universe was ready): answers with one P message, or "N;" when there is none
   Recipe: find_sector multiple (every normal sector of the galaxy), find_gate per sector with the gate's destination sector, as
@@ -113,6 +115,70 @@
           </do_if>
           <raise_lua_event name="'x4mp.md_galaxy'" param="'P;' + $Ship.macro.id + '|' + $ShipName + '|' + $ShipCode + '|' + $ShipSector + '|' + $Cls + '|' + $ShipOwner"/>
         </do_if>
+      </actions>
+    </cue>
+
+    <!-- T1.6: the live strategic map. Same sector walk as X4MP_Galaxy_Collect, without the ship record; native polls
+         this while the authority is connected so ownership changes are visible without a new save. -->
+    <cue name="X4MP_Galaxy_MapData" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Authority'" control="'map_data'"/>
+      </conditions>
+      <actions>
+        <find_sector name="$MapDataSectors" multiple="true"/>
+        <set_value name="$MapChunk" exact="''"/>
+        <set_value name="$MapInChunk" exact="0"/>
+        <do_for_each name="$MapSec" in="$MapDataSectors">
+          <set_value name="$MapGates" exact="''"/>
+          <find_gate name="$MapGateObjs" space="$MapSec" multiple="true"/>
+          <do_for_each name="$MapGate" in="$MapGateObjs">
+            <set_value name="$MapDest" exact="@$MapGate.destination.sector.macro.id"/>
+            <do_if value="$MapDest != null">
+              <do_if value="$MapGates != ''">
+                <set_value name="$MapGates" exact="$MapGates + ','"/>
+              </do_if>
+              <set_value name="$MapGates" exact="$MapGates + $MapDest"/>
+            </do_if>
+          </do_for_each>
+          <set_value name="$MapOwner" exact="@$MapSec.owner.id"/>
+          <do_if value="$MapOwner == null">
+            <set_value name="$MapOwner" exact="''"/>
+          </do_if>
+          <set_value name="$MapSecName" exact="@$MapSec.name"/>
+          <do_if value="$MapSecName == null">
+            <set_value name="$MapSecName" exact="''"/>
+          </do_if>
+          <set_value name="$MapClusterId" exact="@$MapSec.cluster.macro.id"/>
+          <do_if value="$MapClusterId == null">
+            <set_value name="$MapClusterId" exact="''"/>
+          </do_if>
+          <set_value name="$MapPosX" exact="@$MapSec.cluster.position.x"/>
+          <set_value name="$MapPosY" exact="@$MapSec.cluster.position.y"/>
+          <set_value name="$MapPosZ" exact="@$MapSec.cluster.position.z"/>
+          <do_if value="$MapPosX == null">
+            <set_value name="$MapPosX" exact="0"/>
+          </do_if>
+          <do_if value="$MapPosY == null">
+            <set_value name="$MapPosY" exact="0"/>
+          </do_if>
+          <do_if value="$MapPosZ == null">
+            <set_value name="$MapPosZ" exact="0"/>
+          </do_if>
+          <do_if value="$MapChunk != ''">
+            <set_value name="$MapChunk" exact="$MapChunk + ';'"/>
+          </do_if>
+          <set_value name="$MapChunk" exact="$MapChunk + $MapSec.macro.id + '|' + $MapClusterId + '|' + $MapSecName + '|' + $MapOwner + '|' + $MapPosX + '|' + $MapPosY + '|' + $MapPosZ + '|' + $MapGates"/>
+          <set_value name="$MapInChunk" exact="$MapInChunk + 1"/>
+          <do_if value="$MapInChunk ge 40">
+            <raise_lua_event name="'x4mp.md_map'" param="'G;' + $MapChunk"/>
+            <set_value name="$MapChunk" exact="''"/>
+            <set_value name="$MapInChunk" exact="0"/>
+          </do_if>
+        </do_for_each>
+        <do_if value="$MapChunk != ''">
+          <raise_lua_event name="'x4mp.md_map'" param="'G;' + $MapChunk"/>
+        </do_if>
+        <raise_lua_event name="'x4mp.md_map'" param="'E;' + $MapDataSectors.count"/>
       </actions>
     </cue>
 

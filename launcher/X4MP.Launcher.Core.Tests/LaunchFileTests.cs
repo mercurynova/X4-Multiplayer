@@ -123,4 +123,61 @@ public class LaunchFileTests : IDisposable
         using var document = JsonDocument.Parse(File.ReadAllBytes(path));
         Assert.Equal("\u0410\u043B\u0438\u0441\u0430", document.RootElement.GetProperty("name").GetString());
     }
+
+    [Fact]
+    public void AnAuthorityRequestCarriesTheRoleAndTheNodePassword()
+    {
+        var path = LaunchFile.Write(
+            _tree.Root, "http://127.0.0.1:47780", "Alice", string.Empty, Expiry,
+            role: "authority", adminPassword: "node-secret");
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        Assert.Equal("authority", document.RootElement.GetProperty("role").GetString());
+        Assert.Equal("node-secret", document.RootElement.GetProperty("admin_password").GetString());
+        Assert.Equal("127.0.0.1:47780", document.RootElement.GetProperty("server").GetString());
+    }
+
+    [Fact]
+    public void AClientRequestHasNoRoleOrAdminPassword()
+    {
+        var path = LaunchFile.Write(_tree.Root, "localhost:47790", "Alice", string.Empty, Expiry);
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        Assert.False(document.RootElement.TryGetProperty("role", out _));
+        Assert.False(document.RootElement.TryGetProperty("admin_password", out _));
+    }
+
+    [Fact]
+    public void AnAdminPasswordWithoutTheAuthorityRoleIsNotWritten()
+    {
+        var path = LaunchFile.Write(
+            _tree.Root, "localhost:47790", "Alice", string.Empty, Expiry,
+            role: "client", adminPassword: "must-not-leak");
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        Assert.Equal("client", document.RootElement.GetProperty("role").GetString());
+        Assert.False(document.RootElement.TryGetProperty("admin_password", out _));
+    }
+
+    [Fact]
+    public void AnUnknownRoleIsRefusedBeforeAnythingIsWritten()
+    {
+        var error = Assert.Throws<ArgumentException>(
+            () => LaunchFile.Write(_tree.Root, "localhost:47790", "Alice", string.Empty, Expiry, role: "host"));
+
+        Assert.Contains("client or authority", error.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(_tree.Resolve("launch.json")));
+    }
+
+    [Fact]
+    public void AHostRequestUsesLoopbackAndTheAuthorityRole()
+    {
+        var path = LaunchFile.WriteHost(_tree.Root, "Alice", string.Empty, "node-secret", Expiry);
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var root = document.RootElement;
+        Assert.Equal("127.0.0.1:47780", root.GetProperty("server").GetString());
+        Assert.Equal("authority", root.GetProperty("role").GetString());
+        Assert.Equal("node-secret", root.GetProperty("admin_password").GetString());
+    }
 }

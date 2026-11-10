@@ -20,12 +20,15 @@ Detailed docs (each subordinate to this one):
 ## 1. Goals and non-goals
 
 **Goals (v1):** co-op and team play for 2–8 players in one shared X4 9.00 universe;
-a standalone server with a LAN web GUI; robust join/resume; teams with an
+a **host-player bundle** (the authority's X4 + a hidden local `x4mp-server.exe` sidecar,
+one installer/launcher) with a localhost admin GUI; robust join/resume; teams with an
 allied/neutral/hostile matrix; a server-authoritative credit ledger with transfers, pool,
-donations, loans and escrowed trades; no save pollution; no Game Overs caused by the mod.
+donations, loans and escrowed trades; a mandatory global strategic map; no save pollution;
+no Game Overs caused by the mod.
 
-**Non-goals (v1):** shot-level combat sync, headless authority, Linux mod, internet-facing
-deployment, wire compatibility with the reference mod, Egosoft's SLNet/Ventures APIs
+**Non-goals (v1):** shot-level combat sync, headless authority, a remote/dedicated server as
+a product, Linux mod, internet-facing deployment, GameNetworkingSockets, QUIC, port-range
+expansion, wire compatibility with the reference mod, Egosoft's SLNet/Ventures APIs
 (`NewMultiplayerGame` etc. are never called).
 
 ---
@@ -62,20 +65,24 @@ flowchart LR
 
 ## 3. Runtime topology
 
-- **One server process** (`x4mp-server.exe`), started first, typically on the authority's
-  PC or a LAN box. It is the only listener: TCP **47780**, UDP **47781**, HTTP **47790**
-  (ADR-006). Data dir: `./data` or `%ProgramData%\X4MP` as a service (`x4mp.db`, `saves/`,
-  `logs/`, `uploads/`, `certs/`).
-- **One authority node**: an X4 instance with the mod, role `Authority` (+ `Client` for its
-  human). It simulates the universe, assigns every `net_id`, captures only the
+- **One host-player bundle.** The authority's PC runs X4 + the mod and the local
+  `x4mp-server.exe` sidecar; the installer/launcher presents them as one product. The server
+  is a separate **hidden sidecar process**, not embedded in the C++ mod, and is the only
+  listener: TCP **47780**, UDP **47781**, HTTP **47790** (ADR-006). Data dir: `./data` or
+  `%ProgramData%\X4MP` (`x4mp.db`, `saves/`, `logs/`, `uploads/`, `certs/`).
+- **One authority node**: the host's X4 instance with the mod, role `Authority` (+ `Client`
+  for its human). It simulates the universe, assigns every `net_id`, captures only the
   server-requested `CaptureSet`, applies validated intents, and makes checkpoints.
 - **N client nodes**: X4 instances that load the same checkpoint, fly their own avatar
   (client-authoritative movement), render the authority's world as ghosts, and send
   intents and economy requests.
-- **Admin browsers** on the LAN. **Observers** (FakeNode `inspect`) for diagnostics.
+- **Local admin GUI** at `127.0.0.1:47790` with a generated token; **observers** (FakeNode
+  `inspect`) for diagnostics. A remote/dedicated server remains a development/debug option,
+  not a deployment.
 - One active session per server in v1 (design allows N).
-- Start order: server → authority → clients. Pinned build: X4 9.00 / 611726 and X4Native
-  `v9.0.0-611726` everywhere (ADR-004).
+- Lifecycle: launcher -> server health check -> X4 authority -> session; a graceful stop
+  saves, ends the session and stops the sidecar without orphans. Pinned build: X4 9.00 /
+  611726 and X4Native `v9.0.0-611726` everywhere (ADR-004).
 
 ---
 
@@ -85,7 +92,7 @@ flowchart LR
 
 | Role | Holder | May send (enforced by server `MessagePolicy`: role × phase × lane) |
 |---|---|---|
-| `Authority` | ≤ 1 node | `WorldUpdate`, `EntityStatusBatch`, `EntitySpawn/Despawn/Change/Cargo`, `SectorComplete`, `GameEvent`, `IntentResult`, `SaveStarted`, `SaveUpload*`, `GalaxyMetadata`, `GalaxySummary`, `StringTableAdd`, `CreditDelta` (any player/team), `AssetTransferConfirm` |
+| `Authority` | ≤ 1 node | `WorldUpdate`, `EntityStatusBatch`, `EntitySpawn/Despawn/Change/Cargo`, `SectorComplete`, `GameEvent`, `IntentResult`, `SaveStarted`, `SaveUpload*`, `GalaxyMetadata`, `GalaxySummary`, `KnownSectors`, `StringTableAdd`, `CreditDelta` (any player/team), `AssetTransferConfirm` |
 | `Client` | each player node (authority too) | `PlayerState`, `PlayerShip`, `EntityCargo` (own ship), `Intent`, `ChatSend`, team and economy requests, `CreditDelta` (self), `ResyncRequest`, `InterestHint` (cap) |
 | `Observer` | tools | `ResyncRequest`, `ChatSend` |
 | `Admin` flag | valid `admin_proof` | `AdminCommand` |
@@ -136,7 +143,7 @@ stash, and resumes after re-init (ADR-025). No world mutation before `on_univers
 1. `ServerHello{nonce, supported_game_builds, …}` → `ClientHello{versions, player_key,
    HMAC proofs, resume_token, cached saves}` → `Welcome{player_id, team, faction_slot,
    TeamTable, TeamRelations, SessionSettings, udp_token}` or `Disconnect{code}`.
-2. `SessionState`, `RosterUpdate`, `StringTableAdd`, `GalaxyMetadata`, `WalletUpdate`.
+2. `SessionState`, `RosterUpdate`, `StringTableAdd`, `GalaxyMetadata`, `MapSnapshot`, `WalletUpdate`.
 3. `SessionSaveInfo` → in-band download if not cached → `SaveReady`.
 4. Mod activates team factions and applies relations, then `LoadGame`, stays paused at
    universe ready, matches the manifest → `ManifestReport`.
@@ -245,6 +252,24 @@ Trade settlement: escrow ─▶ AssetTransferOrder{trade_id, lines[]} ─▶ Aut
 4. Clients get `SessionSaveInfo`; download in-band (or HTTP fallback), verify, `SaveReady`.
 5. Clients never save while connected; the authority's vanilla autosave is blocked.
 
+### 5.6 Strategic map (T1.6, ADR-052)
+
+- The map is **session-wide and mandatory**: every node knows every sector's owner without visiting it. It is separate from
+  the tactical `CaptureSet` and does not depend on a node's interest sectors.
+- The authority polls its running universe every 10 s (`X4MP_Galaxy_MapData` MD cue, 40 sectors per message) and sends
+  `KnownSectors` only when the map hash changes. The server validates the revision and links, keeps one map per session, and
+  fans out.
+- On attach the server sends the cached `GalaxyMetadata` first (checkpoint fallback; its `owner_ref` cannot be resolved to a
+  faction id, so owners are empty) and then a `MapSnapshot` if it holds a live map. Changes go out as `MapDelta` with
+  `version = previous + 1`; removing a link between two live sectors forces a full `MapSnapshot`.
+- `MapSector.owner` is the game faction id string (empty = unowned), never a string-table ref, so a map screen does not wait
+  for `StringTableAdd`. `MapLink` is undirected (`from < to`), Gate only in v1. Indices are the same sorted-macro ranks as
+  `GalaxyMetadata`.
+- A node that misses a delta version drops its map and shows "no map" until the next snapshot/attach: a silently divergent
+  map is worse than a missing one.
+- The screen is `ui/x4mp_map.lua` (screen `map`, topic `x4mp.map`, verb `x4mp.map_request`): summary, owner filter, 16 rows
+  per page, Refresh/Prev/Next; offered only inside a session.
+
 ---
 
 ## 6. Entity identity (ADR-009, ADR-010)
@@ -315,8 +340,9 @@ Near-grid cell change using a `SectorGraph` k-hop cache and per-sector uniform g
 - `SectorComplete` gating: the authority sends it only after a full index pass; the server
   forwards it per client once all spawns are enqueued; the client suppresses local NPCs
   only after it. Absence never implies deletion.
-- Ghost budget `max_ghosts` 4000: over budget, drop XS/S/M from Adjacent/Linger first, then
-  limit Adjacent to the predicted route.
+- Ghost budget `max_ghosts` 500: over budget, drop XS/S/M from Adjacent/Linger first, then
+  limit Adjacent to the predicted route. V03 measured ~15.4 ms/frame at 250 inert ships and
+  ~25.2 ms at 500; raise only after measuring client FPS.
 - `InterestHint` (cap, optional) only helps non-adjacent jumps; the server may ignore it.
 - Fog of war: none in v1 (decisions Q1).
 

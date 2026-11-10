@@ -183,6 +183,9 @@ public static class MessagePolicy
             (MsgType.GalaxySummary, A, Post),
             (MsgType.ServerSettingsUpdate, None, PolicyPhase.None),
             (MsgType.ModPolicyChanged, None, PolicyPhase.None),
+            (MsgType.KnownSectors, A, Post),
+            (MsgType.MapSnapshot, None, PolicyPhase.None),
+            (MsgType.MapDelta, None, PolicyPhase.None),
 
             // World (0x02xx)
             (MsgType.EntitySpawn, A, Post),

@@ -461,6 +461,45 @@
       "fields": {"Entries":[{"Key":"Mods.ModListVisibility","Value":"AdminsAndViewers"},{"Key":"Replication.TickRateHz","Value":"30"}],"Version":5}
     },
     {
+      "file": "0x0118_KnownSectors.bin",
+      "kind": "frame",
+      "size": 352,
+      "sha256": "bbe8b9664c7e2725e54144159ffdad9b4e7ef13a9e91fd3bc2f5dc59d886e2a6",
+      "msgType": 280,
+      "msgName": "KnownSectors",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 344,
+      "fields": {"Links":[{"From":1,"Kind":0,"To":2}],"Revision":7,"Sectors":[{"ClusterMacro":"cluster_01_macro","GalaxyPos":{"X":1.5,"Y":-2.5,"Z":0},"Index":1,"Macro":"cluster_01_sector001_macro","Name":"Argon Prime","Owner":"argon"},{"ClusterMacro":"cluster_02_macro","GalaxyPos":{"X":4.5,"Y":0,"Z":-3.5},"Index":2,"Macro":"cluster_02_sector001_macro","Name":"Brennan\u0027s Triumph","Owner":"xenon"}]}
+    },
+    {
+      "file": "0x0119_MapSnapshot.bin",
+      "kind": "frame",
+      "size": 344,
+      "sha256": "cf709c7c462a616e83ea984ec441a3c403f11650c61ac74c3ef8624d588a8935",
+      "msgType": 281,
+      "msgName": "MapSnapshot",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 336,
+      "fields": {"Links":[{"From":1,"Kind":0,"To":2}],"Sectors":[{"ClusterMacro":"cluster_01_macro","GalaxyPos":{"X":1.5,"Y":-2.5,"Z":0},"Index":1,"Macro":"cluster_01_sector001_macro","Name":"Argon Prime","Owner":"argon"},{"ClusterMacro":"cluster_02_macro","GalaxyPos":{"X":4.5,"Y":0,"Z":-3.5},"Index":2,"Macro":"cluster_02_sector001_macro","Name":"Brennan\u0027s Triumph","Owner":""}],"Version":9}
+    },
+    {
+      "file": "0x011A_MapDelta.bin",
+      "kind": "frame",
+      "size": 232,
+      "sha256": "5806bed16d463279b0f85b800e79a3da35910b182c6cdab1db4ed11d9f638640",
+      "msgType": 282,
+      "msgName": "MapDelta",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 224,
+      "fields": {"Links":[{"From":1,"Kind":0,"To":2}],"RemovedSectors":[3],"Sectors":[{"ClusterMacro":"cluster_02_macro","GalaxyPos":{"X":4.5,"Y":0,"Z":-3.5},"Index":2,"Macro":"cluster_02_sector001_macro","Name":"Brennan\u0027s Triumph","Owner":"xenon"}],"Version":10}
+    },
+    {
       "file": "0x0200_EntitySpawn.bin",
       "kind": "frame",
       "size": 296,

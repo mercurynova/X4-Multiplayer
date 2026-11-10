@@ -152,6 +152,23 @@ class Win32ProcessHost final : public ProcessHost {
     CloseHandle(pi.hThread);
     handle_ = pi.hProcess;
     pid_ = pi.dwProcessId;
+
+    // Kill-on-job-close: if X4 crashes or is killed, this process's handles close and Windows terminates the hidden
+    // server with it. Without the job the server would survive as an orphan and keep the ports (and the session)
+    // open. A normal stop still uses the graceful Ctrl+Break path above; this is only the crash guarantee.
+    if (HANDLE job = CreateJobObjectW(nullptr, nullptr); job != nullptr) {
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+      limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+      if (SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof limits) != 0 &&
+          AssignProcessToJobObject(job, handle_) != 0) {
+        job_ = job;
+      } else {
+        // A parent job that forbids nesting can refuse the assignment (pre-Windows 8, or a locked-down host). The
+        // server still runs and still stops normally; only the crash guarantee is missing.
+        CloseHandle(job);
+      }
+    }
+
     result.ok = true;
     result.pid = pid_;
     return result;
@@ -201,10 +218,17 @@ class Win32ProcessHost final : public ProcessHost {
       CloseHandle(handle_);
       handle_ = nullptr;
     }
+    // Closing the last job handle is what kills a still-running child (KILL_ON_JOB_CLOSE). On the normal path the
+    // process is already gone, so this only releases the kernel object.
+    if (job_ != nullptr) {
+      CloseHandle(job_);
+      job_ = nullptr;
+    }
     pid_ = 0;
   }
 
   HANDLE handle_ = nullptr;
+  HANDLE job_ = nullptr;
   std::uint32_t pid_ = 0;
   int exit_code_ = -1;
 };
@@ -217,11 +241,36 @@ bool port_open(std::uint16_t port) {
   bool open = false;
   const SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (s != INVALID_SOCKET) {
+    // Never block the frame thread on a SYN the machine drops (a firewall can do that): loopback either accepts at once
+    // or refuses at once, so a bounded wait is enough and a 2 s TCP retransmission never reaches the game loop.
+    u_long nonblocking = 1;
+    (void)ioctlsocket(s, FIONBIO, &nonblocking);
+
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    open = connect(s, reinterpret_cast<const sockaddr*>(&addr), static_cast<int>(sizeof addr)) == 0;
+    const int rc = connect(s, reinterpret_cast<const sockaddr*>(&addr), static_cast<int>(sizeof addr));
+    if (rc == 0) {
+      open = true;
+    } else if (WSAGetLastError() == WSAEWOULDBLOCK) {
+      fd_set writable;
+      fd_set failed;
+      FD_ZERO(&writable);
+      FD_ZERO(&failed);
+      FD_SET(s, &writable);
+      FD_SET(s, &failed);
+      timeval timeout{};
+      timeout.tv_sec = 0;
+      timeout.tv_usec = 50 * 1000;
+      if (select(0, nullptr, &writable, &failed, &timeout) > 0 && FD_ISSET(s, &writable) && !FD_ISSET(s, &failed)) {
+        int error = 0;
+        int length = static_cast<int>(sizeof error);
+        if (getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &length) == 0 && error == 0) {
+          open = true;
+        }
+      }
+    }
     closesocket(s);
   }
   if (started) (void)WSACleanup();

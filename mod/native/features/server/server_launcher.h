@@ -8,6 +8,7 @@
 //   stopped -> starting -> running        (the port answers)
 //   running -> stopped                    (the player asked to stop)
 //   running -> exited                     (it died; the exit code says how)
+//   stopped -> running (external)         (a server this game did not start answers on the port)
 //
 // Nothing here touches Lua or the host context; server_feature is the adapter that does.
 
@@ -55,6 +56,9 @@ struct Status {
   std::uint32_t pid = 0;
   int exit_code = -1;
   bool listening = false;
+  // A server this game did not start (the launcher's sidecar, or a previous game process). It is reported as running so
+  // the screen tells the truth, but this game must never stop it: its owner is the launcher or that earlier process.
+  bool external = false;
   std::string error;
 };
 
@@ -68,8 +72,10 @@ class Launcher {
   // Starts the plan at monotonic time now_s. Refuses a plan that cannot run and a second start.
   bool start(const Plan& plan, double now_s, Status& out);
   bool stop(Status& out);
-  // Re-reads the process. Cheap enough for every frame; the feature calls it a few times a second.
-  [[nodiscard]] Status poll(const Plan& plan, double now_s);
+  // Re-reads the process. Cheap enough for every frame; the feature calls it a few times a second. probe_external asks the
+  // port again; false reuses the last answer, so the feature can check for the launcher's server once every few seconds
+  // instead of four times a second.
+  [[nodiscard]] Status poll(const Plan& plan, double now_s, bool probe_external = true);
 
   [[nodiscard]] bool owns_process() const { return started_; }
 
@@ -80,6 +86,7 @@ class Launcher {
   double started_at_ = 0.0;
   bool started_ = false;
   bool listening_seen_ = false;
+  bool external_ = false;
   std::string error_;
 };
 

@@ -27,6 +27,10 @@ local EXITED = '{"v":1,"state":"exited","pid":4242,"exit_code":1,"listening":fal
 	'"auto_stop":true,"exe":"C:\\\\X4MP\\\\x4mp-server.exe","data_dir":"C:\\\\X4MP\\\\server-data",' ..
 	'"log":"C:\\\\X4MP\\\\logs\\\\server-console.log",' ..
 	'"error":"the server exited with code 1, see C:\\\\X4MP\\\\logs\\\\server-console.log"}'
+-- The launcher started the server before X4: it answers on the port, but this game did not spawn it and must not stop it.
+local EXTERNAL = '{"v":1,"state":"running","pid":0,"exit_code":0,"listening":true,"external":true,"port":47780,' ..
+	'"http_port":47790,"auto_stop":true,"exe":"C:\\\\X4MP\\\\x4mp-server.exe",' ..
+	'"data_dir":"C:\\\\X4MP\\\\server-data","log":"C:\\\\X4MP\\\\logs\\\\server-console.log","error":""}'
 
 --- the last body the bridge raised for the server verb, decoded with the bridge's own json reader
 local function sent()
@@ -124,6 +128,24 @@ test("server: the screen shows the state and the log, and greys out the action t
 	truthy(rowById(model, "back"), "the screen always has a way back")
 end)
 
+test("server: an external server is shown as running and cannot be stopped from the game", function()
+	fresh()
+	env.fire("x4mp.server", EXTERNAL)
+	eq(X4MPServer.state.external, true)
+
+	lines = {}
+	X4MPChat.handleCommand("mp", "server status")
+	eq(#lines, 1)
+	truthy(lines[1]:find("Started outside the game", 1, true), lines[1])
+
+	local model = screen()
+	local text = textsOf(model)
+	truthy(text:find("Started outside the game", 1, true), text)
+	falsy(rowById(model, "server_start").active, "the start button is inactive while the launcher's server runs")
+	falsy(rowById(model, "server_stop").active, "the game must not offer to stop a server it did not start")
+	truthy(rowById(model, "server_refresh").active)
+end)
+
 test("server: the screen buttons send the same ops as the chat command", function()
 	fresh()
 	env.fire("x4mp.server", STOPPED)
@@ -178,11 +200,11 @@ end)
 
 test("server: every new text id exists in English and Russian", function()
 	fresh()
-	for id = 614, 636 do
+	for id = 614, 639 do
 		truthy(env.texts[id], "text " .. id .. " is missing in 0001-l044.xml")
 	end
 	local ru = env.readFile(env.uiPath("../t/0001-l007.xml"))
-	for id = 614, 636 do
+	for id = 614, 639 do
 		truthy(ru:find('<t id="' .. id .. '">', 1, true), "text " .. id .. " is missing in 0001-l007.xml")
 	end
 	for body in ru:gmatch('<t id="%d+">(.-)</t>') do

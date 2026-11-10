@@ -91,6 +91,7 @@ public static partial class ServerHost
         builder.Services.AddSessionActor();
         builder.Services.AddEconomy();
         builder.Services.AddWorldMirror();
+        builder.Services.AddStrategicMap();
         builder.Services.AddInterestManager();
         builder.Services.AddReplication();
         builder.Services.AddSaves();

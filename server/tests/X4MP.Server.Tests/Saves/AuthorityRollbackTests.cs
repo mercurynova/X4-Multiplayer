@@ -25,6 +25,12 @@ public sealed class AuthorityRollbackTests
         uint floor = first.Authority.NetIds.NextNetId; // everything the authority allocates from here on is not in the checkpoint
         int inCheckpoint = server.World.Count;
 
+        // M4-23: the session's string table survives a rollback. A fresh authority must be told where its indices continue, or it restarts at 1
+        // and the server keeps the first value of every conflicting index (the client then resolves an owner to a ship macro).
+        await first.AddStringAsync("x4mp-test-faction", StringKind.Faction);
+        await SaveServer.WaitUntilAsync(() => server.World.Strings.NextIndex > 1, 15_000, "the string reached the session table");
+        uint stringTableNext = server.World.Strings.NextIndex;
+
         await first.SpawnStationsAsync(3);
         await SaveServer.WaitUntilAsync(() => server.World.Count == inCheckpoint + 3, 15_000, "three stations in the mirror");
         Assert.True(server.World.Contains(floor));
@@ -37,6 +43,10 @@ public sealed class AuthorityRollbackTests
         await SaveServer.WaitUntilAsync(() => AssignFor(second) is not null, 15_000, "AuthorityAssign for the rejoined authority");
 
         Assert.Equal(floor, AssignFor(second)!.NextNetId);
+        // The table is not rolled back, so it may have grown after the capture (the stations above intern their macros); what matters
+        // is that the rejoined authority is told to continue at or above the session's next free index instead of restarting at 1.
+        Assert.True(AssignFor(second)!.StringTableNext >= stringTableNext,
+            $"StringTableNext {AssignFor(second)!.StringTableNext} < captured {stringTableNext}");
         await SaveServer.WaitUntilAsync(() => server.World.Count == inCheckpoint, 15_000, "post-checkpoint stations removed");
         Assert.DoesNotContain(server.World.All, e => e.NetId >= floor);
         await first.DisposeAsync();

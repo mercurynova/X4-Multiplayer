@@ -896,6 +896,56 @@ TEST_CASE("stream: an entity inside a focus sphere is polled every tick", "[auth
   CHECK(reads[4301] <= 6);   // only when the 1 Hz sector slice reaches it
 }
 
+TEST_CASE("stream: a focus sphere uses near dead reckoning when the authority is in another sector", "[authority][stream][focus][dr]") {
+  // The authority's own ship is in sector 12; the client watches sector 20 through a 20 Hz focus sphere. Before this fix
+  // every entity of sector 20 was measured from the authority and therefore classified as 50 km away: its 0.6 deg turn
+  // and its 1 s keepalive were both below the far thresholds (1 deg, 5 s), so the ghost only refreshed every 5 s and
+  // visibly stuttered. Inside the sphere it must use the near thresholds (0.5 deg, 1 s).
+  World world;
+  const auto near = world.add(20, 5000, TrackPose{100, 0, 0, 0, 0, 0});
+  const auto far = world.add(20, 5001, TrackPose{1000, 0, 0, 0, 0, 0});
+  Recorder recorder;
+  EntityStream stream(world.reader(), recorder.sink());
+  stream.set_observer(12, 0.0, 0.0, 0.0);
+  CaptureSet set;
+  REQUIRE(set.apply(1, {{20, 1}}, {{20, 100.0f, 0.0f, 0.0f, 500.0f, 20}}));
+  stream.on_capture_set(set);
+  stream.on_scan_complete(20);
+  stream.step(1.0, 0, 0.0, set, world.index);
+  REQUIRE(stream.find(near) != nullptr);
+  REQUIRE(stream.find(far) != nullptr);
+  CHECK(stream.find(near)->in_focus);
+  CHECK_FALSE(stream.find(far)->in_focus);
+  recorder.clear();
+
+  // A stationary hull keyframes after 1 s near, not after 5 s far.
+  stream.step(1.0, 50000, 1.0, set, world.index);
+  std::vector<std::uint32_t> keyframed;
+  for (const auto& [type, payload] : recorder.realtime) {
+    if (type != T(P::MsgType::WorldUpdate)) continue;
+    for (const auto& state : states_of(payload)) keyframed.push_back(state.net_id());
+  }
+  CHECK(std::find(keyframed.begin(), keyframed.end(), near) != keyframed.end());
+  CHECK(std::find(keyframed.begin(), keyframed.end(), far) == keyframed.end());
+  CHECK(stream.stats().reason_keepalive >= 1);
+
+  // A 0.6 deg turn is above the 0.5 deg near threshold but below the 1 deg far one.
+  recorder.clear();
+  world.poses[5000].yaw = 0.6 * 3.14159265358979323846 / 180.0;
+  world.poses[5001].yaw = 0.6 * 3.14159265358979323846 / 180.0;
+  stream.step(1.05, 55000, 1.05, set, world.index);
+  std::vector<std::uint32_t> rotated;
+  for (const auto& [type, payload] : recorder.realtime) {
+    if (type != T(P::MsgType::WorldUpdate)) continue;
+    for (const auto& state : states_of(payload)) rotated.push_back(state.net_id());
+  }
+  CHECK(std::find(rotated.begin(), rotated.end(), near) != rotated.end());
+  CHECK(std::find(rotated.begin(), rotated.end(), far) == rotated.end());
+  CHECK(stream.stats().reason_rotation >= 1);
+  // Keyframe/VelCoarse are wire bits, not state: the poll after a keepalive must not look like a Flags change.
+  CHECK(stream.stats().reason_flags == 0);
+}
+
 TEST_CASE("stream: a failed send is retried, not counted as spawned", "[authority][stream][send]") {
   World world;
   world.add(12, 4400, TrackPose{120, 0, 0, 0, 0, 0});

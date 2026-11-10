@@ -1,5 +1,6 @@
 using X4MP.Core.Net;
 using X4MP.Core.Session;
+using X4MP.Core.World;
 using X4MP.Proto;
 using X4MP.Protocol;
 
@@ -138,6 +139,12 @@ public sealed partial class SaveService
     /// whatever its id: a later checkpoint also holds the old one in its id range). Those entities are removed through the normal despawn path
     /// (journal, clients' ghosts, avatar bindings), and the authority is told the first id it may hand out (<c>AuthorityAssign.next_net_id</c>) so no
     /// id that was live or is still mapped to a ghost on a client is reused.
+    /// <para>
+    /// M4-23: the string table is per session and is not rolled back, so a fresh authority joining a session that already interned strings must not
+    /// restart its own indices at 1: the server keeps the first value of a conflicting index, and the authority would then resolve an owner to a ship
+    /// macro. <c>AuthorityAssign.string_table_next</c> carries the first free index (<see cref="StringTable.NextIndex"/>), also when the net-id floor
+    /// needs no assignment.
+    /// </para>
     /// </summary>
     private void RollbackWorldToSave(SessionNode node, StartSave start)
     {
@@ -145,7 +152,8 @@ public sealed partial class SaveService
         int removed = _world.RollbackToNetIdFloor(threshold, node.PlayerId);
         string shown = SaveFileStore.Abbrev(start.Sha);
         LogWorldRolledBack(node.PlayerId, shown, threshold, removed);
-        if (threshold <= 1)
+        uint stringTableNext = _world.Strings.NextIndex;
+        if (threshold <= 1 && stringTableNext <= 1)
         {
             return;
         }
@@ -156,7 +164,7 @@ public sealed partial class SaveService
             Reason = "world rolled back to the loaded save",
             CheckpointId = _current is { } cp && cp.SaveSha == start.Sha ? cp.Id.ToWire() : new Id128T(),
             NextNetId = threshold,
-            StringTableNext = 0,
+            StringTableNext = stringTableNext,
         };
         Send(node, ControlFrames.Encode(MsgType.AuthorityAssign, fbb => AuthorityAssign.Pack(fbb, assign).Value, 128));
     }

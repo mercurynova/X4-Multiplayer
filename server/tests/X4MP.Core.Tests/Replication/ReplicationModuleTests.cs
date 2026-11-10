@@ -414,7 +414,7 @@ public sealed class ReplicationModuleTests(ITestOutputHelper output)
         rig.InterestOptions.MaxGhosts = 77;
         var bob = await rig.Actor.JoinAsync("Bob");
         Assert.Equal(77u, bob.Welcome.MaxGhosts);
-        Assert.Equal(250, new InterestOptions().MaxGhosts);   // the default budget of ADR-042
+        Assert.Equal(500, new InterestOptions().MaxGhosts);   // the default budget of ADR-042
     }
 
     // ------------------------------------------------------------------ desync guard

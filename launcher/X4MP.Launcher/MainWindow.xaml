@@ -1,7 +1,8 @@
 <Window x:Class="X4MP.Launcher.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="X4MP launcher" Height="620" Width="1020" WindowStartupLocation="CenterScreen">
+        Title="X4MP launcher" Height="640" Width="1020" WindowStartupLocation="CenterScreen"
+        Closing="OnClosing">
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -30,6 +31,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock VerticalAlignment="Center" Text="Server" />
             <TextBox x:Name="ServerBox" Grid.Column="1" Margin="8,0,16,0" Padding="6,4" Text="http://localhost:47790" />
@@ -41,6 +43,9 @@
             <TextBlock Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3" Margin="0,10,0,0" VerticalAlignment="Center"
                        Foreground="#555555" TextWrapping="Wrap"
                        Text="The name other players see. Start X4 writes the join request the mod reads once at startup." />
+            <CheckBox x:Name="HostCheckBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="4" Margin="8,10,16,0"
+                      VerticalAlignment="Center" Checked="OnHostChanged" Unchecked="OnHostChanged"
+                      Content="Host this session on this PC (starts the local server before X4)" />
         </Grid>
 
         <TextBlock x:Name="SessionBlock" Grid.Row="2" Margin="0,12,0,0" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -83,6 +88,6 @@
         </ListView>
 
         <TextBlock Grid.Row="6" Margin="0,10,0,0" Foreground="#666666" TextWrapping="Wrap"
-                   Text="Apply writes the profile's content.xml and keeps a backup in x4mp\profile-backups. X4 must be closed. If the launcher is closed while X4 runs, the next start restores your mods. Start X4 writes one join request for the mod to read at startup and deletes it once it is read; the launcher opens only Steam Workshop, Nexus Mods and the game's own Steam page, and only when you press a button." />
+                   Text="Apply writes the profile's content.xml and keeps a backup in x4mp\profile-backups. X4 must be closed. If the launcher is closed while X4 runs, the next start restores your mods. Start X4 writes one join request for the mod to read at startup and deletes it once it is read; the launcher opens only Steam Workshop, Nexus Mods and the game's own Steam page, and only when you press a button. Host mode runs the server beside the launcher, stops it when X4 exits, and uses TCP 47780, UDP 47781 and TCP 47790 on this PC." />
     </Grid>
 </Window>

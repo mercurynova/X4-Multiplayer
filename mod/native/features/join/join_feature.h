@@ -8,8 +8,10 @@
 //
 // Threading: everything runs on the on_frame_update thread. Lua verb handlers (they run inside the Lua call) only copy their text
 // into a mutex-protected inbox that on_frame drains; on_game_loaded / on_universe_ready only set atomic flags that on_frame acts
-// on (the host may deliver them off the frame thread). The game is never paused by this feature (session 2: our Pause/Unpause
-// fought the player's own Esc pause).
+// on (the host may deliver them off the frame thread). The game is paused only through the session pause lease: the server
+// marks SessionState.paused with pause_reason "Saving", this feature forwards it as x4mp.session_pause, and x4mp_bridge.lua
+// pauses only when the player was not already paused and remembers that to unpause afterwards (session 2: unconditional
+// Pause/Unpause fought the player's own Esc pause).
 //
 // Plug-in points for later tasks (search for "M2-07" / "M2-09" in join_feature.cpp):
 //   M2-07 reload survival: on_shutdown() already unloads the Session into the stash (intent) and writes "join.state"; on_init()
@@ -146,6 +148,11 @@ class JoinFeature final : public host::IFeature {
   std::vector<std::uint8_t> save_sha_;          // loaded_save_sha256 of NodeReady
   session::Id128 checkpoint_;                   // ManifestReport.checkpoint_id
   bool has_manifest_ = false;
+
+  // The last SessionState pause flag forwarded to Lua (x4mp.session_pause). The bridge owns the actual pause lease; keeping
+  // the last value here avoids re-raising the same state on every SessionState broadcast.
+  bool session_paused_ = false;
+  std::string session_pause_reason_;
 
   // preparing / loading
   enum class PrepStep : std::uint8_t { ReloadList, WaitList };

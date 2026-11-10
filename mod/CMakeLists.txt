@@ -132,6 +132,7 @@ if(X4MP_TESTS)
     tests/test_statics.cpp
     tests/test_wallet.cpp
   tests/test_economy_client.cpp
+  tests/test_map.cpp
   tests/test_settlement.cpp
   tests/test_server_feature.cpp)  # test_server_feature: M5-32, the launcher that starts the bundled server
   target_link_libraries(x4mp_host_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
@@ -375,7 +376,8 @@ endif()
 target_sources(x4mp_core PRIVATE
   native/core/authority/entity_spawn.cpp
   native/core/authority/upload_job.cpp
-  native/core/authority/checkpoint_messages.cpp)
+  native/core/authority/checkpoint_messages.cpp
+  native/core/authority/map_messages.cpp)
 
 if(X4MP_TESTS)
   # x4mp-headless --authority (tools/headless/authority_driver.*): the checkpoint flow without X4.

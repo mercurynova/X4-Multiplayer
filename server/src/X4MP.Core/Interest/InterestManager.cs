@@ -44,7 +44,7 @@ public sealed class InterestStats
 /// <item><b>Gating.</b> A sector that is not captured and complete is forwarded to a client only after the authority's
 /// <c>SectorComplete</c> for a matching capture epoch (the client suppresses its local NPCs only after the marker, so it must never
 /// see a marker for an incomplete sector).</item>
-/// <item><b>Budget.</b> <see cref="GhostBudgetPolicy"/> (<c>MaxGhosts</c>, default 250): over budget it drops XS/S/M from Adjacent
+/// <item><b>Budget.</b> <see cref="GhostBudgetPolicy"/> (<c>MaxGhosts</c>, default 500): over budget it drops XS/S/M from Adjacent
 /// first, then unpredicted Adjacent sectors, then the rest of the prefetch, then caps the current sector.</item>
 /// <item><b>Fog of war hook.</b> <see cref="VisibilityFilter"/> (ADR-038), a no-op in v1.</item>
 /// </list>

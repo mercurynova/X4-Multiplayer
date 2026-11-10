@@ -230,6 +230,71 @@ test("takeover: the last stage is kept", function()
 	eq(B.takeover.stage, "done")
 end)
 
+test("session_pause: a save pauses once and unpauses only its own pause", function()
+	local B = bridge()
+	local paused, unpaused, notes = 0, 0, 0
+	_G.Pause = function() paused = paused + 1 end
+	_G.Unpause = function() unpaused = unpaused + 1 end
+	_G.AddUITriggeredEvent = function() notes = notes + 1 end
+	env.fire("x4mp.session_pause", '{"v":1,"paused":true,"reason":"Saving","phase":5,"game_paused":false}')
+	eq(paused, 1)
+	eq(unpaused, 0)
+	eq(B.saving, true)
+	truthy(B.pauseLease)
+	env.fire("x4mp.session_pause", '{"v":1,"paused":true,"reason":"Saving","phase":5,"game_paused":false}')
+	eq(paused, 1, "a repeated broadcast must not pause again")
+	env.fire("x4mp.session_pause", '{"v":1,"paused":false,"reason":"","phase":5,"game_paused":false}')
+	eq(unpaused, 1)
+	eq(B.saving, false)
+	eq(B.pauseLease, nil)
+	eq(notes, 2, "saving and complete are announced once each")
+end)
+
+test("session_pause: a player already paused keeps the game paused", function()
+	local B = bridge()
+	local paused, unpaused = 0, 0
+	_G.Pause = function() paused = paused + 1 end
+	_G.Unpause = function() unpaused = unpaused + 1 end
+	env.fire("x4mp.session_pause", '{"v":1,"paused":true,"reason":"Saving","phase":5,"game_paused":true}')
+	eq(paused, 0, "the player's Esc pause is left alone")
+	eq(B.pauseLease.wasPaused, true)
+	env.fire("x4mp.session_pause", '{"v":1,"paused":false,"reason":"","phase":5,"game_paused":true}')
+	eq(unpaused, 0, "the bridge did not pause, so it must not unpause")
+	eq(B.pauseLease, nil)
+end)
+
+test("session_pause: other pause reasons are not a save lease", function()
+	local B = bridge()
+	local paused, unpaused = 0, 0
+	_G.Pause = function() paused = paused + 1 end
+	_G.Unpause = function() unpaused = unpaused + 1 end
+	env.fire("x4mp.session_pause", '{"v":1,"paused":true,"reason":"Admin","phase":5,"game_paused":false}')
+	eq(paused, 0)
+	eq(B.pauseLease, nil)
+	eq(B.saving, false)
+	env.fire("x4mp.session_pause", '{"v":1,"paused":false,"reason":"","phase":5,"game_paused":false}')
+	eq(unpaused, 0)
+end)
+
+test("session_pause: a disconnect releases only the pause the bridge created", function()
+	local B = bridge()
+	local paused, unpaused = 0, 0
+	_G.Pause = function() paused = paused + 1 end
+	_G.Unpause = function() unpaused = unpaused + 1 end
+	env.fire("x4mp.session_pause", '{"v":1,"paused":true,"reason":"Saving","phase":5,"game_paused":false}')
+	eq(paused, 1)
+	env.fire("x4mp.status", '{"v":1,"state":"disconnected"}')
+	eq(unpaused, 1)
+	eq(B.pauseLease, nil)
+	eq(B.saving, false)
+
+	-- The next save sees a player who is (still) paused by choice, so the bridge must not touch the game.
+	env.fire("x4mp.session_pause", '{"v":1,"paused":true,"reason":"Saving","phase":5,"game_paused":true}')
+	eq(paused, 1)
+	env.fire("x4mp.status", '{"v":1,"state":"disconnected"}')
+	eq(unpaused, 1)
+end)
+
 test("loading the bridge twice does not register events twice", function()
 	local B = bridge()
 	local before = #env.events["x4mp.status"]

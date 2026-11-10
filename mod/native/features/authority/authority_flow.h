@@ -51,7 +51,7 @@ struct AuthInbox {
   void push(std::string verb, std::string text);
   std::vector<std::pair<std::string, std::string>> take();
 };
-// Subscribes x4mp.auth_md and x4mp.auth_saved; the returned inbox outlives any flow.
+// Subscribes x4mp.auth_md, x4mp.auth_saved, x4mp.capture_scan and x4mp.map_md; the returned inbox outlives any flow.
 [[nodiscard]] std::shared_ptr<AuthInbox> subscribe_authority_verbs(host::IPlatform& platform);
 
 inline constexpr const char* kStashKey = "authority";  // PlatformStash adds its own prefix
@@ -127,8 +127,10 @@ class AuthorityFlow {
   // broadcasts the owner change, so every node agrees without ever guessing.
   void on_capture_report(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload);
   void begin_request(host::HostContext& ctx, std::uint32_t request_id);
-  void step_collecting(host::HostContext& ctx);
-  void request_save(host::HostContext& ctx);
+  // T1.6: poll the running universe for the live strategic map and send KnownSectors when it changed.
+  void step_map(host::HostContext& ctx);
+  void finish_map_poll(host::HostContext& ctx);
+  void step_collecting(host::HostContext& ctx);  void request_save(host::HostContext& ctx);
   void on_save_reply(host::HostContext& ctx, const std::string& text);
   void step_wait_file(host::HostContext& ctx);
   void step_hashing(host::HostContext& ctx);
@@ -155,6 +157,16 @@ class AuthorityFlow {
   MdCollector collected_;
   std::optional<Clock::time_point> end_seen_at_;
   GalaxyPlan plan_;
+  // T1.6: the live strategic map, polled from MD independently of the checkpoint flow.
+  MdCollector map_collected_;
+  bool map_pending_ = false;
+  Clock::time_point map_started_{};
+  Clock::time_point map_next_poll_{};
+  std::uint64_t map_revision_ = 0;
+  std::uint64_t map_hash_ = 0;
+  bool map_hash_valid_ = false;
+  std::uint32_t maps_sent_ = 0;
+  std::uint32_t map_bad_ = 0;
   session::Id128 checkpoint_;
   std::string save_name_;
   double game_time_ = 0;

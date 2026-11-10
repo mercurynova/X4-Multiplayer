@@ -153,7 +153,8 @@ class EntityStream {
   void step(double game_time, std::int64_t capture_time_us, double now_s, const CaptureSet& set, const UniverseIndex& index);
 
   // The authority's own ship: entities of its sector are measured from here for the dead-reckoning tiers. Unknown
-  // (sector 0) uses the far tier.
+  // (sector 0) uses the far tier. An entity inside a CaptureFocus sphere is a client's attention bubble, not a dot on
+  // the authority's map: its distance is zero, so it gets the near thresholds even when the authority is elsewhere.
   void set_observer(std::uint16_t sector, double x, double y, double z);
 
   // The link is gone: forget the wire state. The index (and therefore every net id) survives in the flow.
@@ -175,7 +176,7 @@ class EntityStream {
   void flush_despawns(double now_s);
   void flush_changes();
   void flush_statuses(std::int64_t capture_time_us, double now_s);
-  [[nodiscard]] double observer_distance(std::uint16_t sector, const TrackPose& pose) const noexcept;
+  [[nodiscard]] double observer_distance(std::uint16_t sector, const TrackPose& pose, const CaptureSet& set) const noexcept;
 
   PoseReader reader_;
   Sink sink_;

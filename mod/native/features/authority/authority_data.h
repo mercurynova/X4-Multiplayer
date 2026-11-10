@@ -27,6 +27,7 @@
 
 #include "core/authority/checkpoint_messages.h"
 #include "core/authority/entity_spawn.h"
+#include "core/authority/map_messages.h"
 
 namespace x4mp::features::auth {
 
@@ -72,7 +73,13 @@ struct GalaxyPlan {
   std::uint16_t ship_sector = 0;  // sector index of the ship, 0 = unknown
 };
 // An empty sector list (nothing collected) gives an empty plan; the caller must treat that as "no galaxy".
-[[nodiscard]] GalaxyPlan build_plan(const MdCollector& collected);
+// M4-23: `base_index` is the highest string index already in use by the session. The plan's strings are interned above it, so a plan
+// built after the live scan has allocated runtime strings can never reuse their indices (the server keeps the first value at an index).
+[[nodiscard]] GalaxyPlan build_plan(const MdCollector& collected, std::uint32_t base_index = 0);
+
+// The live strategic map: the same deterministic sector indices as build_plan(), but the owner is carried as the
+// faction id string and links are sorted by (from, to). An empty sector list gives an empty map.
+[[nodiscard]] x4mp::authority::MapPlan build_map(const MdCollector& collected);
 
 [[nodiscard]] x4mp::authority::SpawnKind spawn_kind_for_class(std::string_view cls) noexcept;
 

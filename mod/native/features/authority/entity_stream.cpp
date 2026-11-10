@@ -480,7 +480,7 @@ void EntityStream::visit(EntityTrack& track, std::uint16_t sector, double now_s,
   in.now_flags = 0;  // no docked/travel-drive source yet (W4 adds it with the manifest)
   in.sent_sector = track.sent_sector;
   in.now_sector = sector;
-  in.observer_distance_m = observer_distance(sector, pose);
+  in.observer_distance_m = observer_distance(sector, pose, set);
   const auto reason = classify(in, cfg_.dr);
   if (reason == UpdateReason::None) return;
 
@@ -538,7 +538,10 @@ void EntityStream::visit(EntityTrack& track, std::uint16_t sector, double now_s,
   track.sent = TrackPose{wire::dequantize_position(*qx), wire::dequantize_position(*qy), wire::dequantize_position(*qz),
                          wire::dequantize_rotation(*ry), wire::dequantize_rotation(*rp), wire::dequantize_rotation(*rr)};
   track.sent_at_s = now_s;
-  track.sent_flags = flags;
+  // Keyframe and VelCoarse are wire-encoding bits, not game state. Comparing them as state made the poll after every
+  // keepalive look like a Flags change and emit an extra update. Only real state flags belong here (none yet; W4 adds
+  // docked/travel-drive with the manifest).
+  track.sent_flags = static_cast<std::uint16_t>(flags & ~(kFlagVelCoarse | kFlagKeyframe));
   track.sent_sector = sector;
   track.velocity = TrackVelocity{wire::dequantize_velocity(*vx, coarse), wire::dequantize_velocity(*vy, coarse),
                                  wire::dequantize_velocity(*vz, coarse)};
@@ -605,7 +608,18 @@ void EntityStream::flush_statuses(std::int64_t capture_time_us, double now_s) {
   send_batch();
 }
 
-double EntityStream::observer_distance(std::uint16_t sector, const TrackPose& pose) const noexcept {
+double EntityStream::observer_distance(std::uint16_t sector, const TrackPose& pose, const CaptureSet& set) const noexcept {
+  // A focus sphere is the client's attention bubble. The authority's own ship may be in another sector, but the client
+  // is watching this one at the sphere's rate: measure the entity as near instead of as a 50 km dot, or its dead
+  // reckoning silently uses the far thresholds (20 m, 1 deg, 5 s) and the ghost visibly stutters/teleports.
+  for (const auto& focus : set.focus()) {
+    if (focus.sector != sector) continue;
+    const double dx = pose.x - focus.cx;
+    const double dy = pose.y - focus.cy;
+    const double dz = pose.z - focus.cz;
+    if (dx * dx + dy * dy + dz * dz <= static_cast<double>(focus.radius_m) * focus.radius_m) return 0.0;
+  }
+
   if (observer_sector_ == 0 || sector != observer_sector_) return cfg_.observer_unknown_m;
   const double dx = pose.x - observer_x_, dy = pose.y - observer_y_, dz = pose.z - observer_z_;
   return std::sqrt(dx * dx + dy * dy + dz * dz);

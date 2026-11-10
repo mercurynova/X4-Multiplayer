@@ -1,8 +1,8 @@
 -- x4mp_server.lua : the dedicated server screen and the /mp server commands (M5-32).
 --
 -- The native half (features/server) starts the server bundle that ships with the extension, stops it, and publishes topic x4mp.server
--- {"v":1,"state":"stopped|starting|running|exited","pid":N,"exit_code":N,"listening":bool,"port":47780,"http_port":47790,
--- "auto_stop":bool,"exe":"...","data_dir":"...","log":"...","error":"..."} on every change and once after a status request. This module
+-- {"v":1,"state":"stopped|starting|running|exited","pid":N,"exit_code":N,"listening":bool,"external":bool,"port":47780,
+-- "http_port":47790,"auto_stop":bool,"exe":"...","data_dir":"...","log":"...","error":"..."} on every change and once after a status request. This module
 -- only asks and shows: verb x4mp.server {"op":"start|stop|status"}, the state as one chat line, and the rows of the server screen.
 --
 -- The screen is reachable without a session on purpose: starting the server is what makes a session possible. Refusals arrive as
@@ -60,6 +60,7 @@ function V.printState()
 	if type(s) ~= "table" then say(T(632)) return end
 	local text = T(634, stateName(s.state), tonumber(s.pid) or 0, tonumber(s.port) or 0, listeningText(s.listening),
 		tostring(s.data_dir or "?"), tostring(s.log or "?"))
+	if s.external == true then text = text .. ", " .. T(639) end
 	if type(s.error) == "string" and s.error ~= "" then text = text .. ", " .. T(628, s.error) end
 	say(text)
 end
@@ -111,6 +112,7 @@ function V.screenRows(rows, st)
 		line(T(632), "warning")
 	else
 		line(T(615, stateName(s.state)))
+		if s.external == true then line(T(639), "inactive") end
 		line(T(620, tonumber(s.pid) or 0, tonumber(s.port) or 0, listeningText(s.listening)))
 		line(T(623, tonumber(s.http_port) or 0))
 		line(T(624, tostring(s.data_dir or "?")))
@@ -122,10 +124,11 @@ function V.screenRows(rows, st)
 		if type(s.error) == "string" and s.error ~= "" then line(T(628, s.error), "error") end
 	end
 
-	-- the native half refuses a start while it runs and a stop when nothing was started; the screen greys those out first
+	-- the native half refuses a start while it runs and a stop when nothing was started; the screen greys those out first.
+	-- An external server (the launcher's sidecar) is never stopped from the game: the launcher owns that process.
 	local known = type(s) == "table"
 	local busy = known and (s.state == "running" or s.state == "starting")
-	local stopped = not known or s.state == "stopped"
+	local stopped = not known or s.state == "stopped" or s.external == true
 	button("server_start", T(629), not busy, function() V.start() end)
 	button("server_stop", T(630), not stopped, function() V.stop() end)
 	button("server_refresh", T(631), true, function() V.status(false) end)

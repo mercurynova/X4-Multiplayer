@@ -44,6 +44,9 @@ using std::chrono::seconds;
 constexpr std::uint16_t T(P::MsgType t) { return static_cast<std::uint16_t>(t); }
 
 constexpr auto kCollectTimeout = seconds(20);
+constexpr auto kMapPoll = seconds(10);          // live strategic map: refresh while the authority runs
+constexpr auto kMapTimeout = seconds(20);       // MD did not finish a map poll
+constexpr auto kMapRetry = seconds(2);          // after a timeout or an unavailable Lua bridge
 constexpr auto kShipGrace = milliseconds(1500);  // after the end marker: how long to wait for the ship record
 constexpr auto kShipAnswerTimeout = seconds(5);  // MD answers within a frame or two; no answer = counted like "no ship"
 constexpr int kAskBackoffMin = 20;               // frames: first re-ask when MD says "no ship" while the game says the player sits
@@ -89,7 +92,7 @@ std::vector<std::pair<std::string, std::string>> AuthInbox::take() {
 
 std::shared_ptr<AuthInbox> subscribe_authority_verbs(host::IPlatform& platform) {
   auto inbox = std::make_shared<AuthInbox>();
-  for (const char* verb : {"auth_md", "auth_saved", "capture_scan"}) {
+  for (const char* verb : {"auth_md", "auth_saved", "capture_scan", "map_md"}) {
     const std::string v = verb;
     std::shared_ptr<AuthInbox> in = inbox;
     (void)platform.subscribe_event(("x4mp." + v).c_str(), [in, v](std::string_view text) {
@@ -199,6 +202,12 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
     state_.string_count = 0;
     state_.next_net_id = 1;
     state_.checkpoints = 0;
+    // T1.6: a new server world has no map; the first poll runs as soon as this welcome is processed.
+    map_pending_ = false;
+    map_collected_.reset();
+    map_revision_ = 0;
+    map_hash_ = 0;
+    map_hash_valid_ = false;
     // M4: a fresh join means a new server world (no mirror to resume). The index and the stream state are caches of the old
     // session; clearing them makes the new CaptureSet ask MD for a scan and spawn every entity again under the restarted ids.
     index_.clear();
@@ -208,6 +217,7 @@ void AuthorityFlow::on_welcome(host::HostContext& ctx, bool resumed) {
   // M3-11: the avatars announce themselves again; ids already given to avatars stay reserved (a fresh join restarts the counter at 1).
   avatars::avatar_hub().on_welcome();
   reserve_net_ids_above(avatars::avatar_hub().max_net_id());
+  map_next_poll_ = Clock::now();  // the server has a map to (re)learn, even on a resume
 }
 
 void AuthorityFlow::on_net_disconnected() {
@@ -216,6 +226,10 @@ void AuthorityFlow::on_net_disconnected() {
   // counter starts lower. The index itself stays: net ids must survive a reconnect.
   capture_.clear();
   scan_asked_.clear();  // the next session asks for its sectors again
+  // T1.6: the next session has no map of ours; a map poll that was in flight will never be answered.
+  map_pending_ = false;
+  map_collected_.reset();
+  map_hash_valid_ = false;
 }
 
 void AuthorityFlow::note_loaded_save(const std::vector<std::uint8_t>& sha) {
@@ -726,6 +740,8 @@ bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::sp
   if (type == T(P::MsgType::AuthorityAssign)) {
     // M3-25: the server rolled its world back to the save this game loads; ids from `next_net_id` up are free, every lower one may still be live
     // (the server's mirror, the clients' ghosts). Only ever raises the counter (a fresh join restarted it at 1).
+    // M4-23: the session's string table is not rolled back either. A fresh join into a session that already interned strings must continue above
+    // them: the server keeps the first value of a conflicting index, so restarting at 1 made a client resolve an owner index to a ship macro.
     flatbuffers::Verifier v(payload.data(), payload.size());
     if (!payload.empty() && v.VerifyBuffer<P::AuthorityAssign>(nullptr)) {
       const auto* a = flatbuffers::GetRoot<P::AuthorityAssign>(payload.data());
@@ -733,6 +749,13 @@ bool AuthorityFlow::on_frame(host::HostContext& ctx, std::uint16_t type, std::sp
       if (floor != 0xFFFFFFFFu) {
         X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: AuthorityAssign: net ids continue from {} (counter was {})", floor, state_.next_net_id);
         if (floor > 1) reserve_net_ids_above(floor - 1);
+      }
+      const std::uint32_t strings_floor = a->string_table_next();
+      if (strings_floor > 1 && state_.string_count < strings_floor - 1) {
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: AuthorityAssign: string indices continue from {} (counter was {})",
+                  strings_floor, state_.string_count);
+        state_.string_count = strings_floor - 1;
+        persist();
       }
     }
     return true;
@@ -888,6 +911,11 @@ void AuthorityFlow::begin_request(host::HostContext& ctx, std::uint32_t request_
   plan_ = GalaxyPlan{};
   step_ = Step::Collecting;
   step_since_ = Clock::now();
+  if (map_pending_) {  // both flows drive the X4MP_Authority screen; let the checkpoint have it
+    map_pending_ = false;
+    map_collected_.reset();
+    map_next_poll_ = Clock::now() + kMapRetry;
+  }
   X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: RequestSave {}: collecting galaxy metadata from MD", request_id);
   if (!ctx.platform.raise_lua("x4mp.auth_collect", R"({"v":1})")) {
     fail(ctx, "the Lua bridge is not available (x4mp.auth_collect could not be raised)");
@@ -929,6 +957,15 @@ void AuthorityFlow::drain_inbox(host::HostContext& ctx) {
       } else if (collected_.end_seen() && !end_seen_at_) {
         end_seen_at_ = Clock::now();
       }
+    } else if (verb == "map_md") {
+      if (!map_pending_) continue;  // a late answer to a poll we already gave up on
+      const std::string data = json_string(text, "data");
+      if (!map_collected_.add(data)) {
+        ++map_bad_;
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: unreadable map message ignored ({} bytes)", data.size());
+      } else if (map_collected_.complete()) {
+        finish_map_poll(ctx);
+      }
     } else if (verb == "capture_scan") {
       // M4-03: one sector scan batch from our own MD. Runs whether or not a checkpoint is in progress.
       on_scan_text(ctx, json_string(text, "data"));
@@ -942,12 +979,65 @@ void AuthorityFlow::drain_inbox(host::HostContext& ctx) {
   }
 }
 
+void AuthorityFlow::step_map(host::HostContext& ctx) {
+  const auto now = Clock::now();
+  if (map_pending_) {
+    if (now - map_started_ <= kMapTimeout) return;
+    ++map_bad_;
+    map_pending_ = false;
+    map_collected_.reset();
+    map_next_poll_ = now + kMapRetry;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: MD did not finish the live map poll in 20 s; retrying");
+    return;
+  }
+  if (now < map_next_poll_) return;
+  if (step_ != Step::Idle) return;  // do not overlap a checkpoint collection (both use the X4MP_Authority screen)
+  if (!uploader_.connected()) {
+    map_next_poll_ = now + seconds(1);
+    return;
+  }
+  map_collected_.reset();
+  map_pending_ = true;
+  map_started_ = now;
+  if (!ctx.platform.raise_lua("x4mp.auth_collect", R"({"v":1,"map_only":true})")) {
+    map_pending_ = false;
+    map_next_poll_ = now + kMapRetry;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: the Lua bridge is not available for the live map");
+  }
+}
+
+void AuthorityFlow::finish_map_poll(host::HostContext& ctx) {
+  map_pending_ = false;
+  map_next_poll_ = Clock::now() + kMapPoll;
+  auto map = build_map(map_collected_);
+  if (map.sectors.empty()) {
+    ++map_bad_;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: MD returned no sectors for the live map; keeping the previous one");
+    return;
+  }
+  const std::uint64_t hash = x4mp::authority::map_hash(map);
+  if (map_hash_valid_ && hash == map_hash_) return;
+  const auto payload = x4mp::authority::encode_known_sectors(++map_revision_, map);
+  if (!send_control(T(P::MsgType::KnownSectors), payload)) {
+    --map_revision_;  // the server never saw this revision; reuse it on the next attempt
+    map_next_poll_ = Clock::now() + kMapRetry;
+    X4MP_CLOG(ctx.log, Cat::Save, Level::Warn, "authority: could not send the live map; retrying");
+    return;
+  }
+  map_hash_ = hash;
+  map_hash_valid_ = true;
+  ++maps_sent_;
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: live map revision {} sent ({} sectors, {} links)", map_revision_,
+            map.sectors.size(), map.links.size());
+}
+
 void AuthorityFlow::step(host::HostContext& ctx) {
   // M4-30: the authority's own per-frame cost, the number the M4 acceptance quotes ("< 3 ms/frame authority mod cost"). It covers
   // everything below - capture ingest, the scan answers, the 20 Hz world tick and the uploader pump - because that is what the
   // authority costs the frame. The stats feature takes the slot every 30 s (stats::timing_hub()).
   const Clock::time_point started = Clock::now();
   drain_inbox(ctx);
+  step_map(ctx);
   retry_trades(ctx);
   switch (step_) {
     case Step::Collecting: step_collecting(ctx); break;
@@ -1022,7 +1112,10 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
 void AuthorityFlow::step_collecting(host::HostContext& ctx) {
   const auto now = Clock::now();
   if (collected_.complete() && (collected_.ship() || (end_seen_at_ && now - *end_seen_at_ > kShipGrace))) {
-    plan_ = build_plan(collected_);
+    // M4-23: the plan's strings are interned above every runtime string this session already sent. A fresh join clears the counter and
+    // the scan re-allocates from 1 before the galaxy arrives, so a plan that restarted at 1 would be rejected by the server (first value
+    // wins) while `known_strings_` believed the plan — the client then resolved an owner index to a ship macro.
+    plan_ = build_plan(collected_, state_.string_count);
     if (plan_.sectors.empty()) return fail(ctx, "MD reported no sectors");
     X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: galaxy collected: {} sectors, {} links, {} strings, ship {}", plan_.sectors.size(),
               plan_.links.size(), plan_.strings.size(), collected_.ship() ? collected_.ship()->macro : std::string("(none)"));
@@ -1058,7 +1151,9 @@ void AuthorityFlow::request_save(host::HostContext& ctx) {
   if (!state_.strings_sent) {
     if (!send_control(T(P::MsgType::StringTableAdd), x4mp::authority::encode_string_table_add(plan_.strings))) return fail(ctx, "StringTableAdd not sent");
     state_.strings_sent = true;
-    state_.string_count = static_cast<std::uint32_t>(plan_.strings.size());
+    // M4-23: never lower the allocator. The plan's indices are already above every runtime string (build_plan was given the counter),
+    // so the next runtime string continues above the plan instead of colliding with it.
+    for (const auto& str : plan_.strings) state_.string_count = std::max(state_.string_count, str.index);
     spawn_strings_fresh_ = true;
     sent_macros_.clear();
     known_strings_.clear();
@@ -1125,7 +1220,10 @@ void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
   const std::string name = save_name_;
   // M3-11: the avatars become manifest entries; their macro / faction strings join the manifest's own table. M4-21: the census
   // stations use the same table, so the ref helper lives above both.
-  std::uint32_t top = 0;
+  // M4-22: start after every string the runtime scan already allocated. The manifest's strings are not sent to the server (they
+  // live only in the manifest file), so they must not share an index with a runtime ref: the server keeps the first value of a
+  // conflicting index, which made a client resolve an owner to a ship macro and refuse the ghost spawn.
+  std::uint32_t top = state_.string_count;
   for (const auto& s : strings) top = std::max(top, s.index);
   const auto ref = [&](std::uint8_t kind, const std::string& value) -> std::uint32_t {
     for (const auto& s : strings) {
@@ -1207,6 +1305,10 @@ void AuthorityFlow::step_wait_file(host::HostContext& ctx) {
                 statics::statics_hub().census_open_count());
     }
   }
+  // M4-22: reserve the manifest's indices for the runtime scan. The manifest strings are not in the server's table, so they are
+  // deliberately not added to known_strings_; only the next allocation must start after them.
+  state_.string_count = top;
+  persist();
   prepared_ = std::async(std::launch::async, [=]() -> Prepared {
     Prepared out;
     auto save = x4mp::authority::describe_upload_file(session::TransferKind::Save, save_path, name);

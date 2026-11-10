@@ -47,6 +47,9 @@ public sealed partial class MessageRegistry
         Add<GalaxySummary>(MsgType.GalaxySummary, Lane.Control, GalaxySummary.GetRootAsGalaxySummary, GalaxySummaryVerify.Verify, t => t.UnPack());
         Add<ServerSettingsUpdate>(MsgType.ServerSettingsUpdate, Lane.Control, ServerSettingsUpdate.GetRootAsServerSettingsUpdate, ServerSettingsUpdateVerify.Verify, t => t.UnPack());
         Add<ModPolicyChanged>(MsgType.ModPolicyChanged, Lane.Control, ModPolicyChanged.GetRootAsModPolicyChanged, ModPolicyChangedVerify.Verify, t => t.UnPack());
+        Add<KnownSectors>(MsgType.KnownSectors, Lane.Control, KnownSectors.GetRootAsKnownSectors, KnownSectorsVerify.Verify, t => t.UnPack());
+        Add<MapSnapshot>(MsgType.MapSnapshot, Lane.Control, MapSnapshot.GetRootAsMapSnapshot, MapSnapshotVerify.Verify, t => t.UnPack());
+        Add<MapDelta>(MsgType.MapDelta, Lane.Control, MapDelta.GetRootAsMapDelta, MapDeltaVerify.Verify, t => t.UnPack());
         Add<EntitySpawn>(MsgType.EntitySpawn, Lane.Control, EntitySpawn.GetRootAsEntitySpawn, EntitySpawnVerify.Verify, t => t.UnPack());
         Add<EntityDespawn>(MsgType.EntityDespawn, Lane.Control, EntityDespawn.GetRootAsEntityDespawn, EntityDespawnVerify.Verify, t => t.UnPack());
         Add<WorldUpdate>(MsgType.WorldUpdate, Lane.Realtime, WorldUpdate.GetRootAsWorldUpdate, WorldUpdateVerify.Verify, t => t.UnPack());

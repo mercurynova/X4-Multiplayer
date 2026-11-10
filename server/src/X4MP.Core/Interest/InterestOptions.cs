@@ -38,9 +38,13 @@ public sealed class InterestOptions
     [Setting("Capture eviction: keep an unneeded sector captured for (s)", Scope = SettingScope.Live, Min = 0, Max = 3600)]
     public int CaptureEvictSeconds { get; set; } = 60;
 
-    /// <summary>Ghosts a node materialises at most (ADR-042: 250; the in-game cost is rendering, about 5 ms per 250 inert ships).</summary>
+    /// <summary>
+    /// Ghosts a node materialises at most (ADR-042: 500). The cost is rendering, not repositioning: V03 measured ~15.4 ms/frame
+    /// at 250 inert ships and ~25.2 ms at 500 on the test PC. 500 is the default so a busy current sector is not visibly
+    /// truncated; raise it only after measuring client FPS.
+    /// </summary>
     [Setting("Ghost budget: max ghosts per client", Scope = SettingScope.Live, Min = 10, Max = 100000, PushToNodes = true)]
-    public int MaxGhosts { get; set; } = 250;
+    public int MaxGhosts { get; set; } = 500;
 
     /// <summary>Lower bound between two <c>CaptureSet</c> messages to the authority.</summary>
     [Setting("Capture set: minimum interval between updates to the authority (ms)", Scope = SettingScope.Live, Min = 100, Max = 10000)]

@@ -69,6 +69,7 @@ public sealed class FakeAuthoritySaves
     private Id128T? _lastCheckpoint;
     private double _lastGameTime;
     private bool _startupSent;
+    private bool _mapSent;
 
     public FakeAuthoritySaves(TcpNodeClient client, FakeAuthority authority, FakeAuthoritySaveOptions? options = null, Action<string>? log = null)
     {
@@ -246,6 +247,15 @@ public sealed class FakeAuthoritySaves
 
                 var galaxy = _authority.BuildGalaxyMetadata(_lastSave.Sha256);
                 await client.SendPayloadAsync(galaxy.Type, galaxy.Payload, ct).ConfigureAwait(false);
+                // T1.7: the live strategic map follows the galaxy metadata, exactly like the real authority's first map poll
+                // (StartupMessages carries it too). The fake map is static, so it is sent once per authority run.
+                if (!_mapSent)
+                {
+                    var known = _authority.BuildKnownSectors();
+                    await client.SendPayloadAsync(known.Type, known.Payload, ct).ConfigureAwait(false);
+                    _mapSent = true;
+                }
+
                 await client.SendAsync(
                     MsgType.SaveStarted,
                     b => SaveStarted.Pack(b, new SaveStartedT { RequestId = requestId, CheckpointId = cp, GameTime = _lastGameTime, NextNetId = nextNetId }),

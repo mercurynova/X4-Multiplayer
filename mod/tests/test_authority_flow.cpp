@@ -8,6 +8,7 @@
 #include "core/crypto/crypto.h"
 #include "features/authority/authority_data.h"
 #include "features/join/join_json.h"
+#include "session_generated.h"
 
 using namespace x4mp::features::auth;
 namespace fs = std::filesystem;
@@ -97,6 +98,27 @@ TEST_CASE("build_plan indexes sectors, dedupes links and interns strings", "[aut
   CHECK(build_plan(MdCollector{}).sectors.empty());
 }
 
+TEST_CASE("build_plan interns its strings above the session's runtime strings (M4-23)", "[authority]") {
+  // The live scan allocates strings before the galaxy plan exists (a fresh join clears the counter and the capture scan starts at
+  // once), so a plan that restarted at 1 would be rejected by the server: it keeps the first value at an index, and the client would
+  // resolve an owner ref to whatever macro the scan put there first.
+  MdCollector c;
+  c.add("G;a_macro|ca|A|argon|0|0|0|;b_macro|cb|B|teladi|1|1|1|");
+  c.add("E;2");
+  c.add("P;ship_macro|Ship|ID-1|a_macro|ship_m|player");
+  const auto plan = build_plan(c, 40);
+  REQUIRE(plan.strings.size() == 4);  // player, argon, teladi, ship macro
+  for (std::size_t i = 0; i < plan.strings.size(); ++i) CHECK(plan.strings[i].index == 41 + i);
+  CHECK(plan.player_faction_ref == 41);
+  CHECK(plan.sectors[0].owner_ref == 42);
+  CHECK(plan.sectors[1].owner_ref == 43);
+  CHECK(plan.ship_macro_ref == 44);
+  // Raising the counter to the plan's highest index (request_save) can only move it forward.
+  std::uint32_t counter = 40;
+  for (const auto& str : plan.strings) counter = std::max(counter, str.index);
+  CHECK(counter == 44);
+}
+
 TEST_CASE("build_plan indexes sectors by the rank of the SORTED macro, whatever order MD enumerated them in (M3-09)", "[authority]") {
   MdCollector c;
   c.add("G;c_macro|cc|C|teladi|2|2|2|a_macro;a_macro|ca|A|argon|0|0|0|c_macro;b_macro|cb|B|argon|1|1|1|");
@@ -113,6 +135,80 @@ TEST_CASE("build_plan indexes sectors by the rank of the SORTED macro, whatever 
   REQUIRE(plan.links.size() == 1);  // a-c, from either side
   CHECK(std::min(plan.links[0].from, plan.links[0].to) == 1);
   CHECK(std::max(plan.links[0].from, plan.links[0].to) == 3);
+}
+
+TEST_CASE("build_map carries the faction id and emits sorted undirected gate links with the same indices as build_plan", "[authority]") {
+  MdCollector c;
+  c.add("G;c_macro|cc|C|teladi|2|2|2|a_macro;a_macro|ca|A|argon|0|0|0|c_macro;b_macro|cb|B||1|1|1|");
+  c.add("E;3");
+  const auto plan = build_plan(c);
+  const auto map = build_map(c);
+  REQUIRE(map.sectors.size() == 3);
+  for (std::size_t i = 0; i < map.sectors.size(); ++i) {
+    CHECK(map.sectors[i].index == plan.sectors[i].index);
+    CHECK(map.sectors[i].macro == plan.sectors[i].macro);
+  }
+  CHECK(map.sectors[0].owner == "argon");
+  CHECK(map.sectors[1].owner.empty());
+  REQUIRE(map.links.size() == 1);  // a-c, seen from both sides
+  CHECK(map.links[0].from == 1);
+  CHECK(map.links[0].to == 3);
+  CHECK(map.links[0].kind == static_cast<std::uint8_t>(X4MP::Proto::LinkKind::Gate));
+  CHECK(build_map(MdCollector{}).sectors.empty());
+}
+
+TEST_CASE("map_hash is stable for an equivalent map and changes when a field changes", "[authority]") {
+  MdCollector a;
+  a.add("G;a_macro|ca|A|argon|0|0|0|;b_macro|cb|B|xenon|1|1|1|a_macro");
+  a.add("E;2");
+  const auto first = build_map(a);
+  CHECK(map_hash(first) == map_hash(build_map(a)));
+
+  MdCollector b;
+  b.add("G;a_macro|ca|A|argon|0|0|0|;b_macro|cb|B|teladi|1|1|1|a_macro");
+  b.add("E;2");
+  CHECK(map_hash(first) != map_hash(build_map(b)));
+}
+
+TEST_CASE("KnownSectors, MapSnapshot and MapDelta encode what the server reads", "[authority]") {
+  x4mp::authority::MapPlan map;
+  map.sectors.push_back({1, "a_macro", "ca", "A", "argon", 1.5f, -2.5f, 0.0f});
+  map.sectors.push_back({2, "b_macro", "cb", "B", "", 0, 0, 0});
+  map.links.push_back({1, 2, 0});
+
+  const auto known = x4mp::authority::encode_known_sectors(7, map);
+  const auto* k = flatbuffers::GetRoot<X4MP::Proto::KnownSectors>(known.data());
+  REQUIRE(k);
+  CHECK(k->revision() == 7);
+  REQUIRE(k->sectors()->size() == 2);
+  CHECK(k->sectors()->Get(0)->index() == 1);
+  CHECK(k->sectors()->Get(0)->macro()->str() == "a_macro");
+  CHECK(k->sectors()->Get(0)->owner()->str() == "argon");
+  CHECK(k->sectors()->Get(1)->owner()->str().empty());
+  CHECK(k->sectors()->Get(0)->galaxy_pos()->x() == 1.5f);
+  CHECK(k->sectors()->Get(0)->galaxy_pos()->y() == -2.5f);
+  REQUIRE(k->links()->size() == 1);
+  CHECK(k->links()->Get(0)->from() == 1);
+  CHECK(k->links()->Get(0)->to() == 2);
+  CHECK(k->links()->Get(0)->kind() == X4MP::Proto::LinkKind::Gate);
+
+  const auto snapshot = x4mp::authority::encode_map_snapshot(9, map);
+  const auto* s = flatbuffers::GetRoot<X4MP::Proto::MapSnapshot>(snapshot.data());
+  REQUIRE(s);
+  CHECK(s->version() == 9);
+  CHECK(s->sectors()->size() == 2);
+  CHECK(s->links()->size() == 1);
+
+  const std::uint16_t removed[] = {3};
+  const auto delta = x4mp::authority::encode_map_delta(10, {map.sectors[1]}, {map.links[0]}, removed);
+  const auto* d = flatbuffers::GetRoot<X4MP::Proto::MapDelta>(delta.data());
+  REQUIRE(d);
+  CHECK(d->version() == 10);
+  REQUIRE(d->sectors()->size() == 1);
+  CHECK(d->sectors()->Get(0)->index() == 2);
+  REQUIRE(d->links()->size() == 1);
+  REQUIRE(d->removed_sectors()->size() == 1);
+  CHECK(d->removed_sectors()->Get(0) == 3);
 }
 
 TEST_CASE("SaveFileWatcher waits until the file stops changing and can be opened", "[authority]") {

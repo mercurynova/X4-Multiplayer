@@ -235,6 +235,8 @@ local function buildMain(_, rows)
 	-- M5-29: the economy screen. It needs a session (the server owns the books), so it sits next to the other in-session rows.
 	if S.connectionActive() then
 		rows[#rows + 1] = { type = "button", id = "economy", text = T(576), active = true, onClick = function() S.go("economy") end }
+		-- T1.6: the shared strategic map. It needs a session (the authority polls it), so it sits next to the economy screen.
+		rows[#rows + 1] = { type = "button", id = "map", text = T(640), active = true, onClick = function() S.go("map") end }
 	end
 	-- M2-X3: the session's mod list while connected (x4mp_join_mods.lua loads after this file)
 	if S.connectionActive() and X4MPJoinMods then X4MPJoinMods.policyRows(rows) end
@@ -453,9 +455,21 @@ local function buildServer(st, rows)
 	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
 end
 
+-- T1.6: the strategic map screen. The map module owns the snapshot and the request verb; this file only registers the screen, so
+-- the chat and the window cannot drift apart. The module loads after this file (ui.xml), so it is looked up at build time.
+local function buildMap(st, rows)
+	local V = rawget(_G, "X4MPMap")
+	if type(V) ~= "table" or type(V.screenRows) ~= "function" then
+		rows[#rows + 1] = text(T(658), "warning")
+	else
+		V.screenRows(rows, st)
+	end
+	rows[#rows + 1] = { type = "button", id = "back", text = T(10), active = true, onClick = function() S.go("main") end }
+end
+
 local builders = { main = buildMain, join = buildJoin, status = buildStatus, appearance = buildAppearance, economy = buildEconomy,
-	server = buildServer }
-local titles = { main = 1, join = 2, status = 11, appearance = 900, economy = 576, server = 614 }
+	server = buildServer, map = buildMap }
+local titles = { main = 1, join = 2, status = 11, appearance = 900, economy = 576, server = 614, map = 640 }
 
 function S.buildModel()
 	local st = S.initState()

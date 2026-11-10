@@ -55,6 +55,7 @@ class ServerFeature final : public host::IFeature {
   std::unique_ptr<Launcher> launcher_;
   double now_s_ = 0.0;
   double last_poll_s_ = -1.0;
+  double last_external_probe_s_ = -1.0;
   std::string published_;
 };
 

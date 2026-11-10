@@ -117,6 +117,13 @@ bool Launcher::start(const Plan& plan, double now_s, Status& out) {
     out = poll(plan, now_s);
     return false;
   }
+  // A server started outside this game (the launcher, or a previous game process) already holds the ports. Spawning a
+  // second one would only fail inside Kestrel and leave a confusing log, so refuse before the spawn and say why.
+  if (probe_ && probe_(plan.port)) {
+    error_ = "a server is already listening on port " + std::to_string(plan.port);
+    out = poll(plan, now_s);
+    return false;
+  }
 
   std::error_code ec;
   std::filesystem::create_directories(plan.data_dir, ec);
@@ -152,16 +159,26 @@ bool Launcher::stop(Status& out) {
   (void)host_->stop();
   started_ = false;
   listening_seen_ = false;
+  external_ = false;
   error_.clear();
   out.state = "stopped";
   return true;
 }
 
-Status Launcher::poll(const Plan& plan, double now_s) {
+Status Launcher::poll(const Plan& plan, double now_s, bool probe_external) {
   Status status;
   status.error = error_;
   if (!started_) {
-    status.state = "stopped";
+    // The launcher starts the server before X4 and owns it; a server left running by an earlier game is the same case.
+    // Report it as running so the host is not told "stopped" while the session works, but never as ours.
+    if (probe_external) external_ = probe_ && probe_(plan.port);
+    if (external_) {
+      status.state = "running";
+      status.listening = true;
+      status.external = true;
+    } else {
+      status.state = "stopped";
+    }
     return status;
   }
   status.pid = host_->pid();
@@ -193,6 +210,7 @@ std::string status_json(const Status& status, const Plan& plan) {
   j["pid"] = status.pid;
   j["exit_code"] = status.exit_code;
   j["listening"] = status.listening;
+  j["external"] = status.external;
   j["port"] = plan.port;
   j["http_port"] = plan.http_port;
   j["auto_stop"] = plan.auto_stop;

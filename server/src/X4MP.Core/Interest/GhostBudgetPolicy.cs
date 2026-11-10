@@ -39,7 +39,7 @@ public enum SectorAdmission
 }
 
 /// <summary>
-/// The ghost budget policy (ADR-042: <c>max_ghosts</c> default 250; protocol.md 12.3). A pure function of the demanded sectors
+/// The ghost budget policy (ADR-042: <c>max_ghosts</c> default 500; protocol.md 12.3). A pure function of the demanded sectors
 /// and their per-class counts: it picks the lowest <see cref="BudgetLevel"/> whose total fits, so the order of cuts is always
 /// the same, XS/S/M from Adjacent first, then the unpredicted Adjacent sectors, then the rest of the prefetch, and only then the
 /// current sector. The current sector (tier Sector or Near) is never cut before the last level.

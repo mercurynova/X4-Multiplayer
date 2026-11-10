@@ -226,6 +226,48 @@ table GalaxySummary {
   sectors:[SectorSummary];
 }
 
+// ---------------- live strategic map ----------------
+// Separate from GalaxyMetadata (the checkpoint's sector table): the authority polls the running universe, so
+// sector ownership can change without a new save. `owner` is the game's faction id ("argon", "xenon", ...),
+// empty when unowned; it is carried as a string so a map screen never depends on the session string table.
+
+table MapSector {
+  index:ushort;                  // 1-based, the same deterministic rank of the sector macro as SectorInfo.index
+  macro:string;
+  cluster_macro:string;
+  name:string;
+  owner:string;                  // faction id, "" = unowned
+  galaxy_pos:Vec3f;
+}
+
+/// One gate link, undirected (from < to).
+table MapLink { from:ushort; to:ushort; kind:LinkKind; }
+
+/// A->S, Control lane. The authority's live strategic map. Sent after welcome and whenever the map changes.
+/// `revision` is authority-local and increases with every send; the server treats a lower revision as stale.
+table KnownSectors {
+  revision:ulong;
+  sectors:[MapSector];
+  links:[MapLink];
+}
+
+/// S->N, Control lane. The full strategic map, sent right after Welcome and after a map reset.
+table MapSnapshot {
+  version:ulong;
+  sectors:[MapSector];
+  links:[MapLink];
+}
+
+/// S->N, Control lane. Incremental map update: `sectors` upsert by index, `links` upsert by unordered pair,
+/// `removed_sectors` are deleted together with their links. A removed link between two live sectors is sent
+/// as a MapSnapshot instead (it cannot be expressed here).
+table MapDelta {
+  version:ulong;
+  sectors:[MapSector];
+  links:[MapLink];
+  removed_sectors:[ushort];
+}
+
 table StringEntry { index:uint; kind:StringKind; value:string; }
 
 /// A->S (authority allocates indices), S->N (server replays the full table on join),

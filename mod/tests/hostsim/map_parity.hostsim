@@ -1,0 +1,38 @@
+# T1.7 parity, automated half: TWO hostsim processes (two real x4mp.dll instances) share one server and one FakeNode
+# authority. The FakeNode now sends KnownSectors right after GalaxyMetadata, exactly like the real authority polls its
+# running universe. Both clients must report the same live strategic map: same source, version, sector count and link
+# count, from the same server fan-out. The 30-minute live run stays a human acceptance item; this scenario is the
+# repeatable parity evidence.
+#
+# vars: tcp, name (this player), other (the other player), sync (a folder both processes can write).
+world md-emulate on
+init
+frame 60Hz 10
+lua-raw x4mp.ui_ready {"v":1,"startmenu":true}
+lua-raw x4mp.join {"v":1,"address":"127.0.0.1:${tcp}","name":"${name}","password":"","team":"auto"}
+frame 60Hz 360
+expect-lua x4mp.load_save 5000 contains x4mp_
+
+# X4 reloads the DLL (stash kept): the session resumes and the server attaches a fresh node slot, so it re-sends
+# GalaxyMetadata and then a MapSnapshot. This is also the rejoin path a client takes after /reloadui.
+reload
+frame 60Hz 240
+expect-file extension/logs/x4mp.log resuming the session after an extension reload
+load_save x4mp_pair_e2e
+frame 60Hz 180
+expect-lua x4mp.status 5000 json $.state == ingame
+
+# The client hub answers with what it merged, not with a fresh server read: both players must hold the same map.
+# Each request is a native verb that the mod drains on its next frame, so pump a couple of frames after it.
+lua-raw x4mp.map_request {"v":1}
+frame 60Hz 2
+expect-lua x4mp.map 5000 json $.source == live
+lua-raw x4mp.map_request {"v":1}
+frame 60Hz 2
+expect-lua x4mp.map 5000 json $.version == 1
+lua-raw x4mp.map_request {"v":1}
+frame 60Hz 2
+expect-lua x4mp.map 5000 json $.sectors.length == 152
+lua-raw x4mp.map_request {"v":1}
+frame 60Hz 2
+expect-lua x4mp.map 5000 json $.links.length > 0

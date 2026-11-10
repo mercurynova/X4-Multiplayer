@@ -393,6 +393,8 @@ millisecond range means the mod itself is not what slows the game down.
 | No auto-connect after a restart | `launch.json` was consumed at the previous start | recreate it before launching (step 9) |
 | Only one instance appears in `Get-Process X4` | the second process is named `X4b` | query `Get-Process X4, X4b` |
 | Both instances crawl in game | one GPU, one CPU, two full simulations | lower `fps`, `chardensity`, `trafficdensity`, `effectdistance` further, and treat the stand as a logic test only |
+| The authority is refused `ExtensionsMismatch` (`update X4MCP`) although both installs carry the same x4mcp | the two `x4mcp_config.json` files differ (port 7779 vs 7780, step 6), so the extension hash differs; the policy is built from the first report and enforced strictly | for the stand, start the server with `Net:ExtensionsMismatchIsWarning=true` **and** `Mods:Enforcement=Warn`; strict remains the product default for real clients |
+| The authority is refused `AuthFailed` right after `launch.json` is consumed | the server was started by hand without `Net:AdminPassword`, so the gateway has no admin hash to check `admin_password` against (the web UI password from `initial-admin-password.txt` is a different credential) | start the server with `Net:AdminPassword` equal to the `admin_password` in `launch.json`; the host bundle sets this itself |
 
 ## 14. Known issues seen on this stand
 

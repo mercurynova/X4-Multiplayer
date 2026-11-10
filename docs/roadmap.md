@@ -63,14 +63,30 @@ line fails, answering `AssetTransferConfirm` and `TradeQuery` from the journal. 
 well**: `LedgerRequest`/`LedgerPage` (0x0816/0x0817) answer one page of the transactions the requester may see,
 `/mp ledger [more]` and the economy screen browse it, an incoming offer raises `x4mp.economy_notice` and shows as a
 toast, a chat line and the HUD badge, and the standalone window releases its frame handle on every path. **M5-32 is done
-too**: the extension ships the dedicated server itself (`<extension>/server`, a 360-file self-contained folder publish),
-and `features/server` starts, watches and stops it from the menu screen or `/mp server start|stop|status` - a hidden
-process, its own node ports, a generated admin password, and `auto_stop` on game exit. The remaining W7
+too**: the extension ships the server itself as a hidden local sidecar (`<extension>/server`, a 360-file self-contained
+folder publish), and `features/server` starts, watches and stops it from the menu screen or
+`/mp server start|stop|status` - a hidden process, its own node ports, a generated admin password, and `auto_stop` on
+game exit. The remaining W7
 work is M5-27 (needs the two-node run), and acceptance items 2-7, the two-node halves of 10 and 12 still need a second
 game node.
 [in-game-session-8.md](in-game-session-8.md) is the
 single-node record; the two-node sitting has a run sheet - [in-game-session-9.md](in-game-session-9.md):
 two PCs, a fresh server build, one step per acceptance item with the log line to quote.
+
+**Host-player consolidation (2026-11-10):** the product is now the **host player** - the
+authority's PC runs X4 + the mod and the local `x4mp-server.exe` sidecar, installed and
+launched as one bundle. The server stays a separate hidden process (not embedded in the
+C++ mod) and remains the only listener on TCP 47780, UDP 47781 and HTTP 47790; a
+remote/dedicated server is a development/debug option, not a deployment. The next work is
+the Phase 0 doc freeze, the Phase 1 host bundle (one launcher: server health check ->
+authority -> session, graceful save/stop, no orphans, localhost GUI/token, firewall and
+port checks, host UX, log bundle), the Phase 2 UDP hardening, the Phase 3 fixes already
+landed (focus-aware dead reckoning, `max_ghosts` 500, save pause lease), the mandatory
+global strategic map, authority attention for client focus spheres, and the parity
+acceptance. Locked: UDP primary realtime, TCP reliable Control, Bulk TCP; no
+GameNetworkingSockets, no port-range expansion, no QUIC in v1. Parity means zero divergence
+in authoritative shared state; interpolation, local backdrop and presentation differences
+are documented and allowed.
 
 ---
 

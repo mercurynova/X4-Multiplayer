@@ -21,6 +21,7 @@ public sealed partial class SessionActor
     private long _snapshotVersion;
     private byte[] _currentSaveSha = [];
     private double _currentSaveGameTime;
+    private bool _saveInProgress;
 
     /// <inheritdoc />
     public TransitionResult RaiseSessionTrigger(SessionTrigger trigger, string? reason) =>
@@ -34,6 +35,18 @@ public sealed partial class SessionActor
         ArgumentNullException.ThrowIfNull(sha256);
         _currentSaveSha = sha256;
         _currentSaveGameTime = gameTime;
+        BroadcastSessionState();
+    }
+
+    /// <inheritdoc />
+    public void SetSaveInProgress(bool inProgress)
+    {
+        if (_saveInProgress == inProgress)
+        {
+            return;
+        }
+
+        _saveInProgress = inProgress;
         BroadcastSessionState();
     }
 
@@ -90,7 +103,11 @@ public sealed partial class SessionActor
         if (to == SessionPhase.AuthorityLost)
         {
             _phaseBeforeLoss = from;
-            _authorityDeadline = After(now, Opt.AuthorityGraceSeconds);
+            // M4-23: the authority slot already resumes within max(ResumeGraceSeconds, AuthorityGraceSeconds), because X4 needs
+            // 160-195 s to reach the main menu after a restart. The phase deadline must use the same window: with the bare
+            // AuthorityGraceSeconds (120 s) a host restart always ended the session before the game could reconnect, so the
+            // documented host-rejoin path was unreachable live.
+            _authorityDeadline = After(now, AuthorityResumeSeconds);
         }
         else if (from == SessionPhase.AuthorityLost)
         {
@@ -107,6 +124,12 @@ public sealed partial class SessionActor
         if (_dbSessionId > 0)
         {
             _store.RecordPhase(_dbSessionId, to, _authorityPlayerId, _phaseSince, reason);
+        }
+
+        // A session that goes idle cannot be saving: the next one starts clean and must not inherit the pause flag.
+        if (to == SessionPhase.Idle)
+        {
+            _saveInProgress = false;
         }
 
         BroadcastSessionState();
@@ -155,6 +178,7 @@ public sealed partial class SessionActor
     {
         _authorityPlayerId = 0;
         _authorityDeadline = long.MaxValue;
+        _saveInProgress = false;
         _gateway.Authority = null;
         _gateway.DesignatedAuthorityPlayerId = 0;
         _gateway.AuthorityLive = false;
