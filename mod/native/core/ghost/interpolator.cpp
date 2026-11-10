@@ -212,7 +212,7 @@ Interpolator::Raw Interpolator::evaluate(std::int64_t t) const noexcept {
   return r;
 }
 
-RenderPose Interpolator::render(std::int64_t now_us) noexcept {
+RenderPose Interpolator::render(std::int64_t now_us, double observer_distance_m) noexcept {
   RenderPose out;
   std::int64_t dt_real = 0;
   if (last_now_us_ != 0 && now_us > last_now_us_) dt_real = std::min<std::int64_t>(now_us - last_now_us_, 1'000'000);
@@ -263,7 +263,10 @@ RenderPose Interpolator::render(std::int64_t now_us) noexcept {
 
   if (!hidden) {
     const bool extrapolating = r.state == PoseState::Extrapolating;
-    stats_.on_render(now_us, t, r.represented_t_us, r.sector, out.pos, r.speed, extrapolating);
+    const std::int64_t newest = newest_sample_us();
+    const bool source_fresh = newest != 0 && now_us - newest <= SyncStats::kFreshMaxUs;
+    stats_.on_render(now_us, t, r.represented_t_us, r.sector, out.pos, r.speed, extrapolating, observer_distance_m,
+                     source_fresh);
     stats_.count_frame(snap && have_prev_, extrapolating, r.state == PoseState::Held);
   }
   prev_ = r;

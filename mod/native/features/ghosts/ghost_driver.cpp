@@ -476,7 +476,18 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
   for (Ghost& g : ghosts_) {
     ghost::Interpolator* in = streams_.find(g.info.net_id);
     if (!in) continue;
-    ghost::RenderPose rp = in->render(now_us);
+    // M4 criterion 3: the distance from the observer to the pose we are about to render. The interpolator does not know where
+    // the local ship is, so use the last rendered pose (or the spawn pose before the first render). 0 from player_distance
+    // means "cannot say" and stays out of the near bucket.
+    double observer_m = -1.0;
+    const bool have_pose = g.last_state != ghost::PoseState::Empty && g.last_render_sector != 0;
+    const std::uint16_t known_sector = have_pose ? g.last_render_sector : (g.initial ? g.initial->sector : 0);
+    const Vec3 known_pos = have_pose ? g.last_render_pos : (g.initial ? g.initial->pos : Vec3{});
+    if (known_sector != 0) {
+      const std::uint64_t known_sec = world_->sector_id(known_sector);
+      if (known_sec != 0) observer_m = world_->player_distance(known_sec, known_pos);
+    }
+    ghost::RenderPose rp = in->render(now_us, observer_m);
 
     if (rp.state == ghost::PoseState::Empty && g.initial && !g.initial_used && g.initial->sector != 0 &&
         now_us - g.first_seen_us >= cfg_.spawn_pose_fallback_us) {
@@ -490,7 +501,7 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       s.rot = g.initial->rot;
       in->push(s, now_us);
       g.initial_used = true;
-      rp = in->render(now_us);
+      rp = in->render(now_us, observer_m);
     }
     g.last_state = rp.state;
     g.last_render_sector = rp.sector;
@@ -823,6 +834,18 @@ std::vector<std::string> GhostDriver::take_sync_lines() {
     line += std::format(" delay_ms={} newest_age_ms={} dt_ms={}", in->delay_us() / 1000, (last_now_us_ - in->newest_sample_us()) / 1000,
                         static_cast<std::int64_t>(in->delay_controller().interval_us()) / 1000);
     lines.push_back(std::move(line));
+    // M4 criterion 3: a separate short line keeps the near bucket out of the already-long per-net line.
+    if (rep.n_near > 0) {
+      std::string near = ghost::format_near_line(g.info.net_id, rep);
+      if (near.rfind(tag, 0) == 0) near.insert(tag.size(), "player=" + who + " ");
+      lines.push_back(std::move(near));
+    }
+    // A held pose is a transport gap, not path error: keep it out of the path buckets and report it apart.
+    if (rep.n_stale > 0) {
+      std::string stale = ghost::format_stale_line(g.info.net_id, rep);
+      if (stale.rfind(tag, 0) == 0) stale.insert(tag.size(), "player=" + who + " ");
+      lines.push_back(std::move(stale));
+    }
   }
   return lines;
 }

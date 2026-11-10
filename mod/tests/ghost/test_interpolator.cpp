@@ -56,6 +56,34 @@ TEST_CASE("interpolates between samples (hermite on a straight line is linear)",
   CHECK_FALSE(p.hidden);
 }
 
+TEST_CASE("render forwards the observer distance to the near bucket", "[ghost][stats]") {
+  Interpolator in;
+  in.push(mk(1000, 0, 100), 0);
+  in.push(mk(1050, 5, 100), 0);
+  in.push(mk(1100, 10, 100), 0);
+  (void)in.render(1175 * kMs, 4000.0);  // t 1075 is inside the 5 km band
+  const SyncReport near = in.stats().report();
+  CHECK(near.n_all == 1);
+  CHECK(near.n_near == 1);
+  CHECK(near.err_near_p95 < 1.0);
+
+  Interpolator far;
+  far.push(mk(1000, 0, 100), 0);
+  far.push(mk(1050, 5, 100), 0);
+  far.push(mk(1100, 10, 100), 0);
+  (void)far.render(1175 * kMs, 6000.0);  // outside the band: scored in err_all only
+  const SyncReport outside = far.stats().report();
+  CHECK(outside.n_all == 1);
+  CHECK(outside.n_near == 0);
+
+  Interpolator unknown;
+  unknown.push(mk(1000, 0, 100), 0);
+  unknown.push(mk(1050, 5, 100), 0);
+  unknown.push(mk(1100, 10, 100), 0);
+  (void)unknown.render(1175 * kMs);  // default: no observer distance
+  CHECK(unknown.stats().report().n_near == 0);
+}
+
 TEST_CASE("extrapolates 500 ms then holds, hides when stale", "[ghost][interp]") {
   Interpolator in;
   in.push(mk(1000, 0, 100), 0);

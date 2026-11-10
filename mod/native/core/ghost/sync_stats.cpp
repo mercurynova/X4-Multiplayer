@@ -27,7 +27,8 @@ void SyncStats::on_source_sample(std::int64_t t_us, std::uint16_t sector, std::u
 }
 
 void SyncStats::on_render(std::int64_t now_us, std::int64_t render_t_us, std::int64_t represented_t_us, std::uint16_t sector,
-                          Vec3 displayed_pos, double speed_mps, bool extrapolated) noexcept {
+                          Vec3 displayed_pos, double speed_mps, bool extrapolated, double observer_distance_m,
+                          bool source_fresh) noexcept {
   lat_.push(static_cast<double>(now_us - represented_t_us) / 1000.0);
   speed_max_ = std::max(speed_max_, speed_mps);
   // Drop pending poses that are too old to ever be scored.
@@ -39,7 +40,8 @@ void SyncStats::on_render(std::int64_t now_us, std::int64_t render_t_us, std::in
     pend_head_ = (pend_head_ + 1) % kPending;
     --pend_n_;
   }
-  pend_[(pend_head_ + pend_n_) % kPending] = {render_t_us, sector, displayed_pos, speed_mps, extrapolated};
+  const bool fresh = source_fresh && render_t_us - represented_t_us <= kFreshMaxUs;
+  pend_[(pend_head_ + pend_n_) % kPending] = {render_t_us, sector, displayed_pos, speed_mps, extrapolated, fresh, observer_distance_m};
   ++pend_n_;
   resolve();
 }
@@ -70,10 +72,17 @@ void SyncStats::resolve() noexcept {
       }
     }
     if (score) {
-      err_all_.push(err);
-      if (p.speed < kSteadyMaxMps) err_steady_.push(err);
-      else err_fast_.push(err);
-      if (p.extrap) err_extrap_.push(err);
+      if (!p.fresh) {
+        // A data gap: the pose was held at an old sample while the render clock moved on. It is real, but it is not the
+        // interpolation error criterion 3 measures, so keep it out of the path-error buckets and report it separately.
+        err_stale_.push(err);
+      } else {
+        err_all_.push(err);
+        if (p.speed < kSteadyMaxMps) err_steady_.push(err);
+        else err_fast_.push(err);
+        if (p.extrap) err_extrap_.push(err);
+        if (p.observer_m > 0 && p.observer_m <= kNearMaxM) err_near_.push(err);
+      }
     }
     pend_head_ = (pend_head_ + 1) % kPending;
     --pend_n_;
@@ -103,6 +112,14 @@ SyncReport SyncStats::report(bool reset) noexcept {
   r.n_extrap = err_extrap_.size();
   r.err_extrap_p95 = err_extrap_.percentile(0.95);
   r.err_extrap_max = err_extrap_.max();
+  r.n_near = err_near_.size();
+  r.err_near_p50 = err_near_.percentile(0.50);
+  r.err_near_p95 = err_near_.percentile(0.95);
+  r.err_near_max = err_near_.max();
+  r.n_stale = err_stale_.size();
+  r.err_stale_p50 = err_stale_.percentile(0.50);
+  r.err_stale_p95 = err_stale_.percentile(0.95);
+  r.err_stale_max = err_stale_.max();
   r.lat_p50_ms = lat_.percentile(0.50);
   r.lat_p95_ms = lat_.percentile(0.95);
   r.lat_max_ms = lat_.max();
@@ -116,6 +133,8 @@ SyncReport SyncStats::report(bool reset) noexcept {
     err_steady_.clear();
     err_fast_.clear();
     err_extrap_.clear();
+    err_near_.clear();
+    err_stale_.clear();
     lat_.clear();
     speed_max_ = 0;
     frames_ = snaps_ = extrap_ = held_ = 0;
@@ -132,6 +151,20 @@ std::string format_sync_line(std::uint32_t net_id, const SyncReport& r) {
                 r.err_fast_p95, r.err_extrap_p95, static_cast<unsigned long long>(r.n_extrap), r.lat_p95_ms, r.speed_max,
                 static_cast<unsigned long long>(r.snaps), static_cast<unsigned long long>(r.extrapolated_frames),
                 static_cast<unsigned long long>(r.held_frames));
+  return buf;
+}
+
+std::string format_near_line(std::uint32_t net_id, const SyncReport& r) {
+  char buf[160];
+  std::snprintf(buf, sizeof buf, "[sync] net=%u near n=%llu p50/p95/max=%.2f/%.2f/%.2f m", net_id,
+                static_cast<unsigned long long>(r.n_near), r.err_near_p50, r.err_near_p95, r.err_near_max);
+  return buf;
+}
+
+std::string format_stale_line(std::uint32_t net_id, const SyncReport& r) {
+  char buf[160];
+  std::snprintf(buf, sizeof buf, "[sync] net=%u stale n=%llu p50/p95/max=%.2f/%.2f/%.2f m", net_id,
+                static_cast<unsigned long long>(r.n_stale), r.err_stale_p50, r.err_stale_p95, r.err_stale_max);
   return buf;
 }
 

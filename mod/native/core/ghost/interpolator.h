@@ -105,7 +105,7 @@ class Interpolator {
   // arrival_us = the receiver's estimate of server time when the sample arrived (feeds the jitter estimate; 0 = unknown).
   void push(const Sample& s, std::int64_t arrival_us) noexcept;
   void apply_state(std::int64_t t_us, std::uint16_t flags, std::uint8_t hull, std::uint8_t shield) noexcept;
-  [[nodiscard]] RenderPose render(std::int64_t now_us) noexcept;
+  [[nodiscard]] RenderPose render(std::int64_t now_us, double observer_distance_m = -1.0) noexcept;
   void reset() noexcept { *this = Interpolator(cfg_); }  // drops samples, stats and the blend; keeps the config
 
   [[nodiscard]] std::size_t sample_count() const noexcept { return n_; }
