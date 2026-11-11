@@ -220,6 +220,46 @@ in the server environment (add it next to the other `X4MP__*` variables in secti
 loans and trades make sense. What still has to come out of the sitting is the two-player half: a transfer whose two
 wallets move, a pool move that succeeds, and a loan or trade the other side answers.
 
+### S11 - M5b: an invitation from one player to another
+
+The invitation (protocol `0x070A`/`0x070B`/`0x070C`, ADR-046 3.1) is leader-only, answered by the invitee, and open for
+120 s. Run this on **PC A** (leader) against **PC B**, with `X4MP__Teams__JoinMode='AdminAssign'` as in section 2.
+
+The one prerequisite that is easy to get wrong: the target must be **in the world and in no team**. The server refuses
+an invitation to a player in another team (`NotPermitted`) or to a member of the inviter's own team (`SameTeam`), and a
+teamless node that has not loaded the save waits in the lobby, where there is no chat line to answer from. So put both
+players in the world first and then take the team away from B:
+
+1. In the admin GUI (`http://<PC A IP>:47790/` -> Teams) create the team `Wolves` (faction slot 1) and assign
+   **PC A** as its `Leader`; PC A walks into the world.
+2. Assign **PC B** to `Wolves` too, so it loads the save and reaches the world, then **unassign** PC B
+   (`PUT /api/v1/players/<PC B player id>/team` with `{"teamId":null}`, or the GUI's unassign action). PC B stays
+   in the world with no team - admin moves of other players are allowed while the session runs, only the authority's
+   own player is refused with `SessionRunningRestricted`.
+3. Both on foot in the same interior, PC A opens the Talk menu on PC B's avatar and takes
+   `Invite to my team` (`{92000,945}`). The same request from the chat, for a target that is not in the room:
+   `/mp teaminvite <PC B name>` (an unknown name answers `No player named %s`, id 568).
+4. **PC B** reads `%s invited you to team %s. Accept with /mp teamaccept %s` (id 948) with the invite id, then runs
+   `/mp teamaccept <id>` (or `/mp teamdecline <id>` to refuse). PC A sees `Your invitation was sent` (949), PC B
+   `You are on that team now` (951) or `You declined the invitation` (952); a refusal answers
+   `Invitation failed: <token>` (950) with the server's reason (`not_leader`, `same_team`, `not_permitted`,
+   `rate_limited`, ...).
+
+Quote from the mod log on both nodes:
+`teams: invite <id> from player <a> to team <t> '<name>'` (the notice arriving) and `teams: invite -> ok` /
+`teams: respond -> ok` (the answer to the request); a refused answer logs `teams: respond -> rejected <token>`.
+From the server, the audit trail this feature added is two `session_events` rows (`type = 'TeamInviteHandled'`,
+`player_id` = the player who acted):
+
+```sql
+SELECT ts, player_id, data_json FROM session_events
+WHERE session_id = <session> AND type = 'TeamInviteHandled' ORDER BY id;
+```
+
+`data_json` carries `action` (`sent`, `accepted`, `declined`, `expired`), `fromPlayerId`, `toPlayerId`, `teamId`.
+A second answer with the same invite id must answer `Rejected` and leave the player where they are, and an
+invitation left alone for 120 s must show up as `expired` on the same query without any player acting.
+
 ## 5. What to send back
 
 From **both** PCs, after the last step:
@@ -250,6 +290,8 @@ Then fill a copy of this table into `docs/in-game-session-9.md`:
 | 10 | | | |
 | 11 | blocked (M5-29) | | |
 | 12 | blocked (M5-31) | | |
+| M5b invite sent (S11) | | | |
+| M5b invite accepted (S11) | | | |
 
 ## 6. Traps that cost time in session 8
 

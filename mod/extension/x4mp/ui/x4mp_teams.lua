@@ -94,6 +94,8 @@ end)
 --                  x4mp.teams_invite {"v":1,"kind":"result","op":"invite|respond","ok":<bool>,"reason":"<token>","team":T}
 --                  x4mp.teams_invite {"v":1,"kind":"error","op":"invite","error":"<what the native half refused>"}
 -- The invite id is the only thing /mp teamaccept and /mp teamdecline take; the server answers the same id twice with Rejected.
+-- /mp teaminvite <player> sends the same request from the chat, which is the only surface that reaches a player still waiting
+-- in the team lobby (an unteamed node is pinned there, so it is never standing in a room for the Talk menu).
 
 local invites = {}   -- invite id -> { from = pid, team = "<team name>" }
 local answer = nil    -- the last respond: { id = N, accept = <bool> }, so the answer line can say which one it was
@@ -163,9 +165,25 @@ function T.pending()
 	return list
 end
 
---- T.command(cmd, rest) -> true when the "/mp" word is a team invitation one ("teamaccept"/"teamdecline").
+--- T.command(cmd, rest) -> true when the "/mp" word is a team invitation one ("teaminvite"/"teamaccept"/"teamdecline").
 function T.command(cmd, rest)
 	local sub = tostring(cmd or ""):lower()
+	if sub == "teaminvite" then
+		-- M5b: the Talk menu only offers its choices to a player standing in the same room, but the player an invitation is
+		-- for is the one who has no team yet, and an unteamed node waits in the team lobby, not on foot. So the same request
+		-- is reachable by name, which is the only surface that reaches a lobby player. An empty name is not this word's
+		-- business and falls through to the unknown-command line.
+		local name = trim(rest)
+		if name == "" then return false end
+		local P = rawget(_G, "X4MPPlayers")
+		local row = type(P) == "table" and type(P.findByName) == "function" and P.findByName(name) or nil
+		if not row then
+			chatLine(text(568, name))  -- "No player named %s" (the /mp send wording)
+		else
+			T.invite(row.id)
+		end
+		return true
+	end
 	if sub ~= "teamaccept" and sub ~= "teamdecline" then return false end
 	local id = tonumber(trim(rest))
 	if not id then chatLine(text(953)) return true end

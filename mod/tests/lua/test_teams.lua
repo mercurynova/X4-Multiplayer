@@ -201,3 +201,27 @@ test("M5b: an answered invitation says which way it went", function()
 	env.fire("x4mp.teams_invite", '{"v":1,"kind":"error","op":"invite","error":"no session"}')
 	truthy(lines[#lines]:find("no session", 1, true), lines[#lines])
 end)
+
+test("M5b: /mp teaminvite reaches a player who is not standing in the room", function()
+	local _, lines = inviteSetup()
+	_G.X4MPPlayers = {
+		list = { { id = 2, name = "Rook" }, { id = 3, name = "Raven" } },
+		findByName = function(name)
+			for _, row in ipairs(_G.X4MPPlayers.list) do
+				if row.name == name then return row end
+			end
+			return nil
+		end,
+	}
+	-- The Talk menu needs the target in the same room; a player with no team is waiting in the lobby instead, so the chat
+	-- word is the only surface that can reach them.
+	truthy(X4MPTeams.command("teaminvite", "Rook"))
+	local body = lastInvite()
+	eq(body.op, "invite")
+	eq(body.to, 2)
+	eq(#lines, 0, "a name that resolved needs no line of its own")
+	truthy(X4MPTeams.command("teaminvite", "Nobody"))
+	eq(#env.raisedNamed("x4mp.teams_invite"), 1, "an unknown name sends nothing")
+	truthy(lines[#lines]:find("Nobody", 1, true), lines[#lines])
+	falsy(X4MPTeams.command("teaminvite", "   "), "an empty name is not this word's business")
+end)
