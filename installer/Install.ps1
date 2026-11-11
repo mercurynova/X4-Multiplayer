@@ -192,6 +192,14 @@ if ($PSCmdlet.ShouldProcess($ext, 'install x4mp and x4native')) {
     $copied.Add((Join-Path $native 'x4mp.dll'))
     Write-Host ('Copied native\x4mp.dll ({0})' -f $payload.Dll)
   }
+  # The launcher is optional, but when the package carries one it belongs beside X4.exe: that is where
+  # it looks for the game, and where Check Install looks for it.
+  if ($payload.Launcher) {
+    $launcherDst = Join-Path $GameDir 'x4mp-launcher.exe'
+    Copy-Item -LiteralPath $payload.Launcher -Destination $launcherDst -Force
+    $copied.Add($launcherDst)
+    Write-Host 'Copied x4mp-launcher.exe beside the game'
+  }
 }
 
 # 4. Unblock. A file that came from the internet carries a mark that SmartScreen and X4Native both

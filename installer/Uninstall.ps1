@@ -51,6 +51,8 @@ $targets = New-Object System.Collections.Generic.List[string]
 [void]$targets.Add((Join-Path $GameDir 'extensions\x4mp'))
 if (-not $KeepX4Native) { [void]$targets.Add((Join-Path $GameDir 'extensions\x4native')) }
 if ($RemoveData) { [void]$targets.Add((Join-Path $env:LOCALAPPDATA 'X4MP')) }
+# The installer puts the launcher beside the game; it is ours, so it goes with the mod.
+[void]$targets.Add((Join-Path $GameDir 'x4mp-launcher.exe'))
 
 Write-Host ''
 foreach ($t in $targets) {

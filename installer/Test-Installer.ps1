@@ -134,6 +134,9 @@ try {
   }
   New-Item -ItemType Directory -Force (Join-Path $pkg 'extensions\x4mp\native') | Out-Null
   New-FakeDll (Join-Path $pkg 'extensions\x4mp\native\x4mp.dll')
+  # The release zip carries the launcher at its root; the harness does too, so the installer has to
+  # place it beside X4.exe where Check Install looks for it.
+  New-FakeDll (Join-Path $pkg 'x4mp-launcher.exe')
 
   # ---- 2. Install.
   Write-Host 'install'
@@ -142,6 +145,7 @@ try {
   Check (Test-Path -LiteralPath (Join-Path $ext 'x4mp\content.xml')) 'install: extensions\x4mp\content.xml is there'
   Check (Test-Path -LiteralPath (Join-Path $ext 'x4mp\native\x4mp.dll')) 'install: extensions\x4mp\native\x4mp.dll is there'
   Check (Test-Path -LiteralPath (Join-Path $ext 'x4native\VERSION')) 'install: X4Native carries its VERSION file'
+  Check (Test-Path -LiteralPath (Join-Path $game 'x4mp-launcher.exe')) 'install: the launcher shipped in the package was put beside the game'
   Check ($r.Out.Contains('x4mp: already enabled')) 'install: the profile already had x4mp enabled'
   Check ($r.Out.Contains('x4native: already enabled')) 'install: the profile already had x4native enabled'
   Check (@(Get-ChildItem -LiteralPath $account -Filter 'content.xml.bak-*').Count -eq 0) 'install: nothing changed, so content.xml was not rewritten'
@@ -152,6 +156,8 @@ try {
   $r = Run $CheckScript @('-GameDir', $game, '-AccountRoot', $data, '-NoPause', '-JsonPath', $jsonPath)
   Expect 'check' $r 0 'READY'
   Check ($r.Out.Contains('version_db:')) 'check: the version_db data for this build is reported'
+  Check ($r.Out.Contains('launcher:')) 'check: the launcher beside the game is reported'
+  Check (-not $r.Out.Contains('The X4MP launcher is not beside the game')) 'check: no note about a missing launcher'
   Check (Test-Path -LiteralPath $jsonPath) 'check: -JsonPath wrote a report'
   if (Test-Path -LiteralPath $jsonPath) {
     $report = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
@@ -252,6 +258,7 @@ try {
   Expect 'uninstall' $r 0 'Your saves, profiles and screenshots were not touched'
   Check (-not (Test-Path -LiteralPath (Join-Path $ext 'x4mp'))) 'uninstall: extensions\x4mp is gone'
   Check (-not (Test-Path -LiteralPath (Join-Path $ext 'x4native'))) 'uninstall: extensions\x4native is gone'
+  Check (-not (Test-Path -LiteralPath (Join-Path $game 'x4mp-launcher.exe'))) 'uninstall: the launcher beside the game is gone'
   Check (Test-Path -LiteralPath $stray) 'uninstall: another extension in extensions\ survived'
   Check (Test-Path -LiteralPath $save) 'uninstall: the save survived'
   Check (Test-Path -LiteralPath $profileContent) 'uninstall: the profile survived'

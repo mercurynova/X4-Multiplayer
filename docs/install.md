@@ -45,6 +45,8 @@ game exits. Everything it writes goes to `%LOCALAPPDATA%\X4MP`.
    - copies both extension trees and verifies the files it expects to find (`content.xml`,
      a 64-bit `native\x4mp.dll`, `ui`, `md`, `libraries`, `t\0001-l044.xml`, `x4native.json`,
      `x4native\native\x4native_64.dll`);
+   - copies `x4mp-launcher.exe` beside `X4.exe` when the package carries one (it is optional,
+     so an older package without it simply skips this, and `Uninstall.bat` removes it again);
    - puts the previous version back and exits with an error if that verification fails;
    - enables `x4mp` and `x4native` in the newest profile's `content.xml` (a copy of the old
      file is kept as `content.xml.bak-<stamp>`).

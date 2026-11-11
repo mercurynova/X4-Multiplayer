@@ -201,6 +201,16 @@ function Resolve-Payload([string]$Here, [string]$Source) {
   }
   if (-not $x4mp) { return $null }
 
+  # The launcher is optional: the release zip carries it at its root, a checkout builds it into out\.
+  $launcher = $null
+  foreach ($root in $roots) {
+    foreach ($rel in 'x4mp-launcher.exe', 'out\launcher-win-x64\x4mp-launcher.exe', 'out\launcher\x4mp-launcher.exe') {
+      $p = Join-Path $root $rel
+      if (Test-Path -LiteralPath $p) { $launcher = (Resolve-Path -LiteralPath $p).Path; break }
+    }
+    if ($launcher) { break }
+  }
+
   # A checkout keeps the dll in build\, the zip carries it inside the extension.
   $dll = $null
   if (-not (Test-Path -LiteralPath (Join-Path $x4mp 'native\x4mp.dll'))) {
@@ -222,6 +232,7 @@ function Resolve-Payload([string]$Here, [string]$Source) {
     X4Native = $x4native
     X4NativeExtras = $extras.ToArray()
     Dll = $dll
+    Launcher = $launcher
     Kind = $(if ($x4mp -like '*\extensions\x4mp') { 'package' } else { 'checkout' })
   }
 }
