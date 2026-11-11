@@ -48,6 +48,7 @@ jobs:
       e2e: ${{ steps.f.outputs.e2e }}
       e2e_win: ${{ steps.f.outputs.e2e_win }}
       launcher: ${{ steps.f.outputs.launcher }}
+      packaging: ${{ steps.f.outputs.packaging }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -91,12 +92,15 @@ jobs:
           # The launcher (M6-X2) is Windows-only and references X4MP.Protocol, so a protocol change or a
           # repo-wide build property change has to rebuild it as well.
           launcher=$(has '^(launcher/|server/src/X4MP\.Protocol/|protocol/|tools/flatc/|Directory\..*\.props$|global\.json$)')
+          # The installer scripts (M6) are guarded by installer/Test-Installer.ps1, a self-contained harness that builds
+          # its own fake game tree, so it needs a Windows runner but no built mod or server.
+          packaging=$(has '^(installer/|docs/install\.md$|docs/troubleshooting\.md$|\.github/workflows/release\.yml$|mod/tools/check-packaging\.ps1$)')
           if echo "$files" | grep -Ev '^mod/spikes/' | grep -Eq '^mod/'; then e2e_win=true; else e2e_win=$(has '^(server/src/|protocol/|tools/X4MP\.|tools/flatc/|tools/e2e\.ps1$|tools/session[234]/)'); fi
           if [ "$EVENT" = "push" ]; then e2e=true; e2e_win=true; fi   # a push to main always runs the whole E2E
-          if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; e2e_win=true; launcher=true; fi
+          if [ "$all" = true ]; then web=true; dotnet=true; protocol_cpp=true; mod=true; e2e=true; e2e_win=true; launcher=true; packaging=true; fi
           {
             echo "web=$web"; echo "dotnet=$dotnet"; echo "protocol_cpp=$protocol_cpp"
-            echo "mod=$mod"; echo "e2e=$e2e"; echo "e2e_win=$e2e_win"; echo "launcher=$launcher"
+            echo "mod=$mod"; echo "e2e=$e2e"; echo "e2e_win=$e2e_win"; echo "launcher=$launcher"; echo "packaging=$packaging"
           } | tee -a "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------------------------
@@ -223,6 +227,23 @@ jobs:
           path: launcher/TestResults
           if-no-files-found: ignore
           retention-days: 7
+
+  # ---------------------------------------------------------------------------------------------
+  # The player tools (M6): Install, Check Install, Collect Logs and Uninstall are guarded by
+  # installer/Test-Installer.ps1, which builds a throwaway game folder and profile in %TEMP% and
+  # drives the real scripts. It needs Windows PowerShell but no built mod or server, so this job
+  # stays independent of the C++ and .NET jobs.
+  # ---------------------------------------------------------------------------------------------
+  packaging:
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run the installer harness
+        shell: pwsh
+        run: installer/Test-Installer.ps1
 
   # ---------------------------------------------------------------------------------------------
   protocol-cpp:
