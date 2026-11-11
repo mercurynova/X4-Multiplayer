@@ -39,6 +39,9 @@ public static class TeamsExtensions
             module.EconomySource = () => sp.GetService<IOptionsMonitor<EconomyOptions>>() is { } economy
                 ? BuildEconomySettings(economy.CurrentValue, module.Teams.Count)
                 : null;
+            // The audit trail of player-initiated team changes (M5b): team membership used to reach the session record
+            // only through admin actions, so an accepted invite publishes its own domain event.
+            module.Events = sp.GetService<X4MP.Core.Events.IEventPublisher>();
             return module;
         });
         services.AddHostedService<TeamsStartup>(); // registered after DatabaseStartup, so it runs on a migrated database

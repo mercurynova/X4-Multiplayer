@@ -461,6 +461,12 @@ public sealed partial class TeamModule
             case MsgType.TeamChangeRequest:
                 HandleTeamChange(node, frame);
                 return true;
+            case MsgType.TeamInviteRequest:
+                HandleInviteRequest(node, frame);
+                return true;
+            case MsgType.TeamInviteRespond:
+                HandleInviteRespond(node, frame);
+                return true;
             default:
                 return false;
         }
@@ -469,9 +475,16 @@ public sealed partial class TeamModule
     /// <summary>What a request decided: the answer, and what to do after the answer is sent (the change and its fan-out).</summary>
     private readonly record struct Decision(TeamRequestResultT Result, Action? After = null);
 
-    private void ResolveLive(SessionNode node, Id128T? key, Func<Decision> decide)
+    private void ResolveLive(SessionNode node, Id128T? key, Func<Decision> decide, bool lobbyToo = false)
     {
-        if (!_state.TryGetValue(node.PlayerId, out var state) || node.Phase != NodePhase.InGame)
+        if (!_state.TryGetValue(node.PlayerId, out var state))
+        {
+            return;
+        }
+
+        // Team changes are for players in the world; an invitation also reaches a player still waiting in the lobby,
+        // because that is the only state in which a player has no team to be invited away from.
+        if (node.Phase != NodePhase.InGame && !(lobbyToo && node.Phase == NodePhase.AwaitingTeam))
         {
             return;
         }

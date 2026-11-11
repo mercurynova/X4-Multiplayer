@@ -163,4 +163,25 @@ public static class TeamFrames
         fbb.Finish(fbb.EndTable());
         return fbb;
     }
+
+    public static FlatBufferBuilder Invite(ulong requestKey, int toPlayer)
+    {
+        var fbb = new FlatBufferBuilder(64);
+        var t = new TeamInviteRequestT { RequestKey = new Id128T { Lo = requestKey, Hi = 0 }, ToPlayer = (ushort)toPlayer };
+        fbb.Finish(TeamInviteRequest.Pack(fbb, t).Value);
+        return fbb;
+    }
+
+    public static FlatBufferBuilder InviteRespond(ulong requestKey, uint inviteId, bool accept)
+    {
+        var fbb = new FlatBufferBuilder(64);
+        var t = new TeamInviteRespondT
+        {
+            RequestKey = new Id128T { Lo = requestKey, Hi = 0 },
+            InviteId = inviteId,
+            Accept = accept,
+        };
+        fbb.Finish(TeamInviteRespond.Pack(fbb, t).Value);
+        return fbb;
+    }
 }

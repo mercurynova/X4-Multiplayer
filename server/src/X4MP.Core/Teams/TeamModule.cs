@@ -492,6 +492,7 @@ public sealed partial class TeamModule : ISessionModule, ISessionActorBound, ITe
         }
 
         ExpireProposals(timestamp);
+        ExpireInvites(timestamp);
 
         List<SessionNode>? expired = null;
         foreach (var (playerId, state) in _state)

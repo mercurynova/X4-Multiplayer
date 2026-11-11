@@ -40,7 +40,8 @@ public class FrameCodecTests
         var actual = Registry.Descriptors.Select(d => d.Type).Order().ToArray();
         Assert.Equal(expected, actual);
         // 96 before T1.6; KnownSectors, MapSnapshot and MapDelta (0x0118-0x011A) are the three map messages.
-        Assert.Equal(99, actual.Length);
+        // 99 before M5b; TeamInviteRequest, TeamInvite and TeamInviteRespond (0x070A-0x070C) are the invite trio.
+        Assert.Equal(102, actual.Length);
     }
 
     [Fact]

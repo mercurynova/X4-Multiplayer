@@ -1475,6 +1475,45 @@
       "fields": {"FromTeam":1,"PlayerId":3,"Scope":0,"ToTeam":2}
     },
     {
+      "file": "0x070A_TeamInviteRequest.bin",
+      "kind": "frame",
+      "size": 48,
+      "sha256": "589fcebe83d0df3a8ee89d49a8e67dc9c32b6aed1b52b28bf51689b1024888dc",
+      "msgType": 1802,
+      "msgName": "TeamInviteRequest",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 40,
+      "fields": {"RequestKey":{"Hi":73,"Lo":24},"ToPlayer":4}
+    },
+    {
+      "file": "0x070B_TeamInvite.bin",
+      "kind": "frame",
+      "size": 60,
+      "sha256": "76b47f4611b4d747c2f3bad60104a0ba9a95e82e6eac17a1b768bf9ce13713c0",
+      "msgType": 1803,
+      "msgName": "TeamInvite",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 52,
+      "fields": {"ExpiresInS":120,"FromPlayer":3,"FromTeam":1,"InviteId":7,"TeamName":"Wolves"}
+    },
+    {
+      "file": "0x070C_TeamInviteRespond.bin",
+      "kind": "frame",
+      "size": 56,
+      "sha256": "d298e02e860b52b52cbabe05cbaf6c18c4d9b0046ed725fa6ee4d576b91ce7d0",
+      "msgType": 1804,
+      "msgName": "TeamInviteRespond",
+      "variant": "",
+      "lane": 0,
+      "payloadOffset": 8,
+      "payloadLength": 48,
+      "fields": {"Accept":true,"InviteId":7,"RequestKey":{"Hi":76,"Lo":25}}
+    },
+    {
       "file": "0x0800_WalletUpdate.bin",
       "kind": "frame",
       "size": 152,

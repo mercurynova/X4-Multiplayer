@@ -103,6 +103,9 @@ enum MsgType : ushort {
   TeamMemberChanged    = 0x0707,
   RelationProposal     = 0x0708,
   ReassignPlayerAssets = 0x0709,
+  TeamInviteRequest    = 0x070A,
+  TeamInvite           = 0x070B,
+  TeamInviteRespond    = 0x070C,
 
   // economy.fbs
   WalletUpdate         = 0x0800,

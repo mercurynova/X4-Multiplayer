@@ -232,9 +232,12 @@ public static class MessagePolicy
             (MsgType.TeamCreateRequest, C, PolicyPhase.AwaitingTeam),
             (MsgType.TeamChangeRequest, C, InGame),
             (MsgType.RelationChangeRequest, C, InGame),
+        (MsgType.TeamInviteRequest, C, PolicyPhase.AwaitingTeam | PolicyPhase.InGame),
+        (MsgType.TeamInviteRespond, C, PolicyPhase.AwaitingTeam | PolicyPhase.InGame),
             (MsgType.TeamRequestResult, None, PolicyPhase.None),
             (MsgType.TeamMemberChanged, None, PolicyPhase.None),
             (MsgType.RelationProposal, None, PolicyPhase.None),
+        (MsgType.TeamInvite, None, PolicyPhase.None),
             (MsgType.ReassignPlayerAssets, None, PolicyPhase.None),
 
             // Economy (0x08xx)

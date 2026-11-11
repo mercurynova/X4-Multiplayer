@@ -89,6 +89,9 @@ public sealed partial class MessageRegistry
         Add<TeamMemberChanged>(MsgType.TeamMemberChanged, Lane.Control, TeamMemberChanged.GetRootAsTeamMemberChanged, TeamMemberChangedVerify.Verify, t => t.UnPack());
         Add<RelationProposal>(MsgType.RelationProposal, Lane.Control, RelationProposal.GetRootAsRelationProposal, RelationProposalVerify.Verify, t => t.UnPack());
         Add<ReassignPlayerAssets>(MsgType.ReassignPlayerAssets, Lane.Control, ReassignPlayerAssets.GetRootAsReassignPlayerAssets, ReassignPlayerAssetsVerify.Verify, t => t.UnPack());
+        Add<TeamInviteRequest>(MsgType.TeamInviteRequest, Lane.Control, TeamInviteRequest.GetRootAsTeamInviteRequest, TeamInviteRequestVerify.Verify, t => t.UnPack());
+        Add<TeamInvite>(MsgType.TeamInvite, Lane.Control, TeamInvite.GetRootAsTeamInvite, TeamInviteVerify.Verify, t => t.UnPack());
+        Add<TeamInviteRespond>(MsgType.TeamInviteRespond, Lane.Control, TeamInviteRespond.GetRootAsTeamInviteRespond, TeamInviteRespondVerify.Verify, t => t.UnPack());
         Add<WalletUpdate>(MsgType.WalletUpdate, Lane.Control, WalletUpdate.GetRootAsWalletUpdate, WalletUpdateVerify.Verify, t => t.UnPack());
         Add<CreditDelta>(MsgType.CreditDelta, Lane.Control, CreditDelta.GetRootAsCreditDelta, CreditDeltaVerify.Verify, t => t.UnPack());
         Add<EconomyResult>(MsgType.EconomyResult, Lane.Control, EconomyResult.GetRootAsEconomyResult, EconomyResultVerify.Verify, t => t.UnPack());

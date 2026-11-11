@@ -430,6 +430,9 @@ public static class SampleMessages
         S(new TeamMemberChangedT { PlayerId = 3, FromTeam = 1, ToTeam = 2, Role = TeamRole.Leader, ByAdmin = true, TableVersion = 9 }),
         S(new RelationProposalT { FromTeam = 1, ToTeam = 2, Relation = TeamRelation.Allied, ExpiresInS = 120 }),
         S(new ReassignPlayerAssetsT { PlayerId = 3, FromTeam = 1, ToTeam = 2, Scope = MoveAssetsScope.ShipOnly }),
+        S(new TeamInviteRequestT { RequestKey = Id(24), ToPlayer = 4 }),
+        S(new TeamInviteT { InviteId = 7, FromPlayer = 3, FromTeam = 1, TeamName = "Wolves", ExpiresInS = 120 }),
+        S(new TeamInviteRespondT { RequestKey = Id(25), InviteId = 7, Accept = true }),
 
         // ---- economy ----
         S(new WalletUpdateT { Balances = Balances(), Reason = LedgerReason.Transfer, RefId = Id(30), EffectiveMode = EffectiveCreditMode.Shared, AckedDeltaSeq = 55 }),

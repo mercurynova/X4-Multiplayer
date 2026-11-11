@@ -67,6 +67,16 @@ public sealed record EconomyRequestRejected(
     long? IPlayerScoped.PlayerId => PlayerId;
 }
 
+/// <summary>A player-initiated team invitation and what came of it (M5b, ADR-046 3.1). Player-initiated team changes
+/// produced wire frames only before this, so an invited player joining left no row in the session record.
+/// <paramref name="Action"/> is <c>sent</c>, <c>accepted</c>, <c>declined</c> or <c>expired</c>.</summary>
+public sealed record TeamInviteHandled(
+    DateTimeOffset At, long? Session, long? PlayerId, int FromPlayerId, int ToPlayerId, int TeamId, string Action)
+    : DomainEvent(At, Session), IPlayerScoped
+{
+    long? IPlayerScoped.PlayerId => PlayerId;
+}
+
 /// <summary>An admin action. The audit forwarder turns it into an <c>audit_log</c> row; never put secrets in <paramref name="Data"/>.</summary>
 public sealed record AdminActionTaken(
     DateTimeOffset At, long? Session, string Actor, string Action, string? Target, IReadOnlyDictionary<string, string?>? Data, string? RemoteIp)

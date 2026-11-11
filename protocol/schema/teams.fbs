@@ -112,6 +112,15 @@ table TeamChangeRequest { request_key:Id128; team_id:ushort; password:[ubyte]; }
 /// within 120 s (server sends RelationProposal); lowering is unilateral.
 table RelationChangeRequest { request_key:Id128; other_team:ushort; relation:TeamRelation; }
 
+/// M5b: the leader of a team invites one online player to it. The inviter's team comes from the session, never from
+/// the frame, and the invitee is told with TeamInvite and answers with TeamInviteRespond. Answered like every other
+/// request: TeamRequestResult to the inviter.
+table TeamInviteRequest { request_key:Id128; to_player:ushort; }
+
+/// M5b: the invitee accepts or declines. Only the invitee can answer an invite_id; the inviter cannot answer it
+/// for the invited player.
+table TeamInviteRespond { request_key:Id128; invite_id:uint; accept:bool; }
+
 enum TeamRequestStatus : ubyte { Ok = 0, Pending, Rejected }
 enum TeamRejectReason : ubyte {
   None = 0, Locked, Full, BadPassword, NoFactionSlot, NameTaken, NotPermitted,
@@ -142,6 +151,15 @@ table RelationProposal {
   from_team:ushort;
   to_team:ushort;
   relation:TeamRelation;
+  expires_in_s:ushort;
+}
+
+/// S->C (the invited player only). M5b: a pending team invitation; the invitee answers with TeamInviteRespond.
+table TeamInvite {
+  invite_id:uint;
+  from_player:ushort;
+  from_team:ushort;
+  team_name:string;
   expires_in_s:ushort;
 }
 

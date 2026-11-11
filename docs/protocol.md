@@ -1522,6 +1522,9 @@ carries `request_key` (idempotency), which is not repeated below.
 | 0x0707 | TeamMemberChanged | S→N | Ctl | player_id, from_team, to_team, role, by_admin, table_version |
 | 0x0708 | RelationProposal | S→C (leader) | Ctl | from_team, to_team, relation, expires_in_s |
 | 0x0709 | ReassignPlayerAssets | S→A | Ctl | player_id, from_team, to_team, scope |
+| 0x070A | TeamInviteRequest | C→S | Ctl | to_player. Leader only; the inviter's team comes from the session. Answered by TeamRequestResult. |
+| 0x070B | TeamInvite | S→C (invitee) | Ctl | invite_id, from_player, from_team, team_name, expires_in_s. M5b Talk menu. |
+| 0x070C | TeamInviteRespond | C→S | Ctl | invite_id, accept. Only the invited player can answer. |
 
 ### Economy (0x08xx)
 
