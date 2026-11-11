@@ -125,12 +125,14 @@ RegisterEvent("x4mp.onfoot_actor", function(_, param)
 end)
 
 -- ---- the Talk menu (W5) ----------------------------------------------------------------------------------------------------------
--- MD adds two choices to the conversation with an MP actor and forwards the pick:
---   MD -> Lua      x4mp.onfoot_talk "wave;<pid>"
+-- MD adds the choices to the conversation with an MP actor and forwards the pick:
+--   MD -> Lua      x4mp.onfoot_talk "wave;<pid>;<name>"
 --   Lua -> native  x4mp.onfoot_talk {"v":1,"to":<pid>,"kind":"wave"}   (native sends PlayerInteraction on the Control lane)
 --   native -> Lua  x4mp.onfoot_talk_in {"v":1,"from":<pid>,"name":"Alice","kind":"wave"}
 --   Lua -> MD      AddUITriggeredEvent("X4MP_OnFoot","wave",{pid})      (MD plays the emote on that player's actor)
 -- "Message" is not a wire action: it prints the whisper command in the chat, because the vanilla chat window cannot be prefilled.
+-- "credits" and "trade" (M5b) are not wire actions either: they open the economy screen with that player already picked as the
+-- recipient, and the screen's own buttons send through the economy verb (/mp send, /mp propose) and its audit path.
 local function chatLine(text)
 	local chat = rawget(_G, "X4MPChat")
 	if type(chat) == "table" and type(chat.systemLine) == "function" then pcall(chat.systemLine, text) end
@@ -145,6 +147,29 @@ RegisterEvent("x4mp.onfoot_talk", function(_, param)
 	if name == "" then name = "player " .. tostring(pid) end
 	if kind == "message" then
 		chatLine("To whisper " .. name .. " type /w " .. name .. " your message")
+		return
+	end
+	-- M5b: the two economy actions are not new wire actions. Both open the economy screen with this player already picked as
+	-- the recipient, so sending credits and accepting a trade use the same buttons, verb and audit rows as the /mp commands.
+	if kind == "credits" or kind == "trade" then
+		local econ = rawget(_G, "X4MPEconomy")
+		local focused = type(econ) == "table" and type(econ.focusPeer) == "function" and econ.focusPeer(pid, name)
+		if not focused then
+			chatLine("Use /mp send " .. name .. " <credits>")
+			return
+		end
+		if kind == "trade" then
+			chatLine("Propose the ware with /mp propose " .. name .. " <ware> <qty> <credits>")
+		end
+		return
+	end
+	-- M5b: the team invitation is a real request: the server decides whether this player leads a team, and the invited
+	-- player answers it with /mp teamaccept <id> or /mp teamdecline <id>.
+	if kind == "invite" then
+		local teams = rawget(_G, "X4MPTeams")
+		if type(teams) ~= "table" or type(teams.invite) ~= "function" or not teams.invite(pid) then
+			chatLine("Could not invite " .. name .. " to the team")
+		end
 		return
 	end
 	if kind ~= "wave" then return end

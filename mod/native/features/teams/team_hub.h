@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // features/teams/team_hub: the hand-over point between the join feature's session pump and the teams feature (M3-08), and the apply state
 // machine (SDK-free, tested without a game):
 //
@@ -12,13 +12,16 @@
 //
 // MD report format (md/x4mp_teams.xml): "R;<seq>;<active>;<mismatches>;<player_locked>;<slots>;<relations>" or "E;<seq>;<reason>".
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-
+#include <utility>
+#include <vector>
 #include "features/teams/team_plan.h"
+#include "features/teams/teams_wire.h"
 
 namespace x4mp::features::teams {
 
@@ -55,6 +58,24 @@ class TeamHub {
   void on_welcome(std::span<const std::uint8_t> payload);
   void on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id);
   void session_ended();
+  // The node's own player id (the Welcome's): it is the high half of every request key this hub mints.
+  void set_self(std::uint16_t player) noexcept { self_id_ = player; }
+
+  // ---- M5b: player-initiated invitations to the player's own team ---------------------------------------------------
+  // The server decides whether the player may invite (leader, target online and teamless); these two only build the
+  // request. false + `error` when it cannot be built. The frame goes out on the next take_unsent().
+  bool invite(std::uint16_t to_player, std::string& error);
+  bool invite_respond(std::uint32_t invite_id, bool accept, std::string& error);
+
+  [[nodiscard]] std::vector<InviteOut> take_unsent();
+  // TeamInvite frames that arrived, oldest first. Taking them is what marks them told.
+  [[nodiscard]] std::vector<InviteNoticeView> take_notices();
+  // Answers to this hub's own invites/answers, oldest first.
+  [[nodiscard]] std::vector<InviteResultView> take_results();
+  // A frame take_unsent() handed out that the link refused: it goes back to the front of the queue, and its key stays
+  // in flight, so the answer is still matched when the frame finally leaves.
+  void requeue(InviteOut frame);
+  [[nodiscard]] std::size_t open_invites() const noexcept { return invite_ids_.size(); }
   // M3-28 diag switches: the player <-> own team relation value and whether MD skips set_faction_known. Set once at feature init.
   void set_diag(double own_value, bool skip_known) {
     own_value_ = own_value;
@@ -97,6 +118,14 @@ class TeamHub {
   std::string detail_;
   double waited_s_ = 0.0;
   std::uint32_t reports_ok_ = 0;
+
+  // M5b invitation bookkeeping (see teams_wire.h for the frames).
+  std::uint64_t key_seq_ = 0;
+  std::vector<InviteOut> unsent_;
+  std::vector<std::pair<std::uint64_t, std::string>> in_flight_;  // key low half -> the op the player used
+  std::vector<InviteNoticeView> notices_;
+  std::vector<std::uint32_t> invite_ids_;  // invitations this player was told about and can still answer
+  std::vector<InviteResultView> results_;
 };
 
 TeamHub& team_hub();

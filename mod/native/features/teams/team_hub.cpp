@@ -1,8 +1,16 @@
 #include "features/teams/team_hub.h"
 
+#include <algorithm>
 #include <charconv>
 
 namespace x4mp::features::teams {
+
+namespace {
+// M5b: a queue nobody drains (no session, or a link that refuses the frame) must not grow.
+constexpr std::size_t kMaxInviteUnsent = 8;
+constexpr std::size_t kMaxInviteNotices = 8;
+constexpr std::size_t kMaxInviteResults = 16;
+}  // namespace
 
 const char* state_name(SetupState s) noexcept {
   switch (s) {
@@ -73,10 +81,102 @@ void TeamHub::on_welcome(std::span<const std::uint8_t> payload) {
 
 void TeamHub::on_frame_message(std::uint16_t type, std::span<const std::uint8_t> payload, std::uint16_t self_id) {
   self_id_ = self_id;
+  // M5b: the two team frames that are not part of the team model. The invitee is told about an invitation, and the
+  // requester learns how its own invite/answer went; both are handed to the feature, which turns them into chat lines.
+  if (type == type_of(P::MsgType::TeamInvite)) {
+    InviteNoticeView notice;
+    if (!decode_team_invite(payload, notice)) return;
+    if (notices_.size() >= kMaxInviteNotices) notices_.erase(notices_.begin());
+    notices_.push_back(std::move(notice));
+    invite_ids_.push_back(notices_.back().invite_id);
+    if (invite_ids_.size() > kMaxInviteNotices) invite_ids_.erase(invite_ids_.begin());
+    return;
+  }
+  if (type == type_of(P::MsgType::TeamRequestResult)) {
+    InviteResultView result;
+    if (!decode_request_result(payload, result)) return;
+    for (auto it = in_flight_.begin(); it != in_flight_.end(); ++it) {
+      if (it->first != result.key_lo) continue;
+      result.op = it->second;
+      in_flight_.erase(it);
+      if (results_.size() >= kMaxInviteResults) results_.erase(results_.begin());
+      results_.push_back(std::move(result));
+      return;
+    }
+    return;  // not one of ours (a team change from another surface): the answer alone is enough
+  }
   if (model_.apply_frame(type, payload, self_id)) {
     dirty_ = true;
     if (dirty_reason_.empty()) dirty_reason_ = "teams";
   }
+}
+
+bool TeamHub::invite(std::uint16_t to_player, std::string& error) {
+  if (self_id_ == 0) {
+    error = "no session";
+    return false;
+  }
+  if (to_player == 0 || to_player == self_id_) {
+    error = "that is not another player";
+    return false;
+  }
+  const std::uint64_t key_lo = ++key_seq_;
+  InviteOut frame;
+  frame.type = type_of(P::MsgType::TeamInviteRequest);
+  frame.bytes = encode_invite_request(key_lo, self_id_, to_player);
+  frame.key_lo = key_lo;
+  if (unsent_.size() >= kMaxInviteUnsent) unsent_.erase(unsent_.begin());
+  unsent_.push_back(std::move(frame));
+  in_flight_.emplace_back(key_lo, "invite");
+  return true;
+}
+
+bool TeamHub::invite_respond(std::uint32_t invite_id, bool accept, std::string& error) {
+  if (self_id_ == 0) {
+    error = "no session";
+    return false;
+  }
+  const auto pending = std::find(invite_ids_.begin(), invite_ids_.end(), invite_id);
+  if (invite_id == 0 || pending == invite_ids_.end()) {  // only an invitation this player was told about can be answered
+    error = "no invitation to answer";
+    return false;
+  }
+  const std::uint64_t key_lo = ++key_seq_;
+  InviteOut frame;
+  frame.type = type_of(P::MsgType::TeamInviteRespond);
+  frame.bytes = encode_invite_respond(key_lo, self_id_, invite_id, accept);
+  frame.key_lo = key_lo;
+  if (unsent_.size() >= kMaxInviteUnsent) unsent_.erase(unsent_.begin());
+  unsent_.push_back(std::move(frame));
+  // The notice is consumed here: an answer can only be given once, and a stale id in the UI must not answer twice.
+  invite_ids_.erase(std::remove(invite_ids_.begin(), invite_ids_.end(), invite_id), invite_ids_.end());
+  notices_.erase(std::remove_if(notices_.begin(), notices_.end(), [invite_id](const InviteNoticeView& n) { return n.invite_id == invite_id; }),
+                 notices_.end());
+  in_flight_.emplace_back(key_lo, "respond");
+  return true;
+}
+
+std::vector<InviteOut> TeamHub::take_unsent() {
+  std::vector<InviteOut> out;
+  out.swap(unsent_);
+  return out;
+}
+
+std::vector<InviteNoticeView> TeamHub::take_notices() {
+  std::vector<InviteNoticeView> out;
+  out.swap(notices_);
+  return out;
+}
+
+std::vector<InviteResultView> TeamHub::take_results() {
+  std::vector<InviteResultView> out;
+  out.swap(results_);
+  return out;
+}
+
+void TeamHub::requeue(InviteOut frame) {
+  if (unsent_.size() >= kMaxInviteUnsent) return;
+  unsent_.insert(unsent_.begin(), std::move(frame));
 }
 
 void TeamHub::session_ended() {
@@ -87,6 +187,12 @@ void TeamHub::session_ended() {
   sent_plan_opt_.reset();
   state_ = SetupState::Unknown;
   detail_.clear();
+  key_seq_ = 0;
+  unsent_.clear();
+  in_flight_.clear();
+  notices_.clear();
+  invite_ids_.clear();
+  results_.clear();
 }
 
 std::optional<Pending> TeamHub::poll(bool universe_ready, std::uint64_t universe_epoch, double delta_s) {

@@ -219,6 +219,17 @@
     <t id="940">Wave</t>
     <t id="941">Message</t>
     <t id="942">Goodbye</t>
+    <t id="943">Send credits</t>
+    <t id="944">Trade</t>
+    <t id="945">Invite to my team</t>
+    <t id="946">Opening the economy screen for %s</t>
+    <t id="947">%s has no team to invite you to</t>
+    <t id="948">%s invited you to team %s. Accept with /mp teamaccept %s</t>
+    <t id="949">Your invitation was sent</t>
+    <t id="950">Invitation failed: %s</t>
+    <t id="951">You are on that team now</t>
+    <t id="952">You declined the invitation</t>
+    <t id="953">No pending invitation with that id</t>
     <t id="960">on foot, here</t>
     <t id="961">on foot</t>
     <t id="962">in a cockpit</t>

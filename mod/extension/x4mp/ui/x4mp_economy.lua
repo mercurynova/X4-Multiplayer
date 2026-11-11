@@ -303,6 +303,32 @@ local function refresh()
 	if type(M) == "table" and type(M.render) == "function" then M.render() end
 end
 
+--- E.focusPeer(pid, name): open the economy screen with <pid> already picked as the recipient (M5b, the Talk menu).
+--- A screen cannot be opened with an argument, so the pick is written into the state the screen reads: ui.pick is an
+--- index into peers(), the same list the recipient button cycles. Returns false when the player is not a peer (yet).
+function E.focusPeer(pid, name)
+	local p = tonumber(pid)
+	if not p then return false end
+	local S = rawget(_G, "X4MPScreens")
+	if type(S) ~= "table" or type(S.open) ~= "function" or type(S.initState) ~= "function" then return false end
+	local st = S.initState()
+	local ui = st.economy
+	if type(ui) ~= "table" then
+		ui = { amount = "", tab = "incoming", pick = 1, notice = nil }
+		st.economy = ui
+	end
+	local list = peers()
+	local found = false
+	for i = 1, #list do
+		if list[i].id == p then ui.pick = i; found = true; break end
+	end
+	if not found then ui.pick = 1 end
+	local shown = (type(name) == "string" and name ~= "") and name or ("player " .. tostring(p))
+	ui.notice = T(946, shown)
+	S.open("economy")
+	return found
+end
+
 --- E.screenRows(rows, st): the rows of the economy screen (M5-29, docs/mod-design.md 12.7). st is the menu state table, which keeps
 --- the amount box, the picked recipient and the trade tab between draws. Every action goes through the same verbs the /mp commands
 --- use, so the two ways into the economy cannot drift apart.
@@ -530,6 +556,9 @@ function E.command(param)
 	elseif cmd == "help" or cmd == "?" then
 		say(T(570))
 	else
+		-- M5b: the team invitation answers take "/mp" words too ("/mp teamaccept <id>"); everything else stays unknown here.
+		local teams = rawget(_G, "X4MPTeams")
+		if type(teams) == "table" and type(teams.command) == "function" and teams.command(cmd, rest) then return true end
 		say(T(569, cmd))
 	end
 	return true

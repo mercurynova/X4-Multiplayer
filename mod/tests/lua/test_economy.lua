@@ -525,3 +525,20 @@ test("economy: /mp propose without a ware says how it is called", function()
 	truthy(all():find("/mp propose", 1, true), all())
 end)
 
+-- M5b: the Talk menu cannot pass an argument to a screen, so it pre-writes the pick the economy screen reads. The index is
+-- into peers() (the same list the recipient button cycles), which is why the test pins the index, not only the id.
+test("economy: focusPeer opens the screen on that player and falls back to the first peer", function()
+	fresh()
+	players({ { id = 1, name = "Me" }, { id = 2, name = "Bob" }, { id = 3, name = "Cid" } }, 1)
+	local st = X4MPScreens.initState()
+	truthy(X4MPEconomy.focusPeer(3, "Cid"), "a listed peer was not focused")
+	eq(st.screen, "economy", "the economy screen was not opened")
+	eq(type(st.economy), "table", "the screen state was not created")
+	eq(st.economy.pick, 2, "Cid is the second peer once the local player is filtered out")
+	eq(X4MPEconomy.focusPeer("3", "Cid"), true, "a numeric string pid was not accepted")
+	eq(st.economy.pick, 2)
+	falsy(X4MPEconomy.focusPeer(99, "Ghost"), "an unknown pid must report that it is not a peer")
+	eq(st.economy.pick, 1, "an unknown pid must fall back to the first peer")
+	falsy(X4MPEconomy.focusPeer(nil, "x"), "a nil pid must be refused")
+end)
+

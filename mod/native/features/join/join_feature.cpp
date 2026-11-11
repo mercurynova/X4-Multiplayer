@@ -768,6 +768,7 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       map::map_hub().reset();
       raise_lua(ctx, "x4mp.map", map::map_hub().json());
       teams::team_hub().on_welcome(std::span<const std::uint8_t>(e.payload));  // M3-08: team table + relation matrix for the faction setup
+      teams::team_hub().set_self(static_cast<std::uint16_t>(session_->welcome().player_id));  // M5b: high half of every team request key
       mod_policy_json_ = join::mod_policy_json_from_welcome(std::span<const std::uint8_t>(e.payload));  // M2-X3
       if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
       sync_authority(ctx);  // M2-09

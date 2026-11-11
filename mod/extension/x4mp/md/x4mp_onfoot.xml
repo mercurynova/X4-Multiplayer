@@ -617,6 +617,10 @@
       choiceparam. The actor is event.object. "Message" is not a wire action - the vanilla chat window cannot be prefilled, so the Lua
       side prints the /w command; "Wave" goes to native, is relayed to the target only, and every viewer plays it on that actor.
       The choices only appear on our avatars: the $x4mp_pid variable is what tells them apart from a vanilla NPC.
+
+      M5b adds the two economy actions to the same menu. Neither is a new wire action: both open the economy screen with
+      the other player already picked as the recipient, and the screen's own buttons (send this amount, propose a trade)
+      go through the economy verb the /mp commands use. That keeps one code path and one audit trail per action.
     -->
     <cue name="X4MP_OnFoot_Talk" instantiate="true">
       <conditions>
@@ -626,6 +630,9 @@
       <actions>
         <add_player_choice text="{92000,940}" section="x4mp_mp_wave" choiceparam="'wave'" position="top_left"/>
         <add_player_choice text="{92000,941}" section="x4mp_mp_message" choiceparam="'message'" position="left"/>
+        <add_player_choice text="{92000,943}" section="x4mp_mp_credits" choiceparam="'credits'" position="right"/>
+        <add_player_choice text="{92000,944}" section="x4mp_mp_trade" choiceparam="'trade'" position="bottom_left"/>
+        <add_player_choice text="{92000,945}" section="x4mp_mp_invite" choiceparam="'invite'" position="bottom"/>
         <add_player_choice_return text="{92000,942}" position="bottom_right"/>
       </actions>
     </cue>

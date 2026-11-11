@@ -1,4 +1,4 @@
-// M3-08: features/teams: the team model from the server frames, the matrix -> plan -> MD call list mapping, and the apply state machine of the hub.
+﻿// M3-08: features/teams: the team model from the server frames, the matrix -> plan -> MD call list mapping, and the apply state machine of the hub.
 #include <catch2/catch_test_macros.hpp>
 
 #include <nlohmann/json.hpp>
@@ -394,4 +394,127 @@ TEST_CASE("teams: MD report parsing", "[teams]") {
   CHECK(e.valid);
   CHECK(e.error);
   CHECK(e.seq == 7);
+}
+
+// ---- M5b: the talk-menu team invitation -------------------------------------------------------
+namespace {
+
+std::vector<std::uint8_t> frame_bytes(const flatbuffers::FlatBufferBuilder& fbb) {
+  return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
+}
+
+std::vector<std::uint8_t> invite_notice_bytes(std::uint32_t id, std::uint16_t from, std::uint16_t team, const char* name) {
+  flatbuffers::FlatBufferBuilder fbb(128);
+  const auto team_name = fbb.CreateString(name);
+  const auto message = P::CreateTeamInvite(fbb, id, from, team, team_name, 120);
+  fbb.Finish(message);
+  return frame_bytes(fbb);
+}
+
+std::vector<std::uint8_t> request_result_bytes(std::uint64_t lo, std::uint64_t hi, P::TeamRequestStatus status,
+                                               P::TeamRejectReason reason) {
+  flatbuffers::FlatBufferBuilder fbb(96);
+  const P::Id128 key(lo, hi);
+  const auto detail = fbb.CreateString("detail");
+  const auto message = P::CreateTeamRequestResult(fbb, &key, status, reason, detail, 1);
+  fbb.Finish(message);
+  return frame_bytes(fbb);
+}
+
+}  // namespace
+
+TEST_CASE("teams hub: an invitation asks the server with a key the local player can be told apart by", "[teams][invite]") {
+  TeamHub hub;
+  hub.set_self(7);
+  std::string error;
+  REQUIRE(hub.invite(9, error));
+  const auto frames = hub.take_unsent();
+  REQUIRE(frames.size() == 1);
+  CHECK(frames[0].type == static_cast<std::uint16_t>(P::MsgType::TeamInviteRequest));
+  const auto* request = flatbuffers::GetRoot<P::TeamInviteRequest>(frames[0].bytes.data());
+  REQUIRE(request != nullptr);
+  CHECK(request->to_player() == 9);
+  REQUIRE(request->request_key() != nullptr);
+  CHECK(request->request_key()->lo() == frames[0].key_lo);
+  CHECK(request->request_key()->hi() == 7);
+}
+
+TEST_CASE("teams hub: the answer to an invitation comes back as a result with the op that asked for it", "[teams][invite]") {
+  TeamHub hub;
+  hub.set_self(7);
+  std::string error;
+  REQUIRE(hub.invite(9, error));
+  const auto frames = hub.take_unsent();
+  REQUIRE(frames.size() == 1);
+  const auto result = request_result_bytes(frames[0].key_lo, 7, P::TeamRequestStatus::Ok, P::TeamRejectReason::None);
+  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::TeamRequestResult), std::span<const std::uint8_t>(result), 7);
+  const auto results = hub.take_results();
+  REQUIRE(results.size() == 1);
+  CHECK(results[0].op == "invite");
+  CHECK(results[0].status == static_cast<std::uint8_t>(P::TeamRequestStatus::Ok));
+  CHECK(results[0].team_id == 1);
+  CHECK(hub.take_unsent().empty());  // the invitation frame was already taken; taking it again yields nothing
+}
+
+TEST_CASE("teams hub: an incoming invitation is a notice and can be answered exactly once", "[teams][invite]") {
+  TeamHub hub;
+  hub.set_self(7);
+  const auto notice = invite_notice_bytes(5, 3, 1, "Wolves");
+  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::TeamInvite), std::span<const std::uint8_t>(notice), 7);
+  CHECK(hub.open_invites() == 1);
+  const auto notices = hub.take_notices();
+  REQUIRE(notices.size() == 1);
+  CHECK(notices[0].invite_id == 5);
+  CHECK(notices[0].from_player == 3);
+  CHECK(notices[0].from_team == 1);
+  CHECK(notices[0].team_name == "Wolves");
+  CHECK(notices[0].expires_in_s == 120);
+
+  std::string error;
+  REQUIRE(hub.invite_respond(5, true, error));
+  CHECK(hub.open_invites() == 0);
+  const auto frames = hub.take_unsent();
+  REQUIRE(frames.size() == 1);
+  CHECK(frames[0].type == static_cast<std::uint16_t>(P::MsgType::TeamInviteRespond));
+  const auto* answer = flatbuffers::GetRoot<P::TeamInviteRespond>(frames[0].bytes.data());
+  REQUIRE(answer != nullptr);
+  CHECK(answer->invite_id() == 5);
+  CHECK(answer->accept());
+
+  CHECK_FALSE(hub.invite_respond(5, false, error));  // the invitation is gone: an answer cannot be repeated
+  CHECK(hub.take_unsent().empty());
+}
+
+TEST_CASE("teams hub: an invitation without a session or to the local player is refused", "[teams][invite]") {
+  TeamHub hub;
+  std::string error;
+  CHECK_FALSE(hub.invite(9, error));
+  CHECK(error == "no session");
+  hub.set_self(7);
+  CHECK_FALSE(hub.invite(7, error));
+  CHECK(hub.invite(0, error) == false);
+  CHECK(hub.take_unsent().empty());
+  CHECK_FALSE(hub.invite_respond(1, true, error));
+}
+
+TEST_CASE("teams hub: a refusal token names the server reason", "[teams][invite]") {
+  using R = P::TeamRejectReason;
+  CHECK(std::string(reject_token(static_cast<std::uint8_t>(R::NotLeader))) == "not_leader");
+  CHECK(std::string(reject_token(static_cast<std::uint8_t>(R::SameTeam))) == "same_team");
+  CHECK(std::string(reject_token(static_cast<std::uint8_t>(R::NotPermitted))) == "not_permitted");
+  CHECK(std::string(reject_token(static_cast<std::uint8_t>(R::RateLimited))) == "rate_limited");
+  CHECK(std::string(reject_token(static_cast<std::uint8_t>(R::None))) == "none");
+  CHECK(std::string(reject_token(200)) == "none");
+}
+
+TEST_CASE("teams hub: ending the session forgets invitations and pending results", "[teams][invite]") {
+  TeamHub hub;
+  hub.set_self(7);
+  const auto notice = invite_notice_bytes(5, 3, 1, "Wolves");
+  hub.on_frame_message(static_cast<std::uint16_t>(P::MsgType::TeamInvite), std::span<const std::uint8_t>(notice), 7);
+  hub.session_ended();
+  CHECK(hub.open_invites() == 0);
+  CHECK(hub.take_notices().empty());
+  CHECK(hub.take_results().empty());
+  CHECK(hub.take_unsent().empty());
 }

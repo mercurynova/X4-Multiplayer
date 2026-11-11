@@ -7,6 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "features/events/events_hub.h"
 #include "features/teams/team_hub.h"
 #include "features/teams/team_plan.h"
 
@@ -35,13 +36,17 @@ struct TeamsFeature::Inbox {
   }
 };
 
-TeamsFeature::TeamsFeature() : inbox_(std::make_shared<Inbox>()) {}
+TeamsFeature::TeamsFeature() : inbox_(std::make_shared<Inbox>()), invite_inbox_(std::make_shared<Inbox>()) {}
 
 void TeamsFeature::on_init(host::HostContext& ctx) {
   auto inbox = inbox_;
   // The MD report, forwarded by ui/x4mp_teams.lua. May arrive on any thread: copy only.
   const bool ok = ctx.platform.subscribe_event("x4mp.teams_md", [inbox](std::string_view text) { inbox->push(text); });
   X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "teams: bridge verb x4mp.teams_md {}", ok ? "subscribed" : "not available");
+  // M5b: the player's own team actions (invite a player, answer an invitation), asked for by ui/x4mp_teams.lua.
+  auto invites = invite_inbox_;
+  const bool invite_ok = ctx.platform.subscribe_event("x4mp.teams_invite", [invites](std::string_view text) { invites->push(text); });
+  X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "teams: bridge verb x4mp.teams_invite {}", invite_ok ? "subscribed" : "not available");
   teams::team_hub().set_diag(teams::own_team_value(ctx.config.diag.team_self_relation_100), ctx.config.diag.no_set_faction_known);
   if (ctx.config.diag.team_self_relation_100) {
     X4MP_CLOG(ctx.log, Cat::Md, Level::Warn, "teams: diag.team_self_relation_100 is set: player <-> own team is written as +1.0 (the engine's self range) instead of +0.99");
@@ -70,6 +75,71 @@ void TeamsFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info)
       ++counters_.stale_reports;
       X4MP_CLOG(ctx.log, Cat::Md, Level::Debug, "teams: stale or invalid MD report ignored '{}'", text);
     }
+  }
+
+  // ---- M5b: the player's own team actions (invite a player, answer an invitation) -------------------------------
+  // The UI asks here; the hub builds the frames and matches the answers; nothing leaves this frame unless the link
+  // takes it, and what it refuses waits in the queue for the next frame.
+  for (const auto& raw : invite_inbox_->take()) {
+    std::string op;
+    int to = 0;
+    unsigned long long id = 0;
+    bool accept = false;
+    try {
+      const auto j = nlohmann::json::parse(raw);
+      if (j.is_object()) {
+        if (j.contains("op") && j["op"].is_string()) op = j["op"].get<std::string>();
+        if (j.contains("to") && j["to"].is_number_integer()) to = j["to"].get<int>();
+        if (j.contains("id") && j["id"].is_number_unsigned()) id = j["id"].get<unsigned long long>();
+        if (j.contains("accept") && j["accept"].is_boolean()) accept = j["accept"].get<bool>();
+      }
+    } catch (const nlohmann::json::exception&) {
+    }
+    std::string error;
+    bool queued = false;
+    if (op == "invite") {
+      queued = hub.invite(static_cast<std::uint16_t>(to), error);
+    } else if (op == "respond") {
+      queued = hub.invite_respond(static_cast<std::uint32_t>(id), accept, error);
+    } else {
+      error = "unknown op";
+    }
+    if (queued) {
+      ++counters_.invites;
+      continue;
+    }
+    ++counters_.invite_failed;
+    const nlohmann::json out = {{"v", 1}, {"kind", "error"}, {"op", op}, {"error", error}};
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Warn, "teams: invite request '{}' refused locally: {}", op, error);
+    ctx.platform.raise_lua("x4mp.teams_invite", out.dump());
+  }
+
+  for (const auto& frame : hub.take_unsent()) {
+    const std::span<const std::uint8_t> payload(frame.bytes.data(), frame.bytes.size());
+    if (!events::events_hub().send_control(frame.type, payload)) {
+      ++counters_.send_failed;
+      hub.requeue(frame);
+      break;  // the link is down; the queue keeps the order for the next frame
+    }
+  }
+
+  for (const auto& notice : hub.take_notices()) {
+    ++counters_.invite_notices;
+    const nlohmann::json out = {{"v", 1},   {"kind", "notice"}, {"id", notice.invite_id},      {"from", notice.from_player},
+                                {"team", notice.from_team}, {"name", notice.team_name},       {"expires", notice.expires_in_s}};
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "teams: invite {} from player {} to team {} '{}'", notice.invite_id, notice.from_player,
+              notice.from_team, notice.team_name);
+    ctx.platform.raise_lua("x4mp.teams_invite", out.dump());
+  }
+
+  for (const auto& result : hub.take_results()) {
+    const bool ok = result.status == 0;
+    const std::string reason = teams::reject_token(result.reason);
+    const nlohmann::json out = {{"v", 1},      {"kind", "result"}, {"op", result.op}, {"ok", ok},
+                                {"reason", reason}, {"team", result.team_id}, {"detail", result.detail}};
+    X4MP_CLOG(ctx.log, Cat::Md, Level::Info, "teams: {} -> {}{}{}", result.op, ok ? "ok" : "rejected",
+              ok ? "" : (" " + reason), result.detail.empty() ? "" : (": " + result.detail));
+    ctx.platform.raise_lua("x4mp.teams_invite", out.dump());
   }
 
   const auto before = hub.state();

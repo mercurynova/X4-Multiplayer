@@ -103,3 +103,101 @@ test("the Lua file is registered in ui.xml and the MD cue listens on the same sc
 	truthy(md:find("'x4mp.md_teams'", 1, true))
 	falsy(md:find('faction="faction.player" locked', 1, true), "MD never locks or unlocks player")
 end)
+
+-- ---- M5b: player-to-player team invitations ------------------------------------------------------------------------------
+-- The Lua half only carries the words: the server decides who may invite and whether an answer is allowed. What a test can pin
+-- is the JSON the native half reads, the id /mp teamaccept and /mp teamdecline take, and the lines the player sees.
+local function inviteSetup()
+	local log = setup()
+	local lines = {}
+	_G.X4MPChat = { systemLine = function(text) lines[#lines + 1] = text end }
+	_G.X4MPScreens = {
+		T = function(id, ...)
+			local body = env.texts[id]
+			if type(body) ~= "string" then return "[92000," .. id .. "]" end
+			if select("#", ...) > 0 then
+				local ok, res = pcall(string.format, body, ...)
+				if ok then body = res end
+			end
+			return body
+		end,
+	}
+	X4MPTeams.pending()
+	return log, lines
+end
+
+local function lastInvite()
+	local sent = env.raisedNamed("x4mp.teams_invite")
+	return sent[#sent] and X4MPBridge.json.decode(sent[#sent])
+end
+
+test("M5b: a Talk-menu invite asks native for a TeamInviteRequest", function()
+	local log = inviteSetup()
+	truthy(X4MPTeams.invite(7))
+	local body = lastInvite()
+	eq(body.op, "invite")
+	eq(body.to, 7)
+	eq(#log.md, 0, "an invitation is not a faction plan")
+	falsy(X4MPTeams.invite(nil), "a pid is required")
+	eq(#env.raisedNamed("x4mp.teams_invite"), 1)
+end)
+
+test("M5b: a notice is remembered and says how to answer it", function()
+	local _, lines = inviteSetup()
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"notice","id":5,"from":2,"team":1,"name":"Wolves","expires":120}')
+	local pending = X4MPTeams.pending()
+	eq(#pending, 1)
+	eq(pending[1].id, 5)
+	eq(pending[1].from, 2)
+	eq(pending[1].team, "Wolves")
+	eq(#lines, 1)
+	truthy(lines[1]:find("Wolves", 1, true), lines[1])
+	truthy(lines[1]:find("/mp teamaccept 5", 1, true), lines[1])
+	truthy(lines[1]:find("player 2", 1, true), "an unknown id falls back to a plain name: " .. lines[1])
+end)
+
+test("M5b: /mp teamaccept answers the invitation and clears it", function()
+	inviteSetup()
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"notice","id":5,"from":2,"team":1,"name":"Wolves","expires":120}')
+	eq(#X4MPTeams.pending(), 1)
+	truthy(X4MPTeams.command("teamaccept", "5"))
+	local body = lastInvite()
+	eq(body.op, "respond")
+	eq(body.id, 5)
+	eq(body.accept, true)
+	eq(#X4MPTeams.pending(), 0, "an answered invitation is not pending any more")
+end)
+
+test("M5b: /mp teamdecline sends a refusal and a foreign word is not ours", function()
+	inviteSetup()
+	truthy(X4MPTeams.command("teamdecline", "9"))
+	local body = lastInvite()
+	eq(body.op, "respond")
+	eq(body.id, 9)
+	eq(body.accept, false)
+	falsy(X4MPTeams.command("bogus", ""), "only the two invitation words are handled here")
+	truthy(X4MPTeams.command("teamaccept", "abc"), "an id that is not a number is still our word")
+	eq(#env.raisedNamed("x4mp.teams_invite"), 1, "no request went out for a bad id")
+end)
+
+test("M5b: a refused invitation says why, the same way native reported it", function()
+	local _, lines = inviteSetup()
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"result","op":"invite","ok":false,"reason":"not_leader"}')
+	eq(#lines, 1)
+	truthy(lines[1]:find("not_leader", 1, true), lines[1])
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"result","op":"invite","ok":true,"team":1}')
+	truthy(lines[2]:find("sent", 1, true), lines[2])
+end)
+
+test("M5b: an answered invitation says which way it went", function()
+	local _, lines = inviteSetup()
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"notice","id":5,"from":2,"team":1,"name":"Wolves","expires":120}')
+	X4MPTeams.command("teamaccept", "5")
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"result","op":"respond","ok":true,"team":1}')
+	truthy(lines[#lines]:find("team now", 1, true), lines[#lines])
+	X4MPTeams.command("teamdecline", "6")
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"result","op":"respond","ok":true}')
+	truthy(lines[#lines]:find("declined", 1, true), lines[#lines])
+	env.fire("x4mp.teams_invite", '{"v":1,"kind":"error","op":"invite","error":"no session"}')
+	truthy(lines[#lines]:find("no session", 1, true), lines[#lines])
+end)

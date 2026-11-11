@@ -27,6 +27,9 @@ class TeamsFeature final : public host::IFeature {
     std::uint32_t send_failed = 0;
     std::uint32_t reports = 0;
     std::uint32_t stale_reports = 0;
+    std::uint32_t invites = 0;         // M5b: requests the UI asked for and the hub queued
+    std::uint32_t invite_failed = 0;   // M5b: requests refused before they left (no session, no such player)
+    std::uint32_t invite_notices = 0;  // M5b: TeamInvite frames shown to the player
   };
 
   TeamsFeature();
@@ -38,6 +41,7 @@ class TeamsFeature final : public host::IFeature {
  private:
   struct Inbox;
   std::shared_ptr<Inbox> inbox_;
+  std::shared_ptr<Inbox> invite_inbox_;
   Counters counters_;
   std::string last_state_logged_;
 };
