@@ -209,6 +209,36 @@ jobs:
       - name: SHA256SUMS
         working-directory: dist
         run: sha256sum ./*.zip ./*.tar.gz | sed 's|\./||' | tee SHA256SUMS
+      # The checksums are only worth something if they are signed. RELEASE_GPG_PRIVATE_KEY is an
+      # armored, passphrase-protected key; RELEASE_GPG_PASSPHRASE is optional (a key without a
+      # passphrase works too). The public key ships next to the checksums so a user can verify
+      # without hunting for it.
+      - name: Import the release signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::error::RELEASE_GPG_PRIVATE_KEY is not set: a release must carry signed checksums."
+            exit 1
+          fi
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          gpg --batch --quiet --export --armor > dist/x4mp-release-signing-key.asc
+      - name: Sign SHA256SUMS
+        env:
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          if [ -n "${GPG_PASSPHRASE:-}" ]; then
+            gpg --batch --yes --pinentry-mode loopback \
+              --passphrase-file <(printf '%s' "$GPG_PASSPHRASE") \
+              --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS
+          else
+            gpg --batch --yes --pinentry-mode loopback --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS
+          fi
+          gpg --verify SHA256SUMS.asc SHA256SUMS
+          echo "SHA256SUMS signed:"
+          cat SHA256SUMS.asc
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}

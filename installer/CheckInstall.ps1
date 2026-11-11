@@ -281,7 +281,71 @@ if (-not $rule -or $rule.Count -eq 0) {
   Note 'No Windows Firewall rule for X4MP was found, so players on other PCs cannot join this host' 'As administrator, run: New-NetFirewallRule -DisplayName "X4MP" -Direction Inbound -Protocol TCP -LocalPort 47780,47790 -Profile Private -Action Allow; New-NetFirewallRule -DisplayName "X4MP realtime" -Direction Inbound -Protocol UDP -LocalPort 47781 -Profile Private -Action Allow'
 }
 
-# 9. Verdict.
+# 9. The launcher beside the game, the save folder, the disk, the settings files and the sidecar exe.
+# None of these can stop the mod from loading, so they are notes and warnings, not blockers.
+$launcher = Join-Path $GameDir 'x4mp-launcher.exe'
+if (Test-Path -LiteralPath $launcher) {
+  Write-Host ('  launcher: {0}' -f $launcher)
+} else {
+  Note 'The X4MP launcher is not beside the game, so hosting and joining start from the game menu instead' 'The launcher is optional. It checks for updates and writes launch.json. Unzip the whole package into the game folder to get it.'
+}
+
+if ($accounts.Count -gt 0) {
+  $saveDir = Join-Path $accounts[0] 'save'
+  $saveOk = $true
+  try {
+    if (-not (Test-Path -LiteralPath $saveDir)) { New-Item -ItemType Directory -Path $saveDir -Force | Out-Null }
+    $probe = Join-Path $saveDir '.write-probe'
+    [IO.File]::WriteAllText($probe, 'x')
+    Remove-Item -LiteralPath $probe -Force
+  } catch {
+    $saveOk = $false
+  }
+  if ($saveOk) {
+    Write-Host ('  save folder: {0}' -f $saveDir)
+  } else {
+    Warn ('The save folder cannot be written: {0}' -f $saveDir) 'The game cannot save or load there, and neither can the mod. Check the folder permissions, or move Documents\Egosoft\X4 to a writable disk.'
+  }
+}
+
+$driveFree = $null
+try {
+  $driveName = (Split-Path -Qualifier $GameDir).TrimEnd(':')
+  $driveFree = (Get-PSDrive -Name $driveName -ErrorAction Stop).Free
+} catch { }
+if ($null -ne $driveFree) {
+  $freeGb = [math]::Round($driveFree / 1GB, 1)
+  if ($driveFree -lt 5GB) {
+    Warn ('Only {0} GB is free on the game drive' -f $freeGb) 'A session save is 25-40 MB per checkpoint and the install is about 0.5 GB. Free some space before hosting a long session.'
+  } else {
+    Write-Host ('  game drive free: {0} GB' -f $freeGb)
+  }
+}
+
+$configs = @((Join-Path $env:LOCALAPPDATA 'X4MP\x4mp.json'))
+if ($mod) { $configs += (Join-Path $mod 'x4mp.json') }
+foreach ($cfg in $configs) {
+  if (-not (Test-Path -LiteralPath $cfg)) {
+    Write-Host ('  config: {0} (not created yet, the defaults are used)' -f $cfg)
+    continue
+  }
+  try {
+    $null = Get-Content -LiteralPath $cfg -Raw | ConvertFrom-Json
+    Write-Host ('  config: {0}' -f $cfg)
+  } catch {
+    Warn ('The settings file is not valid JSON: {0}' -f $cfg) 'Delete it and start the game again: the mod writes a fresh one with the defaults.'
+  }
+}
+
+if ($serverExe -and (Test-Path -LiteralPath $serverExe)) {
+  if (Test-Pe64 $serverExe) {
+    Write-Host '  server exe: 64-bit'
+  } else {
+    Warn ('The server executable is not 64-bit: {0}' -f $serverExe) 'Run Install.bat again from the package: the bundle carries the 64-bit build.'
+  }
+}
+
+# 10. Verdict.
 if ($JsonPath) {
   $out = [pscustomobject]@{
     version = $script:X4MPInstallerVersion

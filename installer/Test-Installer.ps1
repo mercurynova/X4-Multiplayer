@@ -138,10 +138,13 @@ try {
   # ---- 2. Install.
   Write-Host 'install'
   $r = Run $InstallScript @('-GameDir', $game, '-AccountRoot', $data, '-Source', $pkg, '-NoPause')
-  Expect 'install' $r 0 'Now do these three things:'
+  Expect 'install' $r 0 'Now do these two things:'
   Check (Test-Path -LiteralPath (Join-Path $ext 'x4mp\content.xml')) 'install: extensions\x4mp\content.xml is there'
   Check (Test-Path -LiteralPath (Join-Path $ext 'x4mp\native\x4mp.dll')) 'install: extensions\x4mp\native\x4mp.dll is there'
   Check (Test-Path -LiteralPath (Join-Path $ext 'x4native\VERSION')) 'install: X4Native carries its VERSION file'
+  Check ($r.Out.Contains('x4mp: already enabled')) 'install: the profile already had x4mp enabled'
+  Check ($r.Out.Contains('x4native: already enabled')) 'install: the profile already had x4native enabled'
+  Check (@(Get-ChildItem -LiteralPath $account -Filter 'content.xml.bak-*').Count -eq 0) 'install: nothing changed, so content.xml was not rewritten'
 
   # ---- 3. A clean install must pass the health check.
   Write-Host ''
@@ -207,9 +210,26 @@ try {
   Set-ExtensionEnabled $profileContent 'x4mp' $false
   $r = Run $CheckScript @('-GameDir', $game, '-AccountRoot', $data, '-NoPause')
   Expect 'disabled extension' $r 1 'is not enabled for this profile'
-  Set-ExtensionEnabled $profileContent 'x4mp' $true
+  $r = Run $InstallScript @('-GameDir', $game, '-AccountRoot', $data, '-Source', $pkg, '-NoPause')
+  Check ($r.Code -eq 0) 'disabled extension: the installer runs again'
+  Check ($r.Out.Contains('x4mp: enabled')) 'disabled extension: the installer enables it in the profile'
+  Check (@(Get-ChildItem -LiteralPath $account -Filter 'content.xml.bak-*').Count -eq 1) 'disabled extension: the previous content.xml is kept as a backup'
   $r = Run $CheckScript @('-GameDir', $game, '-AccountRoot', $data, '-NoPause')
   Check ($r.Code -eq 0) 'disabled extension: enabled again, the verdict is READY'
+
+  # ---- 7b. A package that does not verify: the previous install must come back.
+  Write-Host ''
+  Write-Host 'install, broken package over a good install'
+  Write-Text (Join-Path $ext 'x4mp\marker.txt') 'the good install'
+  $broken = Join-Path $tmp 'package-broken'
+  Copy-Item -Recurse -Force $pkg $broken
+  Remove-Item -LiteralPath (Join-Path $broken 'extensions\x4mp\md') -Recurse -Force
+  $r = Run $InstallScript @('-GameDir', $game, '-AccountRoot', $data, '-Source', $broken, '-NoPause')
+  Expect 'broken package' $r 1 'The new copy did not verify'
+  Check ($r.Out.Contains('Backed up extensions\x4mp')) 'broken package: the good tree was backed up first'
+  Check ($r.Out.Contains('Restored extensions\x4mp')) 'broken package: the good tree was put back'
+  Check (Test-Path -LiteralPath (Join-Path $ext 'x4mp\marker.txt')) 'broken package: the good tree is the one on disk'
+  Check (Test-Path -LiteralPath (Join-Path $ext 'x4mp\md')) 'broken package: the missing folder is back'
 
   # ---- 8. The zip unzipped into the game folder: the payload is already where the copy would put
   # it, and the destination must not be deleted as if it were an old install.

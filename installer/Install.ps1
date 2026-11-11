@@ -36,6 +36,7 @@ $ErrorActionPreference = 'Stop'
 
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $AccountRoot) { $AccountRoot = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Egosoft\X4' }
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 
 Write-Head 'X4MP installer'
 Write-Host ('Package: {0}' -f $Here)
@@ -66,6 +67,23 @@ if (-not (Test-Path -LiteralPath (Join-Path $GameDir 'X4.exe'))) {
 }
 $GameDir = (Resolve-Path -LiteralPath $GameDir).Path
 Write-Host ('Game:    {0}' -f $GameDir)
+
+# The mod is built against one game build. Installing over a different one copies files that will not
+# load, so say it now instead of leaving it to Check Install after the fact.
+$versionDat = Join-Path $GameDir 'version.dat'
+if (Test-Path -LiteralPath $versionDat) {
+  $gameVersion = (Get-Content -LiteralPath $versionDat -Raw).Trim()
+  if ($gameVersion -ne $script:X4Version) {
+    Write-Host ''
+    Write-Host ('The game is version {0}, the mod was built for {1}.' -f $gameVersion, $script:X4Version)
+    if (-not $Force) {
+      Write-Host 'Update or roll back the game, or install the mod build for your version.'
+      Write-Host 'Add -Force to install anyway.'
+      exit 1
+    }
+    Write-Host 'Installing anyway because -Force was given.'
+  }
+}
 
 $payload = Resolve-Payload -Here $Here -Source $Source
 if (-not $payload) {
@@ -133,7 +151,34 @@ function Copy-Tree([string]$From, [string]$To) {
 }
 
 Write-Host ''
+# An upgrade replaces the whole extension folder, so keep the old one until the new one verifies.
+$backupRoot = Join-Path $env:LOCALAPPDATA ('X4MP\install-backup\' + $stamp)
+$backups = New-Object System.Collections.Generic.List[string]
+function Backup-Tree([string]$Path, [string]$Name, [string]$From) {
+  # Nothing is wiped when the payload already lives in the game folder, so there is nothing to keep.
+  if (-not (Test-Path -LiteralPath $Path)) { return }
+  if (Same-Folder $From $Path) { return }
+  if (-not (Test-Path -LiteralPath $backupRoot)) { New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null }
+  $dst = Join-Path $backupRoot $Name
+  Copy-Item -LiteralPath $Path -Destination $dst -Recurse -Force
+  $backups.Add($dst)
+  Write-Host ('Backed up extensions\{0}' -f $Name)
+}
+function Undo-Install() {
+  # Put back exactly what was there before this run: the new folder goes, the old one returns.
+  foreach ($name in 'x4mp', 'x4native') {
+    $dst = Join-Path $ext $name
+    if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
+    $bak = Join-Path $backupRoot $name
+    if (Test-Path -LiteralPath $bak) {
+      Copy-Item -LiteralPath $bak -Destination $dst -Recurse -Force
+      Write-Host ('Restored extensions\{0}' -f $name)
+    }
+  }
+}
 if ($PSCmdlet.ShouldProcess($ext, 'install x4mp and x4native')) {
+  Backup-Tree (Join-Path $ext 'x4mp') 'x4mp' $payload.X4mp
+  Backup-Tree (Join-Path $ext 'x4native') 'x4native' $payload.X4Native
   Copy-Tree $payload.X4mp (Join-Path $ext 'x4mp')
   Copy-Tree $payload.X4Native (Join-Path $ext 'x4native')
   foreach ($extra in $payload.X4NativeExtras) {
@@ -175,24 +220,67 @@ if (-not (Test-Pe64 (Join-Path $ext 'x4native\native\x4native_64.dll'))) {
   [void]$problems.Add((New-Problem 'blocker' 'extensions\x4native\native\x4native_64.dll is missing or is not a 64-bit dll' 'The package is damaged; download it again.'))
 }
 
+function Enable-ExtensionInProfile([string]$ContentXml) {
+  # The game writes content.xml when its Extensions menu scans the install; this only flips the flag that
+  # Check Install blocks on. A missing entry is reported, never invented - the ids have to match the game's.
+  $state = @{}
+  if (-not (Test-Path -LiteralPath $ContentXml)) { return $state }
+  try { [xml]$doc = Get-Content -LiteralPath $ContentXml -Raw } catch { $state['error'] = 'unreadable'; return $state }
+  $changed = $false
+  foreach ($id in 'x4mp', 'x4native') {
+    $node = $null
+    foreach ($e in @($doc.Content.extension)) { if ($e.id -eq $id) { $node = $e; break } }
+    if (-not $node) { $state[$id] = 'missing'; continue }
+    if ($node.enabled -eq 'true') { $state[$id] = 'already enabled'; continue }
+    $node.SetAttribute('enabled', 'true')
+    $changed = $true
+    $state[$id] = 'enabled'
+  }
+  if ($changed) {
+    Copy-Item -LiteralPath $ContentXml -Destination ($ContentXml + '.bak-' + $stamp) -Force
+    $doc.Save($ContentXml)
+  }
+  return $state
+}
+
 # 6. Next steps, in the order the player has to do them.
 $accounts = @(Get-X4AccountDirs $AccountRoot)
+$extensionState = @{}
+if ($accounts.Count -gt 0) {
+  $extensionState = Enable-ExtensionInProfile (Join-Path $accounts[0] 'content.xml')
+}
 Write-Head 'Installed'
 if ($problems.Count -gt 0) {
   [void](Show-Problems $problems)
+  if ($backups.Count -gt 0) {
+    Write-Host ''
+    Write-Host 'The new copy did not verify, so the previous install is being put back:'
+    Undo-Install
+  }
   exit 1
 }
 Write-Host 'Extensions are in place and readable.'
 Write-Host ''
-Write-Host 'Now do these three things:'
+Write-Host 'Now do these two things:'
 Write-Host '  1. In X4: Settings > Game Settings, turn "Protected UI" off (the game restarts).'
-Write-Host '  2. In the start menu: Extensions, make sure "X4 Multiplayer" and "X4Native" are enabled.'
-Write-Host '  3. Start a game and open the X4MP window from the main menu.'
+Write-Host '  2. Start a game and open the X4MP window from the main menu.'
 Write-Host ''
 if ($accounts.Count -eq 0) {
-  Write-Host 'No X4 profile folder was found yet: start the game once and the rest is automatic.'
+  Write-Host 'No X4 profile folder was found yet: start the game once, then run Install again so the'
+  Write-Host 'extensions get enabled for you, or enable "X4 Multiplayer" and "X4Native" by hand.'
 } else {
   Write-Host ('Profiles found: {0} (newest: {1})' -f $accounts.Count, $accounts[0])
+  foreach ($id in 'x4mp', 'x4native') {
+    $s = $extensionState[$id]
+    if ($s -eq 'enabled') { Write-Host ('  {0}: enabled in the profile content.xml' -f $id) }
+    elseif ($s -eq 'already enabled') { Write-Host ('  {0}: already enabled' -f $id) }
+    elseif ($s -eq 'missing') { Write-Host ('  {0}: not listed in the profile yet - open Extensions once and enable it' -f $id) }
+    else { Write-Host ('  {0}: could not be enabled automatically - enable it in the Extensions menu' -f $id) }
+  }
+}
+if ($backups.Count -gt 0) {
+  Write-Host ''
+  Write-Host ('The previous extension folders are kept at {0}' -f $backupRoot)
 }
 Write-Host ''
 Write-Host 'If something does not work, run "Check Install.bat" and "Collect Logs.bat".'
