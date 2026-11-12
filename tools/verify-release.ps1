@@ -217,7 +217,7 @@ try {
   Write-Text $save 'a save that must survive the uninstall'
 
   $r = Run $installScript @('-GameDir', $game, '-AccountRoot', $profile, '-Source', $pkg, '-NoPause')
-  Expect 'install' $r 0 'Now do these three things:'
+  Expect 'install' $r 0 'Now do these two things:'
   Check (Test-Path -LiteralPath (Join-Path $ext 'x4mp\content.xml')) 'install: extensions\x4mp\content.xml is there'
   $installedDll = Join-Path $ext 'x4mp\native\x4mp.dll'
   Check (Test-Path -LiteralPath $installedDll) 'install: extensions\x4mp\native\x4mp.dll is there'
