@@ -978,6 +978,7 @@ export interface ServerInfoDto {
   nodeEndpoints: string[];
   adminUrls: string[];
   https: boolean;
+  certificateFingerprint: string | null;
 }
 
 export interface SessionDetailDto {

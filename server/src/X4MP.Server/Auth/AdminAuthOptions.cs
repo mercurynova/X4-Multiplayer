@@ -30,4 +30,16 @@ public sealed class AdminAuthOptions
     public int SessionHours { get; set; } = 8;
 
     public int MinPasswordLength { get; set; } = 12;
+
+    /// <summary>HTTPS port for the GUI and the REST API. 0 (the default) serves plain HTTP only (server-design 4.3).</summary>
+    public int HttpsPort { get; set; }
+
+    /// <summary>A PFX/PKCS#12 file with a certificate and its private key. When empty and <see cref="GenerateSelfSigned"/> is set, the server makes one.</summary>
+    public string? HttpsCertificatePath { get; set; }
+
+    /// <summary>Password of <see cref="HttpsCertificatePath"/>. Never logged.</summary>
+    public string? HttpsCertificatePassword { get; set; }
+
+    /// <summary>Create a self-signed certificate in <c>data/certs/admin.pfx</c> when no certificate is supplied (LAN use; browsers ask the user to trust it).</summary>
+    public bool GenerateSelfSigned { get; set; }
 }

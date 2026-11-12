@@ -72,6 +72,18 @@ export function SessionStatus() {
   return (
     <div className="session-status">
       <span className="server-name">{server?.name ?? 'X4MP'}</span>
+      {server?.https && (
+        <span
+          className="badge-secure"
+          title={
+            server.certificateFingerprint
+              ? `HTTPS. Certificate SHA-256 ${server.certificateFingerprint} — compare it with the one the server printed at start.`
+              : 'HTTPS'
+          }
+        >
+          HTTPS
+        </span>
+      )}
       {session === undefined ? null : session === null ? (
         <span className="muted">No session</span>
       ) : (

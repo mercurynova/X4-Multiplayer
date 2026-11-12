@@ -73,7 +73,7 @@ from the same `git rev-parse HEAD`.
    $env:X4MP__Teams__AllowAssetTransfer = 'true'
    $env:X4MP__Economy__TradeScope = 'Anyone'
    $env:X4MP__Economy__TradeRequiresProximity = 'false'
-   $env:X4MP__Admin__AllowRemote = 'true'     # default is already true; set it only if something turned it off (no TLS on the GUI)
+   $env:X4MP__Admin__AllowRemote = 'true'     # default is already true; set it only if something turned it off (the GUI is plain HTTP unless Admin:HttpsPort is set)
    out\win-x64\x4mp-server.exe --data-dir C:\X4MP\session9 --port 47790
    ```
    The first start prints and writes `<data-dir>\initial-admin-password.txt`; sign in once on

@@ -45,4 +45,40 @@ describe('SessionStatus', () => {
     expect(await screen.findByText('PAUSED')).toBeInTheDocument();
     expect(screen.queryByText(/UNKNOWN/)).not.toBeInTheDocument();
   });
+
+  it('marks an HTTPS server and shows the certificate fingerprint in the tooltip', async () => {
+    const fingerprint = 'AB:CD:EF';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/api/v1/server'
+          ? json(200, { name: 'Srv', https: true, certificateFingerprint: fingerprint })
+          : json(200, session('Running')),
+      ),
+    );
+    render(
+      <HubProvider client={new FakeHubClient()}>
+        <SessionStatus />
+      </HubProvider>,
+    );
+    const badge = await screen.findByText('HTTPS');
+    expect(badge).toHaveAttribute('title');
+    expect(badge.getAttribute('title')).toContain(fingerprint);
+  });
+
+  it('shows no HTTPS badge on a plain-HTTP server', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/api/v1/server' ? json(200, { name: 'Srv' }) : json(200, session('Running')),
+      ),
+    );
+    render(
+      <HubProvider client={new FakeHubClient()}>
+        <SessionStatus />
+      </HubProvider>,
+    );
+    expect(await screen.findByText('Srv')).toBeInTheDocument();
+    expect(screen.queryByText('HTTPS')).not.toBeInTheDocument();
+  });
 });

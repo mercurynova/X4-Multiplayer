@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.FileProviders;
 using Serilog;
@@ -80,8 +81,37 @@ public static partial class ServerHost
         var admin = builder.Configuration.GetSection("X4MP:Admin");
         var port = cli.Port ?? admin.GetValue("Port", DefaultHttpPort);
         var allowRemote = admin.GetValue("AllowRemote", true);
+        int httpsPort = admin.GetValue("HttpsPort", 0);
+        X509Certificate2? certificate = null;
+        string? fingerprint = null;
+        if (httpsPort > 0)
+        {
+            certificate = AdminCertificates.Resolve(
+                dataDir, admin.GetValue<string?>("HttpsCertificatePath"), admin.GetValue<string?>("HttpsCertificatePassword"),
+                admin.GetValue("GenerateSelfSigned", false));
+            if (certificate is null)
+            {
+                Serilog.Log.Warning(
+                    "X4MP:Admin:HttpsPort is {Port} but neither HttpsCertificatePath nor GenerateSelfSigned is set; the GUI stays on plain HTTP.",
+                    httpsPort);
+                httpsPort = 0;
+            }
+            else
+            {
+                fingerprint = AdminCertificates.Fingerprint(certificate);
+            }
+        }
+
+        builder.Services.AddSingleton(new AdminHttpsInfo(httpsPort, fingerprint));
         builder.WebHost.ConfigureKestrel(kestrel =>
-            kestrel.Listen(allowRemote ? IPAddress.Any : IPAddress.Loopback, port));
+        {
+            var address = allowRemote ? IPAddress.Any : IPAddress.Loopback;
+            kestrel.Listen(address, port);
+            if (certificate is not null)
+            {
+                kestrel.Listen(address, httpsPort, listen => listen.UseHttps(certificate));
+            }
+        });
         builder.Services.Configure<JsonOptions>(o => o.SerializerOptions.TypeInfoResolverChain.Insert(0, ApiJsonContext.Default));
         builder.Services.AddModManagement(); // before AddNodeNetworking: the gateway takes the stored mod policy
         builder.Services.AddNodeNetworking(builder.Configuration);
@@ -250,8 +280,16 @@ internal sealed partial class StartupBanner(
                 ?.Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses
                 ?? [];
             var net = services.GetService<X4MP.Core.Net.NetOptions>();
+            var https = services.GetService<AdminHttpsInfo>();
             var urls = string.Join(", ", GuiUrls.Filter(addresses, net));
-            LogStarted(info.Version, info.BuildHash, dataDir.Path, urls);
+            if (https is { Port: > 0 })
+            {
+                LogStartedHttps(info.Version, info.BuildHash, dataDir.Path, urls, https.Port, https.Fingerprint ?? "");
+            }
+            else
+            {
+                LogStarted(info.Version, info.BuildHash, dataDir.Path, urls);
+            }
             if (net is { Enabled: true })
             {
                 LogNodeEndpoints(net.NodeTcpEndpoint, net.UdpPort > 0 ? net.UdpPort.ToString(System.Globalization.CultureInfo.InvariantCulture) : "off");
@@ -265,6 +303,9 @@ internal sealed partial class StartupBanner(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "x4mp-server {Version} ({Build}) data dir {DataDir}; GUI at {Urls}. Traffic is plain HTTP: use a trusted network or VPN.")]
     private partial void LogStarted(string version, string build, string dataDir, string urls);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "x4mp-server {Version} ({Build}) data dir {DataDir}; GUI at {Urls}. HTTPS on port {HttpsPort}, certificate SHA-256 {Fingerprint} (compare it in the browser before you trust it).")]
+    private partial void LogStartedHttps(string version, string build, string dataDir, string urls, int httpsPort, string fingerprint);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Nodes (game clients) connect to tcp {TcpEndpoint}, UDP realtime port {UdpPort}")]
     private partial void LogNodeEndpoints(string tcpEndpoint, string udpPort);
@@ -298,3 +339,8 @@ public static class GuiUrls
         return result;
     }
 }
+
+/// <summary>What the admin HTTPS listener ended up being (port 0 when only plain HTTP is served).</summary>
+/// <param name="Port">The HTTPS port, 0 when HTTPS is off.</param>
+/// <param name="Fingerprint">SHA-256 thumbprint of the serving certificate, for the UI's trust prompt.</param>
+public sealed record AdminHttpsInfo(int Port, string? Fingerprint);

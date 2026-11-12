@@ -145,10 +145,11 @@ Never commit it. Several servers on one machine each need their own data directo
 | 47780 | TCP | Game nodes: control and bulk (the X4 mods connect here) | `X4MP:Net:NodeTcpEndpoint` (`address:port`) |
 | 47781 | UDP | Game nodes: realtime position lane. Optional: `UdpPort=0` turns it off and everything runs over TCP | `X4MP:Net:UdpPort` |
 | 47790 | TCP (HTTP) | Admin GUI, REST API, SignalR, `/healthz`, HTTP save-download fallback | `--port` or `X4MP:Admin:Port` |
+| — | TCP (HTTPS) | The same GUI and API over TLS, when enabled | `X4MP:Admin:HttpsPort` (0 = off; pick a free port, e.g. 47791) |
 
 `X4MP:Admin:AllowRemote=false` binds the HTTP port to loopback only (default is all interfaces). Players need 47780 (and
 47781 if you want UDP) reachable; only admins need 47790, so on an internet-facing host do not open 47790 to the world.
-The GUI is plain HTTP (see section 5).
+The GUI is plain HTTP unless you enable HTTPS (section 5.1).
 
 **Windows** (elevated PowerShell; `Private` profile = LAN; use `-Profile Any` only for a VPN adapter you trust):
 
@@ -172,8 +173,8 @@ Port forwarding on a router for 47780/47781 is only needed for friends outside y
 
 ## 5. LAN, VPN and the private-network allow-list
 
-Recommended: play on a LAN or on a VPN (Tailscale, ZeroTier, WireGuard). X4MP does not offer TLS yet, so do not expose the
-GUI to the public internet.
+Recommended: play on a LAN or on a VPN (Tailscale, ZeroTier, WireGuard). The admin port is plain HTTP by default; enable
+HTTPS (section 5.1) before you let anyone outside your own machine reach it.
 
 The admin API (REST and the SignalR hub, **not** the game port 47780) only answers clients whose source address is:
 
@@ -191,6 +192,31 @@ Everything else gets `403`. Example (`appsettings.json` next to the exe):
 or `X4MP__Admin__AllowedNetworks__0=203.0.113.7/32`. An invalid CIDR stops the server at startup. A server behind a reverse
 proxy sees the proxy's address, so list that. The game port is protected separately (join password, per-IP connection
 limit, handshake and violation rate limits, temp bans; section 7).
+
+### 5.1 HTTPS on the admin port
+
+Set a port and let the server make its own certificate:
+
+```json
+{ "X4MP": { "Admin": { "HttpsPort": 47791, "GenerateSelfSigned": true } } }
+```
+
+The first start writes `data/certs/admin.pfx` (RSA 2048, SHA-256, five years; subject `CN=X4MP admin`, names `localhost`,
+the machine name and every local IP address) and logs its SHA-256 fingerprint. The certificate is reused on later starts,
+so a browser that trusts it keeps trusting it; it is replaced automatically when it has under 30 days left. With
+`HttpsPort` set but neither certificate option, the server logs a warning and stays on plain HTTP.
+
+With your own certificate, point at a PFX/PKCS#12 file instead (a certificate without its private key is useless here):
+
+```json
+{ "X4MP": { "Admin": { "HttpsPort": 47791, "HttpsCertificatePath": "C:\\certs\\x4mp.pfx", "HttpsCertificatePassword": "..." } } }
+```
+
+Both ports stay open: `http://host:47790` keeps working for tools that were not pointed at HTTPS yet. The header of the GUI
+shows an **HTTPS** badge when the API you are talking to is secure; hover it for the fingerprint. Compare that fingerprint
+with the one in the start-up log before you accept the certificate in a browser (`Certificate SHA-256 AA:BB:...`); a
+self-signed certificate cannot be verified by a public authority, so the fingerprint is the check that matters. The port
+is a refusal-free convenience for a LAN or VPN; certificate automation (ACME) and public CAs are out of scope for v1.
 
 ## 6. Running as a service
 

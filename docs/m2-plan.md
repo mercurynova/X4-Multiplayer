@@ -59,8 +59,8 @@ session save (including one an admin uploaded in the GUI), makes and uploads che
 | `/mods/save-requirements` 501 (no `<patches>` reader) | **M2-02** |
 | One unreproduced 404 creating a session right after a save upload (write-behind catalog) | **M2-02** (read-through) |
 | Unknown-key mod refusals not pushed on the hub | **M2-13** |
-| HTTPS / CSP headers (SRV §4.3) | deferred → **M6** (hardening; LAN/VPN only until then, Q14) |
-| No GUI for API tokens / audit / user management | deferred → **M6** |
+| HTTPS / CSP headers (SRV 4.3) | **Done**: CSP and the other security headers in M6; HTTPS on the admin port in M9 (`X4MP:Admin:HttpsPort`, self-signed or PFX) |
+| No GUI for API tokens / audit / user management | **Done** in M8: the Access screen plus `/api/v1/users`, reusing the existing token and audit endpoints |
 | Economy 30-min run should use settings that complete trades | deferred → **M5** (when the economy goes in game; fix FakeNode defaults/docs then) |
 | `WorldUpdate` capture above 20 Hz gives verify errors | deferred → **M4** (authority streaming) |
 | Sector frames lack owner/faction, `SectorDto` lacks extents | deferred → **M4** (the real galaxy feed lands with streaming; M2's `GalaxyMetadata` sends what the schema already has) |

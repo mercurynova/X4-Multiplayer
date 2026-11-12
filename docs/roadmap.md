@@ -853,6 +853,16 @@ passed its rehearsal (37 samples, swarm exit 0, working set +1.4%, handles +1). 
 holds the verdict table; a one-zip install on a clean Windows PC, the repository signing secrets with a release tag,
 and a real-game three-client session are the remaining human steps.
 
+**M9 status (2026-11-12): the admin port can serve HTTPS.** `X4MP:Admin:HttpsPort` plus either
+`GenerateSelfSigned` or a PFX (`HttpsCertificatePath`/`HttpsCertificatePassword`) makes the server listen with TLS on a
+second port while the plain-HTTP port stays open (server-design 4.3). The generated certificate lives in
+`data/certs/admin.pfx` (RSA 2048, SHA-256, five years, `CN=X4MP admin`, SAN of localhost, the machine name and every
+local address), is reused across starts and renewed when it has fewer than 30 days left; a port without a certificate
+logs a warning and stays on HTTP. `GET /api/v1/server` reports `https` and `certificateFingerprint`, the start-up
+banner prints the fingerprint, and the GUI header shows an **HTTPS** badge whose tooltip carries the fingerprint.
+`AdminHttpsTests` covers the certificate store, the fingerprint format and a live `https://127.0.0.1:<port>/healthz`,
+plus the "port but no certificate" refusal.
+
 ### Implementation notes: M6 release rehearsal, soak and launcher click-through (2026-11-03)
 
 The three M6 exit criteria that do not need a human now have scripts, and running them found two real bugs.

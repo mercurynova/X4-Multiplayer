@@ -36,7 +36,7 @@ internal static class SessionEndpoints
 
     // ------------------------------------------------------------------ server and dashboard
 
-    private static IResult GetServer(IServiceProvider services, ServerInfo info, NetOptions net)
+    private static IResult GetServer(IServiceProvider services, ServerInfo info, NetOptions net, AdminHttpsInfo https)
     {
         var addresses = services.GetService<IServer>()?.Features.Get<IServerAddressesFeature>()?.Addresses ?? [];
         var endpoints = new List<string>();
@@ -50,10 +50,10 @@ internal static class SessionEndpoints
         }
 
         var urls = GuiUrls.Filter(addresses, net).ToList();
+        bool secure = https.Port > 0 || urls.Any(u => u.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
         var dto = new ServerInfoDto(
             net.ServerName, info.Version, new ProtocolRangeDto(ServerInfo.ProtocolMin, ServerInfo.ProtocolMax), info.BuildHash,
-            DateTimeOffset.UtcNow - info.Uptime, (long)info.Uptime.TotalSeconds, endpoints, urls,
-            urls.Any(u => u.StartsWith("https://", StringComparison.OrdinalIgnoreCase)));
+            DateTimeOffset.UtcNow - info.Uptime, (long)info.Uptime.TotalSeconds, endpoints, urls, secure, https.Fingerprint);
         return Results.Json(dto, ApiJsonContext.Default.ServerInfoDto);
     }
 

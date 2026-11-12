@@ -92,6 +92,7 @@ input[aria-invalid='true'] { border-color: var(--danger); }
 .spacer { flex: 1; }
 .session-status { display: flex; gap: 1rem; flex-wrap: wrap; align-items: baseline; }
 .server-name { font-weight: 600; }
+.badge-secure { font-size: 0.75rem; letter-spacing: 0.04em; padding: 0.05rem 0.35rem; border-radius: 0.25rem; border: 1px solid currentColor; cursor: help; }
 .state { font-weight: 600; font-size: 0.85em; }
 .state-running { color: var(--ok); }
 .state-starting, .state-loading, .state-stopping, .state-paused { color: var(--warn); }

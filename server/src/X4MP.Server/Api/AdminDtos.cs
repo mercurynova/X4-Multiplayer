@@ -9,7 +9,7 @@ namespace X4MP.Server.Api;
 [TsContract]
 public sealed record ServerInfoDto(
     string Name, string Version, ProtocolRangeDto ProtocolRange, string BuildHash, DateTimeOffset StartedAt, long UptimeSeconds,
-    List<string> NodeEndpoints, List<string> AdminUrls, bool Https);
+    List<string> NodeEndpoints, List<string> AdminUrls, bool Https, string? CertificateFingerprint);
 
 /// <summary>One session as the lists show it.</summary>
 [TsContract]
