@@ -282,6 +282,12 @@ Things people ask:
 - **Join password**: `X4MP__Net__JoinPassword=...` (Boot); players enter it in the mod. Empty = open server.
 - **Starting credits, trade rules, teams**: Live; use the Economy and Teams pages or `PATCH /api/v1/settings`.
 - **A swarm from one machine** needs more than the 4 connections per IP: `X4MP__Net__MaxConnectionsPerIp=64` (see [fakenode.md](fakenode.md)).
+- **Long soak**: `tools/soak.ps1` starts a fresh server on its own ports and data folder, runs three verifying
+  FakeNode clients with abrupt reconnects and reloads, samples the server process every `-SampleSeconds`, and
+  writes `report.md` with a verdict that fails on a replication error, a `/healthz` other than 200, or memory
+  growth above `-MemoryGrowthPct` / handle growth above `-HandleGrowth` after `-WarmupSeconds`. `-Minutes 240`
+  is the release acceptance run; add `-KeepData` to keep the server data and `-Build` to publish the server and
+  FakeNode first. The nightly workflow runs a 20-minute slice of the same script.
 - Settings changes and logins are recorded in the audit log (`GET /api/v1/audit`).
 
 ## 8. GUI pages
@@ -300,6 +306,33 @@ Nav order; every page is read-only for `Viewer`. Live data arrives over SignalR,
 - **Settings**: every setting from the schema grouped by section, Live ones editable, Boot ones read-only (secrets such as
   the join password are write-only). Your own password is changed on the change-password page the GUI sends you to.
 - **Diagnostics**: per-connection RTT, send queues, drops, message rates, packet trace toggle; use it to spot a slow client.
+- **Access** (admins only): accounts, API tokens and the audit log — see 8.1.
+
+### 8.1 Accounts, API tokens and the audit log
+
+The **Access** page (and the endpoints behind it) covers what previously needed the CLI or direct SQL.
+
+*Users* (`GET/POST /api/v1/users`, `PATCH/DELETE /api/v1/users/{id}`):
+
+- Usernames are unique, case-insensitively, up to 64 characters. Passwords must reach `Admin:MinPasswordLength`
+  (12 by default).
+- A new account starts with **must change password**: it can sign in but no other call succeeds until it changes the
+  password and the GUI sends it to the change-password page.
+- Changing the role, resetting a password or deleting an account **bumps the account's password version**: open
+  browser sessions end and the account's own API tokens are revoked. Deleting also removes the tokens.
+- The last admin cannot be demoted or deleted, and nobody can delete their own account. Create a second admin first.
+- Sessions are invalidated on change; re-login is expected.
+
+*API tokens* (`GET/POST /api/v1/tokens`, `DELETE /api/v1/tokens/{id}`): a token is a bearer credential for scripts
+with a role ceiling (`Admin`, `Viewer`, `ModEditor`). The plaintext (`x4mp_…`) is shown **once** at creation; the server
+stores only a hash and remembers the prefix. Revoking is immediate. Tokens appear in the audit log as
+`token.create` / `token.revoke`, accounts as `user.create` / `user.role` / `user.password.reset` / `user.delete`; the
+password itself is never written anywhere.
+
+*Audit log* (`GET /api/v1/audit?limit=50..1000`, default 200): newest first, with actor, action, target, reason, remote
+address and the structured `data` (for example `{"from":"Viewer","to":"Admin"}`). The page filters the loaded rows in the
+browser; raise the limit to look further back. Every auth attempt, setting change, moderation action and economy
+adjustment is in there, so it is the first place to look when something changed unexpectedly.
 
 ## 9. Backups
 

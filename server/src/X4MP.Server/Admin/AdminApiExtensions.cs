@@ -44,6 +44,7 @@ public static class AdminApiExtensions
         ChatLogEndpoints.Map(routes);
         DiagnosticsEndpoints.Map(routes);
         TokenEndpoints.Map(routes);
+        UserEndpoints.Map(routes);
         EconomyEndpoints.Map(routes);
         TeamEndpoints.Map(routes);
         ModEndpoints.Map(routes);

@@ -18,4 +18,5 @@ export const screens: readonly Screen[] = [
   { path: '/logs', title: 'Logs' },
   { path: '/settings', title: 'Settings' },
   { path: '/diagnostics', title: 'Diagnostics' },
+  { path: '/access', title: 'Access', adminOnly: true },
 ];

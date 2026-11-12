@@ -23,7 +23,7 @@ see [`game-modes.md`](game-modes.md).
 | **M3c** | On-foot presence v2: Tier 2 in any shared room/ship, nearest-seat/HUD fallback when rooms don't match | yes (2 PCs) | Gated on S10.2 room matching. Players visible in matched rooms (bar, office, dock, bridge); unmatched rooms fall back without errors. |
 | **M4** | Authority world streaming, manifest matching, server interest/prefetch, ghost-only clients, record/replay | yes (2 PCs) | MOD §9 M4 acceptance: ≥ 99% station matches; same NPC ships on client and authority in current and adjacent sectors; p95 error < 25 m within 5 km; busy sector (≥ 200 ships) ≥ 45 FPS client, < 3 ms/frame authority mod cost; < 200 kB/s per client; zero `spawn-near-player` pops on a highway transit; no despawn/respawn of the same net_id within 10 s while in interest. UDP realtime lane active in the mod. |
 | **M5** | Events + in-game economy: kills, death/respawn, trade/cargo, station builds, capture, live relations, wallet reconciliation, transfers/pool, (loans/trades stretch), damage relay (stretch) | yes (2 PCs) | MOD §9 M5 acceptance items 2–12; every event in REQ §8.3 checklist executed once with log evidence; ledger auditor clean after a 60-min session with purchases on all nodes. |
-| **M5b** | Talk-menu actions on remote players: send credits, invite to team, trade (uses M5 economy + teams) | yes (2 PCs) | Each action executes through the server economy/team APIs with an audit trail; works from the lounge and Tier 2 rooms. |
+| **M5b** | Talk-menu actions on remote players: send credits, invite to team, trade (uses M5 economy + teams) | yes (2 PCs) | Each action executes through the server economy/team APIs with an audit trail; works from the same-interior player menu (the MP lounge was dropped 2026-10-24) and from Tier 2 rooms. |
 | **M6** | Packaging and hardening: installer, Check Install, Collect Logs, launcher (`launch.json`), HTTP save fallback in mod, release pipeline, user docs; loans/trades in game if not in M5; team asset commands from our UI | partly | One-zip install on a clean Windows PC passes the health check (Protected UI, VC++ redist, MotW, `version_db`, extensions enabled); release tag produces signed-checksum artifacts for server and mod; 4-hour soak with 3 clients and reconnects without leaks. |
 
 **M4 status (2026-10-27): code complete, acceptance numbers pending.** **2026-11-11 one-PC update:** criterion 3 now has distance-bucketed evidence (native arm 91.7% of 5 s windows < 25 m, aggregate p95 30.84 m, all 20 nets median < 25 m, residual extrapolation of steady hulls in adjacent 1 Hz sectors) and criterion 9's attention A/B is measured (native wins on path error, frame cost and spawn success; the default stays `native`). Rows 4 (200-ship sector, second-machine client FPS) and 6 (highway transit `spawn_near=0`) still need the two-machine session 7, so M4 stays open. All eight waves of [m4-plan.md](m4-plan.md) are
@@ -87,6 +87,32 @@ acceptance. Locked: UDP primary realtime, TCP reliable Control, Bulk TCP; no
 GameNetworkingSockets, no port-range expansion, no QUIC in v1. Parity means zero divergence
 in authoritative shared state; interpolation, local backdrop and presentation differences
 are documented and allowed.
+
+**M5b status (2026-11-11): code-complete at every layer, acceptance pending the second game node.**
+The Talk menu on a remote on-foot player now carries all three actions. *Send credits* and *Trade* are not new wire
+actions: both open the economy screen with that player already picked as the recipient (`X4MPEconomy.focusPeer`), so
+the screen's own buttons send through the M5 economy verb (`/mp send`, `/mp propose`) and its ledger/audit path -
+one code path, one audit trail, no new messages. *Invite to my team* had no protocol at all before this, so it got one:
+`TeamInviteRequest`/`TeamInvite`/`TeamInviteRespond` (`0x070A`-`0x070C`, `docs/protocol.md` §20), leader-only on the
+server, answerable only by the invitee, 120 s expiry swept from the tick, `CheckJoin` re-checked on accept so an
+invitation obeys the same limits as a lobby join. Player-initiated team changes produced no `session_events` row
+before, so every step publishes `TeamInviteHandled` (`sent`/`accepted`/`declined`/`expired`). The mod half is
+`features/teams/teams_wire.h` + `TeamHub::{invite,invite_respond}` + the `x4mp.teams_invite` verb, surfaced as the
+`{92000,945}` Talk choice and `/mp teamaccept <id>|/mp teamdecline <id>`. Gates: `X4MP.Core.Tests` **1400**,
+`X4MP.Protocol.Tests` **541**, `ctest` **759** (4 skips by design), Lua **344**, texts 943-953 in both language pages.
+What is still open is the in-game two-node sitting: a real leader inviting a real player and the invitee accepting it
+in a second game instance.
+
+**M8 status (2026-11-11): the last M6 GUI carry-over is closed.** The server had API tokens and the audit log as
+endpoints since M1 but no screen for either, and admin accounts could only be created by the first-run bootstrap.
+The admin-only `/access` screen now covers all three: accounts (create, change role, reset password, delete, with the
+must-change-on-first-login rule and the last-admin / self-delete guards), API tokens (role ceiling, plaintext shown
+once, immediate revoke) and the audit log (newest first, limit 50-1000, filter in the browser). New endpoints are
+`GET/POST /api/v1/users` and `PATCH/DELETE /api/v1/users/{id}`; every mutation is audited as
+`user.create` / `user.role` / `user.password.reset` / `user.delete` and no audit row ever carries a password.
+Changing a role or resetting a password bumps the account's password version, which ends its open sessions and revokes
+its tokens. Gates: `X4MP.Server.Tests` **615** (1 skipped by design), web vitest **187** (1 skipped),
+`npm run build` clean, and the generated TypeScript contracts are regenerated by `TsContractTests`.
 
 ---
 
@@ -819,6 +845,13 @@ enough for a gift but not for an order or a rename. A gift also needs a per-play
 with net ids, which does not exist (`native/game/avatars_api.h:17-29` lists team ships with local
 ids only). Closing this needs three things, in this order: a player asset list, a game-side order
 export, and a rename export.
+
+**M6 status (2026-11-11): every one-PC leg is green, the hardware legs are open.** The installer harness passes 55
+checks, a real `CheckInstall.ps1` run says READY, `CollectLogs.ps1` ships 18 files with no plaintext secrets, the
+release workflow signs `SHA256SUMS`, and CI now gates the installer harness. `tools/soak.ps1` is the 4-hour soak and
+passed its rehearsal (37 samples, swarm exit 0, working set +1.4%, handles +1). [m6-exit-report.md](m6-exit-report.md)
+holds the verdict table; a one-zip install on a clean Windows PC, the repository signing secrets with a release tag,
+and a real-game three-client session are the remaining human steps.
 
 ### Implementation notes: M6 release rehearsal, soak and launcher click-through (2026-11-03)
 

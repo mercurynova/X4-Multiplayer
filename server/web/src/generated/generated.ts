@@ -64,6 +64,14 @@ export const AdminHubMethods = {
   UnsubscribeMods: 'UnsubscribeMods',
 } as const;
 
+export interface AdminUserDto {
+  id: number;
+  username: string;
+  role: string;
+  mustChange: boolean;
+  createdAt: string;
+}
+
 export interface AlertDto {
   at: string;
   severity: string;
@@ -250,6 +258,12 @@ export interface CreateTeamRequest {
 
 export interface CreateTokenRequest {
   name: string | null;
+  role: string | null;
+}
+
+export interface CreateUserRequest {
+  username: string | null;
+  password: string | null;
   role: string | null;
 }
 
@@ -727,6 +741,11 @@ export interface PatchTeamRequest {
   leaderPlayerId: number | null;
   locked: boolean | null;
   maxMembers: number | null;
+  password: string | null;
+}
+
+export interface PatchUserRequest {
+  role: string | null;
   password: string | null;
 }
 

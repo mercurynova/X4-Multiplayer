@@ -17,6 +17,9 @@ public sealed record ApiTokenInfo(long Id, string Name, string Role);
 /// <summary>A row of <c>api_tokens</c> as the token list shows it (never the token itself).</summary>
 public sealed record ApiTokenRecord(long Id, string Name, string Role, DateTimeOffset CreatedAt, DateTimeOffset? LastUsedAt, DateTimeOffset? RevokedAt, string? OwnerName);
 
+/// <summary>A row of <c>admin_users</c> as the user list shows it (never a hash or a salt).</summary>
+public sealed record AdminUserRecord(long Id, string Username, string Role, bool MustChange, DateTimeOffset CreatedAt);
+
 /// <summary>
 /// Synchronous SQLite access for admin users, API tokens and the audit log. Writes go straight to the database
 /// (not through the write-behind queue) because a password change or audit row must be durable before the
@@ -34,6 +37,112 @@ public sealed class AdminStore(SqliteConnectionFactory connections, TimeProvider
         using var cmd = db.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM admin_users";
         return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public long CountAdmins()
+    {
+        using var db = connections.Open();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM admin_users WHERE role = $r";
+        cmd.Parameters.AddWithValue("$r", AdminRoles.Admin);
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Every account, oldest first (never a hash or a salt).</summary>
+    public IReadOnlyList<AdminUserRecord> ListUsers()
+    {
+        using var db = connections.Open();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = "SELECT id, username, role, must_change, created_at FROM admin_users ORDER BY id";
+        using var reader = cmd.ExecuteReader();
+        var list = new List<AdminUserRecord>();
+        while (reader.Read())
+        {
+            list.Add(new AdminUserRecord(
+                reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3) != 0, ParseTime(reader.GetString(4))));
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Changes a user's role and bumps <c>pw_version</c>, so every cookie issued before is rejected on its next request: the old role claim
+    /// would otherwise stay valid until the session ended.
+    /// </summary>
+    public void SetRole(long id, string role)
+    {
+        if (!AdminRoles.IsValid(role))
+        {
+            throw new ArgumentException("Unknown role.", nameof(role));
+        }
+
+        using var db = connections.Open();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = "UPDATE admin_users SET role=$r, pw_version=pw_version+1 WHERE id=$id";
+        cmd.Parameters.AddWithValue("$r", role);
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// An admin-initiated password reset: sets the new hash, marks <c>must_change</c>, bumps <c>pw_version</c> (all sessions end) and
+    /// revokes the API tokens the user minted, in one transaction. The work factor is upgraded at the next login.
+    /// </summary>
+    public void ResetPassword(long id, string password, int iterations)
+    {
+        var (hash, salt) = AdminPasswordHasher.Hash(password, iterations);
+        using var db = connections.Open();
+        using var tx = db.BeginTransaction();
+        using (var cmd = db.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                "UPDATE admin_users SET pw_hash=$h, pw_salt=$s, pw_iter=$i, must_change=1, pw_version=pw_version+1, pw_changed_at=$now WHERE id=$id";
+            cmd.Parameters.AddWithValue("$h", hash);
+            cmd.Parameters.AddWithValue("$s", salt);
+            cmd.Parameters.AddWithValue("$i", iterations);
+            cmd.Parameters.AddWithValue("$now", Now());
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var revoke = db.CreateCommand())
+        {
+            revoke.Transaction = tx;
+            revoke.CommandText = "UPDATE api_tokens SET revoked_at=$now WHERE owner_id=$id AND revoked_at IS NULL";
+            revoke.Parameters.AddWithValue("$now", Now());
+            revoke.Parameters.AddWithValue("$id", id);
+            revoke.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+    }
+
+    /// <summary>Deletes a user and revokes the tokens it minted (in one transaction). False when the row does not exist.</summary>
+    public bool DeleteUser(long id)
+    {
+        using var db = connections.Open();
+        using var tx = db.BeginTransaction();
+        using (var revoke = db.CreateCommand())
+        {
+            revoke.Transaction = tx;
+            revoke.CommandText = "UPDATE api_tokens SET revoked_at=$now WHERE owner_id=$id AND revoked_at IS NULL";
+            revoke.Parameters.AddWithValue("$now", Now());
+            revoke.Parameters.AddWithValue("$id", id);
+            revoke.ExecuteNonQuery();
+        }
+
+        int deleted;
+        using (var cmd = db.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "DELETE FROM admin_users WHERE id=$id";
+            cmd.Parameters.AddWithValue("$id", id);
+            deleted = cmd.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+        return deleted > 0;
     }
 
     public AdminUser? FindUser(string username)

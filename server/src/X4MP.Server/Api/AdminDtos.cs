@@ -164,6 +164,18 @@ public sealed record ApiTokenCreatedDto(long Id, string Name, string Role, strin
 public sealed record AuditEntryDto(
     long Id, DateTimeOffset At, string Actor, string Action, string? Target, string? Reason, Dictionary<string, string>? Data, string? RemoteIp);
 
+/// <summary>An admin account; never a hash or a salt.</summary>
+[TsContract]
+public sealed record AdminUserDto(long Id, string Username, string Role, bool MustChange, DateTimeOffset CreatedAt);
+
+/// <summary>Body of <c>POST /api/v1/users</c>. The account must change its password at first login.</summary>
+[TsContract]
+public sealed record CreateUserRequest(string? Username, string? Password, string? Role);
+
+/// <summary>Body of <c>PATCH /api/v1/users/{id}</c>: send a role, a password, or both. A password reset ends the account's sessions.</summary>
+[TsContract]
+public sealed record PatchUserRequest(string? Role, string? Password);
+
 /// <summary>A sector cluster of the galaxy.</summary>
 [TsContract]
 public sealed record ClusterDto(long Id, string Macro);

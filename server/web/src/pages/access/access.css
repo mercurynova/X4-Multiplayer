@@ -1,0 +1,78 @@
+.access .tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.access .tabs button {
+  background: none;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+.access .tabs button:hover {
+  background: var(--surface);
+}
+.access .tabs button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.access .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.access .toolbar .search {
+  max-width: 24rem;
+}
+.access .inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.access .row-actions {
+  white-space: nowrap;
+}
+.access .row-actions button + button {
+  margin-left: 0.25rem;
+}
+.access .nowrap {
+  white-space: nowrap;
+}
+.access .token-plain {
+  display: block;
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  word-break: break-all;
+  user-select: all;
+}
+.access .badge-ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.access .badge-bad {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.access .audit-data {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.75rem;
+  margin: 0.35rem 0 0;
+}
+.access .audit-data div {
+  display: contents;
+}
+.access .audit-data dt {
+  font-weight: 600;
+}
+.access .audit-data dd {
+  margin: 0;
+  word-break: break-word;
+}
