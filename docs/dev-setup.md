@@ -48,14 +48,20 @@ The exact SDK version is pinned in `global.json` once M0-01 lands. The SDK must 
 
 | Tool | Version | Why | Install |
 |---|---|---|---|
-| Visual Studio 2022 Build Tools | 17.6+ with **MSVC v143** and the "Desktop development with C++" workload | compiles `x4mp.dll` (x64) | `winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` |
-| CMake | ≥ 3.20 | build system | included in the VS C++ workload (or `winget install Kitware.CMake`) |
-| Ninja | any | fast builds via CMake presets | included in the VS C++ workload |
-| vcpkg | 2024+ | Catch2, nlohmann-json | included with VS 17.6+ (`VCPKG_ROOT`), or `git clone https://github.com/microsoft/vcpkg` + `bootstrap-vcpkg.bat` |
+| Visual Studio Build Tools | 2022 17.6+ with **MSVC v143**, or **2026 (v18, MSVC 14.51)**, with the "Desktop development with C++" workload | compiles `x4mp.dll` (x64) | `winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` |
+| CMake | ≥ 3.20 | build system | `winget install Kitware.CMake` (the VS 2022 C++ workload bundles one; **VS 2026 does not** — install it) |
+| Ninja | any | fast builds via CMake presets | `winget install Ninja-build.Ninja` (bundled with the VS 2022 C++ workload only) |
+| vcpkg | 2024+ | Catch2, nlohmann-json | `git clone https://github.com/microsoft/vcpkg` + `bootstrap-vcpkg.bat`, then set `VCPKG_ROOT` (VS 2022 17.6+ bundles one; **VS 2026 does not**) |
 | flatc | pinned in `tools/flatc/` | FlatBuffers codegen | **don't install manually.** The M0-02 fetch script downloads the pinned version and checks its SHA-256 |
 
-Build from a **"Developer PowerShell for VS 2022"** (or run `vcvars64.bat` first) so `cl`
-and the Windows SDK are on PATH.
+Build from a **"Developer PowerShell for VS"** (or run `vcvars64.bat` first) so `cl` and the
+Windows SDK are on PATH. `mod/build.ps1` finds the toolset itself through `vswhere`, so a
+plain PowerShell works too — but CMake, Ninja and `VCPKG_ROOT` must be set up before it
+starts. **VS 2026 (v18, MSVC 14.51) builds the mod clean**: warnings-as-errors and 565/565
+ctest cases, verified 2026-11-12. After a `winget install`, open a **new** shell — a shell
+started earlier still has the old PATH, and `build.ps1` then fails with "cmake.exe not found
+on PATH after loading the MSVC environment" while `tools/check-env.ps1` reports CMake and
+vcpkg missing.
 
 **Long paths (do this once per machine, admin PowerShell).** vcpkg build trees, especially
 inside agent worktrees under `.claude/worktrees/`, create paths longer than Windows' 260-character
