@@ -237,3 +237,42 @@ test("the window can be reopened and closed repeatedly over the start menu", fun
 		truthy(om.shown)
 	end
 end)
+
+-- 2026-11-12: in game the row click happens while the Esc menu (OptionsMenu) is shown, but isStartMenu() is false, so the old code
+-- took the plain OpenMenu branch. The Esc menu stayed "shown" with its frames gone, and closing our window left the game with a
+-- menu it believed was open: no HUD, no input. The lookup no longer depends on the start menu.
+local function withInGameOptionsMenu()
+	env.startmenu = false
+	local S, menu = setup()
+	local showCount = 0
+	local om = { name = "OptionsMenu", shown = true, param = nil, onShowMenu = function() showCount = showCount + 1 end }
+	table.insert(_G.Menus, om)
+	return S, menu, om, function() return showCount end
+end
+
+test("in game the Esc menu is closed the vanilla way before our window opens", function()
+	local S, menu, om = withInGameOptionsMenu()
+	S.open("main")
+	falsy(om.shown, "the Esc menu was left marked shown")
+	eq(env.opened[1], "X4MPMenu")
+	truthy(menu.shown)
+	eq(menu.returnTo[1], "OptionsMenu")
+end)
+
+test("closing in game resumes the game and leaves no menu marked shown", function()
+	local S, menu, om, shows = withInGameOptionsMenu()
+	S.open("main")
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 0, "in game there is no start menu to reopen")
+	falsy(om.shown)
+	eq(shows(), 0)
+end)
+
+test("'back' in game returns to the Esc menu through the vanilla return record", function()
+	local S, menu, om, shows = withInGameOptionsMenu()
+	S.open("main")
+	menu.onCloseElement("back")
+	eq(optionsOpens(), 1, "vanilla reopens the recorded Esc menu exactly once")
+	truthy(om.shown)
+	eq(shows(), 1)
+end)

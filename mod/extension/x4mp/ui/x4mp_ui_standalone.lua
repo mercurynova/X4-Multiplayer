@@ -171,7 +171,8 @@ end
 -- clears the old menu (shown=nil) and records { "OptionsMenu", param, ... } as param2 so that "back" returns to it.
 -- So: renderer.show leaves the options menu that way, and the close path reopens it from that record (or, for Esc/"close", from
 -- OpenMenu("OptionsMenu", ...) like gameoptions.lua init() does). Not done when a session save is being loaded (the game replaces
--- the screen itself) or when the window was not opened over the start menu (in game, the vanilla menu handling resumes by itself).
+-- the screen itself) or when the window was not opened over the start menu: in game there is no start screen to restore, and the
+-- Esc menu we replaced was already closed by closeMenuAndOpenNewMenu, so the game resumes by itself.
 function menu.restoreStartMenu()
 	local overStartMenu = menu.overStartMenu
 	local ret = menu.returnTo
@@ -259,11 +260,18 @@ function renderer.show(model)
 	menu.opening = true
 	menu.overStartMenu = X4MPBridge.isStartMenu() == true
 	local ok, err
-	local om = menu.overStartMenu and findOptionsMenu() or nil
+	-- Both the start menu and the in-game Esc menu show OptionsMenu before our row is clicked, so the lookup cannot depend on
+	-- isStartMenu(): with a plain OpenMenu the Esc menu stayed marked "shown" while its frames were gone, and closing our window
+	-- left the game with a menu it believed was open and no HUD or input (the in-game close hang, 2026-11-12). overStartMenu only
+	-- decides whether the close path reopens the start menu.
+	local om = findOptionsMenu()
 	if om and om.shown and type(Helper.closeMenuAndOpenNewMenu) == "function" then
 		-- leave the options menu the vanilla way (closes it, records the return target in param2), see restoreStartMenu
 		ok, err = pcall(Helper.closeMenuAndOpenNewMenu, om, MENU_NAME, { 0, 0 })
 	else
+		if not om then
+			log("standalone ui: no OptionsMenu in Menus; opening with a plain OpenMenu")
+		end
 		ok, err = pcall(OpenMenu, MENU_NAME, { 0, 0 }, nil)
 	end
 	if not ok then
