@@ -127,57 +127,6 @@ local function optionsOpens()
 	return n
 end
 
-test("closing the window opened over the start menu reopens the options menu", function()
-	env.startmenu = true
-	local S, menu = setup()
-	S.open("join")
-	eq(optionsOpens(), 0)
-	menu.onCloseElement("close")
-	eq(optionsOpens(), 1)
-end)
-
-test("the restore waits for the delayed callback when Helper offers it", function()
-	env.startmenu = true
-	local S, menu = setup()
-	local delayed
-	Helper.addDelayedOneTimeCallbackOnUpdate = function(fn) delayed = fn end
-	_G.getElapsedTime = function() return 5 end
-	S.open("join")
-	menu.onCloseElement("back")
-	eq(optionsOpens(), 0, "not yet")
-	truthy(delayed)
-	delayed()
-	eq(optionsOpens(), 1)
-end)
-
-test("no restore when opened in game, or while a session save is being loaded", function()
-	env.startmenu = false
-	local S, menu = setup()
-	S.open("join")
-	menu.onCloseElement("close")
-	eq(optionsOpens(), 0, "in game: vanilla handling resumes by itself")
-
-	env.startmenu = true
-	S.open("join")
-	env.fire("x4mp.load_save", '{"name":"x4mp_abc"}')
-	menu.onCloseElement("close")
-	eq(optionsOpens(), 0, "a load started: the game replaces the screen")
-
-	S.open("join") -- opening a screen again ends the loading flag
-	menu.onCloseElement("close")
-	eq(optionsOpens(), 1)
-end)
-
-test("a redraw of the open window does not count as a new open over the start menu", function()
-	env.startmenu = true
-	local S, menu = setup()
-	S.open("join")
-	env.startmenu = false
-	S.open("status")
-	menu.onCloseElement("close")
-	eq(optionsOpens(), 1, "the start-menu flag was taken when the window opened")
-end)
-
 -- Session-3 finding: the start menu did not come back. The game ignores OpenMenu(name) while that menu is still marked shown, and the
 -- row click used to open our window without closing the options menu. These tests model the vanilla OptionsMenu (shown while open).
 local function withOptionsMenu()
@@ -188,6 +137,49 @@ local function withOptionsMenu()
 	table.insert(_G.Menus, om)
 	return S, menu, om, function() return showCount end
 end
+
+test("closing a window that replaced the vanilla menu puts that menu back", function()
+	local S, menu, om, shows = withOptionsMenu()
+	S.open("main")
+	eq(optionsOpens(), 0)
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 1)
+	truthy(om.shown)
+	eq(shows(), 1)
+end)
+
+test("the restore waits for the delayed callback when Helper offers it", function()
+	local S, menu = withOptionsMenu()
+	local delayed
+	Helper.addDelayedOneTimeCallbackOnUpdate = function(fn) delayed = fn end
+	_G.getElapsedTime = function() return 5 end
+	S.open("main")
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 0, "not yet")
+	truthy(delayed)
+	delayed()
+	eq(optionsOpens(), 1)
+end)
+
+test("the restore is skipped while a session save is being loaded", function()
+	local S, menu = withOptionsMenu()
+	S.open("main")
+	env.fire("x4mp.load_save", '{"name":"x4mp_abc"}')
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 0, "a load started: the game replaces the screen")
+
+	S.open("join") -- opening a screen again ends the loading flag
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 1)
+end)
+
+test("the restore follows the return record, not the start-menu flag", function()
+	local S, menu = withOptionsMenu()
+	S.open("main")
+	env.startmenu = false -- isStartMenu() answers false at the start screen on build 9.00
+	menu.onCloseElement("close")
+	eq(optionsOpens(), 1, "the record was taken when the window opened")
+end)
 
 test("opening over the start menu leaves the options menu the vanilla way (closed, return record in param2)", function()
 	local S, menu, om = withOptionsMenu()
@@ -259,13 +251,13 @@ test("in game the Esc menu is closed the vanilla way before our window opens", f
 	eq(menu.returnTo[1], "OptionsMenu")
 end)
 
-test("closing in game resumes the game and leaves no menu marked shown", function()
+test("closing in game runs the same record-driven restore (the Esc menu comes back)", function()
 	local S, menu, om, shows = withInGameOptionsMenu()
 	S.open("main")
 	menu.onCloseElement("close")
-	eq(optionsOpens(), 0, "in game there is no start menu to reopen")
-	falsy(om.shown)
-	eq(shows(), 0)
+	eq(optionsOpens(), 1, "isStartMenu() cannot tell the screens apart, so the record decides")
+	truthy(om.shown)
+	eq(shows(), 1)
 end)
 
 test("'back' in game returns to the Esc menu through the vanilla return record", function()

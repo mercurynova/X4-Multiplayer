@@ -39,7 +39,17 @@ end
 -- The frame handle is the only piece of the window the engine still holds after a close, and a close path that did not run
 -- menu.cleanup (a bare Helper.closeMenu from the engine or a script) leaves it set while shown is already nil. One place drops
 -- it, so every path - our close, the engine's close, a redraw - ends with exactly one handle or none.
+-- Session-3 finding for the HUD (x4mp_hud.lua, releaseRegistration): View.clearMenus only runs our clearCallback; the entry stays
+-- in View.menus unless clearFrame unregisters it, and a stale entry keeps the engine believing a menu is open - which is what a
+-- frozen HUD and dead input after the window closes look like. So drop the registration too, not just the Lua handle.
 local function releaseFrame()
+	if menu.frame ~= nil then
+		log("standalone: dropping the frame handle")
+		if type(Helper) == "table" and type(Helper.clearFrame) == "function" then
+			local ok, err = pcall(Helper.clearFrame, menu, LAYER)
+			if not ok then log("standalone ui: clearFrame failed: " .. tostring(err)) end
+		end
+	end
 	menu.frame = nil
 end
 menu.releaseFrame = releaseFrame
@@ -111,7 +121,28 @@ end
 ------------------------------------------------------------------------------
 -- Helper menu callbacks
 ------------------------------------------------------------------------------
+-- Names (and shown flags) of every registered menu: the only way to tell what screen we were opened over, because
+-- X4MPBridge.isStartMenu() answers false at the start screen in game build 9.00 (measured 2026-11-12: the restore path
+-- never ran and the start screen stayed dead).
+local function dumpMenus(tag)
+	if type(Menus) ~= "table" then
+		log("standalone: " .. tag .. " Menus is not a table")
+		return
+	end
+	local parts = {}
+	for _, m in ipairs(Menus) do
+		if type(m) == "table" then
+			parts[#parts + 1] = tostring(m.name) .. (m.shown and "+shown" or "")
+		end
+	end
+	log("standalone: " .. tag .. " Menus=[" .. table.concat(parts, ",") .. "]")
+end
+
 function menu.onShowMenu()
+	log("standalone: onShowMenu, shown=" .. tostring(menu.shown) .. ", frame=" .. tostring(menu.frame ~= nil)
+		.. ", returnTo=" .. tostring(type(menu.returnTo) == "table" and menu.returnTo[1] or menu.returnTo)
+		.. ", isStartMenu=" .. tostring(X4MPBridge.isStartMenu()))
+	dumpMenus("open:")
 	menu.shown = true
 	menu.opening = nil
 	-- Helper.showMenuCallback stored the parameters OpenMenu got in menu.param2; Helper.closeMenu / clearMenu wipes them again, so keep a
@@ -129,6 +160,9 @@ end
 -- path while the frame is being torn down, which is exactly what the flag stops: the re-entry returns at once and the outer
 -- call finishes the job.
 function menu.onCloseElement(dueToClose)
+	log("standalone: onCloseElement(" .. tostring(dueToClose) .. "), shown=" .. tostring(menu.shown)
+		.. ", frame=" .. tostring(menu.frame ~= nil) .. ", closing=" .. tostring(menu.closing)
+		.. ", inHelperClose=" .. tostring(menu.inHelperClose))
 	if menu.closing then return end
 	menu.closing = true
 	local ret = menu.returnTo
@@ -142,12 +176,14 @@ function menu.onCloseElement(dueToClose)
 		local ok, err = pcall(Helper.closeMenu, menu, dueToClose or "close")
 		menu.inHelperClose = nil
 		if not ok then log("standalone ui: closeMenu failed: " .. tostring(err)) end
+		log("standalone: closeMenu returned, shown=" .. tostring(menu.shown) .. ", frame=" .. tostring(menu.frame ~= nil))
 	end
 	menu.closing = nil
 	menu.cleanup()
 end
 
 function menu.cleanup()
+	log("standalone: cleanup, shown=" .. tostring(menu.shown) .. ", frame=" .. tostring(menu.frame ~= nil))
 	menu.shown = nil
 	menu.opening = nil
 	releaseFrame()
@@ -175,12 +211,23 @@ end
 -- Esc menu we replaced was already closed by closeMenuAndOpenNewMenu, so the game resumes by itself.
 function menu.restoreStartMenu()
 	local overStartMenu = menu.overStartMenu
-	local ret = menu.returnTo
+	local ret = menu.returnTo or menu.fallbackReturn
 	local vanillaReturn = menu.vanillaReturn
 	menu.overStartMenu = nil
 	menu.returnTo = nil
+	menu.fallbackReturn = nil
 	menu.vanillaReturn = nil
-	if not overStartMenu then return end
+	log("standalone: restore, record=" .. tostring(ret and type(ret[1]) == "string" and ret[1] or "none")
+		.. ", vanillaReturn=" .. tostring(vanillaReturn) .. ", overStartMenu=" .. tostring(overStartMenu))
+	dumpMenus("close:")
+	-- The screen under us is restored from the return record Helper.closeMenuAndOpenNewMenu left in param2, not from
+	-- isStartMenu(): in game build 9.00 that flag answers false even at the start screen, so gating on it left the start
+	-- screen with no menu at all (cursor visible, input dead, 2026-11-12). Without a record nothing was replaced and the
+	-- game handles the screen itself.
+	if not (ret and type(ret[1]) == "string") then
+		log("standalone: no return record, the game keeps the screen")
+		return
+	end
 	if X4MPBridge.loadingSave then
 		log("standalone: closed, a session save is loading, not reopening the start menu")
 		return
@@ -189,7 +236,7 @@ function menu.restoreStartMenu()
 		log("standalone: closed, reopening start menu (via Helper.closeMenu back -> " .. tostring(ret[1]) .. ")")
 		return
 	end
-	local name = (ret and type(ret[1]) == "string") and ret[1] or "OptionsMenu"
+	local name = ret[1]
 	local param, param2 = nil, nil
 	if ret then param, param2 = ret[2], ret[3] end
 	log("standalone: closed, reopening start menu (OpenMenu " .. name .. ", saved return record "
@@ -271,6 +318,10 @@ function renderer.show(model)
 	else
 		if not om then
 			log("standalone ui: no OptionsMenu in Menus; opening with a plain OpenMenu")
+		else
+			-- No closeMenuAndOpenNewMenu means no param2 record; write our own so the close path still puts back the menu we are
+			-- leaving marked shown (otherwise this branch is the 2026-11-12 blank screen).
+			menu.fallbackReturn = { "OptionsMenu" }
 		end
 		ok, err = pcall(OpenMenu, MENU_NAME, { 0, 0 }, nil)
 	end
@@ -282,7 +333,11 @@ function renderer.show(model)
 end
 
 function renderer.close()
-	if menu.shown then menu.onCloseElement("close") end
+	if menu.shown then
+		menu.onCloseElement("close")
+	else
+		log("standalone: renderer.close with the window not shown; frame=" .. tostring(menu.frame ~= nil))
+	end
 end
 
 menu.renderer = renderer
