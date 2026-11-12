@@ -1555,7 +1555,7 @@ TEST_CASE("avatars.director (F28): a checkpoint whose upload never finished leav
   FakeEnv env;
   AvatarDirector d(env);
   d.on_checkpoint_stored("ck1", {"A"});
-  d.on_checkpoint_stored("ck2", {"B"});
+  d.on_checkpoint_pending("ck2", {"B"});
   d.on_checkpoint_dropped("ck2");
   REQUIRE(d.lineage().ledger.size() == 1);
   CHECK(d.lineage().ledger[0].sha == "ck1");
@@ -1566,12 +1566,106 @@ TEST_CASE("avatars.director (F28): a checkpoint whose upload never finished leav
   SECTION("failed uploads do not evict the real checkpoints") {
     for (int i = 0; i < 20; ++i) {
       const auto sha = "f" + std::to_string(i);
-      d.on_checkpoint_stored(sha, {});
+      d.on_checkpoint_pending(sha, {});
       d.on_checkpoint_dropped(sha);
     }
     REQUIRE(d.lineage().ledger.size() == 1);
     CHECK(d.lineage().ledger[0].sha == "ck1");
   }
+}
+
+TEST_CASE("avatars.director (F28 review 2): pending ledger entries never evict confirmed ones; stored confirms; a drop only removes a pending entry", "[avatars][f28]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  for (int i = 0; i < 8; ++i) d.on_checkpoint_stored("c" + std::to_string(i), {});
+  REQUIRE(d.lineage().ledger.size() == Lineage::kMaxLedger);
+
+  SECTION("a pending entry at the cap evicts nothing; at most two are kept") {
+    d.on_checkpoint_pending("p1", {"A"});
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger + 1);
+    CHECK(d.lineage().ledger.front().sha == "c0");
+    d.on_checkpoint_pending("p2", {});
+    d.on_checkpoint_pending("p3", {});  // replaces the oldest pending (p1)
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger + Lineage::kMaxPending);
+    CHECK(d.lineage().ledger.front().sha == "c0");
+    const auto pend = std::count_if(d.lineage().ledger.begin(), d.lineage().ledger.end(), [](const CheckpointNote& n) { return n.pending; });
+    CHECK(pend == 2);
+    CHECK(std::none_of(d.lineage().ledger.begin(), d.lineage().ledger.end(), [](const CheckpointNote& n) { return n.sha == "p1"; }));
+  }
+  SECTION("a definitive failure drops only the pending entry; the confirmed ones stay") {
+    d.on_checkpoint_pending("p1", {});
+    d.on_checkpoint_dropped("c3");  // confirmed: never dropped
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger + 1);
+    d.on_checkpoint_dropped("p1");
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger);
+    CHECK(d.lineage().ledger.front().sha == "c0");
+  }
+  SECTION("the stored answer confirms the pending entry, then the normal cap applies") {
+    d.on_checkpoint_pending("p1", {"A"});
+    d.on_checkpoint_stored("p1", {"A"});
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger);
+    CHECK(d.lineage().ledger.back().sha == "p1");
+    CHECK_FALSE(d.lineage().ledger.back().pending);
+    CHECK(d.lineage().ledger.front().sha == "c1");  // c0 was evicted by the confirmation
+  }
+  SECTION("a pending note of a checkpoint that is already confirmed changes nothing") {
+    d.on_checkpoint_pending("c7", {});
+    CHECK(d.lineage().ledger.size() == Lineage::kMaxLedger);
+    CHECK_FALSE(d.lineage().ledger.back().pending);
+  }
+}
+
+TEST_CASE("avatars.director (F28 review 2): a loaded save matches a pending checkpoint like a confirmed one", "[avatars][f28]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  provision(d, env, c, 2, 1, "Alice");
+  const auto snap = d.snapshot();
+  REQUIRE(snap.size() == 1);
+  d.on_checkpoint_pending("pend", {snap[0].idcode});
+  d.on_loaded_save("pend");
+  CHECK(d.size() == 1);  // kept: the pending checkpoint may well have been stored
+  d.on_loaded_save("other");
+  CHECK(d.size() == 0);
+}
+
+TEST_CASE("avatars.plan (F28 review 2): the pending flag round trips; a ledger line without it reads as confirmed", "[avatars][f28]") {
+  Lineage l;
+  l.ledger.push_back({"aa11", {"AAA-111"}, false});
+  l.ledger.push_back({"bb22", {"BBB-222", "CCC-333"}, true});
+  const auto parsed = records_from_text(records_to_text({}, l));
+  CHECK(parsed.bad_lines == 0);
+  CHECK(parsed.lineage == l);
+  const auto old = records_from_text("x4av 2\nC|aa11|AAA-111\n");
+  REQUIRE(old.lineage.ledger.size() == 1);
+  CHECK_FALSE(old.lineage.ledger[0].pending);
+  CHECK(old.bad_lines == 0);
+}
+
+TEST_CASE("avatars.director (F28 review 2): a PlayerShip after more than 2 s without states resets the motion state of a still-online avatar", "[avatars][f28]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}));
+  provision(d, env, c, 2, 1, "Alice");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  PlayerStateIn s;
+  s.net_id = net;
+  s.sector = 1;
+  s.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+  s.pose = {2000, 0, 0, 0, 0, 0};
+  d.on_player_state(s, s.sample_time_us);
+  REQUIRE(d.views()[0].samples == 1);
+
+  run(d, c, 1.0);
+  d.on_player_ship(request(2));  // states were flowing a second ago: the motion survives
+  CHECK(d.views()[0].samples == 1);
+
+  run(d, c, 3.0);  // the player reconnected before the roster marked them offline: no state for 3 s
+  REQUIRE(d.views()[0].rec.online);
+  d.on_player_ship(request(2));
+  CHECK(d.views()[0].samples == 0);
 }
 
 TEST_CASE("avatars.hub (F28): note_checkpoint_dropped queues a CheckpointDropped lineage event in order", "[avatars][f28]") {
@@ -1585,6 +1679,19 @@ TEST_CASE("avatars.hub (F28): note_checkpoint_dropped queues a CheckpointDropped
   CHECK(in.lineage[0].kind == K::Checkpoint);
   CHECK(in.lineage[1].kind == K::CheckpointDropped);
   CHECK(in.lineage[1].text == "abc");
+  hub.reset();
+}
+
+TEST_CASE("avatars.hub (F28 review 2): note_checkpoint_pending queues a CheckpointPending event before the confirming Checkpoint", "[avatars][f28]") {
+  auto& hub = x4mp::features::avatars::avatar_hub();
+  hub.reset();
+  hub.note_checkpoint_pending("abc", {"A"});
+  hub.note_checkpoint("abc", {"A"});
+  const auto in = hub.take_inputs();
+  REQUIRE(in.lineage.size() == 2);
+  using K = x4mp::features::avatars::HubInputs::LineageEvent::Kind;
+  CHECK(in.lineage[0].kind == K::CheckpointPending);
+  CHECK(in.lineage[1].kind == K::Checkpoint);
   hub.reset();
 }
 

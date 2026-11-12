@@ -233,7 +233,8 @@ public sealed partial class RelayModule
                 return;
             }
 
-            gap = Math.Min(due.Gap * 2, AdoptMaxGapSeconds * _time.TimestampFrequency);
+            // F28 review 2: the gap only grows when a request is actually forwarded; with no authority the request is recorded but the gap stays
+            gap = Authority is null ? due.Gap : Math.Min(due.Gap * 2, AdoptMaxGapSeconds * _time.TimestampFrequency);
         }
 
         _adoptNext[node.PlayerId] = (now + gap, gap);

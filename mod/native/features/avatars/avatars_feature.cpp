@@ -270,6 +270,7 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
       using K = av::HubInputs::LineageEvent::Kind;
       if (ev.kind == K::LoadedSave) dir->on_loaded_save(ev.text);
       else if (ev.kind == K::CheckpointDropped) dir->on_checkpoint_dropped(ev.text);
+      else if (ev.kind == K::CheckpointPending) dir->on_checkpoint_pending(ev.text, ev.idcodes);
       else dir->on_checkpoint_stored(ev.text, ev.idcodes);
     }
     if (in.welcomed) dir->on_welcome();

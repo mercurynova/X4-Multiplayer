@@ -138,6 +138,7 @@ std::string records_to_text(const std::vector<Record>& records, const Lineage& l
   for (const auto& c : lineage.ledger) {
     out << "C|" << clean_field(c.sha, 64) << '|';
     for (std::size_t i = 0; i < c.idcodes.size(); ++i) out << (i ? ";" : "") << clean_field(c.idcodes[i], 24);
+    if (c.pending) out << "|p";
     out << '\n';
   }
   for (const auto& r : records) {
@@ -173,12 +174,13 @@ ParsedRecords records_from_text(std::string_view text) {
     }
     const auto f = split_bar(line);
     if (!f.empty() && f[0] == "C") {
-      if (f.size() != 3 || f[1].empty()) {
+      if ((f.size() != 3 && !(f.size() == 4 && f[3] == "p")) || f[1].empty()) {
         ++out.bad_lines;
         continue;
       }
       CheckpointNote c;
       c.sha = std::string(f[1]);
+      c.pending = f.size() == 4;
       std::string_view ids = f[2];
       while (!ids.empty()) {
         const auto semi = ids.find(';');
