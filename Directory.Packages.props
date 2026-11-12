@@ -13,7 +13,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.FileProviders.Embedded" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <!-- Referenced explicitly by X4MP.Server: the SDK adds it implicitly for a self-contained single-file publish, which used to rewrite the lock file. -->
