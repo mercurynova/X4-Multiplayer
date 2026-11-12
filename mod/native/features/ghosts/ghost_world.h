@@ -35,6 +35,7 @@ class GameGhostWorld final : public IGhostWorld {
   void set_dress_skip_radar_known(bool skip) noexcept { skip_radar_known_ = skip; }
   void hint_velocities(std::span<const VelocityHint> hints) override;
   void set_owner(std::uint64_t id, std::string_view owner) override;
+  bool install_paint(std::uint64_t id, std::string_view ware) override { return api_.api().install_paint(id, ware); }
   std::optional<ObjectState> read_state(std::uint64_t id) override;
   bool valid(std::uint64_t id) override { return api_.valid(id); }
   bool wrecked(std::uint64_t id) override { return api_.wrecked(id); }

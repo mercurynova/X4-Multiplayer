@@ -25,6 +25,7 @@ table EntityRecord {
   hull:ubyte = 255;
   shield:ubyte = 255;
   state:EntityState;
+  paint:string;                  // paint mod ware id; "" = no paint (player ships only, appended M12)
 }
 
 /// Control lane. A->S (authority truth), S->N (filtered by interest).
@@ -58,7 +59,7 @@ table EntityStatusBatch {
   statuses:[EntityStatus];
 }
 
-enum ChangeField : ushort (bit_flags) { Owner, OwnerTeam, OwnerPlayer, Name, Parent, Macro, Kind, Controller }
+enum ChangeField : ushort (bit_flags) { Owner, OwnerTeam, OwnerPlayer, Name, Parent, Macro, Kind, Controller, Paint }
 
 /// Control lane. A->S, S->N. Non-positional attribute change ("AssetOwnershipChanged" in
 /// server-design.md == EntityChange with OwnerTeam/OwnerPlayer bits).
@@ -75,6 +76,7 @@ table EntityChange {
   kind:EntityKind;
   controller_player:ushort;
   cause_trade_id:Id128;          // set when caused by an escrowed trade / asset transfer
+  paint:string;                   // paint mod ware id (fields=Paint); "" = no paint (appended M12)
 }
 
 /// Control lane. Full cargo snapshot of one container.
@@ -213,6 +215,7 @@ table PlayerShip {
   shield:ubyte = 255;
   local_component_id:ulong;      // sender's own UniverseID, diagnostics only
   player_id:ushort;              // SERVER-STAMPED when forwarding to the authority (any client value is overwritten); 0 = unset
+  paint:string;                  // paint mod ware id of the ship the sender flies; "" = no paint (appended M12)
 }
 
 // ---------------- on foot (ADR-046, M3b; schema only until the relay lands) ----------------

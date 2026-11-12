@@ -99,6 +99,9 @@ struct ClientTakeover::Impl final : ITakeoverEnv {
     PlayerShipReq r;
     r.name = ctx->game.component_name(host_ship).value_or(std::string{});
     r.idcode = idcode(host_ship);
+    // M12: the paint of the ship the player actually flies, not of the ship the request is posed around.
+    const std::uint64_t flown = ctx->game.player_occupied_ship() != 0 ? ctx->game.player_occupied_ship() : ctx->game.player_controlled_ship();
+    if (flown != 0) r.paint = ctx->game.installed_paint(flown);
     r.sector = selfship::selfship_hub().status().sector;
     if (const auto p = ctx->game.object_position(host_ship)) r.pose = {p->x, p->y, p->z, p->yaw, p->pitch, p->roll};
     std::array<std::uint8_t, 16> key{};

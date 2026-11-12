@@ -229,6 +229,40 @@ public sealed class WorldMirrorTests
     }
 
     [Fact]
+    public void PlayerShipPaintIsStoredOnSpawnAndUpdatedByChange()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(1, EntityKind.ShipS, 5, controller: 2, origin: EntityOrigin.PlayerShip, paint: "paintmod_test_01"));
+        Assert.True(mirror.TryGet(1, out var ship));
+        Assert.Equal("paintmod_test_01", ship.Paint);
+
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(1, ChangeField.Paint, paint: "paintmod_test_02")));
+        Assert.Equal("paintmod_test_02", ship.Paint);
+
+        // A change without the Paint bit leaves the stored paint alone.
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(1, ChangeField.Name, name: "Renamed")));
+        Assert.Equal("paintmod_test_02", ship.Paint);
+        Assert.Equal("Renamed", ship.Name);
+
+        // Empty paint on the wire means "no paint" and clears it.
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(1, ChangeField.Paint, paint: "")));
+        Assert.Equal("", ship.Paint);
+    }
+
+    [Fact]
+    public void JournalKeepsThePaintOfSpawnAndChangeForCatchUp()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(10, EntityKind.Station, 2, paint: "paintmod_test_01"));
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(10, ChangeField.Paint, paint: "paintmod_test_02")));
+
+        var wire = mirror.Journal.Entries.Select(JournalCodec.ToWire).ToList();
+
+        Assert.Equal("paintmod_test_01", wire[0]!.Body.AsEntityRecord().Paint);
+        Assert.Equal("paintmod_test_02", wire[1]!.Body.AsEntityChange().Paint);
+    }
+
+    [Fact]
     public void EntityChangeUpdatesAttributesAndReclassifiesTheSizeClass()
     {
         var mirror = new WorldMirror();

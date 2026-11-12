@@ -610,6 +610,7 @@ public sealed partial class InterestManager
         ControllerPlayer = e.ControllerPlayer,
         Name = e.Name,
         Idcode = e.IdCode,
+        Paint = e.Paint,
         Hull = e.Hull,
         Shield = e.Shield,
         State = !e.PoseKnown ? null : new EntityStateT

@@ -199,6 +199,9 @@ class AuthorityFlow {
   std::vector<avatars::Record> manifest_avatars_;     // M3-11: the avatars as of SaveGame, for the manifest
   std::optional<ShipRec> spawn_ship_;
   GalaxyPlan spawn_plan_;
+  // M12: the paint announced for the host's own ship (net_id state_.host_net_id) and a 1 Hz re-read of the flown ship.
+  std::string host_paint_sent_;
+  Clock::time_point next_paint_check_{};
   // M3-14: the authority's clock reference. The server replicates player ships only after it has seen one WorldUpdate (its game time and capture time
   // are the reference every entity state is stamped with). M4-08: the same 20 Hz tick now carries the captured world through EntityStream, and an empty
   // WorldUpdate is still the keepalive when nothing moved.

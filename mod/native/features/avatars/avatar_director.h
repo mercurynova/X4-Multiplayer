@@ -73,6 +73,8 @@ class IAvatarEnv {
     return std::nullopt;
   }
   virtual bool set_owner(std::uint64_t id, const std::string& faction) = 0;  // SetComponentOwner; false = the call was not made (retried)
+  // M12: install a paint mod on the avatar (InstallPaintMod, useinventory=false). An empty ware means "no paint" and must not be called.
+  virtual bool install_paint(std::uint64_t id, const std::string& ware) = 0;
   virtual bool valid(std::uint64_t id) = 0;
   virtual std::string idcode(std::uint64_t id) = 0;
   virtual bool read_pose(std::uint64_t id, std::uint64_t& sector, Pose& pose) = 0;
@@ -98,6 +100,8 @@ class IAvatarEnv {
   virtual bool send_controller(std::uint32_t net_id, std::uint16_t player) = 0;
   // EntityChange{Owner|OwnerTeam}: the avatar now belongs to `team` / `faction` (M3-18, the player moved team). false = retried next frame.
   virtual bool send_owner(std::uint32_t net_id, std::uint16_t team, const std::string& faction) = 0;
+  // EntityChange{Paint}: the avatar's paint mod changed (M12). "" = no paint.
+  virtual bool send_paint(std::uint32_t net_id, const std::string& ware) = 0;
   // ---- persistence, log ----
   virtual void save_records(const std::string& text) = 0;
   virtual void log(LogLevel level, const std::string& text) = 0;

@@ -155,6 +155,30 @@ void fk_add_money(std::int64_t money) {
   ++g_add_money_calls;
 }
 
+// M12 (paint): GetInstalledPaintMod answers with the ware the fake currently reports, InstallPaintMod records the call.
+std::string g_installed_paint = "paintmod_test_01";
+UniverseId g_paint_read_id = 0;
+bool fk_installed_paint(UniverseId id, PaintModPod* out) {
+  g_paint_read_id = id;
+  if (!out || g_installed_paint.empty()) return false;
+  out->name = "Test Paint";
+  out->raw_name = "paintmod_test_01_macro";
+  out->ware = g_installed_paint.c_str();
+  out->quality = 3;
+  out->amount = 1;
+  return true;
+}
+UniverseId g_paint_install_id = 0;
+std::string g_paint_installed;
+bool g_paint_use_inventory = true;
+bool g_paint_install_result = true;
+bool fk_install_paint(UniverseId id, const char* ware, bool useinventory) {
+  g_paint_install_id = id;
+  g_paint_installed = ware ? ware : "<null>";
+  g_paint_use_inventory = useinventory;
+  return g_paint_install_result;
+}
+
 void* lookup_all(const char* name) {
   const std::string n = name;
   if (n == "GetCurrentGameTime") return reinterpret_cast<void*>(&fk_time);
@@ -194,6 +218,8 @@ void* lookup_all(const char* name) {
   if (n == "SpawnStationAtPos") return reinterpret_cast<void*>(&fk_spawn_station);
   if (n == "GetOwnerDetails") return reinterpret_cast<void*>(&fk_owner_details);
   if (n == "AddPlayerMoney") return reinterpret_cast<void*>(&fk_add_money);
+  if (n == "GetInstalledPaintMod") return reinterpret_cast<void*>(&fk_installed_paint);
+  if (n == "InstallPaintMod") return reinterpret_cast<void*>(&fk_install_paint);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -239,7 +265,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 37);
+  CHECK(missing_exports(api.fns()).size() == 39);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -256,7 +282,32 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 37);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 39);
+}
+
+// M12: paint read/write are null-safe, an empty ware is "no paint", and the write uses useinventory=false.
+TEST_CASE("paint mods are read and installed through the null-safe wrapper", "[game][api][paint]") {
+  ResetMainThread guard;
+  GameApi api(resolve_game_fns(lookup_all), GameInfo{});
+
+  g_installed_paint = "paintmod_test_01";
+  CHECK(api.installed_paint(42) == "paintmod_test_01");
+  CHECK(g_paint_read_id == 42);
+  g_installed_paint.clear();
+  CHECK(api.installed_paint(42).empty());  // no paint
+  CHECK(api.installed_paint(0).empty());   // id 0 never reaches the export
+
+  g_paint_install_result = true;
+  CHECK(api.install_paint(42, "paintmod_test_01"));
+  CHECK(g_paint_install_id == 42);
+  CHECK(g_paint_installed == "paintmod_test_01");
+  CHECK_FALSE(g_paint_use_inventory);
+  CHECK_FALSE(api.install_paint(42, ""));  // empty = no paint, never a game call
+  CHECK_FALSE(api.install_paint(0, "paintmod_test_01"));
+
+  GameApi none(resolve_game_fns(lookup_none), GameInfo{});
+  CHECK(none.installed_paint(42).empty());
+  CHECK_FALSE(none.install_paint(42, "paintmod_test_01"));
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -302,7 +353,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 36);
+  CHECK(missing_exports(api.fns()).size() == 38);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {

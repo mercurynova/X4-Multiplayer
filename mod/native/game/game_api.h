@@ -71,6 +71,16 @@ struct OwnerFactionPod {
   const char* faction_icon = nullptr;
 };
 
+// Binary-compatible with the SDK's UIPaintMod {const char* Name; const char* RawName; const char* Ware; uint32 Quality; uint32 Amount;}
+// (sdk/x4_game_types.h). Only the output buffer of GetInstalledPaintMod: the strings belong to the game and stay valid until the next call.
+struct PaintModPod {
+  const char* name = nullptr;
+  const char* raw_name = nullptr;
+  const char* ware = nullptr;
+  std::uint32_t quality = 0;
+  std::uint32_t amount = 0;
+};
+
 // One cargo line copied out of the game, so callers can hold it after the export returned.
 struct CargoPod {
   std::string ware;  // the ware id the game uses in cargo commands ("energycells"), NOT a macro ref
@@ -136,11 +146,15 @@ struct GameFns {
   // this one, and it is the only way to make the local money equal what the ledger says: AddPlayerMoney(delta) with the delta
   // design 12.2 computes (serverBalance + pending - local).
   void (*AddPlayerMoney)(std::int64_t money) = nullptr;
+  // M12 (paint): read the paint mod installed on a ship (`objectid`) and install a paint (ware id) on one. GetInstalledPaintMod answers
+  // false when the object has no paint; InstallPaintMod's useinventory is false so a host-side apply never consumes inventory.
+  bool (*GetInstalledPaintMod)(UniverseId objectid, PaintModPod* paintmod) = nullptr;
+  bool (*InstallPaintMod)(UniverseId objectid, const char* wareid, bool useinventory) = nullptr;
 };
 
 // Number of names missing_exports() checks, i.e. the exports GameFns can bind (a test asserts it): the self-test reports resolved/total
 // from it, so it has to be the real count or the report lies by the difference.
-inline constexpr std::size_t kGameFnCount = 37;
+inline constexpr std::size_t kGameFnCount = 39;
 
 // Upper bound on the cargo lines one read copies (far above any real hold; keeps a bad export from allocating forever).
 inline constexpr std::uint32_t kMaxCargoLines = 4096;
@@ -241,6 +255,14 @@ class GameApi {
   // conversion happens here and nowhere else. Session 8 passed credits straight through, so a +100000 credit write moved the
   // player by 1000 and the ledger could never converge on the game.
   bool add_player_money(std::int64_t delta) const noexcept;
+
+  // ---- M12 (paint) ----
+  // The ware id of the paint mod installed on `id` (UIPaintMod.Ware). Empty when the export is missing, the id is 0, the
+  // main-thread check fails, or the game reports no paint. Copied at once: the game owns the buffer.
+  [[nodiscard]] std::string installed_paint(UniverseId id) const;
+  // Install the paint `ware` on `id` (useinventory=false). false when the export is missing, the id or ware is empty, or the
+  // main-thread check fails. An empty ware is "no paint" and is never sent to the game.
+  bool install_paint(UniverseId id, std::string_view ware) const noexcept;
 
   // The wire and the ledger count credits, the game's write export counts cents.
   static constexpr std::int64_t kCentsPerCredit = 100;

@@ -23,6 +23,7 @@ namespace x4mp::features::avatars {
 struct PlayerShipReq {
   std::uint16_t player_id = 0;
   std::string ship_macro, name, idcode;
+  std::string paint;  // paint mod ware id of the ship the sender flies; "" = no paint (M12)
   std::uint16_t sector = 0;
   Pose pose;
 };
@@ -89,5 +90,7 @@ struct AvatarInfo {
 [[nodiscard]] std::vector<std::uint8_t> encode_controller_change(std::uint32_t net_id, std::uint16_t player);
 // EntityChange{Owner|OwnerTeam} (M3-18): the avatar is now owned by faction `owner_ref` (string table ref) and team `team`; owner_player is untouched.
 [[nodiscard]] std::vector<std::uint8_t> encode_owner_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint16_t team);
+// EntityChange{fields = Paint, paint = ware} for an avatar (M12). "" = no paint.
+[[nodiscard]] std::vector<std::uint8_t> encode_paint_change(std::uint32_t net_id, const std::string& ware);
 
 }  // namespace x4mp::features::avatars

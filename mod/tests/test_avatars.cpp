@@ -99,6 +99,18 @@ struct FakeEnv final : IAvatarEnv {
     owners_sent.push_back({n, t, f});
     return true;
   }
+  struct PaintApply { std::uint64_t id; std::string ware; };
+  std::vector<PaintApply> paints_applied;
+  std::vector<std::pair<std::uint32_t, std::string>> paints_sent;
+  bool paint_fails = false;
+  bool install_paint(std::uint64_t id, const std::string& ware) override {
+    paints_applied.push_back({id, ware});
+    return !paint_fails;
+  }
+  bool send_paint(std::uint32_t n, const std::string& ware) override {
+    paints_sent.emplace_back(n, ware);
+    return true;
+  }
   bool report_active = false;  // M3-28: the fake game offers an isactive read-back
   std::optional<bool> is_active(std::uint64_t id) override {
     if (!report_active || !objs.count(id)) return std::nullopt;
@@ -276,6 +288,7 @@ TEST_CASE("avatars.plan: records round trip and tolerate garbage", "[avatars]") 
   r.idcode = "ABC-123";
   r.owner = "x4mp_team_2";
   r.sector_macro = "sec_a";
+  r.paint = "paintmod_test_01";
   r.pose = {1.5, -2.25, 3000, 0.1, 0.2, 0.3};
   r.online = true;
   auto text = records_to_text({r});
@@ -287,6 +300,12 @@ TEST_CASE("avatars.plan: records round trip and tolerate garbage", "[avatars]") 
   Record expect = r;
   expect.name = "[MP] Bobx";  // '|' is not allowed inside a field
   CHECK(parsed.records[0] == expect);
+  // M12: a pre-paint (16-field) line still parses and means "no paint".
+  const auto legacy = records_from_text("x4av 2\nA|4|1|18|0|ship_x|IDC-9|x4mp_team_1|sec_a|0|0|0|0|0|0|[MP] Old\n");
+  REQUIRE(legacy.records.size() == 1);
+  CHECK(legacy.bad_lines == 0);
+  CHECK(legacy.records[0].paint.empty());
+  CHECK(legacy.records[0].name == "[MP] Old");
   CHECK_FALSE(records_from_text("something else\nA|1").header_ok);
 }
 
@@ -428,6 +447,89 @@ TEST_CASE("avatars.director: provisioning on PlayerShip", "[avatars]") {
     CHECK(env.count_owned("x4mp_team_1") == 1);
     CHECK(env.count_owned("x4mp_team_2") == 1);
     CHECK(env.spawns_sent[0][0].net_id != env.spawns_sent[1][0].net_id);
+  }
+}
+
+TEST_CASE("avatars.director (M12): ship paint rides the PlayerShip request, is installed on the avatar and forwarded on change", "[avatars][m12]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}, false));
+
+  SECTION("a request with paint installs it after the spawn and announces it") {
+    auto q = request(2);
+    q.paint = "paintmod_test_01";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.spawn_calls == 1);
+    const auto v = d.views();
+    REQUIRE(v.size() == 1);
+    REQUIRE(env.paints_applied.size() == 1);
+    CHECK(env.paints_applied[0].id == v[0].local_id);
+    CHECK(env.paints_applied[0].ware == "paintmod_test_01");
+    REQUIRE(env.spawns_sent.size() == 1);
+    CHECK(env.spawns_sent[0][0].paint == "paintmod_test_01");
+    CHECK(env.paints_sent.empty());  // the spawn already carries it; no separate change
+    CHECK(v[0].rec.paint == "paintmod_test_01");
+  }
+
+  SECTION("a refresh with a different paint re-applies it on the live avatar and tells the server") {
+    const auto id = provision(d, env, c, 2, 1, "Alice");
+    CHECK(env.paints_applied.empty());  // the empty first request installs nothing
+    auto q = request(2);
+    q.paint = "paintmod_test_02";
+    d.on_player_ship(q);
+    REQUIRE(env.paints_applied.size() == 1);
+    CHECK(env.paints_applied[0].id == id);
+    CHECK(env.paints_applied[0].ware == "paintmod_test_02");
+    REQUIRE(env.spawns_sent.size() == 1);
+    REQUIRE(env.paints_sent.size() == 1);
+    CHECK(env.paints_sent[0].first == env.spawns_sent[0][0].net_id);
+    CHECK(env.paints_sent[0].second == "paintmod_test_02");
+    CHECK(d.views()[0].rec.paint == "paintmod_test_02");
+    // The same paint again is not a change: no repeat game call and no repeat change.
+    d.on_player_ship(q);
+    CHECK(env.paints_applied.size() == 1);
+    CHECK(env.paints_sent.size() == 1);
+  }
+
+  SECTION("clearing the paint never calls InstallPaintMod with an empty ware (the game has no uninstall)") {
+    auto q = request(2);
+    q.paint = "paintmod_test_01";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.paints_applied.size() == 1);
+    d.on_player_ship(request(2));  // empty paint = none
+    CHECK(env.paints_applied.size() == 1);  // no second install, especially not with ""
+    REQUIRE(env.paints_sent.size() == 1);
+    CHECK(env.paints_sent[0].second.empty());
+    CHECK(d.views()[0].rec.paint.empty());
+    // The record text round trip keeps "no paint" (and tolerates the legacy 16-field line).
+    const auto v = d.views();
+    REQUIRE(v.size() == 1);
+    const auto text = records_to_text({v[0].rec});
+    CHECK(records_from_text(text).records.at(0).paint.empty());
+  }
+
+  SECTION("a failing install is reported and does not stop the avatar") {
+    env.paint_fails = true;
+    auto q = request(2);
+    q.paint = "paintmod_test_01";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.paints_applied.size() == 1);
+    CHECK(d.views().size() == 1);
+    CHECK(d.views()[0].stage == AvatarDirector::Stage::Live);
+    CHECK_FALSE(env.spawns_sent.empty());
   }
 }
 

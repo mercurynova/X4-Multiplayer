@@ -220,6 +220,8 @@ void GhostCore::on_entity_spawn(std::span<const std::uint8_t> payload, std::int6
     info.name = npc ? std::string() : str(r->name());
     info.macro = std::string(strings.value(r->macro_ref()));
     info.owner = std::string(strings.value(r->owner_ref()));
+    // M12: paint is a plain string on the record (not a string-table ref) and is only meaningful for player ships.
+    if (!npc) info.paint = str(r->paint());
     // The canonical team faction (M3-08: slot of the team). A ghost must never be owned by the `player` faction (it would show up as the
     // local player's property): fall back to the team id only when the team model does not know the team yet.
     if (info.team != 0) {
@@ -257,9 +259,10 @@ void GhostCore::on_entity_change(std::span<const std::uint8_t> payload) {
   ++counters.change;
   if (!driver.has(m->net_id())) return;
   const P::ChangeField f = m->fields();
-  std::optional<std::string> name, owner;
+  std::optional<std::string> name, owner, paint;
   std::optional<std::uint16_t> controller, team;
   if ((f & P::ChangeField::Name) != P::ChangeField::NONE) name = str(m->name());
+  if ((f & P::ChangeField::Paint) != P::ChangeField::NONE) paint = str(m->paint());
   if ((f & P::ChangeField::Controller) != P::ChangeField::NONE) controller = m->controller_player();
   if ((f & P::ChangeField::Owner) != P::ChangeField::NONE) {
     const std::string_view v = strings.value(m->owner_ref());
@@ -269,7 +272,7 @@ void GhostCore::on_entity_change(std::span<const std::uint8_t> payload) {
     team = m->owner_team();
     if (!owner && m->owner_team() != 0) owner = "x4mp_team_" + std::to_string(m->owner_team());
   }
-  driver.on_change(m->net_id(), std::move(name), controller, std::move(owner), team);
+  driver.on_change(m->net_id(), std::move(name), controller, std::move(owner), team, std::move(paint));
 }
 
 void GhostCore::on_entity_despawn(std::span<const std::uint8_t> payload) {

@@ -148,6 +148,10 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
     g->info.npc = info.npc;
     if (!info.macro.empty()) g->info.macro = info.macro;
     if (!info.name.empty()) g->info.name = info.name;
+    if (g->info.paint != info.paint) {
+      g->info.paint = info.paint;  // M12: a refreshed spawn carries the current paint
+      g->paint_dirty = true;
+    }
     if (reown) {
       g->info.owner = info.owner;
       g->owner_dirty = true;
@@ -170,7 +174,7 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
 }
 
 void GhostDriver::on_change(std::uint32_t net_id, std::optional<std::string> name, std::optional<std::uint16_t> controller, std::optional<std::string> owner,
-                            std::optional<std::uint16_t> team) {
+                            std::optional<std::uint16_t> team, std::optional<std::string> paint) {
   Ghost* g = find(net_id);
   if (!g) return;
   if (name) g->info.name = *name;
@@ -179,6 +183,11 @@ void GhostDriver::on_change(std::uint32_t net_id, std::optional<std::string> nam
   if (owner && !owner->empty() && *owner != g->info.owner) {
     g->info.owner = *owner;
     g->owner_dirty = true;
+  }
+  // M12: a paint change never respawns the ghost; frame() installs it on the existing object.
+  if (paint && *paint != g->info.paint) {
+    g->info.paint = *paint;
+    g->paint_dirty = true;
   }
   if (g->info.npc) {  // an NPC has no label to keep in step
     dirty_ = true;
@@ -414,6 +423,15 @@ bool GhostDriver::try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_
   }
   world_->make_inert(id);
   if (cfg_.activate_streamed) world_->activate(id);  // M4-29 attention A/B: `activate` instead of `native` (off by default)
+  // M12: the paint goes on the spawned object (after make_inert/activate, before the dress). Empty = no paint.
+  if (!g.info.paint.empty()) {
+    if (world_->install_paint(id, g.info.paint)) {
+      log(kInfo, std::format("ghost paint: net={} ware={}", g.info.net_id, g.info.paint));
+    } else {
+      log(kWarn, std::format("ghost paint FAILED: net={} ware={}", g.info.net_id, g.info.paint));
+    }
+  }
+  g.paint_dirty = false;
   if (!g.info.npc) world_->dress(id, g.label, cfg_.min_hull_percent);  // M4-13: an NPC keeps the game's own name, no [MP] label
   g.idcode = world_->id_code(id);
   g.local_id = id;
@@ -591,6 +609,18 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     if (g.owner_dirty) {
       g.owner_dirty = false;
       world_->set_owner(g.local_id, g.info.owner);
+    }
+    if (g.paint_dirty) {
+      g.paint_dirty = false;
+      if (!g.info.paint.empty()) {
+        if (world_->install_paint(g.local_id, g.info.paint)) {
+          log(kInfo, std::format("ghost paint changed: net={} ware={}", g.info.net_id, g.info.paint));
+        } else {
+          log(kWarn, std::format("ghost paint change FAILED: net={} ware={}", g.info.net_id, g.info.paint));
+        }
+      } else {
+        log(kInfo, std::format("ghost paint cleared on the wire: net={} (the game offers no uninstall)", g.info.net_id));
+      }
     }
     if (g.label_dirty) {
       g.label_dirty = false;

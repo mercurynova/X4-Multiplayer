@@ -52,6 +52,8 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "SpawnStationAtPos", f.SpawnStationAtPos);
   bind(get, "GetOwnerDetails", f.GetOwnerDetails);
   bind(get, "AddPlayerMoney", f.AddPlayerMoney);
+  bind(get, "GetInstalledPaintMod", f.GetInstalledPaintMod);
+  bind(get, "InstallPaintMod", f.InstallPaintMod);
   return f;
 }
 
@@ -97,6 +99,8 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.SpawnStationAtPos), "SpawnStationAtPos");
   check(reinterpret_cast<const void*>(f.GetOwnerDetails), "GetOwnerDetails");
   check(reinterpret_cast<const void*>(f.AddPlayerMoney), "AddPlayerMoney");
+  check(reinterpret_cast<const void*>(f.GetInstalledPaintMod), "GetInstalledPaintMod");
+  check(reinterpret_cast<const void*>(f.InstallPaintMod), "InstallPaintMod");
   return out;
 }
 
@@ -290,6 +294,24 @@ bool GameApi::add_player_money(std::int64_t delta) const noexcept {
   if (delta > kMaxCredits || delta < -kMaxCredits) return false;
   fns_.AddPlayerMoney(delta * kCentsPerCredit);
   return true;
+}
+
+std::string GameApi::installed_paint(UniverseId id) const {
+  if (id == 0 || !fns_.GetInstalledPaintMod || !assert_main_thread("GetInstalledPaintMod")) return {};
+  PaintModPod p;
+  if (!fns_.GetInstalledPaintMod(id, &p) || !p.ware || !*p.ware) return {};
+  return std::string(p.ware);
+}
+
+bool GameApi::install_paint(UniverseId id, std::string_view ware) const noexcept {
+  if (id == 0 || ware.empty() || !fns_.InstallPaintMod || !assert_main_thread("InstallPaintMod")) return false;
+  try {
+    const std::string w(ware);  // the export wants a NUL-terminated string
+    fns_.InstallPaintMod(id, w.c_str(), /*useinventory*/ false);
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 }  // namespace x4mp::game

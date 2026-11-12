@@ -37,6 +37,7 @@ std::optional<PlayerShipReq> decode_player_ship(std::span<const std::uint8_t> pa
   r.ship_macro = str_of(m->ship_macro());
   r.name = str_of(m->name());
   r.idcode = str_of(m->idcode());
+  r.paint = str_of(m->paint());
   r.sector = m->sector();
   r.pose = pose_of(m->px(), m->py(), m->pz(), m->yaw(), m->pitch(), m->roll());
   return r;
@@ -154,7 +155,7 @@ std::vector<std::uint8_t> encode_player_ship(const PlayerShipReq& r, std::uint64
   const auto q = [](double v) { return wire::quantize_position(v).value_or(0); };
   const auto qr = [](double v) { return wire::quantize_rotation(v).value_or(0); };
   const auto off = P::CreatePlayerShipDirect(fbb, &key, r.ship_macro.c_str(), r.name.c_str(), r.idcode.c_str(), r.sector, q(r.pose.x), q(r.pose.y), q(r.pose.z), qr(r.pose.yaw),
-                                             qr(r.pose.pitch), qr(r.pose.roll), 255, 255, local_component_id, 0);
+                                             qr(r.pose.pitch), qr(r.pose.roll), 255, 255, local_component_id, 0, r.paint.c_str());
   fbb.Finish(off);
   return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
 }
@@ -169,6 +170,15 @@ std::vector<std::uint8_t> encode_controller_change(std::uint32_t net_id, std::ui
 std::vector<std::uint8_t> encode_owner_change(std::uint32_t net_id, std::uint32_t owner_ref, std::uint16_t team) {
   flatbuffers::FlatBufferBuilder fbb(128);
   const auto off = P::CreateEntityChange(fbb, /*journal_seq*/ 0, net_id, P::ChangeField::Owner | P::ChangeField::OwnerTeam, owner_ref, team);
+  fbb.Finish(off);
+  return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
+}
+
+std::vector<std::uint8_t> encode_paint_change(std::uint32_t net_id, const std::string& ware) {
+  flatbuffers::FlatBufferBuilder fbb(128);
+  const auto paint = fbb.CreateString(ware);
+  const auto off = P::CreateEntityChange(fbb, /*journal_seq*/ 0, net_id, P::ChangeField::Paint, 0, 0, 0, 0, 0, 0,
+                                         P::EntityKind::Unknown, 0, nullptr, paint);
   fbb.Finish(off);
   return std::vector<std::uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
 }

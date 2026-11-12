@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace x4mp::features::auth {
@@ -59,6 +60,7 @@ struct ChangeSample {
   std::uint32_t macro_ref = 0;
   std::uint8_t kind = 0;
   std::uint16_t controller_player = 0;
+  std::string paint;  // EntityChange{Paint}: paint mod ware id; "" = no paint (M12)
 };
 
 [[nodiscard]] std::vector<std::uint8_t> encode_world_update(std::uint32_t authority_tick, std::uint64_t capture_time_us,

@@ -368,6 +368,22 @@ void AvatarDirector::on_player_ship(const PlayerShipReq& req) {
                                          av->stage == Stage::Live ? "live" : "not live yet"));
     ++stats_.refreshed;
   }
+  // M12: the paint the sender flies with. A later refresh that carries a different ware re-applies it on the live avatar and tells the
+  // server with an EntityChange{Paint}; when the avatar is not live yet, spawn_at applies it.
+  if (av->rec.paint != req.paint) {
+    av->rec.paint = req.paint;
+    mark_dirty();
+    if (av->local_id != 0) {
+      if (req.paint.empty()) {
+        env_.log(LogLevel::Info, std::format("avatars: paint of player {} cleared (the game offers no uninstall: the old paint stays)", av->rec.player_id));
+      } else if (env_.install_paint(av->local_id, req.paint)) {
+        env_.log(LogLevel::Info, std::format("avatars: paint of player {} set to {}", av->rec.player_id, req.paint));
+      } else {
+        env_.log(LogLevel::Warn, std::format("avatars: paint apply FAILED for player {} (ware {})", av->rec.player_id, req.paint));
+      }
+    }
+    if (av->rec.net_id != 0 && av->announced) (void)env_.send_paint(av->rec.net_id, req.paint);
+  }
   av->rec.online = true;
   av->suspended = false;
   av->interp->reset();
@@ -565,6 +581,14 @@ void AvatarDirector::spawn_at(Avatar& av, const Pose& pose, const char* why) {
   }
   env_.activate(id, false);  // inert: no pilot, no orders (S13.1: stays put, drift 0.000 m)
   av.last_inert_s = now_s_;
+  // M12: the paint is installed after the object exists (and after it is inert), before the MD dress. Empty = no paint.
+  if (!av.rec.paint.empty()) {
+    if (env_.install_paint(id, av.rec.paint)) {
+      env_.log(LogLevel::Info, std::format("avatars: paint of player {} set to {}", av.rec.player_id, av.rec.paint));
+    } else {
+      env_.log(LogLevel::Warn, std::format("avatars: paint apply FAILED for player {} (ware {})", av.rec.player_id, av.rec.paint));
+    }
+  }
   av.local_id = id;
   av.sector_id = av.spawn_sector;
   av.tries = 0;
@@ -610,6 +634,7 @@ void AvatarDirector::announce(Avatar& av, bool force_controller_zero) {
   e.controller_player = (av.rec.online && !force_controller_zero) ? av.rec.player_id : 0;
   e.name = av.rec.name;
   e.idcode = av.rec.idcode;
+  e.paint = av.rec.paint;  // M12: the ghost applies it after its own spawn
   e.sector = sector_index;
   const auto qx = wire::quantize_position(p.x), qy = wire::quantize_position(p.y), qz = wire::quantize_position(p.z);
   const auto ry = wire::quantize_rotation(p.yaw), rp = wire::quantize_rotation(p.pitch), rr = wire::quantize_rotation(p.roll);

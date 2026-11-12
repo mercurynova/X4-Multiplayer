@@ -46,9 +46,10 @@ std::expected<SpawnPayload, SpawnError> EntitySpawnBuilder::encode(std::size_t f
     const P::EntityState state(e.net_id, e.sector, e.flags, e.px, e.py, e.pz, e.yaw, e.pitch, e.roll, e.vx, e.vy, e.vz);
     const auto name = fbb.CreateString(e.name);
     const auto idcode = fbb.CreateString(e.idcode);
+    const auto paint = fbb.CreateString(e.paint);
     records.push_back(P::CreateEntityRecord(fbb, e.net_id, static_cast<P::EntityKind>(e.kind), static_cast<P::EntityOrigin>(e.origin),
                                             e.macro_ref, e.owner_ref, e.owner_team, e.owner_player, e.parent_net_id,
-                                            e.controller_player, name, idcode, e.hull, e.shield, &state));
+                                            e.controller_player, name, idcode, e.hull, e.shield, &state, paint));
   }
   // game_time is always written: the only EntitySpawn serialisation in the mod, and it cannot be reached with 0.
   fbb.Finish(P::CreateEntitySpawnDirect(fbb, 0, &records, game_time_));

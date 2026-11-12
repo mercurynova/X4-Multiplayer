@@ -309,6 +309,24 @@ public sealed class InterestManagerTests
     }
 
     [Fact]
+    public void PlayerShipPaintIsForwardedInSpawnsAndChanges()
+    {
+        var rig = NewRig(sectorShips: 1);
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 3);
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        rig.Mirror.Spawn(Rec(5002, EntityKind.ShipM, 3, controller: 2, origin: EntityOrigin.PlayerShip, paint: "paintmod_test_01"));
+        var spawn = rig.Transport.Decode<EntitySpawn>(InterestRig.Alice, MsgType.EntitySpawn).Single();
+        Assert.Equal("paintmod_test_01", spawn.Entities(0)!.Value.Paint);
+
+        rig.Mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(5002, ChangeField.Paint, paint: "paintmod_test_02")));
+        var change = rig.Transport.Decode<EntityChange>(InterestRig.Alice, MsgType.EntityChange).Single();
+        Assert.Equal("paintmod_test_02", change.Paint);
+    }
+
+    [Fact]
     public void ChangesToTransientEntitiesReachOnlyTheClientsHoldingThem()
     {
         var rig = NewRig(sectorShips: 1);

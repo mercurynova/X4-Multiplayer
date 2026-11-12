@@ -1083,6 +1083,25 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   const auto now_s = std::chrono::duration<double>(now.time_since_epoch()).count();
   stream_.step(*game_time, server_now, now_s, capture_, index_);
 
+  // M12: the host's own ship paint. It is part of the self-spawn record; a change while it flies goes out as EntityChange{Paint}
+  // (1 Hz is plenty for a rare menu action and keeps the game read off the per-frame path).
+  if (state_.spawned && state_.host_net_id != 0 && now >= next_paint_check_) {
+    next_paint_check_ = now + std::chrono::seconds(1);
+    const std::uint64_t ship = ctx.game.player_occupied_ship() != 0 ? ctx.game.player_occupied_ship() : ctx.game.player_controlled_ship();
+    if (ship != 0) {
+      const std::string paint = ctx.game.installed_paint(ship);
+      if (paint != host_paint_sent_) {
+        host_paint_sent_ = paint;
+        ChangeSample c;
+        c.net_id = state_.host_net_id;
+        c.fields = static_cast<std::uint16_t>(P::ChangeField::Paint);
+        c.paint = paint;
+        (void)send_control(T(P::MsgType::EntityChange), encode_entity_change(c));
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: host ship paint changed to '{}' (net_id {})", paint, state_.host_net_id);
+      }
+    }
+  }
+
   // M2: the streamer's own counters. `skipped_no_pose` is the whole point: a docked or landed hull answers (0,0,0) from
   // GetObjectPositionInSector, so it is skipped instead of spawned at the sector centre, and without this line the only evidence
   // was a ghost that never appeared. One line per 10 s, and only when one of the counters moved.
@@ -1467,6 +1486,10 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
   self.owner_ref = spawn_plan_.player_faction_ref;  // "player" is always the first string, index 1, in every table we send
   self.name = host_name.empty() ? spawn_ship_->name : "[MP] " + host_name;
   self.idcode = spawn_ship_->idcode;
+  // M12: the paint of the ship the host flies (occupied, else controlled). Empty = no paint.
+  const std::uint64_t host_ship = ctx.game.player_occupied_ship() != 0 ? ctx.game.player_occupied_ship() : ctx.game.player_controlled_ship();
+  if (host_ship != 0) self.paint = ctx.game.installed_paint(host_ship);
+  host_paint_sent_ = self.paint;
   self.sector = ship_sector;
   (void)builder.add(std::move(self));
   const auto payload = builder.build();

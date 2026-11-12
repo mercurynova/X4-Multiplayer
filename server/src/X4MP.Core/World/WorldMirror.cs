@@ -405,6 +405,7 @@ public sealed partial class WorldMirror : ISessionModule
         TrackAvatar(entity);
         entity.Name = record.Name;
         entity.IdCode = record.Idcode;
+        entity.Paint = record.Paint;
         entity.Hull = record.Hull;
         entity.Shield = record.Shield;
         entity.IsPersistent = EntityKinds.IsPersistent(record.Kind);
@@ -579,6 +580,11 @@ public sealed partial class WorldMirror : ISessionModule
         if ((fields & ChangeField.Controller) != 0)
         {
             entity.ControllerPlayer = change.ControllerPlayer;
+        }
+
+        if ((fields & ChangeField.Paint) != 0)
+        {
+            entity.Paint = change.Paint;
         }
 
         entity.Version++;
