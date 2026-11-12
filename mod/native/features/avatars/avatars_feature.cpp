@@ -7,11 +7,13 @@
 #include <fstream>
 #include <mutex>
 #include <set>
+#include <span>
 #include <sstream>
 
 #include <nlohmann/json.hpp>
 
 #include "core/ghost/registry.h"
+#include "features/authority/entity_wire.h"
 #include "features/avatars/avatar_director.h"
 #include "features/avatars/avatar_hub.h"
 #include "features/avatars/avatars_client.h"
@@ -230,6 +232,14 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
   bool send_paint(std::uint32_t net_id, const std::string& ware) override {
     if (net_id == 0) return false;
     return av::avatar_hub().services().send_control(static_cast<std::uint16_t>(P::MsgType::EntityChange), av::encode_paint_change(net_id, ware));
+  }
+  // M13: EntityDespawn{DockedInside} for an avatar that left the world (docked / on foot / in a highway). The client hides the mirror; the
+  // net id stays the player's, so the respawn is the same entity.
+  bool send_despawn(std::uint32_t net_id, std::uint8_t reason) override {
+    if (net_id == 0) return false;
+    const x4mp::features::auth::DespawnSample one{net_id, 0, reason};
+    return av::avatar_hub().services().send_control(static_cast<std::uint16_t>(P::MsgType::EntityDespawn),
+                                                    x4mp::features::auth::encode_entity_despawn(std::span<const x4mp::features::auth::DespawnSample>(&one, 1)));
   }
 
   // ---- persistence, log ----

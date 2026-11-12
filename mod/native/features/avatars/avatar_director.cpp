@@ -6,6 +6,7 @@
 #include <format>
 
 #include "x4mp/wire.h"
+#include "common_generated.h"
 
 namespace x4mp::features::avatars {
 
@@ -14,6 +15,9 @@ constexpr double kValidityPeriodS = 1.0;
 constexpr double kInertPeriodS = 5.0;
 constexpr double kIdleReassertS = 0.25;
 constexpr double kParkedSnapM = 2.0;  // a ship that merely settles (after its zero-velocity hint) is not a pushed ship (M3-20)
+// M13: how long a hidden avatar is held before it is retracted. Long enough that a network blip or a one-frame gap is not a despawn, short
+// enough that a docking ship does not hang over the pad.
+constexpr double kRetractAfterS = 1.5;
 constexpr double kPersistPeriodS = 2.0;
 // M3-34 (Finding 23 / the 286 km repair): the velocity hint is zero above this speed, and the engine guard reads the game's pose back this often (every
 // frame for kGuardHotS after a hit): 1 s was long enough for the engine to carry a held avatar a whole highway away.
@@ -62,6 +66,7 @@ struct AvatarDirector::Avatar {
   double last_guard_log = -1e9;
   double next_inert = 0;
   double last_inert_s = -1e9;         // when ActivateObject(false) was last called (M3-28 inert throttle)
+  double hidden_since = -1;           // M13: when the render first went hidden; -1 = visible. Held kRetractAfterS, then retracted.
   double next_snap = 0;
   VelHint last_hint{};
   bool hint_nonzero = false;
@@ -357,16 +362,35 @@ void AvatarDirector::on_player_ship(const PlayerShipReq& req) {
   if (req.player_id == 0) return;
   ++stats_.requests;
   Avatar* av = find(req.player_id);
+  const bool fresh = av == nullptr;
   const auto rit = std::find_if(roster_.begin(), roster_.end(), [&](const auto& e) { return e.first == req.player_id; });
   if (!av) {
     av = &create(req.player_id);
-    av->rec.macro = resolve_starter(settings_, rit != roster_.end() ? rit->second.team : 0).macro;
+    const std::string starter = resolve_starter(settings_, rit != roster_.end() ? rit->second.team : 0).macro;
+    // M13: the hull the player actually flies wins over the default starter, so the host sees the real ship instead of the basic one. A starter
+    // macro set in the server settings stays an explicit admin override.
+    const bool override_ = !settings_.starter_macro.empty();
+    av->rec.macro = (!override_ && !req.ship_macro.empty()) ? req.ship_macro : starter;
     av->stage = Stage::Wanted;
     env_.log(LogLevel::Info, std::format("avatars: PlayerShip from player {}: provisioning a new avatar", req.player_id));
   } else {
     env_.log(LogLevel::Info, std::format("avatars: PlayerShip from player {}: avatar net_id={} exists ({}), answering with the same ship", req.player_id, av->rec.net_id,
                                          av->stage == Stage::Live ? "live" : "not live yet"));
     ++stats_.refreshed;
+  }
+  // M13: a client that takes over another ship, or comes back from a spacesuit in a new hull, names it in the request. The avatar is a
+  // persistent team ship spawned from the record's macro, so a different macro is applied by retracting the old ship and provisioning the
+  // new one; spawn_at keeps the record's net id, so every client sees the same entity come back. An empty macro keeps the starter hull.
+  if (!fresh && !req.ship_macro.empty() && req.ship_macro != av->rec.macro) {
+    env_.log(LogLevel::Info, std::format("avatars: player {} changed ship: {} -> {}", req.player_id, av->rec.macro, req.ship_macro));
+    av->rec.macro = req.ship_macro;
+    mark_dirty();
+    if (av->stage == Stage::Live) retract(*av);
+    if (av->stage == Stage::Retracted && av->local_id == 0) {
+      av->stage = Stage::Wanted;
+      av->tries = 0;
+      av->waiting.clear();
+    }
   }
   // M12: the paint the sender flies with. A later refresh that carries a different ware re-applies it on the live avatar and tells the
   // server with an EntityChange{Paint}; when the avatar is not live yet, spawn_at applies it.
@@ -733,6 +757,35 @@ void AvatarDirector::remember(Avatar& av) {
   }
 }
 
+// M13: a hidden avatar (docked inside, on foot, in a highway) must not hang over the pad at its last pose. The real ship is removed and the
+// clients are told with EntityDespawn{DockedInside}: a ghost hides on that reason instead of playing a destruction. The record keeps its net
+// id, pose and sector, so the respawn is the SAME entity to every client and comes back where the ship left. A refused SafeRemove would
+// duplicate the ship on the next spawn, so the avatar stays Live and keeps holding instead.
+void AvatarDirector::retract(Avatar& av) {
+  remember(av);
+  if (av.local_id == 0) return;
+  if (!env_.remove(av.local_id)) {
+    ++stats_.remove_refused;
+    av.hidden_since = -1;  // try again after another full period
+    env_.log(LogLevel::Warn, std::format("avatars: could not retract the avatar of player {} (id {}): the removal was refused, the ship stays held",
+                                         av.rec.player_id, av.local_id));
+    return;
+  }
+  ++stats_.removed;
+  if (av.announced && av.rec.net_id != 0) {
+    (void)env_.send_despawn(av.rec.net_id, static_cast<std::uint8_t>(X4MP::Proto::DespawnReason::DockedInside));
+  }
+  av.local_id = 0;
+  av.announced = false;
+  av.holding = false;
+  av.have_last_set = false;
+  av.hidden_since = -1;
+  av.stage = Stage::Retracted;
+  mark_dirty();
+  env_.log(LogLevel::Info, std::format("avatars: retracted the avatar of player {} (net_id {}): docked / on foot / in a highway; it respawns at the same pose",
+                                       av.rec.player_id, av.rec.net_id));
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------
 // per frame
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -740,7 +793,13 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
   if (!av.rec.online || av.suspended || av.samples == 0) return;
   const ghost::RenderPose rp = av.interp->render(server_now_us);
   if (rp.state == ghost::PoseState::Empty) return;
-  if (rp.hidden) {  // on foot / docked inside / superhighway transit / stale: the ship stays where it is
+  if (rp.hidden) {  // on foot / docked inside / superhighway transit / stale
+    // M13: only a ship that is really out of the world is retracted: docked (the ship is in a station) or hidden without a highway transit (on
+    // foot). A superhighway transit and a stale render (no data for a moment) stay on the M3-31 path: the ship holds its pose and moves exactly
+    // once when the transit ends, because the player's ship does exist and is merely out of sight.
+    const bool out_of_world = rp.state != ghost::PoseState::Stale &&
+                              ((rp.flags & ghost::kDocked) != 0 ||
+                               ((rp.flags & ghost::kHidden) != 0 && (rp.flags & ghost::kInHighway) == 0));
     av.vel.sample(now_s_, 0, 0, 0, true);
     if (!av.holding) {
       // M3-34: the hold starts NOW: the zero velocity goes out this frame (not at the next 5 Hz tick, up to 200 ms of flight at the speed the avatar
@@ -751,8 +810,15 @@ void AvatarDirector::drive(Avatar& av, std::int64_t server_now_us) {
       av.guard_hot_until = now_s_ + kGuardHotS;
     }
     av.holding = true;  // M3-31: and stays there (zero velocity hint, put back if the game moves it across a sector edge)
+    if (!out_of_world) {
+      av.hidden_since = -1;
+      return;
+    }
+    if (av.hidden_since < 0) av.hidden_since = now_s_;
+    if (now_s_ - av.hidden_since >= kRetractAfterS) retract(av);
     return;
   }
+  av.hidden_since = -1;
   if (av.cached_index != rp.sector || av.cached_index_id == 0) {
     av.cached_index = rp.sector;
     av.cached_index_id = env_.sector_id_of_index(rp.sector);
@@ -910,6 +976,17 @@ void AvatarDirector::step(double now_s, std::int64_t server_now_us) {
         drive(av, server_now_us);
         if (av.want_team != 0) apply_team_move(av);
         break;
+      case Stage::Retracted: {
+        // M13: the ship left the world while docked / on foot. The first visible sample brings it back at the remembered pose and with the
+        // same net id; a ship that is still hidden stays out.
+        if (!av.rec.online || av.suspended || av.samples == 0) break;
+        const ghost::RenderPose rp = av.interp->render(server_now_us);
+        if (rp.state == ghost::PoseState::Empty || rp.hidden) break;
+        av.stage = Stage::Wanted;
+        av.tries = 0;
+        av.waiting.clear();
+        break;
+      }
     }
   }
 

@@ -102,6 +102,10 @@ class IAvatarEnv {
   virtual bool send_owner(std::uint32_t net_id, std::uint16_t team, const std::string& faction) = 0;
   // EntityChange{Paint}: the avatar's paint mod changed (M12). "" = no paint.
   virtual bool send_paint(std::uint32_t net_id, const std::string& ware) = 0;
+  // EntityDespawn: the avatar left the world for now (docked inside / on foot / in a highway). `reason` is a P::DespawnReason value
+  // (DockedInside tells a client to hide the mirror, not to play a destruction). The net id stays in the record and the ship respawns
+  // with it, so every client keeps one entity for the player.
+  virtual bool send_despawn(std::uint32_t net_id, std::uint8_t reason) = 0;
   // ---- persistence, log ----
   virtual void save_records(const std::string& text) = 0;
   virtual void log(LogLevel level, const std::string& text) = 0;
@@ -130,7 +134,7 @@ struct DirectorStats {
 
 class AvatarDirector {
  public:
-  enum class Stage : std::uint8_t { Unbound, Wanted, AwaitSafePos, Live, Failed };
+  enum class Stage : std::uint8_t { Unbound, Wanted, AwaitSafePos, Live, Retracted, Failed };
 
   struct View {  // read-only snapshot of one avatar for logs, tests and stats
     Record rec;
@@ -217,6 +221,8 @@ class AvatarDirector {
   void drive(Avatar& av, std::int64_t server_now_us);
   void maintain(Avatar& av);
   void remember(Avatar& av);
+  // M13: remove a hidden avatar (docked / on foot / in a highway) and tell the clients to hide it. Reuses the record's net id on respawn.
+  void retract(Avatar& av);
   void mark_dirty() { dirty_ = true; }
   [[nodiscard]] std::string owner_of(const Avatar& av) const;
 

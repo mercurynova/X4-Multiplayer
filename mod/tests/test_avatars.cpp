@@ -111,6 +111,11 @@ struct FakeEnv final : IAvatarEnv {
     paints_sent.emplace_back(n, ware);
     return true;
   }
+  std::vector<std::pair<std::uint32_t, std::uint8_t>> despawns_sent;
+  bool send_despawn(std::uint32_t n, std::uint8_t reason) override {
+    despawns_sent.emplace_back(n, reason);
+    return true;
+  }
   bool report_active = false;  // M3-28: the fake game offers an isactive read-back
   std::optional<bool> is_active(std::uint64_t id) override {
     if (!report_active || !objs.count(id)) return std::nullopt;
@@ -721,6 +726,93 @@ TEST_CASE("avatars.director: EntityDespawn{Removed} goes through the guarded rem
   }
 }
 
+namespace {
+// Defined further down with the other flight helpers; declared here because the M13 cases below need it.
+void fly(AvatarDirector& d, FakeEnv& env, Clock& c, std::uint32_t net, double speed, double seconds, std::uint16_t flags);
+}  // namespace
+
+TEST_CASE("avatars.director (M13): a docked avatar is retracted, clients get EntityDespawn{DockedInside}, and it returns with the same net id", "[avatars][m13]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  fly(d, env, c, net, 300.0, 3.0, 0);
+
+  // docked: the ship is held for a moment, then taken out of the world instead of hanging over the pad
+  PlayerStateIn hidden;
+  hidden.net_id = net;
+  hidden.sector = 1;
+  hidden.flags = x4mp::ghost::kDocked | x4mp::ghost::kHidden;
+  hidden.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+  hidden.pose = {2000 + 300.0 * c.t, 0, 0, 0, 0, 0};
+  d.on_player_state(hidden, hidden.sample_time_us);
+  for (int i = 0; i < 180 && env.removed.empty(); ++i) {
+    c.t += 1.0 / 60.0;
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  REQUIRE(env.removed == std::vector<std::uint64_t>{id});
+  REQUIRE(env.despawns_sent.size() == 1);
+  CHECK(env.despawns_sent.at(0).first == net);
+  CHECK(env.despawns_sent.at(0).second == 4);  // P::DespawnReason::DockedInside
+  CHECK(d.views().at(0).stage == AvatarDirector::Stage::Retracted);
+  CHECK(d.views().at(0).rec.net_id == net);
+  CHECK(d.views().at(0).local_id == 0);
+
+  // undock: the first visible sample provisions the same avatar again, with the same net id
+  PlayerStateIn shown = hidden;
+  shown.flags = 0;
+  shown.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
+  d.on_player_state(shown, shown.sample_time_us);
+  for (int i = 0; i < 300 && env.safe_asks.size() < 2; ++i) {
+    c.t += 1.0 / 60.0;
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  REQUIRE(env.safe_asks.size() >= 2);
+  const auto wx = env.safe_asks.back().wanted.x;
+  const auto wy = env.safe_asks.back().wanted.y;
+  const auto wz = env.safe_asks.back().wanted.z;
+  d.on_safepos(env.safe_asks.back().seq, true, {wx, wy, wz, 0, 0, 0});
+  for (int i = 0; i < 120 && env.spawns_sent.size() < 2; ++i) {
+    c.t += 1.0 / 60.0;
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  REQUIRE(env.spawns_sent.size() == 2);
+  CHECK(env.spawns_sent.back().at(0).net_id == net);
+  CHECK(d.views().at(0).stage == AvatarDirector::Stage::Live);
+}
+
+TEST_CASE("avatars.director (M13): a PlayerShip request with another ship macro replaces the avatar hull, same net id", "[avatars][m13]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  const auto id = provision(d, env, c, 2, 1, "Bob");
+  const auto net = env.spawns_sent.at(0).at(0).net_id;
+  const auto spawned_before = env.spawns_sent.size();
+
+  PlayerShipReq change = request(2);
+  change.ship_macro = "ship_arg_m_fighter_01_a_macro";
+  d.on_player_ship(change);
+  for (int i = 0; i < 300 && env.safe_asks.size() < 2; ++i) {
+    c.t += 1.0 / 60.0;
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  REQUIRE(env.safe_asks.size() >= 2);
+  const auto wx = env.safe_asks.back().wanted.x;
+  const auto wy = env.safe_asks.back().wanted.y;
+  const auto wz = env.safe_asks.back().wanted.z;
+  d.on_safepos(env.safe_asks.back().seq, true, {wx, wy, wz, 0, 0, 0});
+  for (int i = 0; i < 120 && env.spawns_sent.size() <= spawned_before; ++i) {
+    c.t += 1.0 / 60.0;
+    d.step(c.t, static_cast<std::int64_t>(c.t * 1e6));
+  }
+  REQUIRE(env.spawns_sent.size() > spawned_before);
+  CHECK(env.spawns_sent.back().at(0).net_id == net);
+  CHECK(d.views().at(0).rec.macro == "ship_arg_m_fighter_01_a_macro");
+  CHECK(d.views().at(0).stage == AvatarDirector::Stage::Live);
+  (void)id;
+}
+
 TEST_CASE("avatars.director: rebind after a save load, no duplicates", "[avatars]") {
   FakeEnv env;
   std::string saved;
@@ -1304,7 +1396,7 @@ TEST_CASE("avatars.director (M3-31): a hidden driven avatar that the game pushed
   PlayerStateIn h;
   h.net_id = net;
   h.sector = 1;
-  h.flags = x4mp::ghost::kHidden;
+  h.flags = static_cast<std::uint16_t>(x4mp::ghost::kHidden | x4mp::ghost::kInHighway);
   h.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
   h.pose = {3600, 0, 0, 0, 0, 0};
   d.on_player_state(h, h.sample_time_us);
@@ -1463,7 +1555,7 @@ TEST_CASE("avatars.director (M3-34): a hold (the player's ship went hidden) zero
   PlayerStateIn h;
   h.net_id = net;
   h.sector = 1;
-  h.flags = x4mp::ghost::kHidden;
+  h.flags = static_cast<std::uint16_t>(x4mp::ghost::kHidden | x4mp::ghost::kInHighway);
   h.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
   h.pose = {2000 + 600.0 * c.t, 0, 0, 0, 0, 0};
   d.on_player_state(h, h.sample_time_us);
@@ -1497,7 +1589,7 @@ TEST_CASE("avatars.director (M3-34): the engine guard puts back a held avatar wi
   PlayerStateIn h;
   h.net_id = net;
   h.sector = 1;
-  h.flags = x4mp::ghost::kHidden;
+  h.flags = static_cast<std::uint16_t>(x4mp::ghost::kHidden | x4mp::ghost::kInHighway);
   h.sample_time_us = static_cast<std::int64_t>(c.t * 1e6);
   h.pose = {2000 + 600.0 * c.t, 0, 0, 0, 0, 0};
   d.on_player_state(h, h.sample_time_us);
