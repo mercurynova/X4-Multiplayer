@@ -131,6 +131,16 @@ public static partial class ServerHost
         builder.Services.AddAdminHub(); // after the admin API (it shares AdminSessions), the settings and the saves
         builder.AddServerSettings(persistenceOptions); // after DatabaseStartup (hosted-service order); the provider is last, so overrides win
 
+        // The game passes its pid; a save load or /reloadui reloads the extension, but the server must keep running until
+        // the game itself exits (crash included). Manual runs, tests and the Windows service pass no pid.
+        if (cli.ParentPid is > 0)
+        {
+            builder.Services.AddHostedService(sp => new ParentProcessWatcher(
+                cli.ParentPid.Value,
+                sp.GetRequiredService<IHostApplicationLifetime>(),
+                sp.GetRequiredService<ILogger<ParentProcessWatcher>>()));
+        }
+
         builder.Services.TimeHostedServiceStops(); // last: wraps every hosted service registered above
         var app = builder.Build();
         app.UseApiProblems(); // before auth: it also shapes the 401/403 the authorization layer produces

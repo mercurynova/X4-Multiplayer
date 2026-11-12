@@ -73,20 +73,19 @@ void ServerFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
 }
 
 void ServerFeature::on_shutdown(host::HostContext& ctx) {
-  if (launcher_ == nullptr || !launcher_->owns_process()) return;
-  if (!ctx.config.server.auto_stop) {
-    X4MP_CLOG(ctx.log, Cat::Host, Level::Info, "server: left running, the config says auto_stop is off");
-    return;
+  // Nothing is stopped here on purpose. X4N_SHUTDOWN fires for a save load and /reloadui too, and this extension then
+  // reloads while the game keeps running: stopping the sidecar there would leave the reloaded game and every client
+  // without a listener. The server watches the game's process (--parent-pid) and exits with it, crash included.
+  if (launcher_ != nullptr && launcher_->owns_process()) {
+    X4MP_CLOG(ctx.log, Cat::Host, Level::Info,
+              "server: left running across the extension reload; it exits with the game process (--parent-pid)");
   }
-  Status status;
-  (void)launcher_->stop(status);
-  X4MP_CLOG(ctx.log, Cat::Host, Level::Info, "server: stopped with the game");
 }
 
 Plan ServerFeature::plan(const host::HostContext& ctx) const {
   const std::filesystem::path extension(std::string(ctx.extension_path));
   const std::filesystem::path state = ctx.paths != nullptr ? ctx.paths->dir : extension;
-  return plan_from(ctx.config.server, extension, state);
+  return plan_from(ctx.config.server, extension, state, current_process_id());
 }
 
 void ServerFeature::drain(host::HostContext& ctx) {

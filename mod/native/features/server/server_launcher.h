@@ -47,9 +47,11 @@ struct Plan {
 };
 
 // extension_dir is the x4mp extension folder (the bundle lives in <extension>/server), state_dir is <LocalAppData>/X4MP
-// in a normal install and the extension folder in portable mode.
+// in a normal install and the extension folder in portable mode. parent_pid is the game process: the server watches it and
+// stops when it exits, so it outlives an extension reload but never a closed game (0 = no watcher, used by tests and the
+// launcher's own sidecar).
 [[nodiscard]] Plan plan_from(const config::ServerConfig& cfg, const std::filesystem::path& extension_dir,
-                             const std::filesystem::path& state_dir);
+                             const std::filesystem::path& state_dir, std::uint32_t parent_pid = 0);
 
 struct Status {
   std::string state;  // "stopped", "starting", "running", "exited"

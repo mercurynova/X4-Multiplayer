@@ -18,6 +18,7 @@ public sealed record CliArguments(
     CliVerb Verb,
     string? DataDir,
     int? Port,
+    int? ParentPid,
     bool ServiceFlag,
     string? ServiceName,
     string[] Remaining,
@@ -38,6 +39,7 @@ public sealed record CliArguments(
           --data-dir <dir>         Data directory (else X4MP_DATA_DIR, else ./data next to the exe,
                                    or %ProgramData%\X4MP as a service).
           --port <n>               HTTP port for the admin GUI (default 47790).
+          --parent-pid <n>         Game process to watch: the server stops when it exits (set by the game).
           --service                Run under the Windows service host (set by 'service install').
           --name <name>            Service name for service install/uninstall (default X4MP).
         """;
@@ -48,6 +50,7 @@ public sealed record CliArguments(
         var verb = CliVerb.Run;
         string? dataDir = null;
         int? port = null;
+        int? parentPid = null;
         string? serviceName = null;
         var service = false;
         string? error = null;
@@ -124,6 +127,20 @@ public sealed record CliArguments(
                         }
                     }
                     break;
+                case "--parent-pid":
+                    var pidText = Value(args, ref index, inline, name, ref error);
+                    if (pidText is not null)
+                    {
+                        if (int.TryParse(pidText, out var parent) && parent > 0)
+                        {
+                            parentPid = parent;
+                        }
+                        else
+                        {
+                            error ??= $"Invalid parent pid '{pidText}'.";
+                        }
+                    }
+                    break;
                 case "--service":
                     service = true;
                     break;
@@ -136,7 +153,7 @@ public sealed record CliArguments(
             }
         }
 
-        return new CliArguments(verb, dataDir, port, service, serviceName, [.. remaining], error);
+        return new CliArguments(verb, dataDir, port, parentPid, service, serviceName, [.. remaining], error);
     }
 
     private static (string Name, string? Inline) SplitInline(string arg)

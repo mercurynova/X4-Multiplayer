@@ -75,7 +75,7 @@ bool parse_op(std::string_view name, Op& op) {
 }
 
 Plan plan_from(const config::ServerConfig& cfg, const std::filesystem::path& extension_dir,
-               const std::filesystem::path& state_dir) {
+               const std::filesystem::path& state_dir, std::uint32_t parent_pid) {
   Plan plan;
   plan.port = static_cast<std::uint16_t>(std::clamp(cfg.port, 1, 65535));
   plan.http_port = offset_port(plan.port, 10);
@@ -86,6 +86,12 @@ Plan plan_from(const config::ServerConfig& cfg, const std::filesystem::path& ext
                                        : absolute_under(extension_dir, std::filesystem::path(cfg.data_dir));
   plan.log_file = state_dir / "logs" / "server-console.log";
   plan.args = {"--data-dir", plan.data_dir.string(), "--port", std::to_string(plan.http_port)};
+  // The server stops when this process exits. A save load or /reloadui only reloads the extension, so the sidecar must not
+  // be tied to the DLL: the game's own pid is the lifetime the player actually means.
+  if (parent_pid != 0) {
+    plan.args.emplace_back("--parent-pid");
+    plan.args.emplace_back(std::to_string(parent_pid));
+  }
   // The server takes its node ports from the environment (X4MP:Net), so the configured port reaches it without a config
   // file and without touching the machine's own variables.
   plan.env = {{"X4MP__Net__NodeTcpEndpoint", "0.0.0.0:" + std::to_string(plan.port)},

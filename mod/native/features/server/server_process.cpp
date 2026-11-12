@@ -153,21 +153,9 @@ class Win32ProcessHost final : public ProcessHost {
     handle_ = pi.hProcess;
     pid_ = pi.dwProcessId;
 
-    // Kill-on-job-close: if X4 crashes or is killed, this process's handles close and Windows terminates the hidden
-    // server with it. Without the job the server would survive as an orphan and keep the ports (and the session)
-    // open. A normal stop still uses the graceful Ctrl+Break path above; this is only the crash guarantee.
-    if (HANDLE job = CreateJobObjectW(nullptr, nullptr); job != nullptr) {
-      JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-      limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-      if (SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof limits) != 0 &&
-          AssignProcessToJobObject(job, handle_) != 0) {
-        job_ = job;
-      } else {
-        // A parent job that forbids nesting can refuse the assignment (pre-Windows 8, or a locked-down host). The
-        // server still runs and still stops normally; only the crash guarantee is missing.
-        CloseHandle(job);
-      }
-    }
+    // No job object and no kill-on-close handle here: the extension is unloaded on every save load and /reloadui while the
+    // game keeps running, and a job owned by this DLL would kill the server the reloaded game is about to rejoin. The
+    // server watches --parent-pid (the game process) itself, which also covers a crash.
 
     result.ok = true;
     result.pid = pid_;
@@ -218,22 +206,17 @@ class Win32ProcessHost final : public ProcessHost {
       CloseHandle(handle_);
       handle_ = nullptr;
     }
-    // Closing the last job handle is what kills a still-running child (KILL_ON_JOB_CLOSE). On the normal path the
-    // process is already gone, so this only releases the kernel object.
-    if (job_ != nullptr) {
-      CloseHandle(job_);
-      job_ = nullptr;
-    }
     pid_ = 0;
   }
 
   HANDLE handle_ = nullptr;
-  HANDLE job_ = nullptr;
   std::uint32_t pid_ = 0;
   int exit_code_ = -1;
 };
 
 }  // namespace
+
+std::uint32_t current_process_id() { return static_cast<std::uint32_t>(GetCurrentProcessId()); }
 
 bool port_open(std::uint16_t port) {
   WSADATA data{};

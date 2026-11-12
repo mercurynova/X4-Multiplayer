@@ -6,8 +6,11 @@
 // buttons; /mp server start|stop|status says the same thing in chat.
 //
 // The server is a self-contained bundle beside the extension (<extension>/server), so it needs no installed .NET and no
-// game install of its own: it is a plain process, started hidden, with its output appended to one log file. The game stops
-// it on exit when the config says so, so a second start never finds the ports taken.
+// game install of its own: it is a plain process, started hidden, with its output appended to one log file.
+//
+// The server is NOT stopped when this extension shuts down. A save load and /reloadui unload the extension while the game
+// keeps running, and stopping the server then would leave the reloaded game (and every client) without a listener. The
+// game passes its process id (--parent-pid) and the server exits when that process does, crash included.
 //
 // The event thread only copies the body into an inbox; on_frame parses it on the main thread (same split as wallet and
 // economy), because spawning a process from the event thread would be a thread-safety trap for no gain.

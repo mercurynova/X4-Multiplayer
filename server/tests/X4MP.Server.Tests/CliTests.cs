@@ -44,6 +44,25 @@ public class CliTests
         Assert.NotNull(CliArguments.Parse(args).Error);
 
     [Fact]
+    public void ParsesParentPid()
+    {
+        Assert.Equal(4242, CliArguments.Parse(["--parent-pid", "4242"]).ParentPid);
+        Assert.Equal(4242, CliArguments.Parse(["--parent-pid=4242"]).ParentPid);
+        Assert.Null(CliArguments.Parse([]).ParentPid);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("abc")]
+    public void BadParentPidProducesError(string value) =>
+        Assert.NotNull(CliArguments.Parse(["--parent-pid", value]).Error);
+
+    [Fact]
+    public void MissingParentPidValueProducesError() =>
+        Assert.NotNull(CliArguments.Parse(["--parent-pid"]).Error);
+
+    [Fact]
     public void DataDirPrecedenceIsArgThenEnvThenDefault()
     {
         var exe = Path.Combine(Path.GetTempPath(), "exe");

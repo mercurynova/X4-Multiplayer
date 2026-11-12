@@ -145,6 +145,21 @@ TEST_CASE("server: the plan names the bundle, the data folder, the log and the p
   CHECK(again.admin_password == plan.admin_password);
 }
 
+TEST_CASE("server: the plan passes the game's pid so the server outlives an extension reload", "[server]") {
+  TempTree tree;
+  const auto extension = tree.root / "extension";
+  const auto state = tree.root / "state";
+  const Plan plan = plan_from(ServerConfig{}, extension, state, 4242);
+
+  REQUIRE(plan.args.size() == 6);
+  CHECK(plan.args[4] == "--parent-pid");
+  CHECK(plan.args[5] == "4242");
+
+  // No pid (the launcher's own sidecar, tests) means no watcher and no extra arguments.
+  const Plan none = plan_from(ServerConfig{}, extension, state);
+  CHECK(none.args.size() == 4);
+}
+
 TEST_CASE("server: a configured bundle and data folder win, and a port outside the range is clamped", "[server]") {
   TempTree tree;
   const auto extension = tree.root / "extension";
