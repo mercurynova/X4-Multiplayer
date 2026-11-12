@@ -119,7 +119,7 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
                 {
                     if (sub.Delivery != SectorDelivery.Pending)
                     {
-                        SyncSector(client, sub);
+                        SyncSector(client, sub, Now);
                     }
                 }
             }

@@ -34,6 +34,15 @@ public sealed class InterestOptions
     [Setting("Linger: keep the previous sector in interest for (s)", Scope = SettingScope.Live, Min = 0, Max = 600)]
     public int LingerSeconds { get; set; } = 20;
 
+    /// <summary>
+    /// How long a ghost that is no longer admitted is kept before it is despawned (M14). An entity sitting on an admission
+    /// boundary - the Near edge, the budget level flipping between ticks - would otherwise be spawned and despawned on
+    /// every change, which the client draws as ships appearing and disappearing on the map. 0 keeps the old immediate
+    /// behaviour. Hard-cap enforcement and a sector leaving interest still despawn at once: those are deliberate cuts.
+    /// </summary>
+    [Setting("Interest despawn grace: keep an unadmitted ghost for (s, 0 = off)", Scope = SettingScope.Live, Min = 0, Max = 120)]
+    public int DespawnGraceSeconds { get; set; } = 5;
+
     /// <summary>A sector nobody needs stays in the capture set this long before it is dropped and its entities evicted.</summary>
     [Setting("Capture eviction: keep an unneeded sector captured for (s)", Scope = SettingScope.Live, Min = 0, Max = 3600)]
     public int CaptureEvictSeconds { get; set; } = 60;

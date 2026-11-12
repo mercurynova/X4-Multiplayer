@@ -397,4 +397,58 @@ public sealed class InterestManagerTests
         Assert.Equal(6, rig.Spawned(InterestRig.Alice).Count);    // 2 ships in each of 2,3,4
         Assert.Equal(3, rig.Completes(InterestRig.Alice).Count);
     }
+
+    // ---------------------------------------------------------------- M14: despawn grace
+
+    private sealed class HideIds(params uint[] ids) : IVisibilityFilter
+    {
+        public bool IsVisible(int viewerPlayerId, MirrorEntity entity) => !ids.Contains(entity.NetId);
+    }
+
+    [Fact]
+    public void AGhostThatLosesAdmissionIsKeptForTheDespawnGraceAndThenDespawnedOnce()
+    {
+        var rig = NewRig(sectorShips: 2);
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 3);
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        // The viewer stops seeing the current sector (a budget/admission change, a fog hook, a boundary oscillation).
+        rig.Manager.VisibilityFilter = new HideIds(Ids(3, 2));
+        Assert.Empty(rig.Despawned(InterestRig.Alice));                 // the grace keeps the ghosts on the first miss
+        Assert.True(Ids(3, 2).All(id => rig.Manager.IsHeld(InterestRig.Alice, id)));
+
+        // A change back inside the grace cancels the miss: no despawn at all.
+        rig.Manager.VisibilityFilter = AllVisible.Instance;
+        rig.Advance(TimeSpan.FromSeconds(6));
+        Assert.Empty(rig.Despawned(InterestRig.Alice));
+        Assert.True(Ids(3, 2).All(id => rig.Manager.IsHeld(InterestRig.Alice, id)));
+
+        // Hide again and let the grace pass: exactly one despawn per ghost, and nothing left held.
+        rig.Manager.VisibilityFilter = new HideIds(Ids(3, 2));
+        rig.Advance(TimeSpan.FromSeconds(6));
+        Assert.Equal(Ids(3, 2).Order(), rig.Despawned(InterestRig.Alice, DespawnReason.OutOfInterest).Order());
+        Assert.DoesNotContain(Ids(3, 2), id => rig.Manager.IsHeld(InterestRig.Alice, id));
+
+        // The mark is gone too, so the next tick despawns nothing new.
+        rig.ClearSent();
+        rig.Advance(TimeSpan.FromSeconds(6));
+        Assert.Empty(rig.Despawned(InterestRig.Alice));
+    }
+
+    [Fact]
+    public void ADespawnGraceOfZeroKeepsTheOldImmediateBehaviour()
+    {
+        var rig = NewRig(new InterestOptions { DespawnGraceSeconds = 0 }, sectorShips: 2);
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 3);
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        rig.Manager.VisibilityFilter = new HideIds(Ids(3, 2));
+
+        Assert.Equal(Ids(3, 2).Order(), rig.Despawned(InterestRig.Alice, DespawnReason.OutOfInterest).Order());
+        Assert.DoesNotContain(Ids(3, 2), id => rig.Manager.IsHeld(InterestRig.Alice, id));
+    }
 }

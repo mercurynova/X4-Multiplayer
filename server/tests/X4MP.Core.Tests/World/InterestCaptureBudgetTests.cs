@@ -179,8 +179,9 @@ public sealed class InterestCaptureBudgetTests
     [Fact]
     public void OverBudgetTheSmallShipsOfAdjacentSectorsAreDroppedBeforeAnythingElse()
     {
-        // 30 + 30 + 30 ships; budget 90 fits everything at first.
-        var rig = new InterestRig(5, new InterestOptions { MaxGhosts = 90 });
+        // 30 + 30 + 30 ships; budget 90 fits everything at first. No despawn grace here: this test pins the order in which
+        // the budget policy drops ships, and the grace that keeps a churning ghost for a few seconds is tested apart.
+        var rig = new InterestRig(5, new InterestOptions { MaxGhosts = 90, DespawnGraceSeconds = 0 });
         rig.Mixed(2, 200, small: 20, large: 10);
         rig.Mixed(3, 300, small: 20, large: 10);
         rig.Mixed(4, 400, small: 20, large: 10);
@@ -549,9 +550,11 @@ public sealed class InterestCaptureBudgetTests
         rig.Complete(2);
         Assert.Equal([1u, 2], rig.Spawned(InterestRig.Alice).Order().ToArray());     // everything visible in v1
 
-        // Fog of war later: hide team 3 and the held ghost disappears, a later spawn is not shown.
+        // Fog of war later: hide team 3 and the held ghost disappears, a later spawn is not shown. The ghost is kept for the
+        // despawn grace first, so that an entity flickering in and out of visibility does not spawn/despawn on every change.
         rig.ClearSent();
         rig.Manager.VisibilityFilter = new HideTeam(3);
+        rig.Advance(TimeSpan.FromSeconds(6));                                       // past InterestOptions.DespawnGraceSeconds
         Assert.Equal([2u], rig.Despawned(InterestRig.Alice));
         rig.Mirror.Spawn(Rec(3, EntityKind.ShipS, 2, ownerTeam: 3), Rec(4, EntityKind.ShipS, 2, ownerTeam: 1));
         Assert.Equal([4u], rig.Spawned(InterestRig.Alice));

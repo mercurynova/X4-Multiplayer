@@ -16,6 +16,7 @@ public sealed partial class InterestManager
     private readonly List<ushort> _changedScratch = [];
     private readonly List<MirrorEntity> _batch = [];
     private readonly List<DespawnEntryT> _despawnScratch = [];
+    private readonly List<uint> _expiredScratch = [];
 
     // ------------------------------------------------------------------ recompute
 
@@ -127,7 +128,7 @@ public sealed partial class InterestManager
         {
             if (c.Subs.TryGetValue(sector, out var sub) && sub.Delivery != SectorDelivery.Pending)
             {
-                SyncSector(c, sub);
+                SyncSector(c, sub, now);
             }
         }
 
@@ -139,18 +140,63 @@ public sealed partial class InterestManager
             }
             else if (c.HardCap && sub.Tier == InterestTier.Sector && sub.Delivery == SectorDelivery.Delivered && c.Ghosts < opt.MaxGhosts)
             {
-                SyncSector(c, sub); // room again below the cap: bring back what was cut
+                SyncSector(c, sub, now); // room again below the cap: bring back what was cut
             }
             else if (wasCapped && !c.HardCap && sub.Delivery == SectorDelivery.Delivered)
             {
-                SyncSector(c, sub);
+                SyncSector(c, sub, now);
             }
+        }
+
+        if (c.Missed.Count > 0)
+        {
+            ExpireMisses(c, now);
         }
 
         if (c.HardCap && c.Ghosts > opt.MaxGhosts)
         {
             EnforceHardCap(c, opt.MaxGhosts);
         }
+    }
+
+    /// <summary>
+    /// Finishes the M14 despawn grace: a ghost whose grace ran out is despawned, one that became admissible again is kept. Called from
+    /// <see cref="Recompute"/> so the grace also expires while nothing else about the client changes (a quiet client at the Near edge
+    /// would otherwise hold a cut ghost until its next sector change).
+    /// </summary>
+    private void ExpireMisses(ClientInterest c, long now)
+    {
+        long grace = Seconds(Opt.DespawnGraceSeconds);
+        if (grace <= 0)
+        {
+            c.Missed.Clear();
+            return;
+        }
+
+        _despawnScratch.Clear();
+        _expiredScratch.Clear();
+        foreach (var (netId, since) in c.Missed)
+        {
+            if (now - since < grace)
+            {
+                continue;
+            }
+
+            bool held = c.Held.ContainsKey(netId);
+            bool admit = _mirror.TryGet(netId, out var e) && (Admit(c, e) || (held && AdmitIgnoringCap(c, e)));
+            _expiredScratch.Add(netId);
+            if (!admit)
+            {
+                _despawnScratch.Add(new DespawnEntryT { NetId = netId, Reason = DespawnReason.OutOfInterest });
+            }
+        }
+
+        foreach (var netId in _expiredScratch)
+        {
+            RemoveHeld(c, netId);  // also clears the mark
+        }
+
+        SendDespawns(c, DespawnReason.OutOfInterest);
     }
 
     private void Want(ushort sector, InterestTier tier, bool predicted)
@@ -299,11 +345,11 @@ public sealed partial class InterestManager
     }
 
     /// <summary>Brings the client's held set of an already delivered sector in line with what is admitted now.</summary>
-    private void SyncSector(ClientInterest c, SectorSubscription sub)
+    private void SyncSector(ClientInterest c, SectorSubscription sub, long now)
     {
         var ids = new List<uint>();
         _despawnScratch.Clear();
-        CollectMissing(c, sub.Sector, ids, _despawnScratch);
+        CollectMissing(c, sub.Sector, ids, _despawnScratch, now);
         SendDespawns(c, DespawnReason.OutOfInterest);
         if (ids.Count > 0)
         {
@@ -325,10 +371,11 @@ public sealed partial class InterestManager
     /// Entities of a sector the client should hold but does not (<paramref name="ids"/>, nearest to the player first when it is the
     /// player's sector) and, when <paramref name="despawn"/> is given, those it holds but should not.
     /// </summary>
-    private void CollectMissing(ClientInterest c, ushort sector, List<uint> ids, List<DespawnEntryT>? despawn)
+    private void CollectMissing(ClientInterest c, ushort sector, List<uint> ids, List<DespawnEntryT>? despawn, long now = 0)
     {
         var bucket = _mirror.TransientIn(sector);
         List<(long Distance, uint NetId)>? ordered = sector == c.Sector ? [] : null;
+        long grace = Seconds(Opt.DespawnGraceSeconds);
         foreach (var e in bucket)
         {
             if (e.IsPlayerShip)
@@ -340,6 +387,7 @@ public sealed partial class InterestManager
             bool admit = Admit(c, e) || (held && AdmitIgnoringCap(c, e));
             if (admit && !held)
             {
+                c.Missed.Remove(e.NetId);
                 if (ordered is not null)
                 {
                     ordered.Add((NearGrid.DistanceSquared(e, c.Px, c.Py, c.Pz), e.NetId));
@@ -349,10 +397,28 @@ public sealed partial class InterestManager
                     ids.Add(e.NetId);
                 }
             }
-            else if (!admit && held && despawn is not null)
+            else if (admit)
             {
-                despawn.Add(new DespawnEntryT { NetId = e.NetId, Reason = DespawnReason.OutOfInterest });
-                RemoveHeld(c, e.NetId);
+                c.Missed.Remove(e.NetId);  // admitted again: whatever the last passes thought, this ghost stays
+            }
+            else if (held && despawn is not null)
+            {
+                // M14: an entity on an admission boundary is not despawned on the first miss. The ghost is kept for
+                // Interest.DespawnGraceSeconds (0 = the old immediate drop); ExpireMisses finishes the job afterwards.
+                if (grace <= 0)
+                {
+                    despawn.Add(new DespawnEntryT { NetId = e.NetId, Reason = DespawnReason.OutOfInterest });
+                    RemoveHeld(c, e.NetId);
+                }
+                else if (!c.Missed.TryGetValue(e.NetId, out var since))
+                {
+                    c.Missed[e.NetId] = now;
+                }
+                else if (now - since >= grace)
+                {
+                    despawn.Add(new DespawnEntryT { NetId = e.NetId, Reason = DespawnReason.OutOfInterest });
+                    RemoveHeld(c, e.NetId);
+                }
             }
         }
 
@@ -424,6 +490,7 @@ public sealed partial class InterestManager
 
     private void RemoveHeld(ClientInterest c, uint netId, GhostRemoval reason = GhostRemoval.Despawned)
     {
+        c.Missed.Remove(netId);
         if (c.Held.Remove(netId, out bool isPlayer))
         {
             if (!isPlayer)

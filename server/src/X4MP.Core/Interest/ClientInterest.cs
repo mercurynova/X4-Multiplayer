@@ -95,6 +95,13 @@ internal sealed class ClientInterest(int playerId, ulong caps, bool isAuthority)
 
     public int Ghosts { get; set; }
 
+    /// <summary>
+    /// Net ids that lost admission while still held, with the timestamp of the first pass that saw them unadmitted (M14). The ghost
+    /// is kept for <see cref="InterestOptions.DespawnGraceSeconds"/> so it is not despawned and re-spawned on every admission
+    /// flicker; the mark is cleared as soon as the entity is admitted again.
+    /// </summary>
+    public Dictionary<uint, long> Missed { get; } = [];
+
     public List<SpawnJob> Jobs { get; } = [];
 
     public BudgetLevel Level { get; set; }
