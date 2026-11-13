@@ -60,6 +60,9 @@ public sealed class MirrorEntity
     /// <summary>Paint mod ware id of a player ship; null/empty = no paint (M12).</summary>
     public string? Paint { get; internal set; }
 
+    /// <summary>Fleet logo of a player ship as "&lt;file&gt;|&lt;icon&gt;"; null/empty = none (M16).</summary>
+    public string? Logo { get; internal set; }
+
     /// <summary>0..255 fraction of max.</summary>
     public byte Hull { get; internal set; } = 255;
 
@@ -137,7 +140,7 @@ public sealed class MirrorEntity
         Origin = EntityOrigin.Manifest;
         MacroRef = OwnerRef = ParentNetId = 0;
         OwnerTeam = OwnerPlayer = ControllerPlayer = 0;
-        Name = IdCode = Paint = null;
+        Name = IdCode = Paint = Logo = null;
         Hull = Shield = 255;
         Sector = Flags = 0;
         Px = Py = Pz = 0;

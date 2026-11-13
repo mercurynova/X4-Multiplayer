@@ -140,6 +140,7 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
   void activate(std::uint64_t id, bool active) override { ctx->game.activate_object(id, active); }
   bool set_owner(std::uint64_t id, const std::string& faction) override { return ctx->game.set_component_owner(id, faction.c_str()); }
   bool install_paint(std::uint64_t id, const std::string& ware) override { return ctx->game.install_paint(id, ware); }
+  bool install_logo(std::uint64_t id, const std::string& spec) override { return ctx->game.set_fleet_logo(id, spec); }
   bool valid(std::uint64_t id) override { return id != 0 && ctx->game.is_valid_component(id) && !ctx->game.component_wrecked(id); }
   std::string idcode(std::uint64_t id) override { return ctx->game.object_id_code(id).value_or(std::string{}); }
   bool read_pose(std::uint64_t id, std::uint64_t& sector, av::Pose& pose) override {
@@ -232,6 +233,10 @@ struct AvatarsFeature::Impl final : av::IAvatarEnv {
   bool send_paint(std::uint32_t net_id, const std::string& ware) override {
     if (net_id == 0) return false;
     return av::avatar_hub().services().send_control(static_cast<std::uint16_t>(P::MsgType::EntityChange), av::encode_paint_change(net_id, ware));
+  }
+  bool send_logo(std::uint32_t net_id, const std::string& spec) override {
+    if (net_id == 0) return false;
+    return av::avatar_hub().services().send_control(static_cast<std::uint16_t>(P::MsgType::EntityChange), av::encode_logo_change(net_id, spec));
   }
   // M13: EntityDespawn{DockedInside} for an avatar that left the world (docked / on foot / in a highway). The client hides the mirror; the
   // net id stays the player's, so the respawn is the same entity.

@@ -408,6 +408,22 @@ void AvatarDirector::on_player_ship(const PlayerShipReq& req) {
     }
     if (av->rec.net_id != 0 && av->announced) (void)env_.send_paint(av->rec.net_id, req.paint);
   }
+  // M16: the same for the fleet logo. A personal logo is a local file, so a failed apply is a warning, not a retry: the other
+  // PC simply cannot show this player's badge.
+  if (av->rec.logo != req.logo) {
+    av->rec.logo = req.logo;
+    mark_dirty();
+    if (av->local_id != 0) {
+      if (req.logo.empty()) {
+        env_.log(LogLevel::Info, std::format("avatars: logo of player {} cleared (the game offers no uninstall: the old logo stays)", av->rec.player_id));
+      } else if (env_.install_logo(av->local_id, req.logo)) {
+        env_.log(LogLevel::Info, std::format("avatars: logo of player {} set to {}", av->rec.player_id, req.logo));
+      } else {
+        env_.log(LogLevel::Warn, std::format("avatars: logo apply FAILED for player {} (logo {})", av->rec.player_id, req.logo));
+      }
+    }
+    if (av->rec.net_id != 0 && av->announced) (void)env_.send_logo(av->rec.net_id, req.logo);
+  }
   av->rec.online = true;
   av->suspended = false;
   av->interp->reset();
@@ -613,6 +629,14 @@ void AvatarDirector::spawn_at(Avatar& av, const Pose& pose, const char* why) {
       env_.log(LogLevel::Warn, std::format("avatars: paint apply FAILED for player {} (ware {})", av.rec.player_id, av.rec.paint));
     }
   }
+  // M16: the fleet logo, applied in the same window (object exists, still inert, before the MD dress).
+  if (!av.rec.logo.empty()) {
+    if (env_.install_logo(id, av.rec.logo)) {
+      env_.log(LogLevel::Info, std::format("avatars: logo of player {} set to {}", av.rec.player_id, av.rec.logo));
+    } else {
+      env_.log(LogLevel::Warn, std::format("avatars: logo apply FAILED for player {} (logo {})", av.rec.player_id, av.rec.logo));
+    }
+  }
   av.local_id = id;
   av.sector_id = av.spawn_sector;
   av.tries = 0;
@@ -659,6 +683,7 @@ void AvatarDirector::announce(Avatar& av, bool force_controller_zero) {
   e.name = av.rec.name;
   e.idcode = av.rec.idcode;
   e.paint = av.rec.paint;  // M12: the ghost applies it after its own spawn
+  e.logo = av.rec.logo;    // M16: same for the fleet logo
   e.sector = sector_index;
   const auto qx = wire::quantize_position(p.x), qy = wire::quantize_position(p.y), qz = wire::quantize_position(p.z);
   const auto ry = wire::quantize_rotation(p.yaw), rp = wire::quantize_rotation(p.pitch), rr = wire::quantize_rotation(p.roll);

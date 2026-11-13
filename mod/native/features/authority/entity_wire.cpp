@@ -43,10 +43,11 @@ std::vector<std::uint8_t> encode_entity_despawn(std::span<const DespawnSample> e
 std::vector<std::uint8_t> encode_entity_change(const ChangeSample& change) {
   flatbuffers::FlatBufferBuilder fbb(160);
   const auto paint = fbb.CreateString(change.paint);
+  const auto logo = fbb.CreateString(change.logo);
   return finish(fbb, P::CreateEntityChange(fbb, 0, change.net_id, static_cast<P::ChangeField>(change.fields),
                                            change.owner_ref, change.owner_team, change.owner_player, 0, change.parent_net_id,
                                            change.macro_ref, static_cast<P::EntityKind>(change.kind), change.controller_player,
-                                           nullptr, paint));
+                                           nullptr, paint, logo));
 }
 
 std::vector<std::uint8_t> encode_entity_status_batch(std::uint64_t capture_time_us, std::span<const StatusSample> statuses) {

@@ -71,6 +71,14 @@ struct OwnerFactionPod {
   const char* faction_icon = nullptr;
 };
 
+// M16 (logo): binary-compatible with the SDK's UILogo {const char* file; const char* icon; bool ispersonal;}
+// (sdk/x4_game_types.h). The strings belong to the game and are copied at once.
+struct LogoPod {
+  const char* file = nullptr;
+  const char* icon = nullptr;
+  bool personal = false;
+};
+
 // Binary-compatible with the SDK's UIPaintMod {const char* Name; const char* RawName; const char* Ware; uint32 Quality; uint32 Amount;}
 // (sdk/x4_game_types.h). Only the output buffer of GetInstalledPaintMod: the strings belong to the game and stay valid until the next call.
 struct PaintModPod {
@@ -150,11 +158,15 @@ struct GameFns {
   // false when the object has no paint; InstallPaintMod's useinventory is false so a host-side apply never consumes inventory.
   bool (*GetInstalledPaintMod)(UniverseId objectid, PaintModPod* paintmod) = nullptr;
   bool (*InstallPaintMod)(UniverseId objectid, const char* wareid, bool useinventory) = nullptr;
+  // M16 (logo): the fleet logo of a ship and its setter. GetCurrentFleetLogo returns the caller's logo for an object the player
+  // controls (an empty `file` means none); SetFleetLogo is a void write, so a wrong spec can only be seen by reading it back.
+  LogoPod (*GetCurrentFleetLogo)(UniverseId controllableid) = nullptr;
+  void (*SetFleetLogo)(UniverseId controllableid, LogoPod logo) = nullptr;
 };
 
 // Number of names missing_exports() checks, i.e. the exports GameFns can bind (a test asserts it): the self-test reports resolved/total
 // from it, so it has to be the real count or the report lies by the difference.
-inline constexpr std::size_t kGameFnCount = 39;
+inline constexpr std::size_t kGameFnCount = 41;
 
 // Upper bound on the cargo lines one read copies (far above any real hold; keeps a bad export from allocating forever).
 inline constexpr std::uint32_t kMaxCargoLines = 4096;
@@ -263,6 +275,16 @@ class GameApi {
   // Install the paint `ware` on `id` (useinventory=false). false when the export is missing, the id or ware is empty, or the
   // main-thread check fails. An empty ware is "no paint" and is never sent to the game.
   bool install_paint(UniverseId id, std::string_view ware) const noexcept;
+
+  // ---- M16 (logo) ----
+  // The fleet logo of `id` as "<file>|<icon>" (the wire form: one opaque string, like paint's ware id). Empty when the export is
+  // missing, the id is 0, the main-thread check fails, or the game reports no logo. A logo marked personal is a LOCAL file, so
+  // the string may name a file that does not exist on another PC; the receiving node logs the failed apply, never crashes.
+  [[nodiscard]] std::string fleet_logo(UniverseId id) const;
+  // Set the fleet logo of `id` from that same "<file>|<icon>" form (a spec with no '|' names a file with no icon). false when the
+  // export is missing, the id or file is empty, or the main-thread check fails. The caller treats false as "this PC cannot show it"
+  // and keeps going.
+  bool set_fleet_logo(UniverseId id, std::string_view spec) const noexcept;
 
   // The wire and the ledger count credits, the game's write export counts cents.
   static constexpr std::int64_t kCentsPerCredit = 100;

@@ -75,6 +75,9 @@ class IAvatarEnv {
   virtual bool set_owner(std::uint64_t id, const std::string& faction) = 0;  // SetComponentOwner; false = the call was not made (retried)
   // M12: install a paint mod on the avatar (InstallPaintMod, useinventory=false). An empty ware means "no paint" and must not be called.
   virtual bool install_paint(std::uint64_t id, const std::string& ware) = 0;
+  // M16: set the avatar's fleet logo from "<file>|<icon>". An empty spec means "no logo" and must not be called; a personal logo
+  // is a local file, so this may fail on another PC without being an error worth retrying.
+  virtual bool install_logo(std::uint64_t id, const std::string& spec) = 0;
   virtual bool valid(std::uint64_t id) = 0;
   virtual std::string idcode(std::uint64_t id) = 0;
   virtual bool read_pose(std::uint64_t id, std::uint64_t& sector, Pose& pose) = 0;
@@ -102,6 +105,8 @@ class IAvatarEnv {
   virtual bool send_owner(std::uint32_t net_id, std::uint16_t team, const std::string& faction) = 0;
   // EntityChange{Paint}: the avatar's paint mod changed (M12). "" = no paint.
   virtual bool send_paint(std::uint32_t net_id, const std::string& ware) = 0;
+  // EntityChange{Logo}: the avatar's fleet logo changed (M16). "" = none.
+  virtual bool send_logo(std::uint32_t net_id, const std::string& spec) = 0;
   // EntityDespawn: the avatar left the world for now (docked inside / on foot / in a highway). `reason` is a P::DespawnReason value
   // (DockedInside tells a client to hide the mirror, not to play a destruction). The net id stays in the record and the ship respawns
   // with it, so every client keeps one entity for the player.

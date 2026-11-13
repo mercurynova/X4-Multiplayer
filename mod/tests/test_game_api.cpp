@@ -155,6 +155,31 @@ void fk_add_money(std::int64_t money) {
   ++g_add_money_calls;
 }
 
+// M16 (logo): GetCurrentFleetLogo answers with the fake's logo, SetFleetLogo records the call.
+std::string g_logo_file = "logo_test_01.png";
+std::string g_logo_icon = "top";
+UniverseId g_logo_read_id = 0;
+UniverseId g_logo_write_id = 0;
+std::string g_logo_written_file;
+std::string g_logo_written_icon;
+bool g_logo_written_personal = false;
+// The strings the fake hands out live as long as the process (the real game owns its own copies the same way).
+const char* const g_logo_icon_cstr = "top";
+LogoPod fk_current_logo(UniverseId id) {
+  g_logo_read_id = id;
+  LogoPod out{};
+  if (!g_logo_file.empty()) out.file = g_logo_file.c_str();
+  out.icon = g_logo_icon_cstr;
+  out.personal = true;
+  return out;
+}
+void fk_set_logo(UniverseId id, LogoPod logo) {
+  g_logo_write_id = id;
+  g_logo_written_file = logo.file ? logo.file : "<null>";
+  g_logo_written_icon = logo.icon ? logo.icon : "<null>";
+  g_logo_written_personal = logo.personal;
+}
+
 // M12 (paint): GetInstalledPaintMod answers with the ware the fake currently reports, InstallPaintMod records the call.
 std::string g_installed_paint = "paintmod_test_01";
 UniverseId g_paint_read_id = 0;
@@ -220,6 +245,8 @@ void* lookup_all(const char* name) {
   if (n == "AddPlayerMoney") return reinterpret_cast<void*>(&fk_add_money);
   if (n == "GetInstalledPaintMod") return reinterpret_cast<void*>(&fk_installed_paint);
   if (n == "InstallPaintMod") return reinterpret_cast<void*>(&fk_install_paint);
+  if (n == "GetCurrentFleetLogo") return reinterpret_cast<void*>(&fk_current_logo);
+  if (n == "SetFleetLogo") return reinterpret_cast<void*>(&fk_set_logo);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -265,7 +292,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 39);
+  CHECK(missing_exports(api.fns()).size() == 41);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -282,7 +309,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 39);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 41);
 }
 
 // M12: paint read/write are null-safe, an empty ware is "no paint", and the write uses useinventory=false.
@@ -308,6 +335,27 @@ TEST_CASE("paint mods are read and installed through the null-safe wrapper", "[g
   GameApi none(resolve_game_fns(lookup_none), GameInfo{});
   CHECK(none.installed_paint(42).empty());
   CHECK_FALSE(none.install_paint(42, "paintmod_test_01"));
+
+  // M16 (logo): "<file>|<icon>" on the wire, split into the game's struct on the way in.
+  g_logo_file = "logo_test_01.png";
+  CHECK(api.fleet_logo(42) == "logo_test_01.png|top");
+  CHECK(g_logo_read_id == 42);
+  g_logo_file.clear();
+  CHECK(api.fleet_logo(42).empty());  // no logo
+  CHECK(api.fleet_logo(0).empty());   // id 0 never reaches the export
+
+  CHECK(api.set_fleet_logo(42, "logo_test_02.png|top"));
+  CHECK(g_logo_write_id == 42);
+  CHECK(g_logo_written_file == "logo_test_02.png");
+  CHECK(g_logo_written_icon == "top");
+  CHECK(g_logo_written_personal);            // a relayed logo came from a player's library
+  CHECK(api.set_fleet_logo(42, "logo_only.png"));  // no separator: file only, no icon
+  CHECK(g_logo_written_icon.empty());
+  CHECK_FALSE(api.set_fleet_logo(42, ""));   // empty = no logo, never a game call
+  CHECK_FALSE(api.set_fleet_logo(0, "logo_test_01.png"));
+  CHECK_FALSE(api.set_fleet_logo(42, "|top"));  // an empty file cannot name a logo
+  CHECK(none.fleet_logo(42).empty());
+  CHECK_FALSE(none.set_fleet_logo(42, "logo_test_01.png|top"));
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -353,7 +401,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 38);
+  CHECK(missing_exports(api.fns()).size() == 40);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {

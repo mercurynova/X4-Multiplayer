@@ -152,6 +152,10 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
       g->info.paint = info.paint;  // M12: a refreshed spawn carries the current paint
       g->paint_dirty = true;
     }
+    if (g->info.logo != info.logo) {
+      g->info.logo = info.logo;  // M16: same for the fleet logo
+      g->logo_dirty = true;
+    }
     if (reown) {
       g->info.owner = info.owner;
       g->owner_dirty = true;
@@ -174,7 +178,8 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
 }
 
 void GhostDriver::on_change(std::uint32_t net_id, std::optional<std::string> name, std::optional<std::uint16_t> controller, std::optional<std::string> owner,
-                            std::optional<std::uint16_t> team, std::optional<std::string> paint) {
+                            std::optional<std::uint16_t> team, std::optional<std::string> paint,
+                            std::optional<std::string> logo) {
   Ghost* g = find(net_id);
   if (!g) return;
   if (name) g->info.name = *name;
@@ -188,6 +193,11 @@ void GhostDriver::on_change(std::uint32_t net_id, std::optional<std::string> nam
   if (paint && *paint != g->info.paint) {
     g->info.paint = *paint;
     g->paint_dirty = true;
+  }
+  // M16: the fleet logo follows the same rule (applied in frame(), never a respawn).
+  if (logo && *logo != g->info.logo) {
+    g->info.logo = *logo;
+    g->logo_dirty = true;
   }
   if (g->info.npc) {  // an NPC has no label to keep in step
     dirty_ = true;
@@ -432,6 +442,15 @@ bool GhostDriver::try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_
     }
   }
   g.paint_dirty = false;
+  // M16: the logo goes on in the same window: object exists, still inert, before the dress.
+  if (!g.info.logo.empty()) {
+    if (world_->install_logo(id, g.info.logo)) {
+      log(kInfo, std::format("ghost logo: net={} logo={}", g.info.net_id, g.info.logo));
+    } else {
+      log(kWarn, std::format("ghost logo FAILED: net={} logo={}", g.info.net_id, g.info.logo));
+    }
+  }
+  g.logo_dirty = false;
   if (!g.info.npc) world_->dress(id, g.label, cfg_.min_hull_percent);  // M4-13: an NPC keeps the game's own name, no [MP] label
   g.idcode = world_->id_code(id);
   g.local_id = id;
@@ -620,6 +639,18 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
         }
       } else {
         log(kInfo, std::format("ghost paint cleared on the wire: net={} (the game offers no uninstall)", g.info.net_id));
+      }
+    }
+    if (g.logo_dirty) {
+      g.logo_dirty = false;
+      if (!g.info.logo.empty()) {
+        if (world_->install_logo(g.local_id, g.info.logo)) {
+          log(kInfo, std::format("ghost logo changed: net={} logo={}", g.info.net_id, g.info.logo));
+        } else {
+          log(kWarn, std::format("ghost logo change FAILED: net={} logo={}", g.info.net_id, g.info.logo));
+        }
+      } else {
+        log(kInfo, std::format("ghost logo cleared on the wire: net={} (the game offers no uninstall)", g.info.net_id));
       }
     }
     if (g.label_dirty) {

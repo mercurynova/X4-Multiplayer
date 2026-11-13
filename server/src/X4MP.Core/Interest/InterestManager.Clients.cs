@@ -678,6 +678,7 @@ public sealed partial class InterestManager
         Name = e.Name,
         Idcode = e.IdCode,
         Paint = e.Paint,
+        Logo = e.Logo,
         Hull = e.Hull,
         Shield = e.Shield,
         State = !e.PoseKnown ? null : new EntityStateT

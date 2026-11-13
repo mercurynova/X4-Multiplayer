@@ -111,6 +111,18 @@ struct FakeEnv final : IAvatarEnv {
     paints_sent.emplace_back(n, ware);
     return true;
   }
+  struct LogoApply { std::uint64_t id; std::string spec; };
+  std::vector<LogoApply> logos_applied;
+  std::vector<std::pair<std::uint32_t, std::string>> logos_sent;
+  bool logo_fails = false;
+  bool install_logo(std::uint64_t id, const std::string& spec) override {
+    logos_applied.push_back({id, spec});
+    return !logo_fails;
+  }
+  bool send_logo(std::uint32_t n, const std::string& spec) override {
+    logos_sent.emplace_back(n, spec);
+    return true;
+  }
   std::vector<std::pair<std::uint32_t, std::uint8_t>> despawns_sent;
   bool send_despawn(std::uint32_t n, std::uint8_t reason) override {
     despawns_sent.emplace_back(n, reason);
@@ -532,6 +544,92 @@ TEST_CASE("avatars.director (M12): ship paint rides the PlayerShip request, is i
     d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
     run(d, c, 0.1);
     REQUIRE(env.paints_applied.size() == 1);
+    CHECK(d.views().size() == 1);
+    CHECK(d.views()[0].stage == AvatarDirector::Stage::Live);
+    CHECK_FALSE(env.spawns_sent.empty());
+  }
+}
+
+TEST_CASE("avatars.director (M16): the fleet logo rides the PlayerShip request, the spawn and the change", "[avatars][m16]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}, false));
+
+  SECTION("a request with a logo installs it after the spawn and announces it once") {
+    auto q = request(2);
+    q.logo = "logo_test_01.png|top";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.spawn_calls == 1);
+    const auto v = d.views();
+    REQUIRE(v.size() == 1);
+    REQUIRE(env.logos_applied.size() == 1);
+    CHECK(env.logos_applied[0].id == v[0].local_id);
+    CHECK(env.logos_applied[0].spec == "logo_test_01.png|top");
+    REQUIRE(env.spawns_sent.size() == 1);
+    CHECK(env.spawns_sent[0][0].logo == "logo_test_01.png|top");
+    CHECK(env.logos_sent.empty());  // the spawn already carries it
+    CHECK(v[0].rec.logo == "logo_test_01.png|top");
+  }
+
+  SECTION("a refresh with a different logo re-applies it and tells the server") {
+    const auto id = provision(d, env, c, 2, 1, "Alice");
+    CHECK(env.logos_applied.empty());  // the empty first request installs nothing
+    auto q = request(2);
+    q.logo = "logo_test_02.png|top";
+    d.on_player_ship(q);
+    REQUIRE(env.logos_applied.size() == 1);
+    CHECK(env.logos_applied[0].id == id);
+    CHECK(env.logos_applied[0].spec == "logo_test_02.png|top");
+    REQUIRE(env.spawns_sent.size() == 1);
+    REQUIRE(env.logos_sent.size() == 1);
+    CHECK(env.logos_sent[0].first == env.spawns_sent[0][0].net_id);
+    CHECK(env.logos_sent[0].second == "logo_test_02.png|top");
+    CHECK(d.views()[0].rec.logo == "logo_test_02.png|top");
+    // The same logo again is not a change: no repeat game call and no repeat change.
+    d.on_player_ship(q);
+    CHECK(env.logos_applied.size() == 1);
+    CHECK(env.logos_sent.size() == 1);
+  }
+
+  SECTION("clearing the logo never calls SetFleetLogo with an empty spec, and the record survives the text") {
+    auto q = request(2);
+    q.logo = "logo_test_01.png|top";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.logos_applied.size() == 1);
+    d.on_player_ship(request(2));  // empty logo = none
+    CHECK(env.logos_applied.size() == 1);  // no second install, especially not with ""
+    REQUIRE(env.logos_sent.size() == 1);
+    CHECK(env.logos_sent[0].second.empty());
+    CHECK(d.views()[0].rec.logo.empty());
+    // The logo travels as two record fields, because clean_field drops every '|' from a single field.
+    const auto v = d.views();
+    REQUIRE(v.size() == 1);
+    const auto text = records_to_text({v[0].rec});
+    CHECK(records_from_text(text).records.at(0).logo.empty());
+    auto kept = v[0].rec;
+    kept.logo = "logo dir\\logo_test_03.png|bottom";
+    CHECK(records_from_text(records_to_text({kept})).records.at(0).logo == kept.logo);
+  }
+
+  SECTION("a failing logo install is reported and does not stop the avatar") {
+    env.logo_fails = true;
+    auto q = request(2);
+    q.logo = "logo_test_01.png|top";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.logos_applied.size() == 1);
     CHECK(d.views().size() == 1);
     CHECK(d.views()[0].stage == AvatarDirector::Stage::Live);
     CHECK_FALSE(env.spawns_sent.empty());

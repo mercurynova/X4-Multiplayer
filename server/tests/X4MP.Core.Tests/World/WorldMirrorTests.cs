@@ -263,6 +263,39 @@ public sealed class WorldMirrorTests
     }
 
     [Fact]
+    public void PlayerShipLogoIsStoredOnSpawnAndUpdatedByChange()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(2, EntityKind.ShipS, 5, controller: 2, origin: EntityOrigin.PlayerShip, logo: "logo_test_01.png|empty"));
+        Assert.True(mirror.TryGet(2, out var ship));
+        Assert.Equal("logo_test_01.png|empty", ship.Logo);
+
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(2, ChangeField.Logo, logo: "logo_test_02.png|top")));
+        Assert.Equal("logo_test_02.png|top", ship.Logo);
+
+        // A change without the Logo bit leaves the stored logo alone, and so does a paint change (the bits are independent).
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(2, ChangeField.Paint, paint: "paintmod_test_01")));
+        Assert.Equal("logo_test_02.png|top", ship.Logo);
+
+        // Empty logo on the wire means "no logo" and clears it.
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(2, ChangeField.Logo, logo: "")));
+        Assert.Equal("", ship.Logo);
+    }
+
+    [Fact]
+    public void JournalKeepsTheLogoOfSpawnAndChangeForCatchUp()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(11, EntityKind.Station, 2, logo: "logo_test_01.png|empty"));
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(11, ChangeField.Logo, logo: "logo_test_02.png|top")));
+
+        var wire = mirror.Journal.Entries.Select(JournalCodec.ToWire).ToList();
+
+        Assert.Equal("logo_test_01.png|empty", wire[0]!.Body.AsEntityRecord().Logo);
+        Assert.Equal("logo_test_02.png|top", wire[1]!.Body.AsEntityChange().Logo);
+    }
+
+    [Fact]
     public void EntityChangeUpdatesAttributesAndReclassifiesTheSizeClass()
     {
         var mirror = new WorldMirror();

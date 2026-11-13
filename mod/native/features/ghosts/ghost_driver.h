@@ -91,6 +91,8 @@ class IGhostWorld {
   // M12: install a paint mod ware on a spawned ghost (useinventory=false); "" means no paint and must not be called. Default: nothing,
   // so a fake or an old world keeps working (the real world overrides it).
   virtual bool install_paint(std::uint64_t /*id*/, std::string_view /*ware*/) { return false; }
+  // M16: set a spawned ghost's fleet logo from "<file>|<icon>"; "" means no logo and must not be called. Default: nothing.
+  virtual bool install_logo(std::uint64_t /*id*/, std::string_view /*spec*/) { return false; }
   virtual bool valid(std::uint64_t id) = 0;
   virtual bool wrecked(std::uint64_t id) = 0;
   virtual RemoveOutcome remove(std::uint64_t id) = 0;
@@ -116,6 +118,7 @@ struct SpawnInfo {
   std::string macro;
   std::string owner;              // faction id passed to the spawn, e.g. "x4mp_team_1"
   std::string paint;              // paint mod ware id; "" = no paint (M12)
+  std::string logo;               // fleet logo "<file>|<icon>"; "" = none (M16)
   // M4-13: an NPC entity of the authority's world (EntityOrigin::AuthorityRuntime / Manifest). It has no player, no controller and no
   // team, is never labelled or dressed, and keeps the authority's real owner faction (mod-design 4.4).
   bool npc = false;
@@ -248,7 +251,8 @@ class GhostDriver {
   bool on_spawn(const SpawnInfo& info, std::int64_t now_us, const std::optional<InitialState>& state = std::nullopt);
   // EntityChange: any subset; an empty optional leaves the field alone.
   void on_change(std::uint32_t net_id, std::optional<std::string> name, std::optional<std::uint16_t> controller, std::optional<std::string> owner,
-                 std::optional<std::uint16_t> team, std::optional<std::string> paint = std::nullopt);
+                 std::optional<std::uint16_t> team, std::optional<std::string> paint = std::nullopt,
+                 std::optional<std::string> logo = std::nullopt);
   void on_despawn(std::uint32_t net_id, DespawnKind kind);
   // The server stopped replicating everything (session end / kick): every ghost is removed on the next frame.
   void remove_all();
@@ -333,6 +337,7 @@ class GhostDriver {
     int respawn_n = 0;
     bool owner_dirty = false;
     bool paint_dirty = false;   // M12: info.paint changed; install it in frame()
+    bool logo_dirty = false;    // M16: info.logo changed; install it in frame()
     ghost::PoseState last_state = ghost::PoseState::Empty;
     std::uint16_t last_render_sector = 0;
     Vec3 last_render_pos{};

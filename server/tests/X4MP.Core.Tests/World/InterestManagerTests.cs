@@ -327,6 +327,24 @@ public sealed class InterestManagerTests
     }
 
     [Fact]
+    public void PlayerShipLogoIsForwardedInSpawnsAndChanges()
+    {
+        var rig = NewRig(sectorShips: 1);
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 3);
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        rig.Mirror.Spawn(Rec(5003, EntityKind.ShipM, 3, controller: 2, origin: EntityOrigin.PlayerShip, logo: "logo_test_01.png|empty"));
+        var spawn = rig.Transport.Decode<EntitySpawn>(InterestRig.Alice, MsgType.EntitySpawn).Single();
+        Assert.Equal("logo_test_01.png|empty", spawn.Entities(0)!.Value.Logo);
+
+        rig.Mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(5003, ChangeField.Logo, logo: "logo_test_02.png|top")));
+        var change = rig.Transport.Decode<EntityChange>(InterestRig.Alice, MsgType.EntityChange).Single();
+        Assert.Equal("logo_test_02.png|top", change.Logo);
+    }
+
+    [Fact]
     public void ChangesToTransientEntitiesReachOnlyTheClientsHoldingThem()
     {
         var rig = NewRig(sectorShips: 1);

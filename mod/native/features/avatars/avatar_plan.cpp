@@ -130,8 +130,19 @@ std::uint8_t ship_kind_of_macro(std::string_view macro) noexcept {
   return 0;
 }
 
+// The fleet logo travels as one "<file>|<icon>" string everywhere else; the record line splits it into two fields so clean_field
+// never has to keep the separator. Both tolerate a spec without a separator (file only, no icon).
+std::string_view logo_file(std::string_view spec) {
+  const std::size_t bar = spec.find('|');
+  return bar == std::string_view::npos ? spec : spec.substr(0, bar);
+}
+std::string_view logo_icon(std::string_view spec) {
+  const std::size_t bar = spec.find('|');
+  return bar == std::string_view::npos ? std::string_view{} : spec.substr(bar + 1);
+}
+
 // ---- records --------------------------------------------------------------------------------------------------------------------
-// A|player|team|net|online|macro|idcode|owner|sector_macro|x|y|z|yaw|pitch|roll|name|paint
+// A|player|team|net|online|macro|idcode|owner|sector_macro|x|y|z|yaw|pitch|roll|name|paint|logo_file|logo_icon
 std::string records_to_text(const std::vector<Record>& records, const Lineage& lineage) {
   std::ostringstream out;
   out << "x4av 2\n";
@@ -144,7 +155,8 @@ std::string records_to_text(const std::vector<Record>& records, const Lineage& l
     out << "A|" << r.player_id << '|' << r.team << '|' << r.net_id << '|' << (r.online ? 1 : 0) << '|' << clean_field(r.macro, 96) << '|'
         << clean_field(r.idcode, 24) << '|' << clean_field(r.owner, 32) << '|' << clean_field(r.sector_macro, 96) << '|' << fmt_double(r.pose.x) << '|'
         << fmt_double(r.pose.y) << '|' << fmt_double(r.pose.z) << '|' << fmt_double(r.pose.yaw) << '|' << fmt_double(r.pose.pitch) << '|'
-        << fmt_double(r.pose.roll) << '|' << clean_field(r.name, 80) << '|' << clean_field(r.paint, 96) << '\n';
+        << fmt_double(r.pose.roll) << '|' << clean_field(r.name, 80) << '|' << clean_field(r.paint, 96) << '|'
+        << clean_field(logo_file(r.logo), 96) << '|' << clean_field(logo_icon(r.logo), 48) << '\n';
   }
   return out.str();
 }
@@ -190,7 +202,7 @@ ParsedRecords records_from_text(std::string_view text) {
       out.lineage.ledger.push_back(std::move(c));
       continue;
     }
-    if ((f.size() != 16 && f.size() != 17) || f[0] != "A") {
+    if (f.size() < 16 || f.size() > 19 || f[0] != "A") {  // 16/17 = pre-M12, 18 = pre-M16, 19 = M16
       ++out.bad_lines;
       continue;
     }
@@ -214,7 +226,8 @@ ParsedRecords records_from_text(std::string_view text) {
     r.sector_macro = std::string(f[8]);
     r.pose = {v[0], v[1], v[2], v[3], v[4], v[5]};
     r.name = std::string(f[15]);
-    if (f.size() == 17) r.paint = std::string(f[16]);  // a pre-M12 line has no paint field: no paint
+    if (f.size() >= 17) r.paint = std::string(f[16]);  // a pre-M12 line has no paint field: no paint
+    if (f.size() >= 19 && !f[17].empty()) r.logo = std::string(f[17]) + '|' + std::string(f[18]);  // M16; an 18-field line is pre-M16: no logo
     out.records.push_back(std::move(r));
   }
   return out;

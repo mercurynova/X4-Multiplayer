@@ -85,6 +85,7 @@ struct Record {
   std::string owner;         // "x4mp_team_<slot>"
   std::string sector_macro;  // "" when unknown
   std::string paint;         // paint mod ware id; "" = no paint (M12)
+  std::string logo;          // fleet logo "<file>|<icon>"; "" = none (M16)
   Pose pose;
   bool online = false;       // the player is connected (driven); false = parked
 
@@ -110,7 +111,9 @@ struct Lineage {
 // One line per record, fields separated by '|' (sanitised: no '|' or line breaks inside a field), preceded by "x4av 2" and the ledger
 // lines "C|<sha>|<idcode>;<idcode>". Tolerant reader: lines that do not parse are skipped and counted; "x4av 1" (no ledger) is read with an empty
 // ledger. Local component ids are NOT part of it (they change on every load). M12 appends the paint ware as the trailing field; a
-// pre-M12 line (16 fields) still parses and means "no paint", so the format keeps the "x4av 2" header.
+// pre-M12 line (16 fields) still parses and means "no paint", so the format keeps the "x4av 2" header. M16 appends the fleet logo
+// as TWO trailing fields (file and icon) so that the logo's own '|' separator never has to survive clean_field ("x4av 2" again:
+// an 18-field line is a pre-M16 one and means "no logo").
 [[nodiscard]] std::string records_to_text(const std::vector<Record>& records, const Lineage& lineage = {});
 struct ParsedRecords {
   std::vector<Record> records;

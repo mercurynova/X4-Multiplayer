@@ -54,6 +54,8 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "AddPlayerMoney", f.AddPlayerMoney);
   bind(get, "GetInstalledPaintMod", f.GetInstalledPaintMod);
   bind(get, "InstallPaintMod", f.InstallPaintMod);
+  bind(get, "GetCurrentFleetLogo", f.GetCurrentFleetLogo);
+  bind(get, "SetFleetLogo", f.SetFleetLogo);
   return f;
 }
 
@@ -101,6 +103,8 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.AddPlayerMoney), "AddPlayerMoney");
   check(reinterpret_cast<const void*>(f.GetInstalledPaintMod), "GetInstalledPaintMod");
   check(reinterpret_cast<const void*>(f.InstallPaintMod), "InstallPaintMod");
+  check(reinterpret_cast<const void*>(f.GetCurrentFleetLogo), "GetCurrentFleetLogo");
+  check(reinterpret_cast<const void*>(f.SetFleetLogo), "SetFleetLogo");
   return out;
 }
 
@@ -308,6 +312,40 @@ bool GameApi::install_paint(UniverseId id, std::string_view ware) const noexcept
   try {
     const std::string w(ware);  // the export wants a NUL-terminated string
     fns_.InstallPaintMod(id, w.c_str(), /*useinventory*/ false);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+std::string GameApi::fleet_logo(UniverseId id) const {
+  if (id == 0 || !fns_.GetCurrentFleetLogo || !assert_main_thread("GetCurrentFleetLogo")) return {};
+  LogoPod logo{};
+  try {
+    logo = fns_.GetCurrentFleetLogo(id);
+  } catch (...) {
+    return {};
+  }
+  if (logo.file == nullptr || *logo.file == '\0') return {};
+  std::string out(logo.file);
+  out.push_back('|');
+  if (logo.icon != nullptr) out += logo.icon;
+  return out;
+}
+
+bool GameApi::set_fleet_logo(UniverseId id, std::string_view spec) const noexcept {
+  if (id == 0 || spec.empty() || !fns_.SetFleetLogo || !assert_main_thread("SetFleetLogo")) return false;
+  const std::size_t bar = spec.rfind('|');
+  if (bar == 0) return false;  // "|icon" names no file
+  const std::string file(spec.substr(0, bar == std::string_view::npos ? spec.size() : bar));
+  const std::string icon(bar == std::string_view::npos ? std::string_view{} : spec.substr(bar + 1));
+  if (file.empty()) return false;
+  try {
+    LogoPod logo{};
+    logo.file = file.c_str();
+    logo.icon = icon.c_str();
+    logo.personal = true;  // a logo the mod relays came from a player's own library, not the standard set
+    fns_.SetFleetLogo(id, logo);
     return true;
   } catch (...) {
     return false;

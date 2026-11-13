@@ -205,6 +205,8 @@ class AuthorityFlow {
   // M12: the paint announced for the host's own ship (net_id state_.host_net_id) and a 1 Hz re-read of the flown ship.
   std::string host_paint_sent_;
   Clock::time_point next_paint_check_{};
+  // M16: the same for the fleet logo, which shares the poll above but keeps its own last-sent string.
+  std::string host_logo_sent_;
   // M3-14: the authority's clock reference. The server replicates player ships only after it has seen one WorldUpdate (its game time and capture time
   // are the reference every entity state is stamped with). M4-08: the same 20 Hz tick now carries the captured world through EntityStream, and an empty
   // WorldUpdate is still the keepalive when nothing moved.

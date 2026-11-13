@@ -1165,6 +1165,24 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
     }
   }
 
+  // M16: the same 1 Hz poll for the host ship's fleet logo. It shares next_paint_check_ and its own last-sent string, so a host
+  // that changes its logo sends one EntityChange{Logo} and nothing else.
+  if (state_.spawned && state_.host_net_id != 0 && now >= next_paint_check_) {
+    const std::uint64_t ship = ctx.game.player_occupied_ship() != 0 ? ctx.game.player_occupied_ship() : ctx.game.player_controlled_ship();
+    if (ship != 0) {
+      const std::string logo = ctx.game.fleet_logo(ship);
+      if (logo != host_logo_sent_) {
+        host_logo_sent_ = logo;
+        ChangeSample c;
+        c.net_id = state_.host_net_id;
+        c.fields = static_cast<std::uint16_t>(P::ChangeField::Logo);
+        c.logo = logo;
+        (void)send_control(T(P::MsgType::EntityChange), encode_entity_change(c));
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: host ship logo changed to '{}' (net_id {})", logo, state_.host_net_id);
+      }
+    }
+  }
+
   // M2: the streamer's own counters. `skipped_no_pose` is the whole point: a docked or landed hull answers (0,0,0) from
   // GetObjectPositionInSector, so it is skipped instead of spawned at the sector centre, and without this line the only evidence
   // was a ghost that never appeared. One line per 10 s, and only when one of the counters moved.
@@ -1553,6 +1571,9 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
   const std::uint64_t host_ship = ctx.game.player_occupied_ship() != 0 ? ctx.game.player_occupied_ship() : ctx.game.player_controlled_ship();
   if (host_ship != 0) self.paint = ctx.game.installed_paint(host_ship);
   host_paint_sent_ = self.paint;
+  // M16: the fleet logo of the same ship, in the same "<file>|<icon>" form the 1 Hz poll re-reads.
+  if (host_ship != 0) self.logo = ctx.game.fleet_logo(host_ship);
+  host_logo_sent_ = self.logo;
   self.sector = ship_sector;
   (void)builder.add(std::move(self));
   const auto payload = builder.build();

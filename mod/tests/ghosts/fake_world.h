@@ -17,7 +17,7 @@ using namespace x4mp::features::ghosts;
 
 struct FakeObj {
   std::uint64_t id = 0;
-  std::string macro, owner, name, idcode, paint;
+  std::string macro, owner, name, idcode, paint, logo;
   std::uint64_t sector = 0;
   std::uint64_t zone = 0;  // the zone the object lives in (0 = the fake does not model zones)
   Pose pose{};
@@ -147,6 +147,16 @@ class FakeWorld final : public IGhostWorld {
     auto it = objs.find(id);
     if (it == objs.end() || ware.empty()) return false;
     it->second.paint = std::string(ware);
+    return true;
+  }
+  int logo_calls = 0;
+  std::vector<std::pair<std::uint64_t, std::string>> logo_log;
+  bool install_logo(std::uint64_t id, std::string_view spec) override {
+    ++logo_calls;
+    logo_log.emplace_back(id, std::string(spec));
+    auto it = objs.find(id);
+    if (it == objs.end() || spec.empty()) return false;
+    it->second.logo = std::string(spec);
     return true;
   }
   bool valid(std::uint64_t id) override {
