@@ -58,6 +58,21 @@ class IPlatform {
     (void)fn;
     return false;
   }
+
+  // Typed MD hooks HullDamaged / ShieldDamaged (types 222 / 424, M15). A client needs them to learn that a ghost it shot was
+  // hit: the hull event carries no amount and the shield event carries raw units, so the damage feature only records WHICH
+  // object was hit and asks Lua for the percentages. `fn` runs on the game thread and must only copy the fields.
+  struct MdDamage {
+    std::uint64_t component = 0;  // the object that was damaged (event source)
+    std::uint64_t part = 0;       // the hull/shield that took it (a child hull when the object is compound)
+    bool hull = false;            // true: hull event, false: shield event
+    double timestamp = 0.0;       // game time
+  };
+  using MdDamageFn = std::function<void(const MdDamage&)>;
+  virtual bool subscribe_damage(MdDamageFn fn) {
+    (void)fn;
+    return false;
+  }
 };
 
 }  // namespace x4mp::host

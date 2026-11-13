@@ -23,12 +23,16 @@ class X4Platform final : public host::IPlatform {
   bool subscribe_event(const char* name, EventFn fn) override;
   // Typed MD hook EntityChangedOwner (M5-20): the MD ring cannot see an owner change, this one does.
   bool subscribe_owner_change(MdOwnerFn fn) override;
+  // Typed MD hooks HullDamaged / ShieldDamaged (M15): a client cannot see a ghost's own damage any other way.
+  bool subscribe_damage(MdDamageFn fn) override;
   bool raise_lua(const char* name, std::string_view text) override;
   ~X4Platform() override;  // unsubscribes the bridge events
 
  private:
   std::vector<int> event_subscriptions_;
   int owner_subscription_ = 0;  // typed MD hook id, 0 when not subscribed
+  int hull_subscription_ = 0;   // M15: HullDamaged hook id
+  int shield_subscription_ = 0; // M15: ShieldDamaged hook id
   std::mutex log_mutex_;  // native_log is called from the logger's writer thread and from the main thread
 };
 

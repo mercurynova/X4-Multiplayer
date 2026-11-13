@@ -569,3 +569,12 @@ B.VERBS.event = true
 -- know a balance. Not queueable: a balance that arrives late is a wrong balance, and the next poll re-reads the truth anyway.
 ------------------------------------------------------------------------------
 B.VERBS.money = true
+
+------------------------------------------------------------------------------
+-- M15 damage relay read. native -> Lua x4mp.damage_probe {"v":1,"rows":[[component,seq],...]} asks for the percentages of the ships
+-- a HullDamaged/ShieldDamaged hook just named; Lua -> native x4mp.damage_state {"v":1,"rows":[[component,seq,hull,shield],...]}
+-- answers them (percent of maximum, -1 when the object is gone). The hooks carry no percentage (the hull event none at all, the
+-- shield event raw units), so this round trip is the only way a client can turn a hit into a damage amount.
+------------------------------------------------------------------------------
+B.TOPICS[#B.TOPICS + 1] = "damage_probe"
+B.VERBS.damage_state = true

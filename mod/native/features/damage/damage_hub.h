@@ -62,4 +62,14 @@ class DamageHub {
 // more than 100 percent (a client cannot take a ship from full to dead in one line; a kill is a KillClaim).
 [[nodiscard]] DamageOp clamp_hit(std::uint64_t component, double hull, double shield) noexcept;
 
+// One reading of a ship's hull and shield percentages; -1 means unknown (the object is gone from this node's view).
+struct Percent {
+  double hull = -1.0;
+  double shield = -1.0;
+};
+
+// How far `now` fell below `before`, field by field. A rise (a repair, a shield recharging) and an unknown side count as 0, so a
+// report only ever carries damage.
+[[nodiscard]] Percent percent_delta(const Percent& before, const Percent& now) noexcept;
+
 }  // namespace x4mp::features::damage

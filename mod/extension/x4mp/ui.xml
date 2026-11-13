@@ -36,6 +36,7 @@
     <file name="ui/x4mp_capture.lua" />
     <file name="ui/x4mp_statics.lua" />
     <file name="ui/x4mp_actions.lua" />
+  <file name="ui/x4mp_damage.lua" />
     <file name="ui/x4mp_optionsmenu_adapter.lua" />
     <file name="ui/x4mp_hud.lua" />
     <file name="ui/x4mp_join_mods.lua" />

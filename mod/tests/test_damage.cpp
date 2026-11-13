@@ -109,3 +109,29 @@ TEST_CASE("M15: the damage queue coalesces one ship's hits, drops junk and stays
   CHECK(hub.queued() == 0);
   CHECK(hub.stats().ops_queued == 0);
 }
+
+TEST_CASE("M15: a ghost's percentage drop is the damage, and a repair is not", "[damage][m15]") {
+  // The probe answers in percent of maximum; only a DROP is a hit. A rise (a repair, a shield recharging) is not damage, and an
+  // unreadable side (-1) must never look like a full kill.
+  const damage::Percent before{80.0, 40.0};
+  const damage::Percent after{72.5, 10.0};
+  const damage::Percent hit = damage::percent_delta(before, after);
+  CHECK(hit.hull == 7.5);
+  CHECK(hit.shield == 30.0);
+
+  const damage::Percent repaired = damage::percent_delta(after, before);
+  CHECK(repaired.hull == 0.0);
+  CHECK(repaired.shield == 0.0);
+
+  const damage::Percent gone = damage::percent_delta(before, {100.0, -1.0});
+  CHECK(gone.hull == 0.0);
+  CHECK(gone.shield == 0.0);
+  const damage::Percent unknownBefore = damage::percent_delta({-1.0, -1.0}, after);
+  CHECK(unknownBefore.hull == 0.0);
+  CHECK(unknownBefore.shield == 0.0);
+
+  // Full to empty in one reading is still one report, and clamp_hit keeps it inside a single MD apply.
+  const damage::Percent dead = damage::percent_delta({100.0, 100.0}, {0.0, 0.0});
+  CHECK(dead.hull == 100.0);
+  CHECK(damage::clamp_hit(3, dead.hull, dead.shield).hull == 100.0);
+}

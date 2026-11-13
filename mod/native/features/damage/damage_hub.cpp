@@ -20,6 +20,14 @@ DamageOp clamp_hit(std::uint64_t component, double hull, double shield) noexcept
   return DamageOp{component, clean(hull), clean(shield)};
 }
 
+Percent percent_delta(const Percent& before, const Percent& now) noexcept {
+  const auto drop = [](double was, double is) {
+    if (!std::isfinite(was) || !std::isfinite(is) || was < 0.0 || is < 0.0 || is >= was) return 0.0;
+    return was - is;
+  };
+  return Percent{drop(before.hull, now.hull), drop(before.shield, now.shield)};
+}
+
 void DamageHub::queue(const DamageOp& op) {
   if (!valid(op)) {
     ++stats_.ops_dropped;

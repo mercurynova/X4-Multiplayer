@@ -131,13 +131,66 @@ bool X4Platform::subscribe_owner_change(MdOwnerFn fn) {
   return true;
 }
 
+// ---- typed MD hooks HullDamaged / ShieldDamaged (M15) ----
+// Same one-slot shape as the owner hook: the typed helper takes a plain function pointer, and one platform lives per process.
+namespace {
+std::vector<std::unique_ptr<host::IPlatform::MdDamageFn>>& damage_fns() {
+  static std::vector<std::unique_ptr<host::IPlatform::MdDamageFn>> v;
+  return v;
+}
+host::IPlatform::MdDamageFn*& damage_slot() {
+  static host::IPlatform::MdDamageFn* fn = nullptr;
+  return fn;
+}
+void damage_trampoline(const ::x4n::md::HullDamagedData& event) {
+  auto* fn = damage_slot();
+  if (!fn || !*fn) return;
+  try {
+    (*fn)(host::IPlatform::MdDamage{event.source_id, event.damaged_component, true, event.timestamp});
+  } catch (...) {
+    // never throw into X4Native
+  }
+}
+void shield_trampoline(const ::x4n::md::ShieldDamagedData& event) {
+  auto* fn = damage_slot();
+  if (!fn || !*fn) return;
+  try {
+    (*fn)(host::IPlatform::MdDamage{event.source_id, event.damaged_component, false, event.timestamp});
+  } catch (...) {
+    // never throw into X4Native
+  }
+}
+}  // namespace
+
+bool X4Platform::subscribe_damage(MdDamageFn fn) {
+  if (!api_ok() || !fn || !::x4n::detail::g_api->md_subscribe_after || hull_subscription_ != 0) return false;
+  auto owned = std::make_unique<MdDamageFn>(std::move(fn));
+  damage_slot() = owned.get();
+  const int hull = ::x4n::md::on_hull_damaged_after(&damage_trampoline);
+  const int shield = hull > 0 ? ::x4n::md::on_shield_damaged_after(&shield_trampoline) : 0;
+  if (hull <= 0) {
+    damage_slot() = nullptr;
+    return false;
+  }
+  hull_subscription_ = hull;
+  if (shield > 0) {
+    shield_subscription_ = shield;
+  }
+  damage_fns().push_back(std::move(owned));
+  return true;
+}
+
 X4Platform::~X4Platform() {
   if (api_ok() && ::x4n::detail::g_api->unsubscribe) {
     for (const int id : event_subscriptions_) ::x4n::off(id);
     if (owner_subscription_ > 0) ::x4n::off(owner_subscription_);
+    if (hull_subscription_ > 0) ::x4n::off(hull_subscription_);
+    if (shield_subscription_ > 0) ::x4n::off(shield_subscription_);
   }
   owner_slot() = nullptr;
   owner_fns().clear();
+  damage_slot() = nullptr;
+  damage_fns().clear();
   event_subscriptions_.clear();
   event_fns().clear();
 }

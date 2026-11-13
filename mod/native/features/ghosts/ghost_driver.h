@@ -164,7 +164,10 @@ struct GhostConfig {
   std::int64_t respawn_window_us = 30'000'000;
   std::int64_t respawn_backoff_us = 10'000'000;
   double spawn_clearance_m = 40.0;
-  int min_hull_percent = 100;                        // Q11: indestructible locally until M5
+  // Q11: a *player's* ghost stays indestructible on this node; only the owner's node destroys it (PlayerDeath). M15 does not
+  // touch this: NPC ghosts are never dressed here at all (ghost_driver.cpp:435), so they keep the game's real hull and a client's
+  // hit on one is measurable and reportable. Lowering this would let a client kill another player's avatar locally.
+  int min_hull_percent = 100;
   // Plan 4.6 says "stale > 5 s -> hide", but the server sends NOTHING for a ship that does not change (a parked avatar was silent for
   // 30 s in the ghost e2e), so silence is not staleness: a ghost without data stays where it is. Removal comes from EntityDespawn.
   std::int64_t stale_us = 3'600'000'000;
