@@ -609,6 +609,30 @@ Sectors leave the CaptureSet `CaptureEvictSeconds` (60) after their last subscri
 leaves. Their transient entities are then evicted from the mirror. Each per-client
 baseline costs about 40 B per entity in interest.
 
+### 8.6 Appearance and equipment blobs (M12, M16, M18)
+
+Three per-ship facts do not fit a number and travel as **opaque strings**, one field each,
+appended last to `EntityRecord`, `EntityChange` and `PlayerShip` so a pre-M12 reader stays
+compatible. `""` always means "none", never "unchanged" in a record; in an `EntityChange`
+only the bits in the mask are applied, so "clear" is an explicit `""` with the bit set.
+
+| Field | `ChangeField` bit | Form | Notes |
+|---|---|---|---|
+| `paint` | `Paint` (256) | paint-mod ware id, e.g. `paintmod_0001` | M12. Owner-announced (authority 1 Hz poll for the host ship, avatars for clients). The game has **no uninstall**: a cleared paint leaves the old one on the object. |
+| `logo` | `Logo` (512) | `"<file>|<icon>"` | M16. A *personal* logo is a local file, so a receiving PC may not resolve `file`; the apply then fails and is logged. |
+| `equipment_mods` | `EquipmentMods` (1024) | `"s:<ware>;e:<ware>;g:<group>=<ware>,..."` | M18. The sender's **full snapshot**: unmentioned slots are dismantled. Weapon and turret mods have no SDK slot and are neither sent nor applied. |
+
+Consequences worth knowing when reading a trace:
+
+- The spec is a diff source, not a patch. `set_equipment_mods` compares it with what is
+  installed and installs or dismantles only the difference, so a repeated poll is a no-op.
+- `Install*Mod` has no `useinventory` flag. A receiving PC that does not hold the mod ware
+  refuses the install (`K part(s) refused` in the log); that is a known limitation, not a
+  bug, and the ship then differs until the ware exists there.
+- Base equipment (guns, shields, engines) is **not** in this list and cannot be changed on an
+  existing ship by any API; it arrives with the spawn macro and starter loadout and is
+  therefore identical on both PCs by construction (see `docs/x4-api-notes.md` §2.12).
+
 ---
 
 ## 9. Authority → server (capture)
@@ -795,6 +819,27 @@ the server:
 2. then limits Adjacent to neighbours on the predicted route.
 
 `NodeStats.ghosts` exposes the pressure to the GUI.
+
+### 12.4 Radar-range visibility (M17, ADR-038)
+
+The interest manager asks a per-viewer `IVisibilityFilter` before it spawns or forwards an
+entity (`AllVisible` by default). M17 ships `RadarVisibilityFilter` and turns it on through the
+Live setting `Interest:RadarRangeMeters` (default 30000 m; `0` restores the v1 "see everything"
+behaviour without a redeploy).
+
+- A **ship of another faction** whose `PoseKnown` position is farther than that range from the
+  viewer in the viewer's own sector is not delivered. It keeps existing and simulating on the
+  authority, and it starts being delivered as soon as it comes inside the range.
+- Never hidden: player ships (galaxy-wide, ADR-011), the viewer's own team or own assets,
+  anything that is not a ship (stations, gates, build storage, wrecks), entities in another
+  sector (the near grid only measures the viewer's own), and any entity whose pose the server
+  does not know.
+- Because the filter depends on where the viewer is, the client's own sector is re-evaluated
+  once a second even when nothing else changed; `Interest:DespawnGraceSeconds` (5 s, M14) stops
+  a ship on the edge from flickering in and out.
+- The server must know the viewer's team for the own-team exemption: it is read from the Teams
+  module (`ITeamDirectory.TeamOf`), and without that module team 0 simply disables the
+  exemption.
 
 ---
 
@@ -1462,11 +1507,11 @@ carries `request_key` (idempotency), which is not repeated below.
 
 | ID | Message | Dir | Lane | Key fields |
 |---|---|---|---|---|
-| 0x0200 | EntitySpawn | A→S, S→N | Ctl | journal_seq, **game_time** (double, appended M1-FIXK: authority game time the states were sampled at; 0 = unknown, server falls back to the latest WorldUpdate), entities[EntityRecord: net_id, kind, origin, macro_ref, owner_ref, **owner_team, owner_player**, parent_net_id, controller_player, name, idcode, hull, shield, state] |
+| 0x0200 | EntitySpawn | A→S, S→N | Ctl | journal_seq, **game_time** (double, appended M1-FIXK: authority game time the states were sampled at; 0 = unknown, server falls back to the latest WorldUpdate), entities[EntityRecord: net_id, kind, origin, macro_ref, owner_ref, **owner_team, owner_player**, parent_net_id, controller_player, name, idcode, hull, shield, state, **paint, logo, equipment_mods** (three opaque strings, §8.6; appended M12/M16/M18)] |
 | 0x0201 | EntityDespawn | A→S, S→N | Ctl | journal_seq, entries[net_id, killer_net_id, reason] |
 | 0x0202 | WorldUpdate | A→S | RT | authority_tick, capture_time_us, game_time, states[EntityState 32 B, derived vel] |
 | 0x0203 | EntityStatusBatch | A→S | RT | capture_time_us, statuses[net_id, hull, shield, flags] |
-| 0x0204 | EntityChange | A→S, S→N | Ctl | journal_seq, net_id, fields mask, owner_ref, **owner_team, owner_player**, name, parent_net_id, macro_ref, kind, controller_player, cause_trade_id |
+| 0x0204 | EntityChange | A→S, S→N | Ctl | journal_seq, net_id, fields mask, owner_ref, **owner_team, owner_player**, name, parent_net_id, macro_ref, kind, controller_player, cause_trade_id, **paint, logo, equipment_mods** (§8.6; each honoured only when its `ChangeField` bit is set: `Paint` 256, `Logo` 512, `EquipmentMods` 1024) |
 | 0x0205 | EntityCargo | A→S, C→S (own ship), S→N | Ctl | journal_seq, net_id, wares[ware_ref, amount] |
 | 0x0206 | CaptureSet | S→A | Ctl | epoch, sectors[(sector, rate_hz)], focus[(sector, center, radius_m, rate_hz)] |
 | 0x0207 | SectorComplete | A→S, S→C | Ctl | sector, epoch, entity_count |
@@ -1482,7 +1527,7 @@ carries `request_key` (idempotency), which is not repeated below.
 | ID | Message | Dir | Lane | Key fields |
 |---|---|---|---|---|
 | 0x0300 | PlayerState | C→S | RT | seq, sample_time_us, net_id, sector, flags, px/py/pz, yaw/pitch/roll, hull, shield, target_net_id (**no velocity**) |
-| 0x0301 | PlayerShip | C→S (→A) | Ctl | request_key (pure idempotency key), ship_macro, name, idcode, sector, pos, rot, hull, shield, local_component_id, **player_id** (server-stamped when forwarding to the authority; a client value is overwritten). Answered by EntitySpawn. |
+| 0x0301 | PlayerShip | C→S (→A) | Ctl | request_key (pure idempotency key), ship_macro, name, idcode, sector, pos, rot, hull, shield, local_component_id, **player_id** (server-stamped when forwarding to the authority; a client value is overwritten), **paint, logo, equipment_mods** (§8.6; appended M12/M16/M18). Answered by EntitySpawn. |
 | 0x0302 | OnFootState | C→S (→C) | RT | player_id (server-stamped), seq, sample_time_us, mode (OnFootMode), container_net_id, outer_container_net_id, room (RoomKey struct, 16 B), px/py/pz (room-local, 1/1024 m), cx/cy/cz (container-local, 1/64 m), yaw, look_pitch, anim (OnFootAnim), emote_id, flags. ADR-046: relayed to the nodes whose own last state shares the innermost container (and the previous one, as the leave state). |
 | 0x0303 | PlayerAppearance | C→S (→C) | Ctl | player_id and revision (both server-stamped), race, preset, character_macro, is_female, clothing. ADR-051: the chosen appearance others render; relayed on join and on change. |
 | 0x0304 | PresenceRoster | S→C | Ctl | full, entries[PresenceEntry{player_id, mode, container_net_id, outer_container_net_id, roomtype, room_name}], removed[]. Galaxy-wide, at most 1 Hz. |

@@ -380,7 +380,27 @@ ownership change.
 They spawned the worker thread that exposed the reference's proxy race. **Our design does
 not use them.**
 
-### 2.12 Known gaps (summary)
+### 2.12 Equipment, loadouts and equipment mods (M18)
+
+| Function | R/W | Notes |
+|---|---|---|
+| `GetInstalledShipMod2(UniverseID, UIShipMod2*)`, `GetInstalledEngineMod2(UniverseID, UIEngineMod2*)`, `GetInstalledShieldMod(UniverseID, int32_t group, UIShieldMod*)`, `GetNumShieldGroups(UniverseID)`, `GetShieldGroups(UniverseID, uint32_t*, uint32_t)` | R | read the **mod** installed in a slot, not the equipment in it. `UIShipMod2`/`UIEngineMod2`/`UIShieldMod` must be passed fully (the game fills the whole out-param) |
+| `InstallShipMod(UniverseID, const char* ware)`, `InstallEngineMod`, `InstallWeaponMod`, `InstallGroupedWeaponMod`, `InstallShieldMod`, `InstallPaintMod` | W | install a mod ware into its slot. **No `useinventory` flag**: a PC that does not hold the ware refuses the call, and there is no way to ask for a bypass |
+| `DismantleShipMod(UniverseID)`, `DismantleEngineMod`, `DismantleWeaponMod(UniverseID, int32_t)`, `DismantleGroupedWeaponMod`, `DismantleShieldMod(UniverseID, int32_t group)` | W | remove that slot's mod; the only way to express "this slot has no mod" |
+| `AddBuildTask6` | W | builds a **new** ship at a wharf from a loadout |
+| `SetFleetUnitLoadout` | W | sets the loadout of a fleet unit |
+
+**There is no setter for a ship's base equipment.** No export mounts a gun, a shield or an
+engine on an existing ship, and MD's `create_loadout` / `apply_loadout` take a literal
+`<macros>/<software>/<virtualmacros>` element tree with no script expressions
+(`docs/research/starter-ships.md:20`). Base equipment therefore only arrives with the spawned
+ship (macro plus starter loadout) and is identical on every node by construction; the only
+per-ship equipment fact a node can change after spawn is which **mod** sits in a slot. M18
+replicates exactly that (`protocol.md` §8.6): the mods are read as one spec string, applied as
+a diff, and weapon/turret mods have no readable slot at all (no child-component enumeration),
+so they are neither sent nor applied.
+
+### 2.13 Known gaps (summary)
 | Need | Status |
 |---|---|
 | Velocity read | no export. Derive from deltas; or MD `object.velocity` |
@@ -393,6 +413,8 @@ not use them.**
 | Credits | available via Lua and MD (2.7) |
 | Bulk cargo | available via MD `add_cargo exact=` (2.6) |
 | Targeted orders | available via Lua `SetOrderParam` (2.8) |
+| Base equipment write (guns, shields, engines on an existing ship) | none: no export, MD loadouts are literal trees. Spawn-time only (2.12) |
+| Equipment **mods** | readable, installable and dismantleable natively (2.12, M18) |
 
 ---
 
