@@ -116,6 +116,9 @@ class AuthorityFlow {
   // M5-15/16: a trade report from a client. Applies the stock change to the authority's own copy of the station, answers with one
   // IntentResult, sends the station's EntityCargo and the TradeEvent, and moves the NPC side's money (M5-17).
   void on_trade_report(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload);
+  // M15: a client's aggregated damage on remote ships. Queues a relative hull/shield percentage per target for the damage
+  // feature to apply through MD, and answers with one IntentResult.
+  void on_hit_report(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload);
   void apply_trade(host::HostContext& ctx, const events::IntentRequest& request, std::uint32_t station, std::uint32_t ship,
                    std::uint64_t component, const std::string& ware, std::int32_t amount, std::int32_t unit_price);
   void retry_trades(host::HostContext& ctx);
@@ -227,6 +230,8 @@ class AuthorityFlow {
   std::uint32_t intent_player_ = 0;
   std::uint32_t intent_failed_ = 0;
   std::uint32_t kills_applied_ = 0;
+  std::uint32_t hits_applied_ = 0;   // M15: hit reports whose lines reached the damage queue
+  std::uint32_t hits_rejected_ = 0;  // M15: hit reports with no applicable target (unknown net or out of the capture set)
   std::uint32_t players_died_ = 0;
   std::uint32_t capture_sets_ = 0, capture_stale_ = 0, capture_bad_ = 0;
   std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0;

@@ -24,6 +24,7 @@
 #include "message_ids_generated.h"
 #include "events_generated.h"
 #include "features/events/event_wire.h"
+#include "features/damage/damage_hub.h"
 #include "features/economy/economy_hub.h"
 #include "features/statics/statics_feature.h"
 #include "features/statics/statics_hub.h"
@@ -283,6 +284,10 @@ void AuthorityFlow::on_intent(host::HostContext& ctx, std::span<const std::uint8
     on_trade_report(ctx, intent, payload);
     return;
   }
+  if (intent.type == P::IntentBody::HitReport) {
+    on_hit_report(ctx, intent, payload);
+    return;
+  }
   if (intent.type == P::IntentBody::StationBuildRequest) {
     on_station_build(ctx, intent, payload);
     return;
@@ -363,6 +368,64 @@ void AuthorityFlow::on_intent(host::HostContext& ctx, std::span<const std::uint8
 
   X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: net {} killed by player {} (net {}), despawn queued", target,
             static_cast<int>(intent.request.player_id), killer);
+}
+
+// M15: a client's aggregated damage on remote ships. The amount is a *relative* percentage (a delta), never an absolute hull: the
+// authority clamps it and queues it for MD, which subtracts it from the value it reads at that moment (features/damage). A target the
+// authority does not know, or one whose sector is not in its capture set, is skipped rather than failing the whole report: a shot in
+// flight when the target left interest is normal, and the server already filtered the obvious case.
+void AuthorityFlow::on_hit_report(host::HostContext& ctx, const events::IntentView& intent, std::span<const std::uint8_t> payload) {
+  const auto reject = [&](P::RejectReason reason, const char* detail, std::uint32_t target) {
+    const std::vector<std::uint8_t> reply =
+        events::encode_intent_result(intent.request, P::IntentStatus::Rejected, reason, detail, 0);
+    (void)send_frame(T(P::MsgType::IntentResult), reply);
+    X4MP_CLOG(ctx.log, Cat::Auth, Level::Info, "authority: hit report for net {} rejected: {}", target, detail);
+  };
+
+  const P::HitReport* report = events::hit_report_of(payload);
+  if (report == nullptr || report->hits() == nullptr || report->hits()->size() == 0) {
+    ++intent_bad_;
+    reject(P::RejectReason::InvalidParameters, "the hit report has no hits", 0);
+    return;
+  }
+
+  std::uint32_t applied = 0;
+  std::uint32_t unknown = 0;
+  std::uint32_t outside = 0;
+  for (const P::HitEntry* hit : *report->hits()) {
+    if (hit == nullptr) continue;
+    IndexEntry* row = index_.find(hit->target());
+    if (row == nullptr || row->component == 0) {
+      ++unknown;
+      continue;
+    }
+    if (!capture_.contains(row->sector)) {
+      ++outside;
+      continue;
+    }
+    const damage::DamageOp op = damage::clamp_hit(row->component, hit->hull_damage(), hit->shield_damage());
+    if (!damage::valid(op)) continue;
+    damage::damage_hub().queue(op);
+    ++applied;
+  }
+
+  if (applied == 0) {
+    ++hits_rejected_;
+    if (outside > 0) {
+      reject(P::RejectReason::NotInInterest, "no hit target is in the capture set", 0);
+    } else {
+      reject(P::RejectReason::UnknownEntity, "no hit target is a known entity", 0);
+    }
+    return;
+  }
+
+  ++hits_applied_;
+  const std::vector<std::uint8_t> accepted =
+      events::encode_intent_result(intent.request, P::IntentStatus::Accepted, P::RejectReason::None, "", applied);
+  (void)send_frame(T(P::MsgType::IntentResult), accepted);
+  X4MP_CLOG(ctx.log, Cat::Auth, Level::Debug,
+            "authority: hit report from player {} applied {} line(s) (unknown={}, out of interest={})",
+            static_cast<int>(intent.request.player_id), applied, unknown, outside);
 }
 
 // M5-14/M5-15: the client saw a trade at a station. The station's stock is the authority's to change; the report names the station by

@@ -5,9 +5,11 @@
   Native cannot change cargo or money, MD can, so every stock and money change the mod makes goes through here. The native side batches:
   one AddUITriggeredEvent per frame carrying the whole list, never one call per ware.
 
-    native -> Lua  x4mp.actions {"v":1,"cargo":[[component,ware,amount],...],"money":[[from,to,amount],...]}
+    native -> Lua  x4mp.actions {"v":1,"cargo":[[component,ware,amount],...],"money":[[from,to,amount],...],
+                                 "damage":[[component,hull_percent,shield_percent],...]}
     Lua -> MD      AddUITriggeredEvent("X4MP_Actions", "apply", <cargo list>)
                    AddUITriggeredEvent("X4MP_Actions", "money", <money list>)
+                   AddUITriggeredEvent("X4MP_Actions", "damage", <damage list>)
 
   Why exact= and not amount=: exact= is the bulk form verified in the session-1 spike (docs/spikes/session-1-results.md, V13): add_cargo
   exact=37 lands exactly 37, remove_cargo exact=12 removes exactly 12. Adding over capacity caps at capacity and removing more than is
@@ -16,6 +18,13 @@
 
   A component id arrives as a plain number; MD coerces it to the object the same way the capture scan does. Nested lists in
   event.param3 are [VERIFY] in game (session 8 checks the [economy] cargo ops counter against a real trade).
+
+  Damage (M15). Neither the DLL nor Lua can write hull or shield; MD can, so a hit on a remote ship is relayed here as a
+  RELATIVE percentage (the same unit as $Obj.hullpercentage and the proven set_object_min_hull exact=). MD reads the current
+  value and subtracts, clamped at 0, so the two nodes may disagree slightly about the current hull and still land the same
+  damage; a kill is never expressed here but as a KillClaim (the ship is removed, not set to 0 percent). The player's own
+  ship is skipped: the game itself is authoritative for it. set_object_hull / set_object_shield are [VERIFY] in game
+  (docs/x4-api-notes.md 8); session 8 checks a ghost taking a hit through the actions shim.
 -->
 <mdscript name="X4MP_Actions" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
@@ -48,6 +57,36 @@
           <do_for_each name="$Op" in="event.param3">
             <do_if value="$Op.{1} and $Op.{2} and $Op.{3} gt 0">
               <transfer_money from="$Op.{1}" to="$Op.{2}" amount="$Op.{3}"/>
+            </do_if>
+          </do_for_each>
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="X4MP_Actions_Damage" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4MP_Actions'" control="'damage'"/>
+      </conditions>
+      <actions>
+        <do_if value="event.param3">
+          <do_for_each name="$Op" in="event.param3">
+            <!-- $Op.{1} is the component, {2} the hull percent to take off, {3} the shield percent. The local ship is never
+                 touched here: its damage is the game's own, and a relay would fight it. -->
+            <do_if value="$Op.{1} and $Op.{1} != player.ship and $Op.{1} != player.occupiedship and $Op.{1} != player.container">
+              <do_if value="$Op.{2} gt 0">
+                <set_value name="$Hull" exact="$Op.{1}.hullpercentage - $Op.{2}"/>
+                <do_if value="$Hull lt 0">
+                  <set_value name="$Hull" exact="0"/>
+                </do_if>
+                <set_object_hull object="$Op.{1}" exact="$Hull"/>
+              </do_if>
+              <do_if value="$Op.{3} gt 0">
+                <set_value name="$Shield" exact="$Op.{1}.shieldpercentage - $Op.{3}"/>
+                <do_if value="$Shield lt 0">
+                  <set_value name="$Shield" exact="0"/>
+                </do_if>
+                <set_object_shield object="$Op.{1}" exact="$Shield"/>
+              </do_if>
             </do_if>
           </do_for_each>
         </do_if>

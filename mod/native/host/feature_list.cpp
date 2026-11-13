@@ -31,6 +31,7 @@
 #include "features/onfoot/onfoot_feature.h"
 #include "features/appearance/appearance_feature.h"
 #include "features/events/events_feature.h"
+#include "features/damage/damage_feature.h"
 #include "features/economy/economy_feature.h"
 #include "features/builds/builds_feature.h"
 #include "features/capture/capture_feature.h"
@@ -59,6 +60,7 @@ void register_builtin_features(FeatureRegistry& registry) {
   registry.add(std::make_unique<x4mp::features::AppearanceFeature>());  // after join: it sends PlayerAppearance on the control lane of the link join installed this frame (M3b, ADR-051)
   registry.add(std::make_unique<x4mp::features::EventsFeature>());  // M5: drains the MD capture ring into the bus and publishes the md_hook state; before stats, which reads it (M5-01..M5-04)
   registry.add(std::make_unique<x4mp::features::EconomyFeature>());  // M5-13..M5-17: trades upward, station stock down, the actions shim; after events (it feeds it the Trade events) and statics (station ids)
+  registry.add(std::make_unique<x4mp::features::DamageFeature>());  // M15: the hull/shield lines both nodes apply through MD; after economy, whose actions shim it shares
   registry.add(std::make_unique<x4mp::features::builds::BuildsFeature>());  // M5-18/M5-19 client half: a finished build goes up as one request and the result pins the station id; after events (Build events) and statics (the id table)
   registry.add(std::make_unique<x4mp::features::capture::CaptureFeature>());  // M5-20: the typed EntityChangedOwner hook reports a captured ghost; after ghosts (the component map) and events (the send path)
   registry.add(std::make_unique<x4mp::features::wallet::WalletFeature>());  // M5-22: the x4mp.money poll into wallet_hub; after economy, which will book its changes upward (M5-23)

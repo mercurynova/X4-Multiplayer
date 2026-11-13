@@ -263,6 +263,16 @@ struct IntentView {
   return intent->body_as_KillClaim();
 }
 
+// The body of a hit report, or nullptr when the buffer is not one (M15). The pointer lives as long as `bytes`.
+[[nodiscard]] inline const P::HitReport* hit_report_of(std::span<const std::uint8_t> bytes) {
+  if (bytes.size() < 4) return nullptr;
+  flatbuffers::Verifier verifier(bytes.data(), bytes.size());
+  if (!verifier.VerifyBuffer<P::Intent>(nullptr)) return nullptr;
+  const P::Intent* intent = flatbuffers::GetRoot<P::Intent>(bytes.data());
+  if (intent == nullptr || intent->body_type() != P::IntentBody::HitReport) return nullptr;
+  return intent->body_as_HitReport();
+}
+
 // The body of a player-death intent, or nullptr when the buffer is not one (M5-10).
 [[nodiscard]] inline const P::PlayerDeath* player_death_of(std::span<const std::uint8_t> bytes) {
   if (bytes.size() < 4) return nullptr;
