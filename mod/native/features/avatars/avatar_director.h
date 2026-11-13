@@ -78,6 +78,15 @@ class IAvatarEnv {
   // M16: set the avatar's fleet logo from "<file>|<icon>". An empty spec means "no logo" and must not be called; a personal logo
   // is a local file, so this may fail on another PC without being an error worth retrying.
   virtual bool install_logo(std::uint64_t id, const std::string& spec) = 0;
+  // M18: apply the avatar's installed equipment mods ("s:…;e:…;g:<group>=<ware>"). An empty spec means "no mods" and must not be
+  // called. `refused` receives how many of the requested changes the game would not make (a ware this PC does not own, a group it
+  // cannot address); the caller logs it and keeps going, because a failed apply only makes this node look different, never wrong.
+  virtual bool install_equipment(std::uint64_t id, const std::string& spec, int& refused) {
+    (void)id;
+    (void)spec;
+    refused = 0;
+    return false;
+  }
   virtual bool valid(std::uint64_t id) = 0;
   virtual std::string idcode(std::uint64_t id) = 0;
   virtual bool read_pose(std::uint64_t id, std::uint64_t& sector, Pose& pose) = 0;
@@ -107,6 +116,12 @@ class IAvatarEnv {
   virtual bool send_paint(std::uint32_t net_id, const std::string& ware) = 0;
   // EntityChange{Logo}: the avatar's fleet logo changed (M16). "" = none.
   virtual bool send_logo(std::uint32_t net_id, const std::string& spec) = 0;
+  // EntityChange{EquipmentMods}: the avatar's installed equipment mods changed (M18). "" = none.
+  virtual bool send_equipment(std::uint32_t net_id, const std::string& spec) {
+    (void)net_id;
+    (void)spec;
+    return false;
+  }
   // EntityDespawn: the avatar left the world for now (docked inside / on foot / in a highway). `reason` is a P::DespawnReason value
   // (DockedInside tells a client to hide the mirror, not to play a destruction). The net id stays in the record and the ship respawns
   // with it, so every client keeps one entity for the player.

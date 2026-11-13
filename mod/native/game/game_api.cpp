@@ -1,6 +1,9 @@
 #include "game/game_api.h"
 
 #include <limits>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "game/main_thread.h"
 
@@ -56,6 +59,17 @@ GameFns resolve_game_fns(const GetFunctionFn& get) {
   bind(get, "InstallPaintMod", f.InstallPaintMod);
   bind(get, "GetCurrentFleetLogo", f.GetCurrentFleetLogo);
   bind(get, "SetFleetLogo", f.SetFleetLogo);
+  bind(get, "GetInstalledShipMod2", f.GetInstalledShipMod2);
+  bind(get, "InstallShipMod", f.InstallShipMod);
+  bind(get, "DismantleShipMod", f.DismantleShipMod);
+  bind(get, "GetInstalledEngineMod2", f.GetInstalledEngineMod2);
+  bind(get, "InstallEngineMod", f.InstallEngineMod);
+  bind(get, "DismantleEngineMod", f.DismantleEngineMod);
+  bind(get, "GetNumShieldGroups", f.GetNumShieldGroups);
+  bind(get, "GetShieldGroups", f.GetShieldGroups);
+  bind(get, "GetInstalledShieldMod", f.GetInstalledShieldMod);
+  bind(get, "InstallShieldMod", f.InstallShieldMod);
+  bind(get, "DismantleShieldMod", f.DismantleShieldMod);
   return f;
 }
 
@@ -105,6 +119,17 @@ std::vector<std::string> missing_exports(const GameFns& f) {
   check(reinterpret_cast<const void*>(f.InstallPaintMod), "InstallPaintMod");
   check(reinterpret_cast<const void*>(f.GetCurrentFleetLogo), "GetCurrentFleetLogo");
   check(reinterpret_cast<const void*>(f.SetFleetLogo), "SetFleetLogo");
+  check(reinterpret_cast<const void*>(f.GetInstalledShipMod2), "GetInstalledShipMod2");
+  check(reinterpret_cast<const void*>(f.InstallShipMod), "InstallShipMod");
+  check(reinterpret_cast<const void*>(f.DismantleShipMod), "DismantleShipMod");
+  check(reinterpret_cast<const void*>(f.GetInstalledEngineMod2), "GetInstalledEngineMod2");
+  check(reinterpret_cast<const void*>(f.InstallEngineMod), "InstallEngineMod");
+  check(reinterpret_cast<const void*>(f.DismantleEngineMod), "DismantleEngineMod");
+  check(reinterpret_cast<const void*>(f.GetNumShieldGroups), "GetNumShieldGroups");
+  check(reinterpret_cast<const void*>(f.GetShieldGroups), "GetShieldGroups");
+  check(reinterpret_cast<const void*>(f.GetInstalledShieldMod), "GetInstalledShieldMod");
+  check(reinterpret_cast<const void*>(f.InstallShieldMod), "InstallShieldMod");
+  check(reinterpret_cast<const void*>(f.DismantleShieldMod), "DismantleShieldMod");
   return out;
 }
 
@@ -350,6 +375,245 @@ bool GameApi::set_fleet_logo(UniverseId id, std::string_view spec) const noexcep
   } catch (...) {
     return false;
   }
+}
+
+namespace {
+
+// M18: "a;b;c" -> its non-empty parts.
+std::vector<std::string_view> split_parts(std::string_view s, char sep) {
+  std::vector<std::string_view> out;
+  std::size_t at = 0;
+  while (at <= s.size()) {
+    const std::size_t end = s.find(sep, at);
+    const std::string_view part = s.substr(at, end == std::string_view::npos ? std::string_view::npos : end - at);
+    if (!part.empty()) out.push_back(part);
+    if (end == std::string_view::npos) break;
+    at = end + 1;
+  }
+  return out;
+}
+
+// M18: keep only what can be a ware or group id, so the wire string never carries separators or spaces.
+std::string sanitise_id(std::string_view s) {
+  std::string out;
+  for (const char c : s) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') out.push_back(c);
+  }
+  return out;
+}
+
+struct ShieldSlot {
+  UniverseId context = 0;
+  std::string group;
+  std::string ware;  // "" = no mod in this slot
+};
+
+// M18: the shield groups of a ship and the mod installed in each. `group` is the portable key; the context id is local.
+std::vector<ShieldSlot> read_shield_slots(const GameFns& f, UniverseId ship) {
+  std::vector<ShieldSlot> out;
+  if (ship == 0 || !f.GetNumShieldGroups || !f.GetShieldGroups || !f.GetInstalledShieldMod) return out;
+  const std::uint32_t n = f.GetNumShieldGroups(ship);
+  if (n == 0 || n > 256) return out;
+  std::vector<ShieldGroupPod> groups(n);
+  const std::uint32_t got = f.GetShieldGroups(groups.data(), n, ship);
+  for (std::uint32_t i = 0; i < n && i < got; ++i) {
+    if (groups[i].group == nullptr || *groups[i].group == '\0') continue;
+    ShieldSlot slot;
+    slot.context = groups[i].context;
+    slot.group = sanitise_id(groups[i].group);
+    if (slot.group.empty()) continue;
+    ShieldModPod mod{};
+    try {
+      if (f.GetInstalledShieldMod(ship, slot.context, groups[i].group, &mod) && mod.ware != nullptr) slot.ware = sanitise_id(mod.ware);
+    } catch (...) {
+      slot.ware.clear();
+    }
+    out.push_back(std::move(slot));
+  }
+  return out;
+}
+
+}  // namespace
+
+std::string GameApi::equipment_mods(UniverseId ship) const {
+  if (ship == 0 || !assert_main_thread("GetInstalledShipMod2")) return {};
+  std::string out;
+  const auto add = [&out](std::string_view piece) {
+    if (!out.empty()) out.push_back(';');
+    out += piece;
+  };
+  if (fns_.GetInstalledShipMod2) {
+    ShipModPod mod{};
+    try {
+      if (fns_.GetInstalledShipMod2(ship, &mod) && mod.ware != nullptr && *mod.ware != '\0') add("s:" + sanitise_id(mod.ware));
+    } catch (...) {
+      // an unreadable ship mod is "none", never a bogus ware
+    }
+  }
+  if (fns_.GetInstalledEngineMod2) {
+    EngineModPod mod{};
+    try {
+      if (fns_.GetInstalledEngineMod2(ship, &mod) && mod.ware != nullptr && *mod.ware != '\0') add("e:" + sanitise_id(mod.ware));
+    } catch (...) {
+    }
+  }
+  for (const ShieldSlot& slot : read_shield_slots(fns_, ship)) {
+    if (slot.ware.empty()) continue;
+    add("g:" + slot.group + "=" + slot.ware);
+  }
+  return out;
+}
+
+bool GameApi::set_equipment_mods(UniverseId ship, std::string_view spec, int* refused) const noexcept {
+  if (refused != nullptr) *refused = 0;
+  if (ship == 0 || !assert_main_thread("InstallShipMod")) return false;
+  const auto fail = [refused]() {
+    if (refused != nullptr) ++*refused;
+  };
+
+  std::string want_ship;
+  std::string want_engine;
+  std::vector<std::pair<std::string, std::string>> want_groups;  // group -> ware ("" removes)
+  for (const std::string_view part : split_parts(spec, ';')) {
+    if (part.rfind("s:", 0) == 0) {
+      want_ship = sanitise_id(part.substr(2));
+    } else if (part.rfind("e:", 0) == 0) {
+      want_engine = sanitise_id(part.substr(2));
+    } else if (part.rfind("g:", 0) == 0) {
+      const std::string_view body = part.substr(2);
+      const std::size_t eq = body.find('=');
+      const std::string group = sanitise_id(body.substr(0, eq));
+      const std::string ware = eq == std::string_view::npos ? std::string{} : sanitise_id(body.substr(eq + 1));
+      if (!group.empty()) want_groups.emplace_back(group, ware);
+    }
+    // "w:"/"t:" (weapon/turret mods) have no addressable slot in the SDK and are ignored.
+  }
+
+  bool ok = true;
+  // Ship mod: install when absent here, dismantle when the spec has none.
+  {
+    std::string have;
+    if (fns_.GetInstalledShipMod2) {
+      ShipModPod mod{};
+      try {
+        if (fns_.GetInstalledShipMod2(ship, &mod) && mod.ware != nullptr) have = sanitise_id(mod.ware);
+      } catch (...) {
+      }
+    }
+    if (!want_ship.empty() && want_ship != have) {
+      if (!fns_.InstallShipMod) {
+        fail();
+        ok = false;
+      } else {
+        try {
+          const std::string ware(want_ship);
+          if (!fns_.InstallShipMod(ship, ware.c_str())) {
+            fail();
+            ok = false;
+          }
+        } catch (...) {
+          fail();
+          ok = false;
+        }
+      }
+    } else if (want_ship.empty() && !have.empty()) {
+      if (!fns_.DismantleShipMod) {
+        fail();
+        ok = false;
+      } else {
+        try {
+          fns_.DismantleShipMod(ship);
+        } catch (...) {
+          fail();
+          ok = false;
+        }
+      }
+    }
+  }
+  // Engine mod: same rule, addressed by the ship id.
+  {
+    std::string have;
+    if (fns_.GetInstalledEngineMod2) {
+      EngineModPod mod{};
+      try {
+        if (fns_.GetInstalledEngineMod2(ship, &mod) && mod.ware != nullptr) have = sanitise_id(mod.ware);
+      } catch (...) {
+      }
+    }
+    if (!want_engine.empty() && want_engine != have) {
+      if (!fns_.InstallEngineMod) {
+        fail();
+        ok = false;
+      } else {
+        try {
+          const std::string ware(want_engine);
+          if (!fns_.InstallEngineMod(ship, ware.c_str())) {
+            fail();
+            ok = false;
+          }
+        } catch (...) {
+          fail();
+          ok = false;
+        }
+      }
+    } else if (want_engine.empty() && !have.empty()) {
+      if (!fns_.DismantleEngineMod) {
+        fail();
+        ok = false;
+      } else {
+        try {
+          fns_.DismantleEngineMod(ship);
+        } catch (...) {
+          fail();
+          ok = false;
+        }
+      }
+    }
+  }
+  // Shield mods: one per group, matched by the portable group name. A group the spec names but this ship does not have
+  // cannot be addressed at all (InstallShieldMod needs the local context id), so it is a logged failure, not a guess.
+  for (const ShieldSlot& slot : read_shield_slots(fns_, ship)) {
+    std::string want;
+    bool named = false;
+    for (const auto& [group, ware] : want_groups) {
+      if (group == slot.group) {
+        want = ware;
+        named = true;
+        break;
+      }
+    }
+    if (!named && !want_groups.empty()) continue;  // the spec says nothing about this slot; leave it alone
+    if (want == slot.ware) continue;
+    if (want.empty()) {
+      if (!fns_.DismantleShieldMod) {
+        fail();
+        ok = false;
+      } else {
+        try {
+          fns_.DismantleShieldMod(ship, slot.context, slot.group.c_str());
+        } catch (...) {
+          fail();
+          ok = false;
+        }
+      }
+    } else {
+      if (!fns_.InstallShieldMod) {
+        fail();
+        ok = false;
+      } else {
+        try {
+          if (!fns_.InstallShieldMod(ship, slot.context, slot.group.c_str(), want.c_str())) {
+            fail();
+            ok = false;
+          }
+        } catch (...) {
+          fail();
+          ok = false;
+        }
+      }
+    }
+  }
+  return ok;
 }
 
 }  // namespace x4mp::game

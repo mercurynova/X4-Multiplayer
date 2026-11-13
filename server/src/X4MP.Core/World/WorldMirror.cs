@@ -407,6 +407,7 @@ public sealed partial class WorldMirror : ISessionModule
         entity.IdCode = record.Idcode;
         entity.Paint = record.Paint;
         entity.Logo = record.Logo;
+        entity.EquipmentMods = record.EquipmentMods;
         entity.Hull = record.Hull;
         entity.Shield = record.Shield;
         entity.IsPersistent = EntityKinds.IsPersistent(record.Kind);
@@ -591,6 +592,11 @@ public sealed partial class WorldMirror : ISessionModule
         if ((fields & ChangeField.Logo) != 0)
         {
             entity.Logo = change.Logo;
+        }
+
+        if ((fields & ChangeField.EquipmentMods) != 0)
+        {
+            entity.EquipmentMods = change.EquipmentMods;
         }
 
         entity.Version++;

@@ -180,6 +180,75 @@ void fk_set_logo(UniverseId id, LogoPod logo) {
   g_logo_written_personal = logo.personal;
 }
 
+// M18 (equipment mods): one ship mod, one engine mod and two shield groups; every write is appended to g_mod_calls.
+std::string g_ship_mod_ware = "shipmod_test_01";
+std::string g_engine_mod_ware = "enginemod_test_01";
+std::string g_shield_mod_01 = "shieldmod_test_01";
+std::string g_shield_mod_02;
+std::vector<std::string> g_mod_calls;
+// The strings the fakes hand out live as long as the process (the real game owns its own copies the same way).
+const char* const g_group_01 = "group01";
+const char* const g_group_02 = "group02";
+bool fk_get_ship_mod(UniverseId shipid, ShipModPod* out) {
+  if (shipid == 0 || out == nullptr || g_ship_mod_ware.empty()) return false;
+  *out = ShipModPod{};
+  out->ware = g_ship_mod_ware.c_str();
+  return true;
+}
+bool fk_install_ship_mod(UniverseId shipid, const char* ware) {
+  g_mod_calls.push_back(std::string("install_ship ") + std::to_string(shipid) + " " + (ware ? ware : "<null>"));
+  if (shipid == 0 || ware == nullptr) return false;
+  g_ship_mod_ware = ware;
+  return true;
+}
+void fk_dismantle_ship_mod(UniverseId shipid) {
+  g_mod_calls.push_back(std::string("dismantle_ship ") + std::to_string(shipid));
+  g_ship_mod_ware.clear();
+}
+bool fk_get_engine_mod(UniverseId shipid, EngineModPod* out) {
+  if (shipid == 0 || out == nullptr || g_engine_mod_ware.empty()) return false;
+  *out = EngineModPod{};
+  out->ware = g_engine_mod_ware.c_str();
+  return true;
+}
+bool fk_install_engine_mod(UniverseId shipid, const char* ware) {
+  g_mod_calls.push_back(std::string("install_engine ") + std::to_string(shipid) + " " + (ware ? ware : "<null>"));
+  if (shipid == 0 || ware == nullptr) return false;
+  g_engine_mod_ware = ware;
+  return true;
+}
+void fk_dismantle_engine_mod(UniverseId shipid) {
+  g_mod_calls.push_back(std::string("dismantle_engine ") + std::to_string(shipid));
+  g_engine_mod_ware.clear();
+}
+std::uint32_t fk_num_shield_groups(UniverseId shipid) { return shipid == 0 ? 0 : 2; }
+std::uint32_t fk_shield_groups(ShieldGroupPod* out, std::uint32_t len, UniverseId shipid) {
+  if (shipid == 0 || out == nullptr || len < 2) return 0;
+  out[0] = ShieldGroupPod{11, g_group_01, 21};
+  out[1] = ShieldGroupPod{12, g_group_02, 22};
+  return 2;
+}
+bool fk_get_shield_mod(UniverseId shipid, UniverseId contextid, const char* group, ShieldModPod* out) {
+  if (shipid == 0 || group == nullptr || out == nullptr) return false;
+  const std::string& ware = contextid == 11 ? g_shield_mod_01 : g_shield_mod_02;
+  if (ware.empty()) return false;
+  *out = ShieldModPod{};
+  out->ware = ware.c_str();
+  return true;
+}
+bool fk_install_shield_mod(UniverseId shipid, UniverseId contextid, const char* group, const char* ware) {
+  g_mod_calls.push_back(std::string("install_shield ") + std::to_string(shipid) + " " + std::to_string(contextid) + " " +
+                        (group ? group : "<null>") + " " + (ware ? ware : "<null>"));
+  if (shipid == 0 || group == nullptr || ware == nullptr) return false;
+  (contextid == 12 ? g_shield_mod_02 : g_shield_mod_01) = ware;
+  return true;
+}
+void fk_dismantle_shield_mod(UniverseId shipid, UniverseId contextid, const char* group) {
+  g_mod_calls.push_back(std::string("dismantle_shield ") + std::to_string(shipid) + " " + std::to_string(contextid) + " " +
+                        (group ? group : "<null>"));
+  (contextid == 12 ? g_shield_mod_02 : g_shield_mod_01).clear();
+}
+
 // M12 (paint): GetInstalledPaintMod answers with the ware the fake currently reports, InstallPaintMod records the call.
 std::string g_installed_paint = "paintmod_test_01";
 UniverseId g_paint_read_id = 0;
@@ -247,6 +316,17 @@ void* lookup_all(const char* name) {
   if (n == "InstallPaintMod") return reinterpret_cast<void*>(&fk_install_paint);
   if (n == "GetCurrentFleetLogo") return reinterpret_cast<void*>(&fk_current_logo);
   if (n == "SetFleetLogo") return reinterpret_cast<void*>(&fk_set_logo);
+  if (n == "GetInstalledShipMod2") return reinterpret_cast<void*>(&fk_get_ship_mod);
+  if (n == "InstallShipMod") return reinterpret_cast<void*>(&fk_install_ship_mod);
+  if (n == "DismantleShipMod") return reinterpret_cast<void*>(&fk_dismantle_ship_mod);
+  if (n == "GetInstalledEngineMod2") return reinterpret_cast<void*>(&fk_get_engine_mod);
+  if (n == "InstallEngineMod") return reinterpret_cast<void*>(&fk_install_engine_mod);
+  if (n == "DismantleEngineMod") return reinterpret_cast<void*>(&fk_dismantle_engine_mod);
+  if (n == "GetNumShieldGroups") return reinterpret_cast<void*>(&fk_num_shield_groups);
+  if (n == "GetShieldGroups") return reinterpret_cast<void*>(&fk_shield_groups);
+  if (n == "GetInstalledShieldMod") return reinterpret_cast<void*>(&fk_get_shield_mod);
+  if (n == "InstallShieldMod") return reinterpret_cast<void*>(&fk_install_shield_mod);
+  if (n == "DismantleShieldMod") return reinterpret_cast<void*>(&fk_dismantle_shield_mod);
   return nullptr;
 }
 void* lookup_none(const char*) { return nullptr; }
@@ -292,7 +372,7 @@ TEST_CASE("GameApi wraps every M2 export", "[game][api]") {
 TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   ResetMainThread guard;
   GameApi api(resolve_game_fns(lookup_none), GameInfo{});
-  CHECK(missing_exports(api.fns()).size() == 41);
+  CHECK(missing_exports(api.fns()).size() == 52);
   CHECK_FALSE(api.game_time());
   CHECK_FALSE(api.save_folder_path());
   CHECK_FALSE(api.save_list_loading_complete());
@@ -309,7 +389,7 @@ TEST_CASE("GameApi is null-safe when exports are missing", "[game][api]") {
   // A default-constructed adapter (no table at all) and a null lookup behave the same.
   GameApi blank;
   CHECK_FALSE(blank.game_time());
-  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 41);
+  CHECK(missing_exports(resolve_game_fns(nullptr)).size() == 52);
 }
 
 // M12: paint read/write are null-safe, an empty ware is "no paint", and the write uses useinventory=false.
@@ -356,6 +436,49 @@ TEST_CASE("paint mods are read and installed through the null-safe wrapper", "[g
   CHECK_FALSE(api.set_fleet_logo(42, "|top"));  // an empty file cannot name a logo
   CHECK(none.fleet_logo(42).empty());
   CHECK_FALSE(none.set_fleet_logo(42, "logo_test_01.png|top"));
+
+  // M18 (equipment mods): one opaque string in, diffs out. Ship and engine mods are addressed by the ship id; shield mods by the
+  // group string plus the local context id the game just handed us.
+  g_ship_mod_ware = "shipmod_test_01";
+  g_engine_mod_ware = "enginemod_test_01";
+  g_shield_mod_01 = "shieldmod_test_01";
+  g_shield_mod_02.clear();
+  g_mod_calls.clear();
+  CHECK(api.equipment_mods(42) == "s:shipmod_test_01;e:enginemod_test_01;g:group01=shieldmod_test_01");
+  CHECK(api.equipment_mods(0).empty());  // id 0 never reaches an export
+
+  // Change the ship mod, drop the engine mod, add a mod to the second shield group: the first group is not named, so it is untouched.
+  CHECK(api.set_equipment_mods(42, "s:shipmod_test_02;g:group02=shieldmod_test_02"));
+  CHECK(g_mod_calls.size() == 3);
+  CHECK(g_mod_calls[0] == "install_ship 42 shipmod_test_02");
+  CHECK(g_mod_calls[1] == "dismantle_engine 42");
+  CHECK(g_mod_calls[2] == "install_shield 42 12 group02 shieldmod_test_02");
+  CHECK(api.equipment_mods(42) == "s:shipmod_test_02;g:group01=shieldmod_test_01;g:group02=shieldmod_test_02");
+
+  // The same spec again is a no-op: nothing is dismantled and reinstalled just because the string was resent.
+  g_mod_calls.clear();
+  CHECK(api.set_equipment_mods(42, "s:shipmod_test_02;g:group01=shieldmod_test_01;g:group02=shieldmod_test_02"));
+  CHECK(g_mod_calls.empty());
+
+  // A weapon-mod part has no addressable slot in the SDK; it is neither produced nor applied. The spec is the owner's full
+  // snapshot, so "just a weapon mod" also means "no ship, engine or shield mod" and the local ones come off.
+  g_mod_calls.clear();
+  CHECK(api.set_equipment_mods(42, "w:weaponmod_test_01"));
+  CHECK(g_mod_calls.size() == 3);  // ship + the two shield groups; the engine mod was already gone
+  CHECK(g_mod_calls[0] == "dismantle_ship 42");
+  CHECK(g_mod_calls[1] == "dismantle_shield 42 11 group01");
+  CHECK(g_mod_calls[2] == "dismantle_shield 42 12 group02");
+  for (const std::string& call : g_mod_calls) CHECK(call.find("weaponmod") == std::string::npos);
+  CHECK(api.equipment_mods(42).empty());
+
+  // An empty spec is that same snapshot with nothing in it, so it changes nothing any more.
+  g_mod_calls.clear();
+  CHECK(api.set_equipment_mods(42, ""));
+  CHECK(g_mod_calls.empty());
+  CHECK(api.equipment_mods(42).empty());
+  CHECK_FALSE(api.set_equipment_mods(0, "s:shipmod_test_01"));
+  CHECK(none.equipment_mods(42).empty());
+  CHECK_FALSE(none.set_equipment_mods(42, "s:shipmod_test_01"));
 }
 
 // M3-15: the mod's PosRotPod / GhostPose angles are radians; the game's write exports want degrees and the read export returns radians.
@@ -401,7 +524,7 @@ TEST_CASE("partially available exports resolve individually", "[game][api]") {
   g_paused = true;
   CHECK(api.game_paused());
   CHECK_FALSE(api.game_time());
-  CHECK(missing_exports(api.fns()).size() == 40);
+  CHECK(missing_exports(api.fns()).size() == 51);
 }
 
 TEST_CASE("GameApi wraps the M3 exports and is null-safe without them", "[game][api][m3]") {

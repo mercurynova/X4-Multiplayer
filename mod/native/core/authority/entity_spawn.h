@@ -42,6 +42,7 @@ struct SpawnEntity {
   std::string idcode;
   std::string paint;  // paint mod ware id; "" = no paint (player ships only, M12)
   std::string logo;   // fleet logo "<file>|<icon>"; "" = none (player ships only, M16)
+  std::string equipment_mods;  // installed equipment mods; "" = none (player ships only, M18)
   std::uint8_t hull = 255;
   std::uint8_t shield = 255;
   std::uint16_t sector = 0;

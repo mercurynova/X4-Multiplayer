@@ -1146,8 +1146,10 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
   const auto now_s = std::chrono::duration<double>(now.time_since_epoch()).count();
   stream_.step(*game_time, server_now, now_s, capture_, index_);
 
-  // M12: the host's own ship paint. It is part of the self-spawn record; a change while it flies goes out as EntityChange{Paint}
-  // (1 Hz is plenty for a rare menu action and keeps the game read off the per-frame path).
+  // M12/M16/M18: what the host flies is part of the self-spawn record; a change while it flies goes out as one EntityChange per
+  // changed field (1 Hz is plenty for a rare menu action and keeps the game reads off the per-frame path). ONE poll drives all
+  // three: the previous shape repeated `now >= next_paint_check_` in three blocks, but the first block already advanced the
+  // deadline, so the logo poll could never fire.
   if (state_.spawned && state_.host_net_id != 0 && now >= next_paint_check_) {
     next_paint_check_ = now + std::chrono::seconds(1);
     const std::uint64_t ship = ctx.game.player_occupied_ship() != 0 ? ctx.game.player_occupied_ship() : ctx.game.player_controlled_ship();
@@ -1162,14 +1164,6 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
         (void)send_control(T(P::MsgType::EntityChange), encode_entity_change(c));
         X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: host ship paint changed to '{}' (net_id {})", paint, state_.host_net_id);
       }
-    }
-  }
-
-  // M16: the same 1 Hz poll for the host ship's fleet logo. It shares next_paint_check_ and its own last-sent string, so a host
-  // that changes its logo sends one EntityChange{Logo} and nothing else.
-  if (state_.spawned && state_.host_net_id != 0 && now >= next_paint_check_) {
-    const std::uint64_t ship = ctx.game.player_occupied_ship() != 0 ? ctx.game.player_occupied_ship() : ctx.game.player_controlled_ship();
-    if (ship != 0) {
       const std::string logo = ctx.game.fleet_logo(ship);
       if (logo != host_logo_sent_) {
         host_logo_sent_ = logo;
@@ -1179,6 +1173,17 @@ void AuthorityFlow::step_world_clock(host::HostContext& ctx) {
         c.logo = logo;
         (void)send_control(T(P::MsgType::EntityChange), encode_entity_change(c));
         X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: host ship logo changed to '{}' (net_id {})", logo, state_.host_net_id);
+      }
+      const std::string mods = ctx.game.equipment_mods(ship);
+      if (mods != host_equipment_sent_) {
+        host_equipment_sent_ = mods;
+        ChangeSample c;
+        c.net_id = state_.host_net_id;
+        c.fields = static_cast<std::uint16_t>(P::ChangeField::EquipmentMods);
+        c.equipment_mods = mods;
+        (void)send_control(T(P::MsgType::EntityChange), encode_entity_change(c));
+        X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: host ship equipment mods changed to '{}' (net_id {})", mods,
+                  state_.host_net_id);
       }
     }
   }
@@ -1574,6 +1579,9 @@ void AuthorityFlow::maybe_spawn(host::HostContext& ctx) {
   // M16: the fleet logo of the same ship, in the same "<file>|<icon>" form the 1 Hz poll re-reads.
   if (host_ship != 0) self.logo = ctx.game.fleet_logo(host_ship);
   host_logo_sent_ = self.logo;
+  // M18: and the equipment mods of the same ship.
+  if (host_ship != 0) self.equipment_mods = ctx.game.equipment_mods(host_ship);
+  host_equipment_sent_ = self.equipment_mods;
   self.sector = ship_sector;
   (void)builder.add(std::move(self));
   const auto payload = builder.build();

@@ -17,7 +17,7 @@ using namespace x4mp::features::ghosts;
 
 struct FakeObj {
   std::uint64_t id = 0;
-  std::string macro, owner, name, idcode, paint, logo;
+  std::string macro, owner, name, idcode, paint, logo, equipment_mods;
   std::uint64_t sector = 0;
   std::uint64_t zone = 0;  // the zone the object lives in (0 = the fake does not model zones)
   Pose pose{};
@@ -157,6 +157,26 @@ class FakeWorld final : public IGhostWorld {
     auto it = objs.find(id);
     if (it == objs.end() || spec.empty()) return false;
     it->second.logo = std::string(spec);
+    return true;
+  }
+  // M18: the fake records the spec and treats an unknown object as a refusal; it never fails a known one.
+  int equipment_calls = 0;
+  std::vector<std::pair<std::uint64_t, std::string>> equipment_log;
+  int equipment_refused = 0;
+  bool install_equipment(std::uint64_t id, std::string_view spec, int& refused) override {
+    ++equipment_calls;
+    equipment_log.emplace_back(id, std::string(spec));
+    refused = 0;
+    auto it = objs.find(id);
+    if (it == objs.end()) {
+      refused = equipment_refused == 0 ? 1 : equipment_refused;
+      return false;
+    }
+    it->second.equipment_mods = std::string(spec);
+    if (equipment_refused != 0) {
+      refused = equipment_refused;
+      return false;
+    }
     return true;
   }
   bool valid(std::uint64_t id) override {

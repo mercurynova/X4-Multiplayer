@@ -424,6 +424,25 @@ void AvatarDirector::on_player_ship(const PlayerShipReq& req) {
     }
     if (av->rec.net_id != 0 && av->announced) (void)env_.send_logo(av->rec.net_id, req.logo);
   }
+  // M18: the same for the installed equipment mods. set_equipment_mods diffs and only touches what differs; `refused` counts
+  // the parts this PC could not apply (a mod ware it does not own, or a mod that only exists locally under another group), which
+  // is a warning here - the two PCs then keep looking different for those parts, and the next request retries them.
+  if (av->rec.equipment_mods != req.equipment_mods) {
+    av->rec.equipment_mods = req.equipment_mods;
+    mark_dirty();
+    if (av->local_id != 0) {
+      int refused = 0;
+      if (req.equipment_mods.empty()) {
+        env_.log(LogLevel::Info, std::format("avatars: equipment mods of player {} cleared", av->rec.player_id));
+        (void)env_.install_equipment(av->local_id, req.equipment_mods, refused);
+      } else if (env_.install_equipment(av->local_id, req.equipment_mods, refused)) {
+        env_.log(LogLevel::Info, std::format("avatars: equipment mods of player {} set to {}", av->rec.player_id, req.equipment_mods));
+      } else {
+        env_.log(LogLevel::Warn, std::format("avatars: equipment mods apply FAILED for player {} ({} part(s) refused, spec {})", av->rec.player_id, refused, req.equipment_mods));
+      }
+    }
+    if (av->rec.net_id != 0 && av->announced) (void)env_.send_equipment(av->rec.net_id, req.equipment_mods);
+  }
   av->rec.online = true;
   av->suspended = false;
   av->interp->reset();
@@ -637,6 +656,16 @@ void AvatarDirector::spawn_at(Avatar& av, const Pose& pose, const char* why) {
       env_.log(LogLevel::Warn, std::format("avatars: logo apply FAILED for player {} (logo {})", av.rec.player_id, av.rec.logo));
     }
   }
+  // M18: equipment mods, in the same window. Nothing is installed when the spec is empty (a fresh ship has none), and a refused
+  // part is only a warning: the ship still flies.
+  if (!av.rec.equipment_mods.empty()) {
+    int refused = 0;
+    if (env_.install_equipment(id, av.rec.equipment_mods, refused)) {
+      env_.log(LogLevel::Info, std::format("avatars: equipment mods of player {} set to {}", av.rec.player_id, av.rec.equipment_mods));
+    } else {
+      env_.log(LogLevel::Warn, std::format("avatars: equipment mods apply FAILED for player {} ({} part(s) refused, spec {})", av.rec.player_id, refused, av.rec.equipment_mods));
+    }
+  }
   av.local_id = id;
   av.sector_id = av.spawn_sector;
   av.tries = 0;
@@ -684,6 +713,7 @@ void AvatarDirector::announce(Avatar& av, bool force_controller_zero) {
   e.idcode = av.rec.idcode;
   e.paint = av.rec.paint;  // M12: the ghost applies it after its own spawn
   e.logo = av.rec.logo;    // M16: same for the fleet logo
+  e.equipment_mods = av.rec.equipment_mods;  // M18: and for the installed equipment mods
   e.sector = sector_index;
   const auto qx = wire::quantize_position(p.x), qy = wire::quantize_position(p.y), qz = wire::quantize_position(p.z);
   const auto ry = wire::quantize_rotation(p.yaw), rp = wire::quantize_rotation(p.pitch), rr = wire::quantize_rotation(p.roll);

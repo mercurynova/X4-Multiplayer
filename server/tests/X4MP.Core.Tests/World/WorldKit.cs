@@ -14,7 +14,7 @@ public static class WorldKit
     public static EntityRecordT Rec(
         uint netId, EntityKind kind, ushort sector, int px = 0, int py = 0, int pz = 0,
         ushort ownerTeam = 0, ushort ownerPlayer = 0, ushort controller = 0, EntityOrigin origin = EntityOrigin.AuthorityRuntime,
-        string name = "", byte hull = 255, string paint = "", string logo = "") => new()
+        string name = "", byte hull = 255, string paint = "", string logo = "", string equipmentMods = "") => new()
         {
             NetId = netId,
             Kind = kind,
@@ -28,6 +28,7 @@ public static class WorldKit
             Shield = 255,
             Paint = paint,
             Logo = logo,
+            EquipmentMods = equipmentMods,
             State = new EntityStateT { NetId = netId, Sector = sector, Px = px, Py = py, Pz = pz },
         };
 
@@ -44,9 +45,9 @@ public static class WorldKit
             }),
             256);
 
-    public static byte[] ChangePayload(uint netId, ChangeField fields, ushort ownerTeam = 0, ushort ownerPlayer = 0, string? name = null, string? paint = null, string? logo = null) =>
+    public static byte[] ChangePayload(uint netId, ChangeField fields, ushort ownerTeam = 0, ushort ownerPlayer = 0, string? name = null, string? paint = null, string? logo = null, string? equipmentMods = null) =>
         MessageEncoder.EncodePayload(
-            b => EntityChange.Pack(b, new EntityChangeT { NetId = netId, Fields = fields, OwnerTeam = ownerTeam, OwnerPlayer = ownerPlayer, Name = name, Paint = paint, Logo = logo }),
+            b => EntityChange.Pack(b, new EntityChangeT { NetId = netId, Fields = fields, OwnerTeam = ownerTeam, OwnerPlayer = ownerPlayer, Name = name, Paint = paint, Logo = logo, EquipmentMods = equipmentMods }),
             128);
 
     public static byte[] CargoPayload(uint netId, params (uint Ware, int Amount)[] wares) =>

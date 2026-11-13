@@ -89,6 +89,71 @@ struct PaintModPod {
   std::uint32_t amount = 0;
 };
 
+// M18 (equipment mods): binary-compatible with the SDK's UIShipMod2 / UIEngineMod2 / UIShieldMod
+// (sdk/x4_game_types.h). The game fills the WHOLE out-param, so these pods must keep every field in order even though
+// only `ware` is read here: a short pod would let the export write past the end of it.
+struct ShipModPod {
+  const char* name = nullptr;
+  const char* raw_name = nullptr;
+  const char* ware = nullptr;
+  std::uint32_t quality = 0;
+  const char* property_type = nullptr;
+  float mass_factor = 0.f;
+  float drag_factor = 0.f;
+  float max_hull_factor = 0.f;
+  float radar_range_factor = 0.f;
+  std::uint32_t added_unit_capacity = 0;
+  std::uint32_t added_missile_capacity = 0;
+  std::uint32_t added_countermeasure_capacity = 0;
+  std::uint32_t added_deployable_capacity = 0;
+  float radar_cloak_factor = 0.f;
+  float region_damage_protection = 0.f;
+  float hide_cargo_chance = 0.f;
+};
+
+struct EngineModPod {
+  const char* name = nullptr;
+  const char* raw_name = nullptr;
+  const char* ware = nullptr;
+  std::uint32_t quality = 0;
+  const char* property_type = nullptr;
+  float forward_thrust_factor = 0.f;
+  float strafe_acc_factor = 0.f;
+  float strafe_thrust_factor = 0.f;
+  float rotation_thrust_factor = 0.f;
+  float boost_acc_factor = 0.f;
+  float boost_thrust_factor = 0.f;
+  float boost_duration_factor = 0.f;
+  float boost_attack_time_factor = 0.f;
+  float boost_release_time_factor = 0.f;
+  float boost_charge_time_factor = 0.f;
+  float boost_recharge_time_factor = 0.f;
+  float travel_thrust_factor = 0.f;
+  float travel_start_thrust_factor = 0.f;
+  float travel_attack_time_factor = 0.f;
+  float travel_release_time_factor = 0.f;
+  float travel_charge_time_factor = 0.f;
+};
+
+struct ShieldModPod {
+  const char* name = nullptr;
+  const char* raw_name = nullptr;
+  const char* ware = nullptr;
+  std::uint32_t quality = 0;
+  const char* property_type = nullptr;
+  float capacity_factor = 0.f;
+  float recharge_delay_factor = 0.f;
+  float recharge_rate_factor = 0.f;
+};
+
+// Binary-compatible with the SDK's ShieldGroup {UniverseID context; const char* group; UniverseID component;}: the
+// `group` string is the only part that is portable between two games (`context`/`component` are local ids).
+struct ShieldGroupPod {
+  UniverseId context = 0;
+  const char* group = nullptr;
+  UniverseId component = 0;
+};
+
 // One cargo line copied out of the game, so callers can hold it after the export returned.
 struct CargoPod {
   std::string ware;  // the ware id the game uses in cargo commands ("energycells"), NOT a macro ref
@@ -162,11 +227,24 @@ struct GameFns {
   // controls (an empty `file` means none); SetFleetLogo is a void write, so a wrong spec can only be seen by reading it back.
   LogoPod (*GetCurrentFleetLogo)(UniverseId controllableid) = nullptr;
   void (*SetFleetLogo)(UniverseId controllableid, LogoPod logo) = nullptr;
+  // M18 (equipment mods): the ship mod and the engine mod are addressed by the ship id; shield mods by
+  // (defensibleid, contextid, group), where the pair comes from GetShieldGroups. The readers fill a whole pod.
+  bool (*GetInstalledShipMod2)(UniverseId shipid, ShipModPod* shipmod) = nullptr;
+  bool (*InstallShipMod)(UniverseId shipid, const char* wareid) = nullptr;
+  void (*DismantleShipMod)(UniverseId shipid) = nullptr;
+  bool (*GetInstalledEngineMod2)(UniverseId objectid, EngineModPod* enginemod) = nullptr;
+  bool (*InstallEngineMod)(UniverseId objectid, const char* wareid) = nullptr;
+  void (*DismantleEngineMod)(UniverseId objectid) = nullptr;
+  std::uint32_t (*GetNumShieldGroups)(UniverseId defensibleid) = nullptr;
+  std::uint32_t (*GetShieldGroups)(ShieldGroupPod* result, std::uint32_t resultlen, UniverseId defensibleid) = nullptr;
+  bool (*GetInstalledShieldMod)(UniverseId defensibleid, UniverseId contextid, const char* group, ShieldModPod* shieldmod) = nullptr;
+  bool (*InstallShieldMod)(UniverseId defensibleid, UniverseId contextid, const char* group, const char* wareid) = nullptr;
+  void (*DismantleShieldMod)(UniverseId defensibleid, UniverseId contextid, const char* group) = nullptr;
 };
 
 // Number of names missing_exports() checks, i.e. the exports GameFns can bind (a test asserts it): the self-test reports resolved/total
 // from it, so it has to be the real count or the report lies by the difference.
-inline constexpr std::size_t kGameFnCount = 41;
+inline constexpr std::size_t kGameFnCount = 52;
 
 // Upper bound on the cargo lines one read copies (far above any real hold; keeps a bad export from allocating forever).
 inline constexpr std::uint32_t kMaxCargoLines = 4096;
@@ -285,6 +363,18 @@ class GameApi {
   // export is missing, the id or file is empty, or the main-thread check fails. The caller treats false as "this PC cannot show it"
   // and keeps going.
   bool set_fleet_logo(UniverseId id, std::string_view spec) const noexcept;
+
+  // ---- M18 (equipment mods) ----
+  // The installed equipment mods of `ship` in the one wire form
+  //   "s:<ship mod ware>;e:<engine mod ware>;g:<group>=<ware>,<group>=<ware>"
+  // (empty parts omitted, "" = no mods at all). Only *mods* live here: real weapons/shields/engines come from the spawn
+  // macro/loadout and are therefore already identical on both nodes, and no export can change them (see M18 notes).
+  [[nodiscard]] std::string equipment_mods(UniverseId ship) const;
+  // Apply such a spec to `ship`, changing only what differs from what is installed now: a mod is installed with
+  // Install*Mod and removed with Dismantle*Mod, and every failure is logged and skipped rather than fatal (`refused`
+  // comes back non-zero when at least one call failed, so the caller can keep polling instead of trusting the write).
+  // Weapon and grouped-weapon mods have no addressable slot in the SDK, so a `w:` part is not produced and not applied.
+  bool set_equipment_mods(UniverseId ship, std::string_view spec, int* refused = nullptr) const noexcept;
 
   // The wire and the ledger count credits, the game's write export counts cents.
   static constexpr std::int64_t kCentsPerCredit = 100;

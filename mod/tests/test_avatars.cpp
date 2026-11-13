@@ -123,6 +123,21 @@ struct FakeEnv final : IAvatarEnv {
     logos_sent.emplace_back(n, spec);
     return true;
   }
+  // M18: equipment mods. `equipment_refused` reports a partial apply; `equipment_fails` a total failure.
+  struct EquipmentApply { std::uint64_t id; std::string spec; int refused; };
+  std::vector<EquipmentApply> equipment_applied;
+  std::vector<std::pair<std::uint32_t, std::string>> equipment_sent;
+  bool equipment_fails = false;
+  int equipment_refused = 0;
+  bool install_equipment(std::uint64_t id, const std::string& spec, int& refused) override {
+    equipment_applied.push_back({id, spec, equipment_refused});
+    refused = equipment_refused;
+    return !equipment_fails;
+  }
+  bool send_equipment(std::uint32_t n, const std::string& spec) override {
+    equipment_sent.emplace_back(n, spec);
+    return true;
+  }
   std::vector<std::pair<std::uint32_t, std::uint8_t>> despawns_sent;
   bool send_despawn(std::uint32_t n, std::uint8_t reason) override {
     despawns_sent.emplace_back(n, reason);
@@ -630,6 +645,93 @@ TEST_CASE("avatars.director (M16): the fleet logo rides the PlayerShip request, 
     d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
     run(d, c, 0.1);
     REQUIRE(env.logos_applied.size() == 1);
+    CHECK(d.views().size() == 1);
+    CHECK(d.views()[0].stage == AvatarDirector::Stage::Live);
+    CHECK_FALSE(env.spawns_sent.empty());
+  }
+}
+
+TEST_CASE("avatars.director (M18): equipment mods ride the PlayerShip request, the spawn and the change", "[avatars][m18]") {
+  FakeEnv env;
+  AvatarDirector d(env);
+  Clock c;
+  d.on_roster(roster_with({{2, {"Alice", 1}}}, false));
+
+  SECTION("a request with equipment mods installs them after the spawn and announces them once") {
+    auto q = request(2);
+    q.equipment_mods = "s:shipmod_test_01;e:enginemod_test_01";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.spawn_calls == 1);
+    const auto v = d.views();
+    REQUIRE(v.size() == 1);
+    REQUIRE(env.equipment_applied.size() == 1);
+    CHECK(env.equipment_applied[0].id == v[0].local_id);
+    CHECK(env.equipment_applied[0].spec == "s:shipmod_test_01;e:enginemod_test_01");
+    REQUIRE(env.spawns_sent.size() == 1);
+    CHECK(env.spawns_sent[0][0].equipment_mods == "s:shipmod_test_01;e:enginemod_test_01");
+    CHECK(env.equipment_sent.empty());  // the spawn already carries them
+    CHECK(v[0].rec.equipment_mods == "s:shipmod_test_01;e:enginemod_test_01");
+  }
+
+  SECTION("a refresh with a different spec re-applies it and tells the server") {
+    const auto id = provision(d, env, c, 2, 1, "Alice");
+    CHECK(env.equipment_applied.empty());  // the empty first request installs nothing
+    auto q = request(2);
+    q.equipment_mods = "g:group01=shieldmod_test_01";
+    d.on_player_ship(q);
+    REQUIRE(env.equipment_applied.size() == 1);
+    CHECK(env.equipment_applied[0].id == id);
+    CHECK(env.equipment_applied[0].spec == "g:group01=shieldmod_test_01");
+    REQUIRE(env.spawns_sent.size() == 1);
+    REQUIRE(env.equipment_sent.size() == 1);
+    CHECK(env.equipment_sent[0].first == env.spawns_sent[0][0].net_id);
+    CHECK(env.equipment_sent[0].second == "g:group01=shieldmod_test_01");
+    CHECK(d.views()[0].rec.equipment_mods == "g:group01=shieldmod_test_01");
+    // The same spec again is not a change: no repeat game call and no repeat change.
+    d.on_player_ship(q);
+    CHECK(env.equipment_applied.size() == 1);
+    CHECK(env.equipment_sent.size() == 1);
+  }
+
+  SECTION("clearing asks the game to dismantle and the record survives the text") {
+    auto q = request(2);
+    q.equipment_mods = "s:shipmod_test_01";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.equipment_applied.size() == 1);
+    // Unlike the logo, an empty spec is meaningful here: it asks for "no mods", which dismantles.
+    d.on_player_ship(request(2));
+    REQUIRE(env.equipment_applied.size() == 2);
+    CHECK(env.equipment_applied[1].spec.empty());
+    REQUIRE(env.equipment_sent.size() == 1);
+    CHECK(env.equipment_sent[0].second.empty());
+    CHECK(d.views()[0].rec.equipment_mods.empty());
+    const auto v = d.views();
+    REQUIRE(v.size() == 1);
+    CHECK(records_from_text(records_to_text({v[0].rec})).records.at(0).equipment_mods.empty());
+    auto kept = v[0].rec;
+    kept.equipment_mods = "s:shipmod_test_02;e:enginemod_test_02;g:groupA=shieldmod_test_02,g:groupB=shieldmod_test_03";
+    CHECK(records_from_text(records_to_text({kept})).records.at(0).equipment_mods == kept.equipment_mods);
+  }
+
+  SECTION("a refused part is reported and does not stop the avatar") {
+    env.equipment_refused = 2;
+    auto q = request(2);
+    q.equipment_mods = "s:shipmod_test_01;g:group01=shieldmod_test_01";
+    d.on_player_ship(q);
+    run(d, c, 0.1);
+    REQUIRE_FALSE(env.safe_asks.empty());
+    d.on_safepos(env.safe_asks.back().seq, true, env.safe_asks.back().wanted);
+    run(d, c, 0.1);
+    REQUIRE(env.equipment_applied.size() == 1);
+    CHECK(env.equipment_applied[0].refused == 2);
     CHECK(d.views().size() == 1);
     CHECK(d.views()[0].stage == AvatarDirector::Stage::Live);
     CHECK_FALSE(env.spawns_sent.empty());

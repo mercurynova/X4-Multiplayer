@@ -345,6 +345,24 @@ public sealed class InterestManagerTests
     }
 
     [Fact]
+    public void PlayerShipEquipmentModsAreForwardedInSpawnsAndChanges()
+    {
+        var rig = NewRig(sectorShips: 1);
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 3);
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        rig.Mirror.Spawn(Rec(5004, EntityKind.ShipM, 3, controller: 2, origin: EntityOrigin.PlayerShip, equipmentMods: "s:shipmod_test_01"));
+        var spawn = rig.Transport.Decode<EntitySpawn>(InterestRig.Alice, MsgType.EntitySpawn).Single();
+        Assert.Equal("s:shipmod_test_01", spawn.Entities(0)!.Value.EquipmentMods);
+
+        rig.Mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(5004, ChangeField.EquipmentMods, equipmentMods: "e:enginemod_test_01")));
+        var change = rig.Transport.Decode<EntityChange>(InterestRig.Alice, MsgType.EntityChange).Single();
+        Assert.Equal("e:enginemod_test_01", change.EquipmentMods);
+    }
+
+    [Fact]
     public void ChangesToTransientEntitiesReachOnlyTheClientsHoldingThem()
     {
         var rig = NewRig(sectorShips: 1);

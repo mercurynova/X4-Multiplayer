@@ -142,7 +142,7 @@ std::string_view logo_icon(std::string_view spec) {
 }
 
 // ---- records --------------------------------------------------------------------------------------------------------------------
-// A|player|team|net|online|macro|idcode|owner|sector_macro|x|y|z|yaw|pitch|roll|name|paint|logo_file|logo_icon
+// A|player|team|net|online|macro|idcode|owner|sector_macro|x|y|z|yaw|pitch|roll|name|paint|logo_file|logo_icon|equipment_mods
 std::string records_to_text(const std::vector<Record>& records, const Lineage& lineage) {
   std::ostringstream out;
   out << "x4av 2\n";
@@ -156,7 +156,8 @@ std::string records_to_text(const std::vector<Record>& records, const Lineage& l
         << clean_field(r.idcode, 24) << '|' << clean_field(r.owner, 32) << '|' << clean_field(r.sector_macro, 96) << '|' << fmt_double(r.pose.x) << '|'
         << fmt_double(r.pose.y) << '|' << fmt_double(r.pose.z) << '|' << fmt_double(r.pose.yaw) << '|' << fmt_double(r.pose.pitch) << '|'
         << fmt_double(r.pose.roll) << '|' << clean_field(r.name, 80) << '|' << clean_field(r.paint, 96) << '|'
-        << clean_field(logo_file(r.logo), 96) << '|' << clean_field(logo_icon(r.logo), 48) << '\n';
+        << clean_field(logo_file(r.logo), 96) << '|' << clean_field(logo_icon(r.logo), 48) << '|'
+        << clean_field(r.equipment_mods, 256) << '\n';
   }
   return out.str();
 }
@@ -202,7 +203,7 @@ ParsedRecords records_from_text(std::string_view text) {
       out.lineage.ledger.push_back(std::move(c));
       continue;
     }
-    if (f.size() < 16 || f.size() > 19 || f[0] != "A") {  // 16/17 = pre-M12, 18 = pre-M16, 19 = M16
+    if (f.size() < 16 || f.size() > 20 || f[0] != "A") {  // 16/17 = pre-M12, 18 = pre-M16, 19 = M16, 20 = M18
       ++out.bad_lines;
       continue;
     }
@@ -228,6 +229,7 @@ ParsedRecords records_from_text(std::string_view text) {
     r.name = std::string(f[15]);
     if (f.size() >= 17) r.paint = std::string(f[16]);  // a pre-M12 line has no paint field: no paint
     if (f.size() >= 19 && !f[17].empty()) r.logo = std::string(f[17]) + '|' + std::string(f[18]);  // M16; an 18-field line is pre-M16: no logo
+    if (f.size() >= 20) r.equipment_mods = std::string(f[19]);  // M18; a 19-field line is pre-M18: no mods
     out.records.push_back(std::move(r));
   }
   return out;

@@ -62,6 +62,7 @@ struct ChangeSample {
   std::uint16_t controller_player = 0;
   std::string paint;  // EntityChange{Paint}: paint mod ware id; "" = no paint (M12)
   std::string logo;   // EntityChange{Logo}: fleet logo "<file>|<icon>"; "" = none (M16)
+  std::string equipment_mods;  // EntityChange{EquipmentMods}; "" = none (M18)
 };
 
 [[nodiscard]] std::vector<std::uint8_t> encode_world_update(std::uint32_t authority_tick, std::uint64_t capture_time_us,

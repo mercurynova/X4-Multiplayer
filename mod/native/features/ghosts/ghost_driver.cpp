@@ -156,6 +156,10 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
       g->info.logo = info.logo;  // M16: same for the fleet logo
       g->logo_dirty = true;
     }
+    if (g->info.equipment_mods != info.equipment_mods) {
+      g->info.equipment_mods = info.equipment_mods;  // M18: and for the installed equipment mods
+      g->equipment_dirty = true;
+    }
     if (reown) {
       g->info.owner = info.owner;
       g->owner_dirty = true;
@@ -179,7 +183,8 @@ bool GhostDriver::on_spawn(const SpawnInfo& info, std::int64_t now_us, const std
 
 void GhostDriver::on_change(std::uint32_t net_id, std::optional<std::string> name, std::optional<std::uint16_t> controller, std::optional<std::string> owner,
                             std::optional<std::uint16_t> team, std::optional<std::string> paint,
-                            std::optional<std::string> logo) {
+                            std::optional<std::string> logo,
+                            std::optional<std::string> equipment_mods) {
   Ghost* g = find(net_id);
   if (!g) return;
   if (name) g->info.name = *name;
@@ -198,6 +203,11 @@ void GhostDriver::on_change(std::uint32_t net_id, std::optional<std::string> nam
   if (logo && *logo != g->info.logo) {
     g->info.logo = *logo;
     g->logo_dirty = true;
+  }
+  // M18: and so do the equipment mods; set_equipment_mods diffs, so this is cheap and idempotent.
+  if (equipment_mods && *equipment_mods != g->info.equipment_mods) {
+    g->info.equipment_mods = *equipment_mods;
+    g->equipment_dirty = true;
   }
   if (g->info.npc) {  // an NPC has no label to keep in step
     dirty_ = true;
@@ -451,6 +461,16 @@ bool GhostDriver::try_spawn(Ghost& g, std::int64_t now_us, std::uint64_t sector_
     }
   }
   g.logo_dirty = false;
+  // M18: equipment mods, in the same window (before the dress). A refused part is a warning only: the ghost still has to exist.
+  if (!g.info.equipment_mods.empty()) {
+    int refused = 0;
+    if (world_->install_equipment(id, g.info.equipment_mods, refused)) {
+      log(kInfo, std::format("ghost equipment mods: net={} spec={}", g.info.net_id, g.info.equipment_mods));
+    } else {
+      log(kWarn, std::format("ghost equipment mods FAILED: net={} ({} part(s) refused, spec={})", g.info.net_id, refused, g.info.equipment_mods));
+    }
+  }
+  g.equipment_dirty = false;
   if (!g.info.npc) world_->dress(id, g.label, cfg_.min_hull_percent);  // M4-13: an NPC keeps the game's own name, no [MP] label
   g.idcode = world_->id_code(id);
   g.local_id = id;
@@ -651,6 +671,16 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
         }
       } else {
         log(kInfo, std::format("ghost logo cleared on the wire: net={} (the game offers no uninstall)", g.info.net_id));
+      }
+    }
+    if (g.equipment_dirty) {
+      g.equipment_dirty = false;
+      // Unlike a logo, an empty spec is meaningful here: it means "no mods", and set_equipment_mods dismantles what is installed.
+      int refused = 0;
+      if (world_->install_equipment(g.local_id, g.info.equipment_mods, refused)) {
+        log(kInfo, std::format("ghost equipment mods changed: net={} spec={}", g.info.net_id, g.info.equipment_mods));
+      } else {
+        log(kWarn, std::format("ghost equipment mods change FAILED: net={} ({} part(s) refused, spec={})", g.info.net_id, refused, g.info.equipment_mods));
       }
     }
     if (g.label_dirty) {

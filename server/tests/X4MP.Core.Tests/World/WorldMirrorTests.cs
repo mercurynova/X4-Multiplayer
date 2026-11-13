@@ -296,6 +296,39 @@ public sealed class WorldMirrorTests
     }
 
     [Fact]
+    public void PlayerShipEquipmentModsAreStoredOnSpawnAndUpdatedByChange()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(3, EntityKind.ShipS, 5, controller: 2, origin: EntityOrigin.PlayerShip, equipmentMods: "s:shipmod_test_01"));
+        Assert.True(mirror.TryGet(3, out var ship));
+        Assert.Equal("s:shipmod_test_01", ship.EquipmentMods);
+
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(3, ChangeField.EquipmentMods, equipmentMods: "s:shipmod_test_02;e:enginemod_test_01")));
+        Assert.Equal("s:shipmod_test_02;e:enginemod_test_01", ship.EquipmentMods);
+
+        // A logo change leaves the equipment mods alone: the bits are independent.
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(3, ChangeField.Logo, logo: "logo_test_01.png|empty")));
+        Assert.Equal("s:shipmod_test_02;e:enginemod_test_01", ship.EquipmentMods);
+
+        // Empty on the wire means "no mods" and clears it.
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(3, ChangeField.EquipmentMods, equipmentMods: "")));
+        Assert.Equal("", ship.EquipmentMods);
+    }
+
+    [Fact]
+    public void JournalKeepsTheEquipmentModsOfSpawnAndChangeForCatchUp()
+    {
+        var mirror = new WorldMirror();
+        mirror.Spawn(Rec(12, EntityKind.Station, 2, equipmentMods: "g:group01=shieldmod_test_01"));
+        mirror.ApplyChange(Decode<EntityChange>(MsgType.EntityChange, ChangePayload(12, ChangeField.EquipmentMods, equipmentMods: "g:group01=shieldmod_test_02")));
+
+        var wire = mirror.Journal.Entries.Select(JournalCodec.ToWire).ToList();
+
+        Assert.Equal("g:group01=shieldmod_test_01", wire[0]!.Body.AsEntityRecord().EquipmentMods);
+        Assert.Equal("g:group01=shieldmod_test_02", wire[1]!.Body.AsEntityChange().EquipmentMods);
+    }
+
+    [Fact]
     public void EntityChangeUpdatesAttributesAndReclassifiesTheSizeClass()
     {
         var mirror = new WorldMirror();

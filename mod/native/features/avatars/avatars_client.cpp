@@ -104,6 +104,8 @@ struct ClientTakeover::Impl final : ITakeoverEnv {
     if (flown != 0) r.paint = ctx->game.installed_paint(flown);
     // M16: the same ship's fleet logo, so the ghost can wear the player's badge on every other node.
     if (flown != 0) r.logo = ctx->game.fleet_logo(flown);
+    // M18: and the equipment mods of that ship, so both nodes show the same guns' mods.
+    if (flown != 0) r.equipment_mods = ctx->game.equipment_mods(flown);
     r.sector = selfship::selfship_hub().status().sector;
     if (const auto p = ctx->game.object_position(host_ship)) r.pose = {p->x, p->y, p->z, p->yaw, p->pitch, p->roll};
     std::array<std::uint8_t, 16> key{};

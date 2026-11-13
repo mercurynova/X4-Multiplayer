@@ -37,6 +37,9 @@ class GameGhostWorld final : public IGhostWorld {
   void set_owner(std::uint64_t id, std::string_view owner) override;
   bool install_paint(std::uint64_t id, std::string_view ware) override { return api_.api().install_paint(id, ware); }
   bool install_logo(std::uint64_t id, std::string_view spec) override { return api_.api().set_fleet_logo(id, spec); }
+  bool install_equipment(std::uint64_t id, std::string_view spec, int& refused) override {
+    return api_.api().set_equipment_mods(id, spec, &refused);
+  }
   std::optional<ObjectState> read_state(std::uint64_t id) override;
   bool valid(std::uint64_t id) override { return api_.valid(id); }
   bool wrecked(std::uint64_t id) override { return api_.wrecked(id); }
