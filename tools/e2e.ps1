@@ -229,6 +229,14 @@ function Ensure-ModBuild {
     Write-Host "mod build took $([math]::Round($buildClock.Elapsed.TotalSeconds)) s"
     $script:modBuilt = $true
   }
+  if ($SkipModBuild) {
+    # E11: CI hands the shards a pre-built tree (the `mod-build` job's artifact). -SkipModBuild must never mean "silently build" or "silently
+    # find nothing": a missing tree is an error now, with the names, instead of a vague 'not found (build the mod first)' per step.
+    $needed = 'x4mp.dll', 'x4mp-hostsim.exe', 'x4mp-headless.exe', 'x4mp_authority_live.exe'
+    $missing = @($needed | Where-Object { -not (Test-Path (Join-Path $tree $_)) })
+    if ($missing.Count -eq $needed.Count) { throw "-SkipModBuild given but there is no built mod in $tree (none of: $($needed -join ', ')). Build it (mod/build.ps1 -NoTest -Targets $($needed -replace '\.(dll|exe)$' -join ',')) or download the CI artifact into that folder." }
+    if ($missing.Count -gt 0 -and -not $script:skipWarned) { $script:skipWarned = $true; Write-Warning "-SkipModBuild: $tree lacks $($missing -join ', '); steps that need it will fail" }
+  }
   return $tree
 }
 

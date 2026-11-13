@@ -346,8 +346,64 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  e2e-headless:
+  # E11: the mod is built ONCE per run, here, and handed to the e2e-headless shards as an artifact (before, every shard built it
+  # itself, ~4 min of compilation competing with its own step budgets on a saturated 4-core runner, E19). Only the four targets the shards
+  # run (the same list as Ensure-ModBuild in tools/e2e.ps1). They link the static CRT, so the DLL and the three exes are self-contained
+  # (only system DLLs: KERNEL32, WS2_32, bcrypt, ...); no .pdb is carried (the shards never read one; /Z7 + the linker still write
+  # 25-64 MB each, ~150 MB in all). The files keep the tree-root layout the scripts expect (mod/tests/hostsim/*_run.ps1 join
+  # mod\build\msvc-x64-relwithdebinfo\<name> directly). If this job fails the shards are skipped (never run against a missing or
+  # stale artifact: artifacts are per run) and `ci-ok` fails because this job is in its needs.
+  mod-build:
     needs: changes
+    if: needs.changes.outputs.heavy == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache flatc
+        uses: actions/cache@v6
+        with:
+          path: tools/flatc/bin
+          key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v6
+        with:
+          path: .vcpkg-archives
+          key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
+          restore-keys: vcpkg-mod-${{ runner.os }}-
+      - name: Create vcpkg cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Use sccache for the mod build
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_ENV -Value 'SCCACHE_GHA_ENABLED=true'
+          Add-Content -Path $env:GITHUB_ENV -Value 'X4MP_COMPILER_LAUNCHER=sccache'
+      - name: Build the four e2e targets
+        shell: pwsh
+        run: ./mod/build.ps1 -NoTest -Targets x4mp,x4mp-hostsim,x4mp-headless,x4mp_authority_live
+      - name: sccache statistics
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
+      - name: Upload the built mod
+        uses: actions/upload-artifact@v7
+        with:
+          name: mod-build
+          path: |
+            mod/build/msvc-x64-relwithdebinfo/x4mp.dll
+            mod/build/msvc-x64-relwithdebinfo/x4mp-hostsim.exe
+            mod/build/msvc-x64-relwithdebinfo/x4mp-headless.exe
+            mod/build/msvc-x64-relwithdebinfo/x4mp_authority_live.exe
+          if-no-files-found: error
+          retention-days: 2
+
+  e2e-headless:
+    needs: [changes, mod-build]
     if: needs.changes.outputs.heavy == 'true'
     name: e2e-headless (${{ matrix.name }})
     runs-on: windows-latest
@@ -358,8 +414,8 @@ jobs:
     # build, then its steps. MEASURED (E14, CI): the old full mod build (all ~540 unit tests too) took ~13 min on the 4-core runner, so a
     # shard was 19-21 min wall. Now only x4mp, x4mp-hostsim, x4mp-headless and x4mp_authority_live are built (tools/e2e.ps1) behind sccache:
     # first (cold cache) run 13.5-16 min per shard; the warm-cache figure is in docs/backlog.md E14.
-    # Each shard is self-sufficient: tools/e2e.ps1 runs Publish first and builds the mod itself (Ensure-ModBuild). The steps use their own
-    # port ranges and every shard is its own machine, so nothing is shared between shards. ReloadSurvival is deliberately NOT in the
+    # E11: the mod is built once by the `mod-build` job and downloaded here (-SkipModBuild); each shard still runs Publish itself. The steps use
+    # their own port ranges and every shard is its own machine, so nothing else is shared between shards. ReloadSurvival is deliberately NOT in the
     # shard with HostSimM3 (known flaky interaction, docs/backlog.md Flaky tests).
     # `ci-ok` needs `e2e-headless`: the result of a matrix job is the aggregate of its shards.
     strategy:
@@ -378,8 +434,6 @@ jobs:
           # ~275 s: HostSimPair [86] + ReloadSurvival [47] + Session4Kit [46] + UdpLane [43] + LaunchStats [22] + ModRefusal [19] + HostSim [14]
           - name: misc
             steps: Publish,HostSimPair,ReloadSurvival,Session4Kit,UdpLane,LaunchStats,ModRefusal,HostSim
-    env:
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-archives
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -392,34 +446,20 @@ jobs:
         with:
           path: tools/flatc/bin
           key: flatc-${{ runner.os }}-${{ hashFiles('tools/flatc/flatc.lock.json') }}
-      # Same cache key as the `mod` job, so a warm cache makes the mod build here a few minutes.
-      - name: Cache vcpkg binaries
-        uses: actions/cache@v6
+      # E11: the mod comes from the `mod-build` job. No compiler, vcpkg or sccache here. It lands at the tree root the scripts look in.
+      - name: Download the built mod
+        uses: actions/download-artifact@v8
         with:
-          path: .vcpkg-archives
-          key: vcpkg-mod-${{ runner.os }}-${{ hashFiles('mod/vcpkg.json') }}
-          restore-keys: vcpkg-mod-${{ runner.os }}-
-      - name: Create vcpkg cache dir
-        shell: pwsh
-        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
-      # E14: sccache (GitHub Actions cache backend) in front of cl for our own code. mod/build.ps1 reads X4MP_COMPILER_LAUNCHER and then
-      # also switches /Zi to /Z7 (embedded debug info; a shared .pdb is not cacheable). Warnings stay errors; a failing compile is never cached.
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
-      - name: Use sccache for the mod build
-        shell: pwsh
-        run: |
-          Add-Content -Path $env:GITHUB_ENV -Value 'SCCACHE_GHA_ENABLED=true'
-          Add-Content -Path $env:GITHUB_ENV -Value 'X4MP_COMPILER_LAUNCHER=sccache'
+          name: mod-build
+          path: mod/build/msvc-x64-relwithdebinfo
       # M3-14: HostSimAvatars (real authority + bots), HostSimM3 (two real DLLs: authority + client, 6 bots; perf / bandwidth / log rate through
       # tools/session4/sync-report.ps1), UdpLane (UDP lane forced / loss / blocked / fallback) and Session4Kit (every session-4 kit script).
+      # -SkipModBuild: tools/e2e.ps1 fails with a clear error when the downloaded tree lacks the binaries, it never builds here.
       - name: E2E (${{ matrix.steps }})
         shell: pwsh
-        run: ./tools/e2e.ps1 -Steps ${{ matrix.steps }}
-      - name: sccache statistics
-        if: always()
-        shell: pwsh
-        run: sccache --show-stats
+        run: |
+          Get-ChildItem mod/build/msvc-x64-relwithdebinfo | Format-Table Name, Length
+          ./tools/e2e.ps1 -SkipModBuild -Steps ${{ matrix.steps }}
       - name: Upload E2E logs
         if: failure()
         uses: actions/upload-artifact@v7
@@ -438,7 +478,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------
   ci-ok:
     name: ci-ok
-    needs: [changes, web, dotnet, protocol-cpp, mod, mod-lint, e2e, e2e-headless]
+    needs: [changes, web, dotnet, protocol-cpp, mod, mod-build, mod-lint, e2e, e2e-headless]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
