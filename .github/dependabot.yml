@@ -15,6 +15,20 @@ updates:
       # Deferred major (docs/backlog.md D2): remove this entry when the xunit runner 4 upgrade is picked up.
       - dependency-name: "xunit.runner.visualstudio"
         update-types: ["version-update:semver-major"]
+      # Deferred major (docs/backlog.md D3): the .NET 11 package set. The app targets net10.0 (global.json
+      # pins SDK 10.0.4xx), so an 11.x library is a framework decision, not a bump; patches (10.0.x) keep
+      # coming through the nuget-minor-patch group. Remove these entries when the net11.0 move is picked up.
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Data.Sqlite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.NET.ILLink.Tasks"
+        update-types: ["version-update:semver-major"]
+      # SQLitePCLRaw moves with Microsoft.Data.Sqlite (3.x came in with its 11.0.0): same decision.
+      - dependency-name: "SQLitePCLRaw.*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/server/web"

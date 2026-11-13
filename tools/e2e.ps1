@@ -196,15 +196,36 @@ function Invoke-Step([string]$name, [scriptblock]$body) {
 }
 
 # Builds the mod once per run (unless -SkipModBuild); returns the build tree.
+# E18: the build's stdout / stderr go to mod-build.log / mod-build.err.log in the log dir (uploaded by CI), never to the pipeline. Before
+# this, `Invoke-Native` let the child's stdout become OUTPUT of this function, so `$buildTree = Ensure-ModBuild` swallowed it (and a
+# throw discarded it) and `$null = Ensure-ModBuild` dropped it: not even a successful build printed anything. On failure the tail is
+# written to the host. A failed build is remembered and not retried: every later step fails fast and points at the first failure's log
+# (before, each later step silently rebuilt, so one transient failure showed up as a single FAIL followed by passing steps).
 $script:modBuilt = $false
+$script:modBuildFailure = $null
 function Ensure-ModBuild {
   $tree = Join-Path $repo 'mod/build/msvc-x64-relwithdebinfo'
+  if ($script:modBuildFailure) { throw "mod build already failed earlier in this run, not retrying: $($script:modBuildFailure) (full output: $logDir/mod-build.log and mod-build.err.log)" }
   if (-not $SkipModBuild -and -not $script:modBuilt) {
     # E14: only what the steps run (a full build also compiles ~540 unit tests no shard runs; the `mod` CI job still builds and
     # ctests everything). x4mp = the DLL; x4mp-hostsim, x4mp-headless, x4mp_authority_live = the exes found by the steps/*_run.ps1.
     # Same configure and warnings-as-errors policy as a full build. A new exe a step needs must be added here.
     $buildClock = [Diagnostics.Stopwatch]::StartNew()
-    Invoke-Native 'mod build' { & $psHost -NoProfile -File (Join-Path $repo 'mod/build.ps1') -NoTest -Targets 'x4mp,x4mp-hostsim,x4mp-headless,x4mp_authority_live' }
+    $p = Start-Proc 'mod-build' $psHost @('-NoProfile', '-File', (Join-Path $repo 'mod/build.ps1'), '-NoTest', '-Targets', 'x4mp,x4mp-hostsim,x4mp-headless,x4mp_authority_live')
+    $p.WaitForExit()
+    if ($p.ExitCode -ne 0) {
+      $script:modBuildFailure = "mod build failed (exit code $($p.ExitCode)) after $([math]::Round($buildClock.Elapsed.TotalSeconds)) s"
+      foreach ($f in 'mod-build.log', 'mod-build.err.log') {
+        $path = Join-Path $logDir $f
+        if ((Test-Path $path) -and (Get-Item $path).Length -gt 0) {
+          # with parallel ninja the compiler diagnostic can sit well above the tail: print the lines that carry one first
+          $diag = @(Select-String -Path $path -Pattern 'error [A-Z]+\d+|error:|fatal error|FAILED:|LNK\d+|cannot open' | Select-Object -First 30 | ForEach-Object { $_.Line })
+          if ($diag.Count -gt 0) { Write-Host "  --- diagnostics in ${f} ---"; $diag | ForEach-Object { Write-Host "  $_" } }
+          Write-Host "  --- last lines of $f ---"; Get-Content $path -Tail 40 | ForEach-Object { Write-Host "  $_" }
+        }
+      }
+      throw $script:modBuildFailure
+    }
     Write-Host "mod build took $([math]::Round($buildClock.Elapsed.TotalSeconds)) s"
     $script:modBuilt = $true
   }
