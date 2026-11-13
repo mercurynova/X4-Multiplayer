@@ -486,12 +486,23 @@ mission steps a team completes advance it for all of its members.
   `PerTeam` variant is listed for later and must stay off whenever there is more than
   one team.
 
-### ADR-038 Fog of war: off in v1, planned later (user decision 2026-10-01)
-**Decision:** No fog in v1. The `FogOfWar` session option stays in the backlog as a
-real requirement. When teams are at war, hostile-team ships and stations are visible
-only within radar/known range, so warfare feels realistic. The server's interest
-manager must keep a per-team visibility filter hook so it can be added without a
-protocol redesign.
+### ADR-038 Fog of war: radar-range visibility for ships (user decision 2026-10-01; enabled in M17, 2026-11-13)
+**Decision:** v1 shipped without fog, and the `FogOfWar` option stayed in the backlog as
+a real requirement. When teams are at war, hostile-team ships and stations are visible
+only within radar/known range, so warfare feels realistic. The server's interest manager
+must keep a per-team visibility filter hook so it can be added without a protocol
+redesign. **M17 turns it on:** the interest manager now ships `RadarVisibilityFilter`
+behind that hook, driven by the Live setting `Interest:RadarRangeMeters` (default
+30000 m, `0` = the old v1 behaviour). A viewer is not *delivered* another faction's ship
+further away than that, so the map does not draw contacts it could not see, while the
+authority still simulates them - they exist exactly as on the host. Player ships stay
+galaxy-wide so no ally disappears from a map, stations and other non-ship kinds are never
+hidden, other sectors are untouched (prefetch keeps working), and the viewer's own ship,
+own player and own team are always visible. The filter is re-evaluated at 1 Hz for the
+viewer's own sector, because it depends on the viewer's moving position. The user's
+wording: «надо сделать чтоб на втором клиенте на карте не отображались корабли которые
+он не может видеть по радару сами же они существуют как и у хоста». In-game validation on
+two PCs is still outstanding.
 
 ### ADR-039 Starting credits are a GUI setting (user decision 2026-10-01)
 **Decision:** `StartingCredits` is an admin GUI session setting (Sessions → Settings).
@@ -882,7 +893,9 @@ presence) and ADR-049 (team origins).
 - **Consequences:** the map is live and independent of the save cadence, at the cost of a 10 s poll and one small
   `KnownSectors` message when something changes. The server, not a node, is the single fan-out point, so two clients
   cannot disagree about an owner. `GalaxyMetadata` remains the fallback for a session whose authority has not polled yet.
-  Fog of war is still off in v1 (ADR-038): every node sees the whole map.
+  Fog of war is off in v1 (ADR-038) and M17 makes it a Live toggle: with
+  `Interest:RadarRangeMeters` at its default a node is not delivered another faction's ships beyond that
+  radar range, so every node sees the whole map of what it could actually see; `0` restores the v1 map.
 
 ## Part 2. Open questions for the user
 

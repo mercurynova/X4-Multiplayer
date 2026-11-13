@@ -131,14 +131,34 @@ public static class GhostBudgetPolicy
 }
 
 /// <summary>
-/// Per-team visibility filter hook (ADR-038): fog of war is off in v1, but the interest manager asks this before it shows an
-/// entity to a player, so hostile-team ships and stations can later be hidden outside radar range without a protocol change.
-/// The default <see cref="AllVisible"/> shows everything.
+/// What the interest manager knows about one viewer when it asks the filter (M17): the player, its team (0 = no Teams module or
+/// not assigned yet), where the player is and how far that player's radar reaches. Positions are the wire's 1/64 m units,
+/// exactly as they arrive from the authority.
+/// </summary>
+public readonly record struct VisibilityViewer(
+    int PlayerId,
+    int TeamId,
+    ushort Sector,
+    int Px,
+    int Py,
+    int Pz,
+    int RadarRangeMeters);
+
+/// <summary>
+/// Per-team visibility filter hook (ADR-038): the interest manager asks this before it shows an entity to a player, so
+/// hostile-team ships and stations can be hidden outside radar range without a protocol change. The default
+/// <see cref="AllVisible"/> shows everything; <see cref="RadarVisibilityFilter"/> is the M17 implementation.
 /// </summary>
 public interface IVisibilityFilter
 {
     /// <summary>True when <paramref name="viewerPlayerId"/> may see <paramref name="entity"/>.</summary>
     bool IsVisible(int viewerPlayerId, MirrorEntity entity);
+
+    /// <summary>
+    /// The viewer-aware form (M17): the only one that can judge a position. It defaults to the id-only call, so a filter that
+    /// needs nothing but the player id - and <see cref="AllVisible"/> and every test fake - keeps compiling unchanged.
+    /// </summary>
+    bool IsVisible(in VisibilityViewer viewer, MirrorEntity entity) => IsVisible(viewer.PlayerId, entity);
 }
 
 /// <summary>The v1 filter: everything is visible to everyone.</summary>

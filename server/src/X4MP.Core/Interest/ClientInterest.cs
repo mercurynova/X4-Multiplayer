@@ -102,6 +102,13 @@ internal sealed class ClientInterest(int playerId, ulong caps, bool isAuthority)
     /// </summary>
     public Dictionary<uint, long> Missed { get; } = [];
 
+    /// <summary>
+    /// Timestamp of the last re-sync of this client's own sector for the radar-range filter (M17). The filter depends on where the
+    /// player is, so a player who flies away from an NPC must lose that ghost even though nothing about the entity changed; the
+    /// manager re-runs the sector once a second and the M14 grace keeps it from flickering.
+    /// </summary>
+    public long LastRangeSync { get; set; }
+
     public List<SpawnJob> Jobs { get; } = [];
 
     public BudgetLevel Level { get; set; }

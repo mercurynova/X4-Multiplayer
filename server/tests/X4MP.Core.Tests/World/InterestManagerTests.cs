@@ -469,4 +469,48 @@ public sealed class InterestManagerTests
         Assert.Equal(Ids(3, 2).Order(), rig.Despawned(InterestRig.Alice, DespawnReason.OutOfInterest).Order());
         Assert.DoesNotContain(Ids(3, 2), id => rig.Manager.IsHeld(InterestRig.Alice, id));
     }
+
+    // ---------------------------------------------------------------- M17: radar fog
+
+    [Fact]
+    public void ARadarFilterHidesAFarShipAndTheOneHzResyncSwapsThemWhenTheViewerFlies()
+    {
+        var rig = NewRig(new InterestOptions { RadarRangeMeters = 30_000, DespawnGraceSeconds = 0 }, sectorShips: 0);
+        rig.Manager.VisibilityFilter = new RadarVisibilityFilter();
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 3);
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        const int fourteenKilometres = 14_000 * 64;
+        const int hundredKilometres = 100_000 * 64;
+        rig.Mirror.Spawn(Rec(701, EntityKind.ShipM, 3, px: fourteenKilometres));   // inside the 30 km radar
+        rig.Mirror.Spawn(Rec(702, EntityKind.ShipM, 3, px: hundredKilometres));     // far outside it
+
+        Assert.Contains(701u, rig.Spawned(InterestRig.Alice));
+        Assert.DoesNotContain(702u, rig.Spawned(InterestRig.Alice));
+
+        // The viewer flies to the far ship: 701 is now 86 km away and must go, 702 is under its nose.
+        rig.ClearSent();
+        rig.Move(InterestRig.Alice, 3, px: hundredKilometres);
+        rig.Advance(TimeSpan.FromSeconds(2));
+
+        Assert.Contains(702u, rig.Spawned(InterestRig.Alice));
+        Assert.Contains(701u, rig.Despawned(InterestRig.Alice, DespawnReason.OutOfInterest));
+    }
+
+    [Fact]
+    public void ARadarRangeOfZeroDeliversEverythingAgain()
+    {
+        var rig = NewRig(new InterestOptions { RadarRangeMeters = 0 }, sectorShips: 0);
+        rig.Manager.VisibilityFilter = new RadarVisibilityFilter();
+        rig.Activate(InterestRig.Alice);
+        rig.Move(InterestRig.Alice, 3);
+        rig.CompleteAllCaptured();
+        rig.ClearSent();
+
+        rig.Mirror.Spawn(Rec(703, EntityKind.ShipM, 3, px: 100_000 * 64));
+
+        Assert.Contains(703u, rig.Spawned(InterestRig.Alice));
+    }
 }

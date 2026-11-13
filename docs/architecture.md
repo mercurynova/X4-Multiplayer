@@ -344,7 +344,10 @@ Near-grid cell change using a `SectorGraph` k-hop cache and per-sector uniform g
   limit Adjacent to the predicted route. V03 measured ~15.4 ms/frame at 250 inert ships and
   ~25.2 ms at 500; raise only after measuring client FPS.
 - `InterestHint` (cap, optional) only helps non-adjacent jumps; the server may ignore it.
-- Fog of war: none in v1 (decisions Q1).
+- Fog of war: none in v1 (decisions Q1). M17 adds it as an opt-out Live setting
+  (`Interest:RadarRangeMeters`, 30000 m by default, `0` = v1): a client is not delivered another
+  faction's ships beyond that range from its own ship, so its map shows only what its radar could see.
+  Player ships, stations, other sectors and the viewer's own team are never hidden (ADR-038).
 
 ---
 

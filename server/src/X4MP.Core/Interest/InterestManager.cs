@@ -1,5 +1,6 @@
 using X4MP.Core.Net;
 using X4MP.Core.Session;
+using X4MP.Core.Teams;
 using X4MP.Core.World;
 using X4MP.Proto;
 using X4MP.Protocol;
@@ -64,6 +65,7 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
     private readonly NearGrid _grid;
     private readonly Dictionary<ushort, int> _gridRefs = [];
     private IVisibilityFilter _visibility = AllVisible.Instance;
+    private ITeamDirectory? _viewerTeams;
     private IGhostObserver[] _ghostObservers = [];
     private int _nearRadiusApplied;
 
@@ -108,19 +110,43 @@ public sealed partial class InterestManager : ISessionModule, IWorldObserver
         set
         {
             _visibility = value ?? AllVisible.Instance;
-            foreach (var client in _clients.Values)
-            {
-                if (!client.ReceivesSpawns)
-                {
-                    continue;
-                }
+            ResyncAllForVisibility();
+        }
+    }
 
-                foreach (var sub in client.Subs.Values.ToArray())
+    /// <summary>
+    /// Where a viewer's team id comes from for the filter (M17). Null - no Teams module, or tests - means team 0, which only
+    /// disables the "the viewer's own team owns it" exemption. Set before the session starts (<c>AddInterestManager</c> does it).
+    /// </summary>
+    public ITeamDirectory? ViewerTeams
+    {
+        get => _viewerTeams;
+        set
+        {
+            _viewerTeams = value;
+            ResyncAllForVisibility();
+        }
+    }
+
+    /// <summary>What the filter is told about <paramref name="c"/>, built from its own last reported position.</summary>
+    private VisibilityViewer ViewerOf(ClientInterest c) =>
+        new(c.PlayerId, _viewerTeams?.TeamOf(c.PlayerId) ?? 0, c.Sector, c.Px, c.Py, c.Pz, Opt.RadarRangeMeters);
+
+    /// <summary>Re-evaluates every delivered sector of every client after the filter or its viewer source changed.</summary>
+    private void ResyncAllForVisibility()
+    {
+        foreach (var client in _clients.Values)
+        {
+            if (!client.ReceivesSpawns)
+            {
+                continue;
+            }
+
+            foreach (var sub in client.Subs.Values.ToArray())
+            {
+                if (sub.Delivery != SectorDelivery.Pending)
                 {
-                    if (sub.Delivery != SectorDelivery.Pending)
-                    {
-                        SyncSector(client, sub, Now);
-                    }
+                    SyncSector(client, sub, Now);
                 }
             }
         }

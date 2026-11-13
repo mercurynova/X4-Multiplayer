@@ -43,6 +43,16 @@ public sealed class InterestOptions
     [Setting("Interest despawn grace: keep an unadmitted ghost for (s, 0 = off)", Scope = SettingScope.Live, Min = 0, Max = 120)]
     public int DespawnGraceSeconds { get; set; } = 5;
 
+    /// <summary>
+    /// M17 radar fog: a client is not told about another faction's ships further than this from its own ship, so its map does not
+    /// draw contacts it could not see in game. Those ships still exist and are simulated by the authority; only the delivery is
+    /// withheld. Player ships are galaxy-wide (nobody's map loses an ally), stations are never hidden, a sector other than the
+    /// viewer's is untouched (prefetch stays intact), and a same-team or own ship is always visible. <see cref="NearRadiusM"/> is
+    /// 15000, so everything inside the near bubble is already inside the default. 0 restores the v1 behaviour of no fog (ADR-038).
+    /// </summary>
+    [Setting("Fog: hide other factions' ships beyond this range (m, 0 = off)", Scope = SettingScope.Live, Min = 0, Max = 200000)]
+    public int RadarRangeMeters { get; set; } = 30000;
+
     /// <summary>A sector nobody needs stays in the capture set this long before it is dropped and its entities evicted.</summary>
     [Setting("Capture eviction: keep an unneeded sector captured for (s)", Scope = SettingScope.Live, Min = 0, Max = 3600)]
     public int CaptureEvictSeconds { get; set; } = 60;

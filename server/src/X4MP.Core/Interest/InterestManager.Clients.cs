@@ -153,6 +153,16 @@ public sealed partial class InterestManager
             ExpireMisses(c, now);
         }
 
+        // M17: the visibility filter is viewer-relative (radar range around a moving ship), so a client's own sector has to be
+        // re-evaluated even when nothing else changed; otherwise a ship that flies out of radar range would stay a ghost forever.
+        // 1 Hz is enough for a map that redraws on the same order, and it is skipped entirely when fog is off.
+        if (opt.RadarRangeMeters > 0 && c.Sector != 0 && now - c.LastRangeSync >= Seconds(1)
+            && c.Subs.TryGetValue(c.Sector, out var own) && own.Delivery == SectorDelivery.Delivered)
+        {
+            c.LastRangeSync = now;
+            SyncSector(c, own, now);
+        }
+
         if (c.HardCap && c.Ghosts > opt.MaxGhosts)
         {
             EnforceHardCap(c, opt.MaxGhosts);
@@ -313,7 +323,7 @@ public sealed partial class InterestManager
 
         if (e.IsPlayerShip)
         {
-            return _visibility.IsVisible(c.PlayerId, e); // galaxy-wide, outside the budget
+            return _visibility.IsVisible(ViewerOf(c), e); // galaxy-wide, outside the budget
         }
 
         if (!c.Subs.TryGetValue(e.Sector, out var sub) || sub.Delivery == SectorDelivery.Pending)
@@ -331,7 +341,7 @@ public sealed partial class InterestManager
             return false;
         }
 
-        return _visibility.IsVisible(c.PlayerId, e);
+        return _visibility.IsVisible(ViewerOf(c), e);
     }
 
     /// <summary>Starts delivering a sector the authority has completed: spawns near-first, then <c>SectorComplete</c>.</summary>
@@ -440,7 +450,7 @@ public sealed partial class InterestManager
             return false;
         }
 
-        return (sub.Admission != SectorAdmission.LargeOnly || e.Size == EntitySize.Large) && _visibility.IsVisible(c.PlayerId, e);
+        return (sub.Admission != SectorAdmission.LargeOnly || e.Size == EntitySize.Large) && _visibility.IsVisible(ViewerOf(c), e);
     }
 
     /// <summary>Despawns every held ghost of a sector the client no longer follows (<c>OutOfInterest</c>) and drops its pending jobs.</summary>
@@ -1117,5 +1127,5 @@ public sealed partial class InterestManager
     }
 
     private bool AdmitIgnoringCapOrPlayer(ClientInterest c, MirrorEntity e) =>
-        e.IsPlayerShip ? _visibility.IsVisible(c.PlayerId, e) : AdmitIgnoringCap(c, e);
+        e.IsPlayerShip ? _visibility.IsVisible(ViewerOf(c), e) : AdmitIgnoringCap(c, e);
 }

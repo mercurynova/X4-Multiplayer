@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using X4MP.Core.Interest;
 using X4MP.Core.Session;
+using X4MP.Core.Teams;
 using X4MP.Core.World;
 
 namespace X4MP.Server.World;
@@ -23,7 +24,12 @@ public static class InterestManagerExtensions
         services.TryAddSingleton(sp =>
         {
             var monitor = sp.GetRequiredService<IOptionsMonitor<InterestOptions>>();
-            return new InterestManager(sp.GetRequiredService<WorldMirror>(), () => monitor.CurrentValue, sp.GetRequiredService<TimeProvider>());
+            var manager = new InterestManager(sp.GetRequiredService<WorldMirror>(), () => monitor.CurrentValue, sp.GetRequiredService<TimeProvider>());
+            // M17: radar fog. The filter needs the viewer's team and position, and the team directory is an optional module (a module
+            // test may register no teams at all), so both are properties rather than constructor arguments - they re-sync on change.
+            manager.ViewerTeams = sp.GetService<ITeamDirectory>();
+            manager.VisibilityFilter = new RadarVisibilityFilter();
+            return manager;
         });
         services.AddSingleton<ISessionModule>(sp => sp.GetRequiredService<InterestManager>());
         return services;
