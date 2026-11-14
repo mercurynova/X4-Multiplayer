@@ -239,6 +239,9 @@ class AuthorityFlow {
   std::uint32_t players_died_ = 0;
   std::uint32_t capture_sets_ = 0, capture_stale_ = 0, capture_bad_ = 0;
   std::uint32_t scan_batches_ = 0, scan_bad_ = 0, scan_no_sector_ = 0;
+  // M4-13: avatar rows this pass skipped, per sector. The rows arrive in the `S;` messages and the closing `E;` count is a message of its
+  // own, so the tally has to live across calls until the pass is closed - that is also the only place the log can name it.
+  std::unordered_map<std::uint16_t, std::uint32_t> scan_avatar_rows_;
   // M4-03: a sector whose scan MD has been asked for, and when. The entry is dropped when the closing count arrives, so a sector that MD
   // never answered is asked again after kScanRetryUs instead of waiting forever.
   static constexpr std::int64_t kScanRetryUs = 10'000'000;

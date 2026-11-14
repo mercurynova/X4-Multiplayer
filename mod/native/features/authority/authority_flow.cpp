@@ -931,7 +931,23 @@ void AuthorityFlow::on_scan_text(host::HostContext& ctx, std::string_view text) 
   if (!index_.scanning(sector)) index_.begin_scan(sector);
   const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
 
+  // M4-13 (a scan lists every ship, avatars included): an avatar already has its net id from the session counter, and the binder owns it.
+  // Binding it again from a scan would stream that player's ship twice - the avatar the binder made plus an NPC copy of it. The local ids
+  // cover the normal case; after a save load the ids are all new, so the idcodes (which survive a load) decide.
+  const auto avatars = avatars::avatar_hub().protect();
+  const auto is_avatar = [&ctx, &avatars](std::uint64_t component) {
+    if (std::find(avatars.ids.begin(), avatars.ids.end(), component) != avatars.ids.end()) return true;
+    if (avatars.idcodes.empty()) return false;
+    const auto code = ctx.game.object_id_code(component);
+    return code && std::find(avatars.idcodes.begin(), avatars.idcodes.end(), *code) != avatars.idcodes.end();
+  };
+  std::uint32_t& avatar_rows = scan_avatar_rows_[sector];  // kept across the S; chunks, printed by the closing E; count
+
   for (const auto& row : batch->rows) {
+    if (row.component != 0 && is_avatar(row.component)) {
+      ++avatar_rows;
+      continue;
+    }
     auto net = index_.net_id_of_component(row.component);
     if (net == 0) {
       // First sight of this object: the net id comes from the session's one counter, so it can never collide with an avatar's.
@@ -964,8 +980,9 @@ void AuthorityFlow::on_scan_text(host::HostContext& ctx, std::string_view text) 
   stream_.on_scan_complete(sector);
   const auto* ids = index_.ids_of(sector);
   const auto count = ids != nullptr ? static_cast<std::uint32_t>(ids->size()) : 0u;
-  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: sector {} scanned: {} ships, {} gone, spawns queued (epoch {})", sector, count, removed,
-            capture_.epoch());
+  X4MP_CLOG(ctx.log, Cat::Save, Level::Info, "authority: sector {} scanned: {} ships, {} gone, spawns queued (epoch {}){}", sector, count, removed,
+            capture_.epoch(), avatar_rows != 0 ? std::format(", {} avatar row(s) skipped", avatar_rows) : std::string());
+  scan_avatar_rows_.erase(sector);  // the pass is closed and reported; a later scan starts the tally again
 }
 
 void AuthorityFlow::begin_request(host::HostContext& ctx, std::uint32_t request_id) {  request_id_ = request_id;
