@@ -557,6 +557,7 @@ void Host::emulate_md(const std::string& topic, const std::string& param) {
       if (j.contains("name")) o->name = j["name"].get<std::string>();
       if (j.contains("min_hull")) o->min_hull = j["min_hull"].get<int>();
       o->radar = true;
+      o->avatar = true;
     }
     md_answers_.emplace_back("x4mp.avatars_md", nlohmann::json{{"v", 1}, {"data", "D;" + std::to_string(j["seq"].get<unsigned>()) + ";1;loadout:basic"}}.dump());
   } else if (topic == "x4mp.avatars_create") {  // M3-30: the client's MD create_ship (owner faction.player): a player-owned ship at the wanted spot
@@ -575,6 +576,29 @@ void Host::emulate_md(const std::string& topic, const std::string& param) {
       if (Obj* o = world.find(id)) o->name = j.value("name", std::string());
       md_answers_.emplace_back("x4mp.avatars_md", nlohmann::json{{"v", 1}, {"data", "C;" + std::to_string(seq) + ";1;" + std::to_string(id)}}.dump());
     }
+  } else if (topic == "x4mp.capture_request") {  // M4-03: our MD scans one sector and pushes the rows back over the bridge.
+    //                                      The fake game answers from its own objects: every ship of that sector
+    //                                      that is not the player's, in the S;/E; wire form capture_ingest expects.
+    //                                      Avatars are left out on purpose: the authority asks for a scan only while a
+    //                                      sector's index rows are still empty, which in a real session happens before
+    //                                      the first avatar is dressed. Feeding the avatars back would make the scan
+    //                                      bind a second net id to every avatar, and the client would show each player
+    //                                      twice (an NPC ghost next to the avatar ghost).
+    const auto j = nlohmann::json::parse(param, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("sector")) return;
+    const std::string macro = j["sector"].get<std::string>();
+    const std::uint64_t sector = world.sector_of_macro(macro);
+    std::string rows;
+    std::size_t count = 0;
+    if (sector != 0) {
+      for (const auto& o : world.snapshot()) {
+        if (o.sector != sector || o.cls != "ship" || o.owner == "player" || o.avatar) continue;
+        rows += std::to_string(o.id) + "|" + o.macro + "|" + o.owner + ";";
+        ++count;
+      }
+    }
+    if (!rows.empty()) md_answers_.emplace_back("x4mp.capture_scan", nlohmann::json{{"v", 1}, {"data", "S;" + macro + ";" + rows}}.dump());
+    md_answers_.emplace_back("x4mp.capture_scan", nlohmann::json{{"v", 1}, {"data", "E;" + macro + ";" + std::to_string(count)}}.dump());
   } else if (topic == "x4mp.teams_apply") {  // M3-08: the MD team setup; answer with a report that matches the plan
     ++world.teams_applies;
     const auto j = nlohmann::json::parse(param, nullptr, false);

@@ -29,6 +29,7 @@ struct Obj {
   bool radar = false;
   bool wrecked = false;
   int min_hull = -1;                 // set by the emulated MD dress (x4mp.ghost_dress); -1 = never dressed
+  bool avatar = false;               // dressed by x4mp.avatars_dress: a player avatar, never part of the sector scan (see Host::emulate_md)
   double vx = 0, vy = 0, vz = 0;     // set by the emulated MD velocity hint (x4mp.ghost_velocity)
   long long velocity_hints = 0;
 };
@@ -76,6 +77,12 @@ class World {
   // x4mp.ghost_velocity stores the velocity hint, x4mp.teams_apply is answered with the matching x4mp.teams_md report (M3-08).
   bool md_emulate = false;
   std::vector<std::string> md_sector_map;  // `world md-sectors`: the x4mp.sector_map payloads (S;.. / E;n) sent when selfship asks (x4mp.sector_map_collect)
+  // M4-03: the same command's macro -> universe id table, so the emulated MD can answer x4mp.capture_request with the rows of that sector.
+  std::map<std::string, std::uint64_t> sector_macros;
+  [[nodiscard]] std::uint64_t sector_of_macro(const std::string& macro) const {
+    const auto it = sector_macros.find(macro);
+    return it == sector_macros.end() ? 0 : it->second;
+  }
   long long dress_events = 0, velocity_events = 0, teams_applies = 0, knowledge_probes = 0;
 
   // counters (expect-state)

@@ -16,7 +16,11 @@
   Every spawn-near-player line inside the window is printed with its timestamp, net id, sector and distance, together with
   the selfship highway lines (`superhighway entry/exit`, `highway context`) so the report says what the ship was doing.
 
-  Exit code 0 when the delta is 0, 1 otherwise (so a CI step can gate on it).
+  A window with no new ghosts proves nothing: the criterion is that the spawns which do happen during the transit keep
+  outside the bubble. So the tool also counts the ghosts the client created inside the window (`ghost record: net=` lines)
+  and, with -MinSpawns, fails when the transit was empty.
+
+  Exit code 0 when the delta is 0 (and enough ghosts spawned), 1 otherwise (so a CI step can gate on it).
 
 .PARAMETER Log
   The client's extension/logs/x4mp.log. `-` reads standard input.
@@ -31,6 +35,10 @@
 .PARAMETER MaxList
   How many pop lines to print (default 25; the count is always printed in full).
 
+.PARAMETER MinSpawns
+  Fail unless at least this many ghosts were created inside the window (default 0). Use it for a real transit probe: it
+  turns "no pops" into "no pops while traffic actually appeared".
+
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\session4\spawn-near-window.ps1 `
       -Log 'C:\...\extension\logs\x4mp.log' -From '19:41:02' -To '19:44:30'
@@ -44,7 +52,8 @@ param(
   [Parameter(Mandatory = $true)][string]$Log,
   [string]$From,
   [string]$To,
-  [int]$MaxList = 25
+  [int]$MaxList = 25,
+  [int]$MinSpawns = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +66,7 @@ $lines = if ($Log -eq '-') { @($input) } else {
 $tsRe = [regex]'^(?<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})Z'
 $healthRe = [regex]'\[sync\] ghosts health: rep_bad=(?<bad>\d+) spawn_failed=(?<failed>\d+) unmapped=(?<unmapped>\d+) unresolved=(?<unresolved>\d+) spawn_near=(?<near>\d+)'
 $nearRe = [regex]'spawn-near-player: net=(?<net>\d+) sector=(?<sector>\d+) distance=(?<dist>\d+) m macro=(?<macro>\S+)'
+$spawnRe = [regex]'ghost record: net=(?<net>\d+) player=(?<player>\S*)'
 
 function Parse-Stamp([string]$text, [datetime]$day) {
   if ([string]::IsNullOrWhiteSpace($text)) { return $null }
@@ -97,6 +107,7 @@ $endNear = 0; $endAt = $null
 $popsBefore = 0                        # pop lines up to the window: the counter's own history, used when no health line precedes it
 $firstHealthNear = $null; $firstHealthAt = $null
 $pops = New-Object System.Collections.Generic.List[object]
+$spawns = New-Object System.Collections.Generic.List[object]   # ghosts created inside the window: the transit must not be empty
 $highway = New-Object System.Collections.Generic.List[object]
 $points = New-Object System.Collections.Generic.List[object]   # every health line, for a readable timeline
 
@@ -134,6 +145,15 @@ foreach ($l in $lines) {
       $idx = $l.IndexOf('[selfship]')
       if ($idx -lt 0) { $idx = 0 }
       $highway.Add([pscustomobject]@{ At = $at; Text = $l.Substring($idx).Trim() })
+    }
+    continue
+  }
+
+  $sp = $spawnRe.Match($l)
+  if ($sp.Success) {
+    $atOk = ($null -eq $fromAt -or $at -ge $fromAt) -and ($null -eq $toAt -or $at -le $toAt)
+    if ($atOk) {
+      $spawns.Add([pscustomobject]@{ At = $at; Net = [int]$sp.Groups['net'].Value; Player = $sp.Groups['player'].Value })
     }
   }
 }
@@ -185,9 +205,20 @@ if ($highway.Count -gt 0) {
 }
 
 Write-Host ''
-if ($delta -eq 0) {
-  Write-Host 'PASS  spawn-near-player pops inside the window: 0 (criterion 6, M4-23)'
-  exit 0
+Write-Host "Ghosts created inside the window: $($spawns.Count)"
+if ($spawns.Count -gt 0) {
+  $spawns | Select-Object -First $MaxList | ForEach-Object { Write-Host ("  {0}  net={1}  {2}" -f $_.At.ToString('HH:mm:ss.fff'), $_.Net, $_.Player) }
+  if ($spawns.Count -gt $MaxList) { Write-Host "  ... $($spawns.Count - $MaxList) more" }
 }
-Write-Host "FAIL  spawn-near-player pops inside the window: $delta (criterion 6 wants 0; narrow the window past the join, or report the distances above)"
-exit 1
+Write-Host ''
+
+if ($delta -ne 0) {
+  Write-Host "FAIL  spawn-near-player pops inside the window: $delta (criterion 6 wants 0; narrow the window past the join, or report the distances above)"
+  exit 1
+}
+if ($spawns.Count -lt $MinSpawns) {
+  Write-Host "FAIL  the window is empty: $($spawns.Count) new ghost(s), expected at least $MinSpawns (a transit with no traffic proves nothing)"
+  exit 1
+}
+Write-Host "PASS  spawn-near-player pops inside the window: 0 (criterion 6, M4-23), $($spawns.Count) new ghost(s) seen"
+exit 0

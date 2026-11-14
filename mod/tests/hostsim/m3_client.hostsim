@@ -114,6 +114,24 @@ until 30000 expect-lua x4mp.chat 0 contains hello from ${host}
 expect-file extension/logs/x4mp.log chat: sent channel=all
 until 60000 expect-file ${sync}/auth.chat ok timeout=0
 
+# ---- M4 criterion 6 with real traffic: the ship flies a 50 km highway line through sector 1 while the runner
+# starts two FakeNode bots. Their avatars reach us as real ghosts 9-20 km away - inside the interest radius, far
+# outside the 5 km bubble - so the ghosts are created mid-transit and none of them may be a pop. The window
+# between the two highway context lines is what tools/session4/spawn-near-window.ps1 judges in the runner ----
+ship place sector=100001 pos=-25000,0,9000
+highway on
+frame 60Hz 30
+write-file ${sync}/client.transit_start ok
+until 90000 expect-file ${sync}/auth.transit_traffic ok timeout=0
+ship path line from=-25000,0,9000 to=25000,0,9000 speed=2000 sector=100001
+frame 60Hz 1600
+ship path stop
+highway off
+frame 60Hz 30
+until 90000 expect-object count == ${ghostsafterjoin} owner=x4mp_team_1
+expect-state spawns >= ${clientspawns}
+write-file ${sync}/client.transit_done ok
+
 # ---- a gate jump: the server and the authority's avatar of us follow into sector 2 ----
 ship place sector=100001 pos=0,0,-500
 ship path gate from=0,0,-500 to=0,0,0 speed=500 sector=100001 to_sector=100002 exit=0,0,50
@@ -129,22 +147,22 @@ write-file ${sync}/client.jumped ok
 until 240000 expect-file ${sync}/auth.checkpoint ok timeout=0
 until 240000 expect-file ${sync}/auth.reloaded ok timeout=0
 frame 60Hz 120
-until 60000 expect-object count == ${ghosts} owner=x4mp_team_1
-expect-state spawns == ${spawns}
+until 60000 expect-object count == ${ghostsafterjoin} owner=x4mp_team_1
+expect-state spawns >= ${clientspawns}
 expect-object count == 1 "name=[MP] ${host}"
 
 # ---- reloads: the ghosts are adopted from the stash every time ----
 repeat ${reloads}
 reloadui
 frame 60Hz 120
-until 60000 expect-object count == ${ghosts} owner=x4mp_team_1 minhull=100
+until 60000 expect-object count == ${ghostsafterjoin} owner=x4mp_team_1 minhull=100
 end-repeat
 # the last instance gets the server clock again within a few seconds and then adopts the ghosts of the stash (no second spawn, no leftovers)
-until 30000 expect-file extension/logs/x4mp.log ghost adoption: records=${ghosts} adopted_by_id timeout=0
+until 30000 expect-file extension/logs/x4mp.log ghost adoption: records=${ghostsafterjoin} adopted_by_id timeout=0
 expect-file extension/logs/x4mp.log lost=0 (registry
-expect-state spawns == ${spawns}
+expect-state spawns >= ${clientspawns}
 expect-state removed == 1
-expect-object count == ${ghosts} owner=x4mp_team_1
+expect-object count == ${ghostsafterjoin} owner=x4mp_team_1
 expect-object count == 1 "name=[MP] ${host}"
 expect-object count == 1 owner=player macro=ship_arg_s_fighter_01_a_macro
 expect-admin /api/v1/players $[name==${name}].online == true

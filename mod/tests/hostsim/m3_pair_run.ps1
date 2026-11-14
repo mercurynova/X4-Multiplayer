@@ -43,6 +43,10 @@ $sim = Join-Path $PSScriptRoot 'authority_sim.ps1'
 $avatars = $Bots + 1          # what the authority holds: the client's avatar + one per bot
 $ghosts = $Bots + 1           # what the client shows: the host's ship + one per bot
 $spawns = $ghosts + 1         # the client's spawn count: the ghosts + its own avatar copy
+$lateBots = 2                 # FakeNode bots that join while the client is in the highway: the real mid-transit creations (M4 criterion 6)
+$ghostsAfterJoin = $ghosts + $lateBots
+$avatarsAfterJoin = $avatars + $lateBots
+$clientSpawns = $spawns + $lateBots   # after the transit the client has created those ghosts as well
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ('x4mp-m3pair-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force $tmp | Out-Null
@@ -131,7 +135,7 @@ try {
     $authArgs = @('--dll', $dll, '--script', $authorityScript, '--work-dir', $authWork,
         '--admin-url', $url, '--admin-user', 'admin', '--admin-password', $adminPassword,
         '--var', "tcp=$TcpPort", '--var', "apw=$nodeAdminPassword", '--var', "sim=$sim", '--var', "ckpt_src=$ckpt1", '--var', "ckpt_src2=$ckpt2",
-        '--var', "admin_url=$url", '--var', "admin_pw=$adminPassword", '--var', "sync=$sync", '--var', "avatars=$avatars", '--var', "bots=$Bots",
+        '--var', "admin_url=$url", '--var', "admin_pw=$adminPassword", '--var', "sync=$sync", '--var', "avatars=$avatars", '--var', "bots=$Bots", '--var', "avatarsafterjoin=$avatarsAfterJoin",
         '--timeout-scale', '2', '--max-seconds', "$MaxSeconds")
     $auth = Start-P $hostSim $authArgs $authOut
     Wait-Until 'the authority to run the session (auth.running)' { Test-Path (Join-Path $sync 'auth.running') } 180 $auth
@@ -146,8 +150,15 @@ try {
     $cliArgs = @('--dll', $dll, '--script', $clientScript, '--work-dir', $cliWork,
         '--admin-url', $url, '--admin-user', 'admin', '--admin-password', $adminPassword,
         '--var', "tcp=$TcpPort", '--var', 'name=Pia', '--var', 'host=HostAlice', '--var', "sync=$sync", '--var', "bots=$Bots", '--var', "ghosts=$ghosts",
-        '--var', "spawns=$spawns", '--var', "reloads=$Reloads", '--timeout-scale', '2', '--max-seconds', "$MaxSeconds")
+        '--var', "spawns=$spawns", '--var', "ghostsafterjoin=$ghostsAfterJoin", '--var', "clientspawns=$clientSpawns", '--var', "reloads=$Reloads", '--timeout-scale', '2', '--max-seconds', "$MaxSeconds")
     $cli = Start-P $hostSim $cliArgs $cliOut
+
+    # ---- M4 criterion 6: the only real mid-transit creation is a player who joins while the client is in the highway
+    #      (a sector's entities always arrive in the join batch). Two late bots do exactly that ----
+    Wait-Until 'the client to start the highway transit (client.transit_start)' { Test-Path (Join-Path $sync 'client.transit_start') } 240 $cli
+    $lateLog = Join-Path $tmp 'fakenode-late.out.txt'
+    $late = Start-P $fakeExe @('swarm', '--clients', "$lateBots", '--name-prefix', 'Late', '--avatars', '--chat-echo', '--behavior', 'wander', '--galaxy-file', $galaxy,
+        '--seed', '43', '--avatar-timeout', '90', '--server', "127.0.0.1:$TcpPort", '--duration', "$botDuration") $lateLog
 
     $deadline = (Get-Date).AddSeconds($MaxSeconds + 40)
     $failed = @()
@@ -175,27 +186,46 @@ try {
         Get-Content $rep | ForEach-Object { Write-Host "  $_" }
         if ($p.ExitCode -ne 0) { throw "sync-report found a FAIL for $($r.Name) (exit $($p.ExitCode); see $rep)" }
     }
-    # ---- criterion 6 (M4-23): after the join batch, no spawn may land inside the 5 km bubble. The join is one legitimate
-    #      whole-sector batch (it made 2000..4455 m spawns in the runs this runner was written against), so the window starts
-    #      one second after the last join pop and runs to the end of the log - the flight, the gate jump, the checkpoint,
-    #      the save load and the reloads all have to stay at zero.
+    # ---- criterion 6 (M4-23): no spawn may land inside the 5 km bubble. Two windows are judged on the client log:
+    #      1. the highway transit itself (between the two `highway context` lines). Two FakeNode bots join the moment
+    #         the client sets off, so their avatars are created while it is in the highway, 9-20 km away - real
+    #         mid-transit ghosts, none of them a pop. -MinSpawns keeps the check from passing on an empty window;
+    #      2. one second after the last join pop to the end of the log: the join is one legitimate whole-sector batch
+    #         (2000..4455 m in the runs this runner was written against); the flight, gate jump, checkpoint, save load
+    #         and reloads all have to stay at zero afterwards.
     $clientLog = Join-Path $cliWork 'extension\logs\x4mp.log'
-    $lastPop = $null
+    $lastPop = $null; $hwOn = $null; $hwOff = $null
     foreach ($line in Get-Content $clientLog) {
         if ($line -match '^(?<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})Z.*spawn-near-player:') {
             $lastPop = [datetime]::ParseExact($matches['ts'], 'yyyy-MM-dd HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture)
+        } elseif ($line -match '^(?<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})Z.*selfship: highway context (?<hw>on|off)') {
+            $at = [datetime]::ParseExact($matches['ts'], 'yyyy-MM-dd HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture)
+            if ($matches['hw'] -eq 'on') { if ($null -eq $hwOn) { $hwOn = $at } } else { $hwOff = $at }
         }
     }
+    if ($null -eq $hwOn -or $null -eq $hwOff) { throw 'the client log has no highway context on/off pair: the transit phase did not run' }
+
     Write-Host ''
-    Write-Host '=== spawn-near-window: client Pia (criterion 6) ===' -ForegroundColor Cyan
-    $nearRep = Join-Path $tmp 'spawn-near-window.txt'
-    $nearArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $nearReport, '-Log', $clientLog)
-    if ($null -ne $lastPop) { $nearArgs += @('-From', $lastPop.AddSeconds(1).ToString('yyyy-MM-dd HH:mm:ss.fff')) }
+    Write-Host '=== spawn-near-window: client Pia, the highway transit (criterion 6) ===' -ForegroundColor Cyan
+    $nearRep = Join-Path $tmp 'spawn-near-window-transit.txt'
+    $nearArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $nearReport, '-Log', $clientLog,
+        '-From', $hwOn.ToString('yyyy-MM-dd HH:mm:ss.fff'), '-To', $hwOff.ToString('yyyy-MM-dd HH:mm:ss.fff'), '-MinSpawns', "$lateBots")
     $p = Start-P $psHost $nearArgs $nearRep
-    if (-not $p.WaitForExit(60000)) { & taskkill /PID $p.Id /T /F *> $null; throw 'spawn-near-window did not finish' }
+    if (-not $p.WaitForExit(60000)) { & taskkill /PID $p.Id /T /F *> $null; throw 'spawn-near-window (transit) did not finish' }
     $p.WaitForExit()
     Get-Content $nearRep | ForEach-Object { Write-Host "  $_" }
-    if ($p.ExitCode -ne 0) { throw "criterion 6 failed: a spawn-near-player pop after the join batch (exit $($p.ExitCode); see $nearRep)" }
+    if ($p.ExitCode -ne 0) { throw "criterion 6 failed inside the highway transit (exit $($p.ExitCode); see $nearRep)" }
+
+    Write-Host ''
+    Write-Host '=== spawn-near-window: client Pia, after the join batch to the end of the log (criterion 6) ===' -ForegroundColor Cyan
+    $nearRep2 = Join-Path $tmp 'spawn-near-window-after-join.txt'
+    $nearArgs2 = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $nearReport, '-Log', $clientLog)
+    if ($null -ne $lastPop) { $nearArgs2 += @('-From', $lastPop.AddSeconds(1).ToString('yyyy-MM-dd HH:mm:ss.fff')) }
+    $p2 = Start-P $psHost $nearArgs2 $nearRep2
+    if (-not $p2.WaitForExit(60000)) { & taskkill /PID $p2.Id /T /F *> $null; throw 'spawn-near-window (after join) did not finish' }
+    $p2.WaitForExit()
+    Get-Content $nearRep2 | ForEach-Object { Write-Host "  $_" }
+    if ($p2.ExitCode -ne 0) { throw "criterion 6 failed: a spawn-near-player pop after the join batch (exit $($p2.ExitCode); see $nearRep2)" }
     $exit = 0
 }
 catch { Write-Host "M3 PAIR E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }

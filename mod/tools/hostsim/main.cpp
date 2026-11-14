@@ -1071,6 +1071,18 @@ class Runner {
         ++count;
       }
       w.md_sector_map = {chunk, "E;" + std::to_string(count)};
+      // M4-03: keep the macro -> id table too, so `x4mp.capture_request` can be answered for a named sector
+      w.sector_macros.clear();
+      pos = 0;
+      while (pos < t[2].size()) {
+        auto end2 = t[2].find(',', pos);
+        if (end2 == std::string::npos) end2 = t[2].size();
+        const std::string item2 = t[2].substr(pos, end2 - pos);
+        pos = end2 + 1;
+        const auto eq2 = item2.find('=');
+        if (eq2 == std::string::npos || eq2 == 0) continue;
+        w.sector_macros[item2.substr(0, eq2)] = static_cast<std::uint64_t>(std::strtoull(item2.substr(eq2 + 1).c_str(), nullptr, 10));
+      }
     } else if (t[1] == "factions") {  // world factions a,b,c : the faction list GetAllFactions returns
       need(t, 3, "world factions <a>,<b>,...");
       w.factions.clear();

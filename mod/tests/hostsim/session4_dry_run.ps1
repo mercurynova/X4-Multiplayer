@@ -343,11 +343,16 @@ if (-not `$r.File) { throw 'no DLC file' }
             if ($s -eq 10) {
                 foreach ($i in 1..3) { $rows.Add("$ts [INFO] [ghost] spawn-near-player: net=$i sector=1 distance=$($i * 1000) m macro=ship_arg_s_fighter_01_a_macro") }
             }
-            if ($s -eq 20) { $rows.Add("$ts [INFO] [client] selfship: superhighway entry signalled by zone at sector 1") }
+            if ($s -eq 20) {
+                $rows.Add("$ts [INFO] [client] selfship: superhighway entry signalled by zone at sector 1")
+                $rows.Add("$ts [INFO] [ghost] ghost record: net=9 player=0 controller=0 team=1 macro=ship_arg_s_fighter_01_a_macro owner=argon label='' (npc)")
+            }
         }
         [IO.File]::WriteAllLines($near, $rows)
-        $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$near`"", '-From', '12:00:15', '-To', '12:00:35')
-        Expect-Kit $r 'spawn-near-window transit window' 0 @('Baseline: spawn_near=3', 'Delta:\s+0 pop', 'Pops inside the window: 0', 'superhighway entry', 'PASS\s+spawn-near-player pops inside the window: 0')
+        $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$near`"", '-From', '12:00:15', '-To', '12:00:35', '-MinSpawns', '1')
+        Expect-Kit $r 'spawn-near-window transit window' 0 @('Baseline: spawn_near=3', 'Delta:\s+0 pop', 'Pops inside the window: 0', 'superhighway entry', 'Ghosts created inside the window: 1', 'PASS\s+spawn-near-player pops inside the window: 0')
+        $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$near`"", '-From', '12:00:15', '-To', '12:00:35', '-MinSpawns', '5')
+        Expect-Kit $r 'spawn-near-window: a transit with too little traffic' 1 @('Ghosts created inside the window: 1', 'FAIL\s+the window is empty')
         $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$near`"")
         Expect-Kit $r 'spawn-near-window whole log (the join counts)' 1 @('Delta:\s+3 pop', 'FAIL\s+spawn-near-player pops inside the window: 3')
         $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$(Join-Path $tmp 'nope.log')`"")

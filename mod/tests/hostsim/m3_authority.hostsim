@@ -87,10 +87,18 @@ lua-raw x4mp.chat_send {"v":1,"channel":"all","text":"hello from HostAlice"}
 until 30000 expect-lua x4mp.chat 0 contains echo: hello from HostAlice
 write-file ${sync}/auth.chat ok
 
+# ---- M4 criterion 6 with real traffic: while the client flies its 50 km highway line through sector 1, the runner starts
+# two more FakeNode bots. Their avatars are created on the authority mid-flight and reach the client as real ghosts
+# 9-20 km away - inside the interest radius, far outside the 5 km bubble - so the transit window has genuine
+# creations and must still report zero spawn-near-player pops (the runner judges it with spawn-near-window.ps1) ----
+until 180000 expect-file ${sync}/client.transit_start ok timeout=0
+write-file ${sync}/auth.transit_traffic ok
+until 240000 expect-file ${sync}/client.transit_done ok timeout=0
+
 # ---- the client takes over, sees every ghost and jumps a gate: its avatar follows into sector 2 ----
 until 150000 expect-file ${sync}/client.jumped ok timeout=0
 until 20000 expect-object "name=[MP] Pia" sector == 100002
-expect-object count == ${avatars} owner=x4mp_team_1
+expect-object count == ${avatarsafterjoin} owner=x4mp_team_1
 
 # ---- a checkpoint with every avatar ----
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode post -Url "${admin_url}" -Password "${admin_pw}" -Path "/api/v1/sessions/{current}/request-save"
@@ -104,7 +112,7 @@ expect-lua x4mp.auth_save 8000 json $.name contains x4mp_ckpt_
 exec powershell -NoProfile -ExecutionPolicy Bypass -File "${sim}" -Mode save -Log "${work}\extension\logs\x4mp.log" -SaveDir "${save_dir}" -Src "${ckpt_src2}"
 lua-raw x4mp.auth_saved {"v":1,"ok":true,"game_time":4300.0}
 frame 60Hz 720
-expect-file extension/logs/x4mp.log manifest lists ${avatars} avatar(s)
+expect-file extension/logs/x4mp.log manifest lists ${avatarsafterjoin} avatar(s)
 expect-file extension/logs/x4mp.log janitor: checkpoint check: 0 stale
 expect-file extension/logs/x4mp.log ghosts_cleaned=true
 write-file ${sync}/auth.checkpoint ok
@@ -117,9 +125,9 @@ expect-file extension/logs/x4mp.log resuming the session after an extension relo
 load_save x4mp_authority_e2e
 frame 60Hz 180
 # (md-emulate answers the sector map and the team report of the new universe)
-until 60000 expect-file extension/logs/x4mp.log avatars: ${avatars} avatar record(s) restored timeout=0
-until 30000 expect-object count == ${avatars} owner=x4mp_team_1
-expect-state spawns == ${avatars}
+until 60000 expect-file extension/logs/x4mp.log avatars: ${avatarsafterjoin} avatar record(s) restored timeout=0
+until 30000 expect-object count == ${avatarsafterjoin} owner=x4mp_team_1
+expect-state spawns == ${avatarsafterjoin}
 expect-file extension/logs/x4mp.log avatars: rebound player
 expect-no-log SpawnObjectAtPos2 failed
 drop-lua x4mp.selfship
@@ -131,8 +139,8 @@ write-file ${sync}/auth.reloaded ok
 # ---- the client reloads and leaves; its avatar stays parked ----
 until 240000 expect-file ${sync}/client.done ok timeout=0
 until 30000 expect-file extension/logs/x4mp.log stays parked at its pose timeout=0
-expect-object count == ${avatars} owner=x4mp_team_1
-expect-state spawns == ${avatars}
+expect-object count == ${avatarsafterjoin} owner=x4mp_team_1
+expect-state spawns == ${avatarsafterjoin}
 expect-object "name=[MP] Pia" exists
 lua-raw x4mp.disconnect {"v":1}
 frame 60Hz 30
