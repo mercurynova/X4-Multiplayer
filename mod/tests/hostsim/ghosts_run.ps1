@@ -71,7 +71,9 @@ try {
     $data = Join-Path $tmp 'data'; New-Item -ItemType Directory -Force $data | Out-Null
     $envVars = @{ X4MP__Net__NodeTcpEndpoint = "127.0.0.1:$TcpPort"; X4MP__Net__UdpPort = "$UdpPort"; X4MP__Net__ModBuildStrict = 'false'
         X4MP__Net__MaxPlayers = '8'; X4MP__Net__MaxConnectionsPerIp = '64'
-        X4MP__Interest__NearRadiusM = '60000' }  # the bots wander +-15 km: all of them stay in the 20 Hz Near tier
+        X4MP__Interest__NearRadiusM = '60000'   # the bots wander +-15 km: all of them stay in the 20 Hz Near tier
+        # the save/manifest HTTP fallback must point at this run's Kestrel port, not the default 47790
+        X4MP__Saves__PublicHttpBaseUrl = "http://127.0.0.1:$HttpPort" }
     $server = Start-P $serverExe @('--data-dir', $data, '--port', "$HttpPort") (Join-Path $tmp 'server.out.txt') $envVars
     $url = "http://127.0.0.1:$HttpPort"
     Wait-Until 'the server' { if ($server.HasExited) { throw 'server exited' }; (Invoke-WebRequest -UseBasicParsing "$url/healthz" -TimeoutSec 2).StatusCode -eq 200 } 40 $server

@@ -41,13 +41,13 @@ expect-file extension/logs/x4mp.log no player ship was reported by MD with the c
 expect-no-log self-spawn sent
 # ... the player STANDS in the cockpit: nothing is asked, however long (M3-09: the pilot-seat edge asks, no timer, no retry limit)
 frame 60Hz 900
-expect-no-lua x4mp.auth_collect 300
+expect-no-log the player sits in the pilot seat: asking MD for the ship
 expect-no-log self-spawn sent
 # ... the player sits down: ONE ask; MD still says "none": the flow asks again after its frame back-off; the answer with the ship spawns
 seat on
 frame 60Hz 20
 expect-lua x4mp.auth_collect 3000 json $.ship_only == true
-expect-no-lua x4mp.auth_collect 150
+expect-no-lua x4mp.auth_collect 150 json $.ship_only == true
 lua-raw x4mp.auth_md {"v":1,"data":"N;"}
 frame 60Hz 90
 expect-lua x4mp.auth_collect 3000 json $.ship_only == true

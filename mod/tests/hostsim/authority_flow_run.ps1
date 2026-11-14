@@ -58,7 +58,9 @@ function New-GzSave($path, $seed) {
 function Start-FreshServer($tag) {
     $data = Join-Path $tmp "data-$tag"; New-Item -ItemType Directory -Force $data | Out-Null
     $envVars = @{ X4MP__Net__NodeTcpEndpoint = "127.0.0.1:$TcpPort"; X4MP__Net__UdpPort = "$UdpPort"; X4MP__Net__ModBuildStrict = 'false'
-        X4MP__Net__MaxPlayers = '8'; X4MP__Net__MaxConnectionsPerIp = '64'; X4MP__Net__AdminPassword = $nodeAdminPassword }
+        X4MP__Net__MaxPlayers = '8'; X4MP__Net__MaxConnectionsPerIp = '64'; X4MP__Net__AdminPassword = $nodeAdminPassword
+        # the save/manifest HTTP fallback must point at this run's Kestrel port, not the default 47790
+        X4MP__Saves__PublicHttpBaseUrl = "http://127.0.0.1:$HttpPort" }
     $log = Join-Path $tmp "server-$tag.out.txt"
     $script:server = Start-P $serverExe @('--data-dir', $data, '--port', "$HttpPort") $log $envVars
     Wait-Until 'the server' { if ($script:server.HasExited) { throw 'server exited' }; (Invoke-WebRequest -UseBasicParsing "$url/healthz" -TimeoutSec 2).StatusCode -eq 200 }

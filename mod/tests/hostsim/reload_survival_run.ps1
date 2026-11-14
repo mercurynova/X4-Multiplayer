@@ -54,7 +54,9 @@ try {
 
     $data = Join-Path $tmp 'data'; New-Item -ItemType Directory -Force $data | Out-Null
     $envVars = @{ X4MP__Net__NodeTcpEndpoint = "127.0.0.1:$TcpPort"; X4MP__Net__UdpPort = "$UdpPort"; X4MP__Net__ModBuildStrict = 'false'
-        X4MP__Net__MaxPlayers = '2'; X4MP__Net__MaxConnectionsPerIp = '64' }
+        X4MP__Net__MaxPlayers = '2'; X4MP__Net__MaxConnectionsPerIp = '64'
+        # the save/manifest HTTP fallback must point at this run's Kestrel port, not the default 47790
+        X4MP__Saves__PublicHttpBaseUrl = "http://127.0.0.1:$HttpPort" }
     $server = Start-P $serverExe @('--data-dir', $data, '--port', "$HttpPort") (Join-Path $tmp 'server.out.txt') $envVars
     $url = "http://127.0.0.1:$HttpPort"
     Wait-Until 'the server' { if ($server.HasExited) { throw 'server exited' }; (Invoke-WebRequest -UseBasicParsing "$url/healthz" -TimeoutSec 2).StatusCode -eq 200 }
@@ -99,7 +101,7 @@ try {
         if ($i -eq 0) { $lines.Add('expect-lua x4mp.load_save 8000 contains x4mp_') } else { $lines.Add('expect-lua x4mp.status 8000 json $.state == loading') }  # a resumed Loading node does not raise loadSave again
         $lines.Add($online); $lines.Add('reload'); $lines.Add('frame 60Hz 15')
     }
-    $lines.Add('set game_time 5000'); $lines.Add('load_save x4mp_reload_e2e'); $lines.Add('frame 60Hz 30')
+    $lines.Add('set game_time 5000'); $lines.Add('load_save x4mp_reload_e2e'); $lines.Add('frame 60Hz 360')  # 6 s of frames: finish_ready waits 3 s wall-clock for the server phase
     $lines.Add('expect-lua x4mp.status 8000 json $.state == ingame')
     for ($i = 0; $i -lt $nInGame; $i++) {
         $kind = $rng.Next(0, 3)

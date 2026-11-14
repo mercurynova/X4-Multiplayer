@@ -668,10 +668,24 @@ class Runner {
   }
 
   void cmd_expect_no_lua(const std::vector<std::string>& t) {
-    need(t, 2, "expect-no-lua <topic> [window_ms]");
-    const long long window = t.size() > 2 ? std::atoll(t[2].c_str()) : 1000;
+    need(t, 2, "expect-no-lua <topic> [window_ms] [json <path> [op value]]");
+    std::size_t i = 2;
+    long long window = 1000;
+    if (i < t.size() && is_number(t[i])) window = std::atoll(t[i++].c_str());
+    std::function<bool(const hostsim::LuaEvent&)> accept;
+    std::string desc;
+    if (i < t.size() && t[i] == "json") {
+      need(t, i + 2, "expect-no-lua <topic> json <path> [op value]");
+      const std::string path = t[i + 1], op = i + 2 < t.size() ? t[i + 2] : "", val = i + 3 < t.size() ? t[i + 3] : "";
+      accept = [path, op, val](const hostsim::LuaEvent& e) {
+        const auto j = json::parse(e.param, nullptr, false);
+        if (j.is_discarded()) return false;
+        return check_value(eval_path(j, path), op, val).empty();
+      };
+      desc = " with json " + path + " " + op + " " + val;
+    }
     hostsim::LuaEvent got;
-    if (host_.wait_lua(t[1], std::chrono::milliseconds(window), nullptr, &got)) throw ScriptFail("unexpected Lua event '" + t[1] + "': " + got.param.substr(0, 160));
+    if (host_.wait_lua(t[1], std::chrono::milliseconds(window), accept, &got)) throw ScriptFail("unexpected Lua event '" + t[1] + "'" + desc + ": " + got.param.substr(0, 160));
   }
 
   void cmd_expect_log(const std::vector<std::string>& t, const std::string& rest) {
