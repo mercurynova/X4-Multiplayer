@@ -35,7 +35,8 @@ $dll = Join-Path $build 'x4mp.dll'
 $serverExe = Join-Path $repo 'out\win-x64\x4mp-server.exe'
 $fakeExe = Join-Path $repo 'out\fakenode\X4MP.FakeNode.exe'
 $syncReport = Join-Path $repo 'tools\session4\sync-report.ps1'
-foreach ($f in $hostSim, $dll, $serverExe, $fakeExe, $syncReport) { if (-not (Test-Path $f)) { throw "Missing $f (build the mod, then tools\e2e.ps1 -Steps Publish)" } }
+$nearReport = Join-Path $repo 'tools\session4\spawn-near-window.ps1'
+foreach ($f in $hostSim, $dll, $serverExe, $fakeExe, $syncReport, $nearReport) { if (-not (Test-Path $f)) { throw "Missing $f (build the mod, then tools\e2e.ps1 -Steps Publish)" } }
 $authorityScript = Join-Path $PSScriptRoot 'm3_authority.hostsim'
 $clientScript = Join-Path $PSScriptRoot 'm3_client.hostsim'
 $sim = Join-Path $PSScriptRoot 'authority_sim.ps1'
@@ -174,6 +175,27 @@ try {
         Get-Content $rep | ForEach-Object { Write-Host "  $_" }
         if ($p.ExitCode -ne 0) { throw "sync-report found a FAIL for $($r.Name) (exit $($p.ExitCode); see $rep)" }
     }
+    # ---- criterion 6 (M4-23): after the join batch, no spawn may land inside the 5 km bubble. The join is one legitimate
+    #      whole-sector batch (it made 2000..4455 m spawns in the runs this runner was written against), so the window starts
+    #      one second after the last join pop and runs to the end of the log - the flight, the gate jump, the checkpoint,
+    #      the save load and the reloads all have to stay at zero.
+    $clientLog = Join-Path $cliWork 'extension\logs\x4mp.log'
+    $lastPop = $null
+    foreach ($line in Get-Content $clientLog) {
+        if ($line -match '^(?<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})Z.*spawn-near-player:') {
+            $lastPop = [datetime]::ParseExact($matches['ts'], 'yyyy-MM-dd HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture)
+        }
+    }
+    Write-Host ''
+    Write-Host '=== spawn-near-window: client Pia (criterion 6) ===' -ForegroundColor Cyan
+    $nearRep = Join-Path $tmp 'spawn-near-window.txt'
+    $nearArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $nearReport, '-Log', $clientLog)
+    if ($null -ne $lastPop) { $nearArgs += @('-From', $lastPop.AddSeconds(1).ToString('yyyy-MM-dd HH:mm:ss.fff')) }
+    $p = Start-P $psHost $nearArgs $nearRep
+    if (-not $p.WaitForExit(60000)) { & taskkill /PID $p.Id /T /F *> $null; throw 'spawn-near-window did not finish' }
+    $p.WaitForExit()
+    Get-Content $nearRep | ForEach-Object { Write-Host "  $_" }
+    if ($p.ExitCode -ne 0) { throw "criterion 6 failed: a spawn-near-player pop after the join batch (exit $($p.ExitCode); see $nearRep)" }
     $exit = 0
 }
 catch { Write-Host "M3 PAIR E2E FAILED: $($_.Exception.Message)" -ForegroundColor Red }

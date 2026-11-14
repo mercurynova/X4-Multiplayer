@@ -331,6 +331,29 @@ if (-not `$r.File) { throw 'no DLC file' }
         Expect-Kit (Run-Kit 'sync-report.ps1' @('-Zip', "`"$zipPath`"", '-Strict')) 'sync-report -Zip' 0 @('Wing01', '0 FAIL')
     }
 
+    Step 'spawn-near-window.ps1: the join batch counts, a window after it does not (criterion 6, M4-23)' {
+        $near = Join-Path $tmp 'near.log'
+        $rows = New-Object System.Collections.Generic.List[string]
+        $base = [datetime]::new(2026, 10, 4, 12, 0, 0, [DateTimeKind]::Utc)
+        $inv = [Globalization.CultureInfo]::InvariantCulture
+        for ($s = 5; $s -le 40; $s += 5) {
+            $ts = $base.AddSeconds($s).ToString('yyyy-MM-dd HH:mm:ss.fff', $inv) + 'Z'
+            $n = if ($s -ge 10) { 3 } else { 0 }
+            $rows.Add("$ts [INFO] [ghost] [sync] ghosts health: rep_bad=0 spawn_failed=0 unmapped=0 unresolved=0 spawn_near=$n")
+            if ($s -eq 10) {
+                foreach ($i in 1..3) { $rows.Add("$ts [INFO] [ghost] spawn-near-player: net=$i sector=1 distance=$($i * 1000) m macro=ship_arg_s_fighter_01_a_macro") }
+            }
+            if ($s -eq 20) { $rows.Add("$ts [INFO] [client] selfship: superhighway entry signalled by zone at sector 1") }
+        }
+        [IO.File]::WriteAllLines($near, $rows)
+        $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$near`"", '-From', '12:00:15', '-To', '12:00:35')
+        Expect-Kit $r 'spawn-near-window transit window' 0 @('Baseline: spawn_near=3', 'Delta:\s+0 pop', 'Pops inside the window: 0', 'superhighway entry', 'PASS\s+spawn-near-player pops inside the window: 0')
+        $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$near`"")
+        Expect-Kit $r 'spawn-near-window whole log (the join counts)' 1 @('Delta:\s+3 pop', 'FAIL\s+spawn-near-player pops inside the window: 3')
+        $r = Run-Kit 'spawn-near-window.ps1' @('-Log', "`"$(Join-Path $tmp 'nope.log')`"")
+        Expect-Kit $r 'spawn-near-window: missing log' 1 @('no such log')
+    }
+
     Step 'collect-logs.ps1, product mode: mod lines, sync report, mod files, no launch.json' {
         New-Item -ItemType Directory -Force (Join-Path $modCfg 'logs') | Out-Null
         New-SyntheticModLog (Join-Path $modCfg 'logs\x4mp.log')
