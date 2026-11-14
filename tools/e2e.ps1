@@ -61,6 +61,7 @@
 .EXAMPLE
   pwsh tools/e2e.ps1                          # everything this OS can run
   powershell -NoProfile -File tools/e2e.ps1 -Steps Swarm -SkipPublish -SwarmSeconds 30
+  powershell -NoProfile -File tools/e2e.ps1 -Steps HostSimM3 -MaxModP95Ms 1.0   # a busy desktop: relax only the perf guard
 #>
 [CmdletBinding()]
 param(
@@ -78,7 +79,9 @@ param(
   [string]$HostSimExe,       # override the x4mp-hostsim path
   [string]$HostSimDll,       # override the x4mp.dll hostsim loads
   [string]$HostSimScript,    # override the hostsim script (default mod/tests/hostsim/server_smoke.hostsim)
-  [int]$UploadKillRuns = 50  # runs of the live authority upload kill test (UploadKill step)
+  [int]$UploadKillRuns = 50, # runs of the live authority upload kill test (UploadKill step)
+  [double]$MaxModP95Ms = 0.5 # HostSimM3 perf guard, handed to m3_pair_run.ps1: the product target is 0.2 ms, 0.5 is the CI
+                             # regression guard, and a busier desktop needs the documented relaxation (see .opencode/status.md)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -212,10 +215,11 @@ function Find-Built([string]$tree, [string]$file) {
 
 # Runs one of the standalone mod/tests/hostsim/*_run.ps1 scenarios (each starts its own server on its own ports and kills
 # everything it started). Its output goes to the log dir; the temp tree it prints is copied there when it fails.
-function Invoke-HostSimScript([string]$name, [string]$scriptFile, [int]$timeoutSec) {
+function Invoke-HostSimScript([string]$name, [string]$scriptFile, [int]$timeoutSec, [string[]]$ExtraArgs = @()) {
   if (-not $isWin) { throw "$name is Windows-only" }
   $null = Ensure-ModBuild
-  $p = Start-Proc $name $psHost @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repo $scriptFile))
+  $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repo $scriptFile)) + $ExtraArgs
+  $p = Start-Proc $name $psHost $argList
   if (-not $p.WaitForExit($timeoutSec * 1000)) {
     Stop-Tree $p
     # show how far it got (M3-17): without this a timed-out step leaves no trace of where it hung
@@ -402,7 +406,7 @@ if ($Steps -contains 'HostSimAvatars') {
 
 if ($Steps -contains 'HostSimM3') {
   Invoke-Step 'HostSimM3 (two real x4mp.dll: authority + client, 6 bots: takeover, ghosts, chat, gate jump, checkpoint, rebind, reloads; perf / bandwidth / log rate)' {
-    Invoke-HostSimScript 'hostsimm3' 'mod/tests/hostsim/m3_pair_run.ps1' 480
+    Invoke-HostSimScript 'hostsimm3' 'mod/tests/hostsim/m3_pair_run.ps1' 480 @('-MaxModP95Ms', "$MaxModP95Ms")
   }
 }
 
