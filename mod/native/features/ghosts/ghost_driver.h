@@ -63,6 +63,10 @@ class IGhostWorld {
   virtual ~IGhostWorld() = default;
   // Local sector id for a wire sector index; 0 = not mapped (yet).
   virtual std::uint64_t sector_id(std::uint16_t index) = 0;
+  // M4-23 / criterion 11: called once per frame before anything reads a ghost or asks for a distance. The observer pose is the same for
+  // every ghost of a frame, so a world may snapshot it here instead of reading it per ghost (three native calls each, measured as most of
+  // the ghost feature's 60 us in a 185 us frame with nine ghosts). Default: nothing.
+  virtual void begin_frame(std::int64_t /*now_us*/) {}
   // 0 = failed. The ghost must already be inert-able; the driver calls make_inert right after.
   virtual std::uint64_t spawn(std::string_view macro, std::uint64_t sector, const Pose& pose, std::string_view owner) = 0;
   virtual void make_inert(std::uint64_t id) = 0;
@@ -157,6 +161,11 @@ struct GhostConfig {
   std::int64_t leave_grace_us = 10'000'000;
   std::int64_t hint_interval_us = 200'000;           // velocity hint 5 Hz (S13.2 mode c)
   std::int64_t zero_hint_interval_us = 2'000'000;    // a stationary ghost gets its zero velocity re-sent this often
+  // Criterion 11: a raise into Lua is a full engine event dispatch (~60 us), and the 5 Hz hint raise was the largest single spike on the
+  // frame. The batch is now sent only when the velocity actually changed by more than hint_change_epsilon_mps, and re-asserted (in case
+  // the engine forgot) every hint_reassert_us. Straight flight therefore raises ~once per re-assert instead of 5 times a second.
+  std::int64_t hint_reassert_us = 2'000'000;
+  double hint_change_epsilon_mps = 0.5;
   std::int64_t parked_set_interval_us = 250'000;     // unchanged pose: re-assert this often (puts a pushed ghost back)
   std::int64_t inert_interval_us = 5'000'000;        // ActivateObject(false) again (m3-plan 4.2)
   bool inert_once = false;                           // M3-28 diag.avatars_inert_once: ActivateObject(false) only right after the spawn, never re-asserted
@@ -305,7 +314,6 @@ class GhostDriver {
   [[nodiscard]] std::size_t size() const noexcept { return ghosts_.size(); }
   [[nodiscard]] bool has(std::uint32_t net_id) const noexcept { return find(net_id) != nullptr; }
   [[nodiscard]] const DriverCounters& counters() const noexcept { return counters_; }
-  // One "[sync] player=.. net=.. ..." line per tracked ghost with samples; resets the stats windows.
   [[nodiscard]] std::vector<std::string> take_sync_lines();
   [[nodiscard]] const GhostConfig& config() const noexcept { return cfg_; }
 
@@ -330,6 +338,10 @@ class GhostDriver {
     int dress_retries = 0;
     bool dressed_ok = false;
     bool hint_was_zero = false;
+    Vec3 hint_sent{};                // the velocity last handed to the engine (criterion 11: only re-raise on a real change)
+    bool have_hint_sent = false;
+    Vec3 hint_est{};                 // smoothed derivative of the rendered path (criterion 11: the raw one jitters by m/s)
+    bool have_hint_est = false;
     std::int64_t last_guard_us = 0, guard_hot_until_us = 0, last_guard_log_us = 0;  // M3-34 engine guard
     std::uint16_t guard_hits = 0;          // engine-moved reads in a row; guard_giveup_hits stops the loop
     std::int64_t guard_skip_until_us = 0;  // this ghost is not read back until then

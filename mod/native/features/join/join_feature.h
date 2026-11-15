@@ -175,6 +175,8 @@ class JoinFeature final : public host::IFeature {
   // status throttle (x4mp.status at most 2 Hz)
   std::string last_status_;
   Clock::time_point last_status_at_{};
+  Clock::time_point last_status_check_at_{};  // the 10 Hz gate in publish_status, see kStatusCheckEvery
+  std::vector<session::SessionEvent> session_events_;  // reused by pump_session: no per-frame vector allocation
   bool force_status_ = false;
   std::string mod_refusal_json_;  // M2-X3: x4mp.mod_refusal of the last ExtensionsMismatch (re-sent with every forced status)
   std::string mod_policy_json_;   // M2-X3: x4mp.mod_policy (session mod list) of the last Welcome / ModPolicyChanged

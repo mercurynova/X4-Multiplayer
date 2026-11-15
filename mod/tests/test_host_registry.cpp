@@ -1,8 +1,10 @@
 #include <algorithm>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -85,6 +87,18 @@ class ScriptedFeature final : public IFeature {
   std::string name_;
   Counters& c_;
 };
+
+// A feature whose on_frame really costs something: the window cost has to be measured, not guessed.
+class SlowFeature final : public IFeature {
+ public:
+  SlowFeature(std::string name, std::chrono::microseconds cost) : name_(std::move(name)), cost_(cost) {}
+  [[nodiscard]] std::string_view name() const noexcept override { return name_; }
+  void on_frame(HostContext&, const FrameInfo&) override { std::this_thread::sleep_for(cost_); }
+
+ private:
+  std::string name_;
+  std::chrono::microseconds cost_;
+};
 }  // namespace
 
 TEST_CASE("registry drives every hook in registration order", "[host][registry]") {
@@ -116,6 +130,40 @@ TEST_CASE("registry drives every hook in registration order", "[host][registry]"
   REQUIRE(st.size() == 2);
   CHECK(st[0].name == "a");
   CHECK(st[0].frame_calls == 2);
+}
+
+TEST_CASE("take_frame_cost names who spent the frame, then starts a new window", "[host][registry]") {
+  Rig rig;
+  FeatureRegistry reg;
+  reg.add(std::make_unique<SlowFeature>("slow", std::chrono::milliseconds(3)));
+  reg.add(std::make_unique<SlowFeature>("fast", std::chrono::microseconds(0)));
+  reg.frame_all(rig.ctx, FrameInfo{});
+  reg.frame_all(rig.ctx, FrameInfo{});
+
+  const auto cost = reg.take_frame_cost();
+  REQUIRE(cost.size() == 2);
+  CHECK(cost[0].name == "slow");  // sorted by window total, so the expensive feature leads
+  CHECK(cost[0].calls == 2);
+  CHECK(cost[0].avg_us() >= 2500.0);  // a real 3 ms sleep per call; no exact value on a busy machine
+  CHECK(cost[0].max_us >= cost[0].avg_us());
+  CHECK(cost[1].name == "fast");
+  CHECK(cost[1].total_us < cost[0].total_us);
+
+  // Taking the window clears it: the next take reports no calls until the registry runs another frame.
+  const auto cleared = reg.take_frame_cost();
+  REQUIRE(cleared.size() == 2);
+  CHECK(cleared[0].calls == 0);
+  CHECK(cleared[0].total_us == 0.0);
+
+  reg.frame_all(rig.ctx, FrameInfo{});
+  const auto one = reg.take_frame_cost();
+  REQUIRE(one.size() == 2);
+  CHECK(one[0].name == "slow");
+  CHECK(one[0].calls == 1);
+
+  // The lifetime counters the status JSON uses are untouched by the window.
+  const auto st = reg.stats();
+  CHECK(st[0].frame_calls == 3);
 }
 
 TEST_CASE("a feature is disabled after 3 throws; others keep running", "[host][registry]") {

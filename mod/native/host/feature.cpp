@@ -43,6 +43,10 @@ void FeatureRegistry::guarded(HostContext& ctx, Entry& e, const char* hook, bool
     ++e.stats.frame_calls;
     e.stats.frame_total_ns += dt;
     e.stats.frame_max_ns = std::max(e.stats.frame_max_ns, dt);
+    ++e.win_calls;
+    e.win_total_ns += dt;
+    e.win_max_ns = std::max(e.win_max_ns, dt);
+    e.last_ns = dt;
   }
 }
 
@@ -55,9 +59,27 @@ void FeatureRegistry::init_all(HostContext& ctx) {
 
 void FeatureRegistry::frame_all(HostContext& ctx, const FrameInfo& info) {
   for (auto& e : entries_) {
-    if (e.stats.state == FeatureState::Disabled) continue;
+    if (e.stats.state == FeatureState::Disabled) {
+      e.last_ns = 0;
+      continue;
+    }
+    e.last_ns = 0;  // guarded fills it in; a feature that is not called must not keep last frame's value
     guarded(ctx, e, "on_frame", false, true, [&](IFeature& f) { f.on_frame(ctx, info); });
   }
+  // Criterion 11 measures a p95, so the interesting question is not the average frame but what is IN the slow ones. Record how much
+  // each feature spent in exactly those frames; a feature that is cheap per average can still own the tail (and vice versa).
+  std::int64_t sum = 0;
+  for (const auto& e : entries_) sum += e.last_ns;
+  if (sum > slow_frame_threshold_ns) {
+    ++over_frames_;
+    for (auto& e : entries_) e.win_over_ns += e.last_ns;
+  }
+}
+
+std::uint64_t FeatureRegistry::take_over_frames() noexcept {
+  const std::uint64_t n = over_frames_;
+  over_frames_ = 0;
+  return n;
 }
 
 void FeatureRegistry::game_loaded_all(HostContext& ctx) {
@@ -103,6 +125,30 @@ std::vector<FeatureStats> FeatureRegistry::stats() const {
   std::vector<FeatureStats> out;
   out.reserve(entries_.size());
   for (const auto& e : entries_) out.push_back(e.stats);
+  return out;
+}
+
+std::vector<FeatureFrameCost> FeatureRegistry::take_frame_cost() {
+  std::vector<FeatureFrameCost> out;
+  out.reserve(entries_.size());
+  for (auto& e : entries_) {
+    FeatureFrameCost c;
+    c.name = e.stats.name;
+    c.calls = e.win_calls;
+    c.total_us = static_cast<double>(e.win_total_ns) / 1000.0;
+    c.max_us = static_cast<double>(e.win_max_ns) / 1000.0;
+    c.over_us = static_cast<double>(e.win_over_ns) / 1000.0;
+    e.win_calls = 0;
+    e.win_total_ns = 0;
+    e.win_max_ns = 0;
+    e.win_over_ns = 0;
+    out.push_back(std::move(c));
+  }
+  // Biggest total first; a stable name tie-break keeps the line comparable between windows.
+  std::ranges::sort(out, [](const FeatureFrameCost& a, const FeatureFrameCost& b) {
+    if (a.total_us != b.total_us) return a.total_us > b.total_us;
+    return a.name < b.name;
+  });
   return out;
 }
 

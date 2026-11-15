@@ -130,7 +130,7 @@ dress request, driven from the bot's `PlayerState` with velocity hints, parked o
 ### Ghost runs (M3-10, CI step `HostSimGhosts`)
 `mod/tests/hostsim/ghosts_run.ps1` (ports 47965-47967): the published server, a FakeNode authority on the synthetic galaxy file, two FakeNode bots
 (`--avatars`, wandering; one stays, one leaves after 80 s) and ONE hostsim process with the real DLL as the client Pia (`ghosts_scenario.hostsim`).
-It checks spawn + dress + inert + radar + min hull, the 5 Hz velocity hints, `expect-ghost` path error < 2 m from the mod's own `[sync]` lines,
+It checks spawn + dress + inert + radar + min hull, the velocity hints (sent on change, at most 5 Hz; the value is a ~150 ms smoothed derivative of the rendered path), `expect-ghost` path error < 2 m from the mod's own `[sync]` lines,
 a pushed ghost put back, the leaver relabelled `(offline)`, and N reloads (default 20) with 0 leaks / 0 duplicates. The server runs with
 `Interest.NearRadiusM = 60000` so all bots stay in the 20 Hz Near tier. Why the bots are started first: the string table reaches a node only in
 its join catch-up, and a bot that joins meanwhile is not in it (see m3-plan section 8, M3-10).

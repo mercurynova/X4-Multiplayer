@@ -52,6 +52,7 @@ using std::chrono::seconds;
 
 constexpr auto kStatusMinInterval = milliseconds(500);   // x4mp.status at most 2 Hz
 constexpr auto kStatusHeartbeat = milliseconds(2000);    // ping_ms refresh while nothing else changes
+constexpr auto kStatusCheckEvery = milliseconds(100);    // how often the (expensive) status JSON is rebuilt at all
 constexpr auto kSaveListTimeout = seconds(60);
 constexpr auto kLoadFallbackAfter = seconds(15);         // loadSave raised but this DLL is still alive: ask Lua for LoadGame
 constexpr const char* kStateKey = "state";               // stash "join.state"
@@ -711,10 +712,11 @@ void JoinFeature::decide_after_reload(host::HostContext& ctx) {
 
 void JoinFeature::pump_session(host::HostContext& ctx) {
   if (!session_) return;
-  std::vector<session::SessionEvent> events;
-  session_->poll(events);
+  // One vector for the whole session: this runs 60+ times a second and the events are consumed in the same frame.
+  session_events_.clear();
+  session_->poll(session_events_);
   bool end_session = false;
-  for (const auto& e : events) {
+  for (const auto& e : session_events_) {
     handle_session_event(ctx, e);
     if (stage_ == Stage::Rejected) end_session = true;
   }
@@ -821,29 +823,90 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
       save_ = e.save;
       handle_save_ready(ctx);
       break;
-    case K::Frame:
-      // M3-06: ChatMessage and RosterUpdate go to the chat feature (features/chat), which shows them in the chat window and the player table.
-      chat::chat_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
-      teams::team_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);  // M3-08
-      avatars::avatar_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);  // M3-11
-      // M3-10: player-ship entity messages and Replication go to the ghost feature (features/ghosts); it ignores everything else.
-      ghosts::ghost_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
-      // M3b: OnFootState / PresenceRoster / PlayerAppearance / PlayerInteraction go to the on-foot hub; it ignores everything else.
-      onfoot::onfoot_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload), session_ ? session_->welcome().player_id : 0);
-      // M5-16: EntityCargo for a station (and for this node's own ship) goes to the economy hub; it ignores everything else.
-      economy::economy_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload));
-      // M5-23: WalletUpdate goes to the wallet hub, which converges this node's local money to the ledger's balance for its own
-      // spendable wallet (wallet:<player>, or pool:<team> in Shared mode). It ignores everything else.
-      wallet::wallet_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload),
-                                            session_ ? session_->welcome().player_id : 0,
-                                            session_ ? session_->welcome().team_id : 0);
-      // M5-29: EconomyResult / LoanStatus / TradeStatus / TradeResult go to the economy-client hub, which keeps the rows the
-      // screen shows and the last result; it ignores everything else.
-      economy_client::economy_client_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload));
-      // M5-19: the authority's IntentResult for a build binds the station id this node already has.
-      builds::builds_hub().on_frame_message(static_cast<X4MP::Proto::MsgType>(e.type), std::span<const std::uint8_t>(e.payload));
-      // T1.6: GalaxyMetadata (checkpoint fallback), MapSnapshot and MapDelta go to the strategic map hub; it ignores everything else.
-      map::map_hub().on_frame_message(e.type, std::span<const std::uint8_t>(e.payload));
+    case K::Frame: {
+      const std::uint16_t self_id = session_ ? session_->welcome().player_id : 0;
+      const std::uint16_t self_team = session_ ? session_->welcome().team_id : 0;
+      const std::span<const std::uint8_t> body(e.payload);
+      const auto msg = static_cast<X4MP::Proto::MsgType>(e.type);
+      // Criterion 11: every Frame used to be handed to ten hubs in a row, each of which type-switched and returned for the nine that
+      // were not its own. A 7-player replication stream is several messages per frame, and that overhead showed up in the frame's p95
+      // tail (join 44-57 us in the slow frames against 29-31 us on average). Route by message type to the one or two hubs that
+      // actually handle it; a type this list does not know keeps the old "every hub sees it" behaviour below, so nothing is dropped.
+      // M3-06 chat, M3-08 teams, M3-11 avatars, M3-10 ghosts, M3b onfoot, M5-16 economy, M5-23 wallet, M5-29 economy client,
+      // M5-19 builds, T1.6 map.
+      bool routed = true;
+      switch (msg) {
+        case X4MP::Proto::MsgType::RosterUpdate:  // the chat player table and the avatar rows (the join roster is kept below)
+          chat::chat_hub().on_frame_message(e.type, body, self_id);
+          avatars::avatar_hub().on_frame_message(e.type, body, self_id);
+          break;
+        case X4MP::Proto::MsgType::ServerSettingsUpdate:
+        case X4MP::Proto::MsgType::PlayerShip:
+        case X4MP::Proto::MsgType::PlayerState:
+          avatars::avatar_hub().on_frame_message(e.type, body, self_id);
+          break;
+        case X4MP::Proto::MsgType::EntitySpawn:
+        case X4MP::Proto::MsgType::EntityDespawn:  // both hubs want these: avatar rows and ghost records
+          avatars::avatar_hub().on_frame_message(e.type, body, self_id);
+          ghosts::ghost_hub().on_frame_message(e.type, body, self_id);
+          break;
+        case X4MP::Proto::MsgType::StringTableAdd:
+        case X4MP::Proto::MsgType::EntityChange:
+        case X4MP::Proto::MsgType::Replication:
+        case X4MP::Proto::MsgType::SectorComplete:
+        case X4MP::Proto::MsgType::InterestUpdate:
+          ghosts::ghost_hub().on_frame_message(e.type, body, self_id);
+          break;
+        case X4MP::Proto::MsgType::EntityCargo:
+          economy::economy_hub().on_frame_message(e.type, body);
+          break;
+        case X4MP::Proto::MsgType::WalletUpdate:
+          wallet::wallet_hub().on_frame_message(e.type, body, self_id, self_team);
+          break;
+        case X4MP::Proto::MsgType::EconomyResult:
+        case X4MP::Proto::MsgType::LoanStatus:
+        case X4MP::Proto::MsgType::TradeStatus:
+        case X4MP::Proto::MsgType::TradeResult:
+        case X4MP::Proto::MsgType::LedgerPage:
+          economy_client::economy_client_hub().on_frame_message(e.type, body);
+          break;
+        case X4MP::Proto::MsgType::IntentResult:
+          builds::builds_hub().on_frame_message(msg, body);
+          break;
+        case X4MP::Proto::MsgType::GalaxyMetadata:
+        case X4MP::Proto::MsgType::MapSnapshot:
+        case X4MP::Proto::MsgType::MapDelta:
+          map::map_hub().on_frame_message(e.type, body);
+          break;
+        case X4MP::Proto::MsgType::OnFootState:
+        case X4MP::Proto::MsgType::PlayerAppearance:
+        case X4MP::Proto::MsgType::PresenceRoster:
+        case X4MP::Proto::MsgType::PlayerInteraction:
+          onfoot::onfoot_hub().on_frame_message(e.type, body, self_id);
+          break;
+        case X4MP::Proto::MsgType::ChatMessage:
+          chat::chat_hub().on_frame_message(e.type, body, self_id);
+          break;
+        case X4MP::Proto::MsgType::TeamInvite:
+        case X4MP::Proto::MsgType::TeamRequestResult:
+          teams::team_hub().on_frame_message(e.type, body, self_id);
+          break;
+        default:  // an admin verb, a newer message: hand it to every hub the way this branch always did
+          routed = false;
+          break;
+      }
+      if (!routed) {
+        chat::chat_hub().on_frame_message(e.type, body, self_id);
+        teams::team_hub().on_frame_message(e.type, body, self_id);
+        avatars::avatar_hub().on_frame_message(e.type, body, self_id);
+        ghosts::ghost_hub().on_frame_message(e.type, body, self_id);
+        onfoot::onfoot_hub().on_frame_message(e.type, body, self_id);
+        economy::economy_hub().on_frame_message(e.type, body);
+        wallet::wallet_hub().on_frame_message(e.type, body, self_id, self_team);
+        economy_client::economy_client_hub().on_frame_message(e.type, body);
+        builds::builds_hub().on_frame_message(msg, body);
+        map::map_hub().on_frame_message(e.type, body);
+      }
       if (e.type == static_cast<std::uint16_t>(X4MP::Proto::MsgType::ModPolicyChanged)) {  // M2-X3: the admin edited the mod list
         mod_policy_json_ = join::mod_policy_json_from_changed(std::span<const std::uint8_t>(e.payload));
         if (!mod_policy_json_.empty()) raise_lua(ctx, "x4mp.mod_policy", mod_policy_json_);
@@ -884,7 +947,7 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
           }
         }
       }
-      break;
+    }
     default: break;  // ControlReplayed / ControlDropped: nothing to do
   }
 }
@@ -1198,10 +1261,15 @@ void JoinFeature::raise_lua(host::HostContext& ctx, const char* event, const std
 }
 
 void JoinFeature::publish_status(host::HostContext& ctx, bool force) {
-  const std::string status = build_status();
   const auto now = Clock::now();
   // x4mp.status is capped at 2 Hz; only an explicit question from Lua (ui_ready / request_status) is answered at once.
   const bool answer = force || force_status_;
+  // The status JSON names every stage field and every mod, and this runs on the frame thread: rebuilding it 140 times a second only to
+  // compare it with the previous one is frame time spent on nothing (criterion 11 measured it). Look at it ten times a second instead,
+  // which is still far above the 2 Hz the answer itself is allowed at.
+  if (!answer && now - last_status_check_at_ < kStatusCheckEvery) return;
+  last_status_check_at_ = now;
+  const std::string status = build_status();
   if (!answer) {
     const bool changed = status != last_status_;
     const auto since = now - last_status_at_;

@@ -249,6 +249,9 @@ struct Session::Impl {
 
   // Main-thread state.
   bool started = false;
+  // Criterion 11: poll() runs once per frame and used to allocate this vector every time. The events are consumed in the same
+  // call, so one buffer is enough.
+  std::vector<net::InboundEvent> inbox_buf;
   bool was_in_session = false;
   // One download at a time. A job carries the HTTP url the server offered (empty = in-band only); a refused or
   // unreachable HTTP fetch falls back to the same .part file over the in-band lane.
@@ -565,9 +568,9 @@ void Session::poll(std::vector<SessionEvent>& out) {
     out.push_back(std::move(ev));
   };
 
-  std::vector<net::InboundEvent> events;
-  im.net.poll_inbox(events);
-  for (auto& e : events) {
+  im.inbox_buf.clear();
+  im.net.poll_inbox(im.inbox_buf);
+  for (auto& e : im.inbox_buf) {
     using Kind = net::InboundEvent::Kind;
     if (e.kind == Kind::Connected) {
       transition(State::Handshaking);

@@ -644,7 +644,7 @@ it was when its player went offline.
   moved clear of stations by MD `get_safe_pos` (5 s, then the wanted spot); native `SpawnObjectAtPos2` under `x4mp_team_<slot>` + `ActivateObject(false)`; MD "dress": name
   `[MP] <player>`, minimum hull 100, forced radar, known, the **basic early-game loadout** (`Avatars.StarterLoadout`, never the spawn default); then `EntitySpawn{origin=PlayerShip,
   owner_player, owner_team, controller_player, name, idcode}`. A second `PlayerShip` from the same player gets the same ship and `net_id`.
-- **Driving**: the relayed `PlayerState` (with the server-derived velocity) goes through the shared `core/ghost` interpolator; `SetObjectSectorPos` every frame, a 5 Hz velocity hint.
+- **Driving**: the relayed `PlayerState` (with the server-derived velocity) goes through the shared `core/ghost` interpolator; `SetObjectSectorPos` every frame, a velocity hint on change (at most 5 Hz, re-asserted every 2 s; the value is a ~150 ms smoothed derivative of the rendered path, so interpolation jitter is not a change).
   **Parking**: roster `removed` -> `EntityChange{Controller=0}`, the ship stays, snapped back every second if something pushes it; `online=false` (resume grace) only suspends driving.
 - **Persistence and the binder**: identity records (player, team, net id, name, macro, idcode, owner, sector macro, pose) live in the stash and in `avatar-records.txt` next to the
   config; at every init the binder matches them to the `x4mp_team_*` ships of the loaded universe (idcode + name + owner, nearest wins), respawns only what nothing matches, and the
@@ -870,7 +870,7 @@ universe keeps running unsynced next to the shared player ships.
   "Sit in the pilot seat to take over your ship" shows. The record survives `/reloadui` in the stash (`avatars.takeover`). `PlayerState` and ghost spawning are held until the guard.
 - **Ghosts** (`features/ghosts`, shared `core/ghost`): `Replication`/`EntitySpawn`/`EntityChange`/`EntityDespawn` of player ships -> native spawn under the team faction, inert, forced radar,
   MD dress (`[MP] <name>`, `(offline)` while parked, minimum hull, known), per-frame `SetObjectSectorPos` from a Hermite interpolator with a render clock of the stream's own base
-  (`now - bias`, min of arrival-minus-reference over 128 messages), a 5 Hz velocity hint, hide (`SafeRemove`, record kept) / show on `Hidden` / `DockedInside`, sector changes as ONE
+  (`now - bias`, min of arrival-minus-reference over 128 messages), a velocity hint on change (at most 5 Hz, re-asserted every 2 s; a ~150 ms smoothed derivative of the rendered path, so jitter is not a change), hide (`SafeRemove`, record kept) / show on `Hidden` / `DockedInside`, sector changes as ONE
   placement into the new sector, stash persistence and adoption after `/reloadui` (a stashed id is trusted only with the same idcode and an `[MP] ` name; otherwise found again by idcode
   among the team ships), `[sync]` lines every 5 s. Orientation signs live in one place (`GhostsApi::to_pos_rot`: `kYawSign`/`kPitchSign`/`kRollSign`).
 - **Janitor** (`features/janitor`): at the first real universe-ready after a load a node removes `[MP] ` leftovers of `player` and the team factions (never ghosts, avatars, the takeover

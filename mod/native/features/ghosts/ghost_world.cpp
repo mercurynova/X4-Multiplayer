@@ -97,23 +97,31 @@ FactionPresence GameGhostWorld::faction(std::string_view faction) {
   }
 }
 
-bool GameGhostWorld::local_ship_within(std::uint64_t sector, const Vec3& pos, double radius) {
+void GameGhostWorld::begin_frame(std::int64_t /*now_us*/) { obs_valid_ = false; }
+
+void GameGhostWorld::observe() {
+  obs_valid_ = true;
+  obs_sector_ = 0;
+  obs_pos_.reset();
   const std::uint64_t ship = api_.local_ship();
-  if (ship == 0 || api_.sector_of(ship) != sector) return false;
-  const auto p = api_.pose(ship);
-  if (!p) return false;
-  const double dx = p->x - pos.x, dy = p->y - pos.y, dz = p->z - pos.z;
+  if (ship == 0) return;
+  obs_sector_ = api_.sector_of(ship);
+  if (const auto p = api_.pose(ship)) obs_pos_ = Vec3{p->x, p->y, p->z};
+}
+
+bool GameGhostWorld::local_ship_within(std::uint64_t sector, const Vec3& pos, double radius) {
+  if (!obs_valid_) observe();
+  if (obs_sector_ != sector || !obs_pos_) return false;
+  const double dx = obs_pos_->x - pos.x, dy = obs_pos_->y - pos.y, dz = obs_pos_->z - pos.z;
   return std::sqrt(dx * dx + dy * dy + dz * dz) <= radius;
 }
 
 double GameGhostWorld::player_distance(std::uint64_t sector, const Vec3& pos) {
   // M4-23: the ghost driver counts a spawn as a pop only when this returns a positive distance inside the bubble. 0 means "cannot say":
   // the player has no ship yet, the ghost is in another sector, or the pose is unreadable. Never guess a distance.
-  const std::uint64_t ship = api_.local_ship();
-  if (ship == 0 || api_.sector_of(ship) != sector) return 0.0;
-  const auto p = api_.pose(ship);
-  if (!p) return 0.0;
-  const double dx = p->x - pos.x, dy = p->y - pos.y, dz = p->z - pos.z;
+  if (!obs_valid_) observe();
+  if (obs_sector_ != sector || !obs_pos_) return 0.0;
+  const double dx = obs_pos_->x - pos.x, dy = obs_pos_->y - pos.y, dz = obs_pos_->z - pos.z;
   return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 

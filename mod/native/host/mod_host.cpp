@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <format>
 #include <sstream>
+#include <string>
 
 #include "core/version/version.h"
 #include "game/main_thread.h"
@@ -208,6 +210,9 @@ void ModHost::on_frame() noexcept {
       fi.game_paused = game_.game_paused();
     }
 
+    // Refreshed every frame on purpose: this is the id set the mod must never remove (the local player ship and its containers), and
+    // a ship the player just boarded has to be protected in the SAME frame an interested feature could remove it (M4-13). A rate gate
+    // was tried for criterion 11 and reverted - host.PlayerGuard pins the per-frame contract, and the saving was a few microseconds.
     if (gates_.universe_ready) guard_ids_ = game::refresh_player_guard(game_);
     registry_.frame_all(*ctx_, fi);
 
@@ -233,6 +238,50 @@ void ModHost::maybe_log_perf(std::int64_t now_ns) {
             registry_.disabled_count(), guard_ids_, game::blocked_removal_count(), game::main_thread().violations(),
             log_->logger().dropped_lines());
   budget_->reset_window();
+
+  // Criterion 11 is a p95, so a lifetime average cannot say who owns the tail: name the top features of THIS window next to the frame
+  // line (`name=avg/peak` in microseconds of on_frame per frame). `rest` is the per-frame sum of everything not listed, so the numbers
+  // still add up to the whole registry.
+  const auto costs = registry_.take_frame_cost();
+  std::uint64_t frames = 0;
+  for (const auto& c : costs) frames = std::max(frames, c.calls);
+  if (frames != 0) {
+    std::string top;
+    double rest_us = 0.0;
+    double all_us = 0.0;
+    std::size_t shown = 0;
+    for (const auto& c : costs) {
+      if (c.calls == 0) continue;
+      all_us += c.total_us / static_cast<double>(frames);
+      if (shown < 10) {
+        if (!top.empty()) top += ' ';
+        top += std::format("{}={:.0f}/{:.0f}", c.name, c.avg_us(), c.max_us);
+        ++shown;
+      } else {
+        rest_us += c.total_us / static_cast<double>(frames);
+      }
+    }
+    // `sum` is every feature together; the frame line's `avg` minus this is what the host itself spends per frame (guard refresh, clock
+    // reads, the budget bookkeeping), so the two lines together account for the whole frame.
+    X4MP_CLOG(*log_, Cat::Perf, Level::Info, "features: frames={} on_frame top: {} rest={:.0f}us sum={:.0f}us", frames, top, rest_us, all_us);
+
+    // The p95 tail, named: the same features as they appear in the frames that were over the threshold, in microseconds per such frame.
+    // If this list is flat next to `top`, the tail is not a feature's work at all (scheduler preemption of the frame thread) and no
+    // feature can be blamed for it.
+    const std::uint64_t over = registry_.take_over_frames();
+    if (over != 0) {
+      std::string slow;
+      std::size_t slow_shown = 0;
+      for (const auto& c : costs) {
+        if (c.over_us <= 0.0 || slow_shown >= 4) continue;
+        if (!slow.empty()) slow += ' ';
+        slow += std::format("{}={:.0f}", c.name, c.over_us / static_cast<double>(over));
+        ++slow_shown;
+      }
+      X4MP_CLOG(*log_, Cat::Perf, Level::Info, "features: slow frames={}/{} over {}us: {}", over, frames,
+                FeatureRegistry::slow_frame_threshold_ns / 1000, slow);
+    }
+  }
 }
 
 // Session-2 finding B7: on_game_loaded can be delivered on X4Native's native thread. The gates and the features' hooks must only

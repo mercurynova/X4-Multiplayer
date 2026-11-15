@@ -1,11 +1,13 @@
 #include "features/server/server_feature.h"
 
+#include <chrono>
 #include <filesystem>
 #include <utility>
 
 #include <nlohmann/json.hpp>
 
 #include "features/server/server_process.h"
+#include "host/frame_budget.h"
 #include "host/host_log.h"
 
 namespace x4mp::features::server {
@@ -23,6 +25,8 @@ constexpr double kPollEveryS = 0.25;
 // A server the game did not start (the launcher's sidecar) is found by asking its port. That is a socket connect, so it
 // is checked every few seconds, not on every poll; the last answer is reused in between and nothing flickers.
 constexpr double kExternalProbeEveryS = 2.0;
+// A poll that costs more than this is not the process/socket check it claims to be: name the phases.
+constexpr std::int64_t kSlowPollNs = 2'000'000;
 
 void raise_notify(host::HostContext& ctx, const std::string& text) {
   nlohmann::json j;
@@ -51,10 +55,16 @@ std::vector<std::string> ServerInbox::take() {
   return out;
 }
 
+ServerFeature::~ServerFeature() = default;
+
 void ServerFeature::on_init(host::HostContext& ctx) {
   inbox_ = std::make_shared<ServerInbox>();
   if (launcher_ == nullptr) {
-    launcher_ = std::make_unique<Launcher>(nullptr, [](std::uint16_t port) { return port_open(port); });
+    // The socket probe runs on its own thread: a connect that the kernel leaves waiting costs tens of milliseconds, and this
+    // feature asks four times a second on the frame thread (criterion 11 measured exactly that).
+    probe_ = std::make_unique<PortProbe>();
+    PortProbe* probe = probe_.get();
+    launcher_ = std::make_unique<Launcher>(nullptr, [probe](std::uint16_t port) { return probe->open(port); });
   }
   std::shared_ptr<ServerInbox> inbox = inbox_;
   (void)ctx.platform.subscribe_event("x4mp.server", [inbox](std::string_view text) { inbox->push(std::string(text)); });
@@ -69,7 +79,19 @@ void ServerFeature::on_frame(host::HostContext& ctx, const host::FrameInfo& info
   last_poll_s_ = now_s_;
   const bool probe_external = last_external_probe_s_ < 0.0 || now_s_ - last_external_probe_s_ >= kExternalProbeEveryS;
   if (probe_external) last_external_probe_s_ = now_s_;
-  publish(ctx, launcher_->poll(plan(ctx), now_s_, probe_external), false);
+  // Criterion 11: the launcher's poll is the only real work this feature does per 0.25 s, and it touches the disk and a socket.
+  // A poll that costs milliseconds is worth a line even when nothing else in the frame did.
+  const std::int64_t t_plan = host::qpc_now_ns();
+  const Plan& current = plan(ctx);
+  const std::int64_t t_poll = host::qpc_now_ns();
+  const Status status = launcher_->poll(current, now_s_, probe_external);
+  const std::int64_t t_done = host::qpc_now_ns();
+  publish(ctx, status, false);
+  const std::int64_t t_pub = host::qpc_now_ns();
+  if (t_pub - t_plan > kSlowPollNs) {
+    X4MP_CLOG(ctx.log, Cat::Perf, Level::Info, "server: slow poll plan={}us poll={}us publish={}us", (t_poll - t_plan) / 1000,
+              (t_done - t_poll) / 1000, (t_pub - t_done) / 1000);
+  }
 }
 
 void ServerFeature::on_shutdown(host::HostContext& ctx) {
@@ -82,10 +104,13 @@ void ServerFeature::on_shutdown(host::HostContext& ctx) {
   }
 }
 
-Plan ServerFeature::plan(const host::HostContext& ctx) const {
-  const std::filesystem::path extension(std::string(ctx.extension_path));
-  const std::filesystem::path state = ctx.paths != nullptr ? ctx.paths->dir : extension;
-  return plan_from(ctx.config.server, extension, state, current_process_id());
+Plan const& ServerFeature::plan(const host::HostContext& ctx) const {
+  if (!plan_cache_) {
+    const std::filesystem::path extension(std::string(ctx.extension_path));
+    const std::filesystem::path state = ctx.paths != nullptr ? ctx.paths->dir : extension;
+    plan_cache_ = plan_from(ctx.config.server, extension, state, current_process_id());
+  }
+  return *plan_cache_;
 }
 
 void ServerFeature::drain(host::HostContext& ctx) {
@@ -111,10 +136,13 @@ void ServerFeature::drain(host::HostContext& ctx) {
       continue;
     }
 
-    const Plan current = plan(ctx);
+    const Plan& current = plan(ctx);
     Status status;
     switch (op) {
       case Op::Start: {
+        // A start is a button press, not a frame: ask for a fresh answer so the "already listening" refusal is about now, not
+        // about the last tick of the probe.
+        if (probe_ != nullptr) (void)probe_->open(current.port, std::chrono::milliseconds(300));
         const bool ok = launcher_->start(current, now_s_, status);
         publish(ctx, status, true);
         if (!ok) notify(ctx, status.error.empty() ? "the server did not start" : status.error);
@@ -135,7 +163,7 @@ void ServerFeature::drain(host::HostContext& ctx) {
 }
 
 void ServerFeature::publish(host::HostContext& ctx, const Status& status, bool force) {
-  const Plan current = plan(ctx);
+  const Plan& current = plan(ctx);
   const std::string json = status_json(status, current);
   if (!force && json == published_) return;
   published_ = json;

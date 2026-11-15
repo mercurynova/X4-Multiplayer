@@ -19,7 +19,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <chrono>
+#include <condition_variable>
 #include <utility>
 #include <vector>
 
@@ -57,9 +61,37 @@ class ProcessHost {
   virtual bool stop() = 0;
 };
 
-// True when something answers on 127.0.0.1:<port> (the server's node port). Blocking, localhost only, and fast: a closed
-// port refuses at once and an open one completes at once.
+// True when something answers on 127.0.0.1:<port> (the server's node port). Blocking: a connect that the kernel leaves in
+// SYN-retransmission can hold the caller for the whole 50 ms wait below, so the frame thread must not call this - use
+// PortProbe there.
 [[nodiscard]] bool port_open(std::uint16_t port);
+
+// The same question, answered off the caller's thread. criterion 11 measures the frame thread, and a probe that waits in
+// select() for 50 ms when nothing listens was the single biggest item in it (M4 / criterion 11). open() hands the socket
+// work to one worker thread and returns the last answer, so the frame thread pays a lock and a notify.
+class PortProbe {
+ public:
+  PortProbe();
+  ~PortProbe();
+  PortProbe(const PortProbe&) = delete;
+  PortProbe& operator=(const PortProbe&) = delete;
+
+  // The last known answer for `port`, and a nudge for the worker to refresh it. Without an answer yet the answer is "not
+  // listening" - never a guess in the other direction, a false positive would hide a real server.
+  // `max_wait` > 0 is for a caller that can afford the real connect (a button press, not a frame): it waits for a fresh
+  // answer instead of returning a cached one.
+  [[nodiscard]] bool open(std::uint16_t port, std::chrono::milliseconds max_wait = std::chrono::milliseconds(0));
+
+ private:
+  void run(std::stop_token stop);
+
+  std::jthread worker_;
+  std::mutex mutex_;
+  std::condition_variable_any cv_;
+  std::uint16_t wanted_ = 0;    // the port the caller asked about last
+  std::uint16_t answered_ = 0;  // the port the answer below belongs to
+  bool open_ = false;
+};
 
 // The pid of the game process itself, for --parent-pid. The server watches it and stops when it goes away, so the server
 // outlives an extension reload but never a closed game.

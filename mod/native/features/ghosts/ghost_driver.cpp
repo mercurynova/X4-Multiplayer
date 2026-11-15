@@ -508,6 +508,8 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
   FrameStats fs;
   if (!world_) return fs;
   last_now_us_ = now_us;
+  // The observer is the same for every ghost of this frame: let the world snapshot it once (criterion 11).
+  world_->begin_frame(now_us);
   if (remove_all_ || !remove_queue_.empty()) process_removals();
   // M4-16: the link is gone. Keep every ghost exactly where it was: no stale-hide, no placement, no hint, no validity check. A session end
   // still runs above, so remove_all() is honoured even while frozen.
@@ -586,7 +588,14 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     }
     ++fs.visible;
 
-    if (now_us - g.last_valid_us >= cfg_.validity_interval_us) {
+    // Criterion 11: ghosts arrive in waves (a join batch, a respawn wave, a sector load) and every interval below is the same for all
+    // of them, so with a plain "now - last >= interval" test ALL of them run their native read-backs in the SAME frame: 9 ghosts x
+    // read_state (5-6 calls each) was the entire p95 tail of the mod. A per-ghost phase derived from the net id spreads the periodic
+    // work over the interval instead - the same ghost is always shifted by the same amount, so nothing drifts or is skipped.
+    const std::int64_t guard_phase = static_cast<std::int64_t>(g.info.net_id % 8) * (cfg_.guard_interval_us / 8);
+    const std::int64_t valid_phase = static_cast<std::int64_t>(g.info.net_id % 4) * (cfg_.validity_interval_us / 4);
+
+    if (now_us - g.last_valid_us + valid_phase >= cfg_.validity_interval_us) {
       g.last_valid_us = now_us;
       if (!world_->valid(g.local_id) || world_->wrecked(g.local_id)) {
         drop_object(g, "invalid or wrecked");
@@ -596,7 +605,8 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
 
     // M3-34 engine guard: before this frame's placement, is the object where the last placement left it? While hot (a hit in the last
     // guard_hot_us) it is read at 20 Hz rather than every frame: 60 ghosts read back per frame was most of the guard's cost on the stand.
-    if (cfg_.engine_guard && now_us - g.last_guard_us >= (now_us < g.guard_hot_until_us ? cfg_.guard_hot_interval_us : cfg_.guard_interval_us)) {
+    if (cfg_.engine_guard &&
+        now_us - g.last_guard_us + guard_phase >= (now_us < g.guard_hot_until_us ? cfg_.guard_hot_interval_us : cfg_.guard_interval_us)) {
       g.last_guard_us = now_us;
       guard_check(g, now_us, rp.speed_mps);
     }
@@ -616,7 +626,7 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       g.sector_id = sec;
     }
 
-    // velocity hint (S13.2 mode c): the derivative of the rendered path, sent at 5 Hz as one batch per frame
+    // velocity hint (S13.2 mode c): the derivative of the rendered path, sent as one batch per frame
     Vec3 v{};
     bool have_v = false;
     if (g.have_prev && !sector_changed && !rp.snapped) {
@@ -626,17 +636,40 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
         have_v = true;
       }
     }
-    if (!cfg_.hints_off && now_us - g.last_hint_us >= cfg_.hint_interval_us && have_v) {
+    // Criterion 11: the frame-to-frame derivative jitters by a few m/s (20 Hz samples plus the count up blend of the
+    // interpolator), which is more than the change epsilon at low speed: the gate then fires for every ghost every 200 ms
+    // and each of those is a full engine event dispatch. Smooth the estimate over ~150 ms first, so only a real change of
+    // velocity (or the moving/stopped flip, or the 2 s re-assert) reaches the engine.
+    if (have_v) {
+      if (!g.have_hint_est) {
+        g.hint_est = v;
+        g.have_hint_est = true;
+      } else {
+        g.hint_est = g.hint_est * 0.88 + v * 0.12;
+      }
+      v = g.hint_est;
+    } else {
+      g.have_hint_est = false;  // a snap or a sector change: start the estimate over from the next clean frame
+    }
+    // Criterion 11: one raise per batch, so this block only decides what goes into it. A hint is sent when the velocity really changed
+    // (a steady split-ship flight repeats the same vector, and re-sending it costs an engine event dispatch), when the moving/stopped
+    // state flips (that flip is what M3-34 needs at once), or on the periodic re-assert.
+    if (!cfg_.hints_off && have_v) {
       const double sp = ghost::length(v);
       // M3-34: at travel speed the engine would fly the inert ship by the hint between our placements (and may capture it into a highway): zero then.
       const bool too_fast = !cfg_.hints_all_speeds && sp > cfg_.hint_max_mps;
-      if (sp > 0.05 && !too_fast) {
-        hint_batch_.push_back({g.local_id, v.x, v.y, v.z});
-        g.hint_was_zero = false;
-        g.last_hint_us = now_us;
-      } else if (!g.hint_was_zero || now_us - g.last_hint_us >= cfg_.zero_hint_interval_us) {
-        hint_batch_.push_back({g.local_id, 0, 0, 0});
-        g.hint_was_zero = true;
+      const bool moving = sp > 0.05 && !too_fast;
+      const Vec3 want = moving ? v : Vec3{};
+      const bool flip = g.have_hint_sent && moving == g.hint_was_zero;
+      const bool changed = !g.have_hint_sent ||
+                           ghost::length(want - g.hint_sent) > cfg_.hint_change_epsilon_mps + 0.05 * sp;
+      const std::int64_t since = now_us - g.last_hint_us;
+      const std::int64_t reassert_us = moving ? cfg_.hint_reassert_us : cfg_.zero_hint_interval_us;
+      if (flip || (since >= cfg_.hint_interval_us && changed) || since >= reassert_us) {
+        hint_batch_.push_back({g.local_id, want.x, want.y, want.z});
+        g.hint_sent = want;
+        g.have_hint_sent = true;
+        g.hint_was_zero = !moving;
         g.last_hint_us = now_us;
       }
     }

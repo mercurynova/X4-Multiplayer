@@ -149,6 +149,9 @@ class Interpolator {
   bool prev_hidden_ = true;
   Vec3 offset_{};
   SyncStats stats_;
+  // Criterion 11: the statistics are sampled on every second render. The buckets are percentile windows of the last 512 fresh
+  // errors, so half the sample rate changes nothing but the noise floor of the p95, while halving the cost of the render path.
+  std::uint32_t stats_tick_ = 0;
 };
 
 }  // namespace x4mp::ghost

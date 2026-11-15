@@ -60,6 +60,10 @@ class GhostFeature final : public host::IFeature {
   std::shared_ptr<ScanInbox> scan_inbox_;
   std::uint64_t self_component_ = 0;  // the player's ship, never suppressed
   std::uint64_t scan_bad_ = 0;        // scan answers that were not ours or did not parse
+  // Criterion 11: the suppression pass runs every frame; these two inputs change at most a few times a session, so cache them
+  // instead of rebuilding the interest set and reading the local ship (a native call) 60 times a second.
+  std::vector<std::uint16_t> interest_last_;
+  std::int64_t self_component_at_us_ = 0;
 
   bool universe_seen_ = false;
   std::uint64_t last_saved_strings_version_ = 0;

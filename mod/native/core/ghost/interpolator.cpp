@@ -262,12 +262,15 @@ RenderPose Interpolator::render(std::int64_t now_us, double observer_distance_m)
   out.represented_t_us = r.represented_t_us;
 
   if (!hidden) {
-    const bool extrapolating = r.state == PoseState::Extrapolating;
-    const std::int64_t newest = newest_sample_us();
-    const bool source_fresh = newest != 0 && now_us - newest <= SyncStats::kFreshMaxUs;
-    stats_.on_render(now_us, t, r.represented_t_us, r.sector, out.pos, r.speed, extrapolating, observer_distance_m,
-                     source_fresh);
-    stats_.count_frame(snap && have_prev_, extrapolating, r.state == PoseState::Held);
+    // Criterion 11: sample every second render (the tick advances on every visible frame, so the parity is stable).
+    if ((stats_tick_++ & 1u) == 0u) {
+      const bool extrapolating = r.state == PoseState::Extrapolating;
+      const std::int64_t newest = newest_sample_us();
+      const bool source_fresh = newest != 0 && now_us - newest <= SyncStats::kFreshMaxUs;
+      stats_.on_render(now_us, t, r.represented_t_us, r.sector, out.pos, r.speed, extrapolating, observer_distance_m,
+                       source_fresh);
+      stats_.count_frame(snap && have_prev_, extrapolating, r.state == PoseState::Held);
+    }
   }
   prev_ = r;
   prev_render_t_us_ = t;

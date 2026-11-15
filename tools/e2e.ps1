@@ -108,7 +108,13 @@ $results = New-Object System.Collections.Generic.List[object]
 $started = New-Object System.Collections.Generic.List[object]
 
 function Invoke-Native([string]$what, [scriptblock]$cmd) {
-  & $cmd
+  # Windows PowerShell 5.1 turns anything a native tool writes to STDERR into an error record, and with the script-wide
+  # $ErrorActionPreference = 'Stop' the FIRST such line aborts the step (npm's "npm warn EBADENGINE ..." warnings used to
+  # kill `npm ci` after 1.2 s, before it installed anything). Warnings are not failures: let them through and judge by the
+  # exit code, which is what actually says whether the tool did its job.
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $cmd } finally { $ErrorActionPreference = $previous }
   if ($LASTEXITCODE -ne 0) { throw "$what failed (exit code $LASTEXITCODE)" }
 }
 

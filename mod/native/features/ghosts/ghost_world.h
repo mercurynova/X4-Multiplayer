@@ -7,6 +7,8 @@
 //   The sector index -> local sector id comes from the selfship feature's GalaxyMap (selfship_hub().map()).
 //   (ui/x4mp_ghosts.lua is the Lua half, md/x4mp_ghosts.xml the MD half.)
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
 #include "features/ghosts/ghost_driver.h"
@@ -51,14 +53,21 @@ class GameGhostWorld final : public IGhostWorld {
   bool local_ship_within(std::uint64_t sector, const Vec3& pos, double radius) override;
   // M4-23: the distance from the player's ship to a point, or 0 when the world cannot say (no ship, another sector, no pose).
   double player_distance(std::uint64_t sector, const Vec3& pos) override;
+  // criterion 11: the observer is the same for every ghost of one frame, so the driver starts a frame by dropping the snapshot below.
+  void begin_frame(std::int64_t now_us) override;
 
   [[nodiscard]] static game::GhostPose to_game(const Pose& p) noexcept;
 
  private:
+  // criterion 11: one look at the player's ship per frame instead of three native calls per ghost. Invalidated by begin_frame().
+  void observe();
   game::GhostsApi& api_;
   host::IPlatform& platform_;
   std::string velocity_buf_;
   bool skip_radar_known_ = false;
+  bool obs_valid_ = false;
+  std::uint64_t obs_sector_ = 0;      // 0 = no ship, or the ship has no sector
+  std::optional<Vec3> obs_pos_;       // empty = the pose could not be read
 };
 
 }  // namespace x4mp::features::ghosts

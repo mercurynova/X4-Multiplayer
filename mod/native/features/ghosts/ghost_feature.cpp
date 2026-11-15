@@ -227,9 +227,17 @@ void GhostFeature::pump_suppression(host::HostContext& ctx, ghosts::GhostCore& c
   // ships may go. The marker is what keeps us from suppressing a ship the authority has not streamed yet (it would vanish for a moment).
   for (const auto& closed : c.take_sector_closed()) suppression_->on_sector_closed(closed.sector);
   // M4-15: only sectors still in interest are swept; the ids we removed are remembered, so a re-entry removes nothing twice.
-  suppression_->on_interest(c.interest_sectors());
+  // Criterion 11: the interest list changes on a join or a sector load, not per frame, so compare before rebuilding the set.
+  if (c.interest_sectors() != interest_last_) {
+    interest_last_ = c.interest_sectors();
+    suppression_->on_interest(interest_last_);
+  }
 
-  self_component_ = api_ ? api_->local_ship() : 0;
+  // The local ship is a native read and only changes when the player does: once a second is enough to keep the skip fresh.
+  if (now_us - self_component_at_us_ >= 1'000'000) {
+    self_component_at_us_ = now_us;
+    self_component_ = api_ ? api_->local_ship() : 0;
+  }
   const auto skip = [this](std::uint64_t component) {
     if (component == 0) return true;
     if (self_component_ != 0 && component == self_component_) return true;  // the player's own ship is never suppressed

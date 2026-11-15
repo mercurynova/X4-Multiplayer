@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,8 +37,11 @@ struct ServerInbox {
   std::vector<std::string> items;
 };
 
+class PortProbe;
+
 class ServerFeature final : public host::IFeature {
  public:
+  ~ServerFeature() override;
   [[nodiscard]] std::string_view name() const noexcept override { return "server"; }
 
   void on_init(host::HostContext& ctx) override;
@@ -48,14 +52,19 @@ class ServerFeature final : public host::IFeature {
   void use_launcher(std::unique_ptr<Launcher> launcher) { launcher_ = std::move(launcher); }
 
  private:
-  [[nodiscard]] Plan plan(const host::HostContext& ctx) const;
+  [[nodiscard]] const Plan& plan(const host::HostContext& ctx) const;
   void drain(host::HostContext& ctx);
   // Publish the snapshot to Lua when something changed, or when force says the player asked and expects an answer.
   void publish(host::HostContext& ctx, const Status& status, bool force);
   void notify(host::HostContext& ctx, const std::string& text);
 
   std::shared_ptr<ServerInbox> inbox_;
+  // Declared before the launcher: the launcher's probe holds a raw pointer to it and is destroyed first.
+  std::unique_ptr<PortProbe> probe_;
   std::unique_ptr<Launcher> launcher_;
+  // The plan is a function of the config, the paths and this process's pid - none of them change while the game runs. Building
+  // it means reading admin-password.txt and stat-ing the exe, and the poll needs it four times a second (criterion 11).
+  mutable std::optional<Plan> plan_cache_;
   double now_s_ = 0.0;
   double last_poll_s_ = -1.0;
   double last_external_probe_s_ = -1.0;

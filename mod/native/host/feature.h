@@ -99,6 +99,20 @@ struct FeatureStats {
   std::string last_error;
 };
 
+// M4 / criterion 11: where one frame's mod time went, per feature, for the window since the last take. FeatureStats already keeps a
+// lifetime total, but a lifetime average cannot answer "who eats the 95th percentile this minute" - and the whole-mod p95 is what the
+// acceptance measures. Costs are on_frame only (that is the hook the registry times); the host's own work is not in here.
+struct FeatureFrameCost {
+  std::string name;
+  std::uint64_t calls = 0;  // on_frame calls in this window
+  double total_us = 0.0;    // summed on_frame time in this window
+  double max_us = 0.0;      // worst single on_frame call in this window
+  // The same total, but only over the frames whose features together exceeded the slow-frame threshold: that is the p95 tail, and
+  // a feature can be cheap on average while owning it (or innocent on both counts).
+  double over_us = 0.0;
+  [[nodiscard]] double avg_us() const noexcept { return calls == 0 ? 0.0 : total_us / static_cast<double>(calls); }
+};
+
 class FeatureRegistry {
  public:
   static constexpr int kMaxThrows = 3;
@@ -115,6 +129,13 @@ class FeatureRegistry {
   void shutdown_all(HostContext& ctx);
 
   [[nodiscard]] std::vector<FeatureStats> stats() const;
+  // Per-feature on_frame cost since the previous call, biggest total first; starts a new window (a feature that was not called in
+  // this window reports calls == 0). Main thread only, like frame_all().
+  [[nodiscard]] std::vector<FeatureFrameCost> take_frame_cost();
+  // How many frames of that window spent more than slow_frame_threshold_ns() in features together, and starts a new count.
+  [[nodiscard]] std::uint64_t take_over_frames() noexcept;
+  // The tail's threshold: the whole-mod p95 budget MINUS what the host spends per frame, because only features are measured here.
+  static constexpr std::int64_t slow_frame_threshold_ns = 180'000;
   [[nodiscard]] bool is_disabled(std::string_view name) const;
   [[nodiscard]] std::size_t disabled_count() const noexcept;
 
@@ -122,12 +143,19 @@ class FeatureRegistry {
   struct Entry {
     std::unique_ptr<IFeature> feature;
     FeatureStats stats;
+    // The window behind take_frame_cost(); reset there, never by the lifetime counters above.
+    std::uint64_t win_calls = 0;
+    std::int64_t win_total_ns = 0;
+    std::int64_t win_max_ns = 0;
+    std::int64_t win_over_ns = 0;  // on_frame time in this window's slow frames only
+    std::int64_t last_ns = 0;      // this frame's on_frame time, for frame_all's slow-frame test
   };
   template <class Fn>
   void guarded(HostContext& ctx, Entry& e, const char* hook, bool disable_now, bool timed, Fn&& fn);
   void record_throw(HostContext& ctx, Entry& e, const char* hook, std::string what, bool disable_now);
 
   std::vector<Entry> entries_;
+  std::uint64_t over_frames_ = 0;
 };
 
 }  // namespace x4mp::host

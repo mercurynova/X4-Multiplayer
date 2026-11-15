@@ -19,6 +19,10 @@ namespace x4mp::features::server {
 
 namespace {
 
+// How often the worker re-answers the port question when nobody asks for anything newer. The launcher treats a listener
+// as "there" for its own 2 s external probe and keeps `listening_seen_` afterwards, so a second is plenty.
+constexpr std::chrono::milliseconds kRefreshEvery{1000};
+
 std::wstring widen(const std::string& utf8) {
   if (utf8.empty()) return {};
   const int size = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
@@ -261,5 +265,47 @@ bool port_open(std::uint16_t port) {
 }
 
 std::unique_ptr<ProcessHost> make_process_host() { return std::make_unique<Win32ProcessHost>(); }
+
+PortProbe::PortProbe() : worker_([this](std::stop_token stop) { run(stop); }) {}
+
+PortProbe::~PortProbe() {
+  worker_.request_stop();
+  cv_.notify_all();
+}
+
+bool PortProbe::open(std::uint16_t port, std::chrono::milliseconds max_wait) {
+  std::unique_lock lock(mutex_);
+  const bool port_changed = wanted_ != port;
+  wanted_ = port;
+  const auto answered = [this, port] { return answered_ == port; };
+  // A new port, or no answer yet, is worth a wake-up; otherwise the worker refreshes on its own tick and this stays a read.
+  if (port_changed || !answered()) cv_.notify_all();
+  if (answered()) return open_;
+  if (max_wait.count() <= 0) return false;
+  cv_.wait_for(lock, max_wait, answered);
+  return answered() ? open_ : false;
+}
+
+void PortProbe::run(std::stop_token stop) {
+  std::unique_lock lock(mutex_);
+  while (!stop.stop_requested()) {
+    if (wanted_ == 0) {
+      cv_.wait(lock, stop, [this] { return wanted_ != 0; });
+      continue;
+    }
+    const std::uint16_t port = wanted_;
+    lock.unlock();
+    const bool open = port_open(port);  // the whole point: the wait in here is not on the frame thread
+    lock.lock();
+    if (wanted_ == port) {
+      answered_ = port;
+      open_ = open;
+    }
+    cv_.notify_all();  // a caller that asked for a fresh answer
+    // An answer is a snapshot, so keep it fresh - but slowly: nobody needs the port checked four times a second. A stop request or a
+    // new port cuts the sleep short (the token overload of wait_for takes a predicate, hence the explicit "nothing asked for" test).
+    cv_.wait_for(lock, stop, kRefreshEvery, [this, port] { return wanted_ == 0 || wanted_ != port; });
+  }
+}
 
 }  // namespace x4mp::features::server
