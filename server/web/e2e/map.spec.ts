@@ -30,10 +30,19 @@ test.describe('map', () => {
     await expect(canvas).toBeVisible();
     await expect(canvas).toHaveAttribute('data-sectors', String(galaxy.sectors.length));
 
+    // The suite shares one server, and earlier specs leave player rows behind (a parked avatar keeps its owner in the
+    // galaxy frame, marked offline), so the total is not a fixed number - and those stale rows can even arrive a frame
+    // or two late. What this test is about is the swarm: the four Marker players must show up in the panel, and the
+    // canvas must count at least them.
+    await expect(canvas).toHaveAttribute('data-players', /^\d+$/);
     const swarm = bots.start({ command: 'swarm', clients: 4, namePrefix: 'Marker', duration: 90 });
     await swarm.waitForLine(IN_GAME);
-    await expect(page.getByRole('heading', { name: /Players \([4-9]\)/ })).toBeVisible({ timeout: 20_000 });
-    await expect(canvas).toHaveAttribute('data-players', /^[4-9]$/);
+    for (const name of ['Marker01', 'Marker02', 'Marker03', 'Marker04']) {
+      await expect(page.getByRole('button', { name: `Follow ${name}` })).toBeVisible({ timeout: 20_000 });
+    }
+    await expect
+      .poll(async () => Number((await canvas.getAttribute('data-players')) ?? '0'), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(4);
 
     // The markers move: the position of a player changes between two galaxy frames.
     const first = await positionOf(page, 'Marker01').innerText();

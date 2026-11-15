@@ -292,6 +292,21 @@ if ($Steps -contains 'Playwright') {
     $web = Join-Path $repo 'server/web'
     Push-Location $web
     try {
+      # npm honours NODE_ENV: in a production shell `npm ci` skips devDependencies, @playwright/test never lands in
+      # node_modules and `npm run e2e` resolves some other `playwright` that answers "unknown command 'test'". The step
+      # installs dev tools on purpose, so it pins the env instead of inheriting it.
+      $env:NODE_ENV = 'development'
+      # Playwright 1.6x needs Node 20+: an older node gets through `npm ci` and then dies inside `playwright install`
+      # with a wall of EBADENGINE warnings, minutes into the run. Say it once, up front.
+      $nodeRaw = ''
+      try { $nodeRaw = (& node --version) } catch { $nodeRaw = '' }
+      $nodeVersion = "$nodeRaw" -replace '^v', ''
+      $nodeMajor = 0
+      if ($nodeVersion -match '^(\d+)\.') { $nodeMajor = [int]$Matches[1] }
+      if ($nodeMajor -lt 20) {
+        $where = (Get-Command node -ErrorAction SilentlyContinue).Source
+        throw "Playwright needs Node.js 20 or newer, but PATH has '$nodeVersion' ($where). Put a newer node first on PATH."
+      }
       if (-not $SkipNpmInstall) { Invoke-Native 'npm ci' { npm ci --no-audit --no-fund } }
       $install = @('playwright', 'install'); if (-not $isWin -and $env:CI) { $install += '--with-deps' }
       Invoke-Native 'playwright install' { npx @install chromium }
