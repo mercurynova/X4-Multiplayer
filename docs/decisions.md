@@ -865,8 +865,11 @@ presence) and ADR-049 (team origins).
     "nearest race" fallback was dropped because a wrong-looking avatar is worse than none.
   - The choice is stored client-side in `x4mp.json` (`avatar_race`, `avatar_preset`) and sent on the Control lane once per
     session plus on change; the server stores it for the session only and relays it, which is enough because the client is
-    the durable copy and re-sends at every join. The per-build catalogue check on the server remains open (the client
-    refuses unknown pairs before they reach the wire).
+    the durable copy and re-sends at every join. **The per-build catalogue check now exists on the server too** (M19-T2):
+    `X4MP.Core/Appearance/AppearanceCatalogue.cs` mirrors these twelve looks, and the relay resolves every `PlayerAppearance`
+    against it, taking `character_macro` and `is_female` from the catalogue instead of the wire; an unknown pair - including a
+    preset that belongs to another race - is stored as the default look and logged, so the client's refusal is no longer the
+    only line of defence.
 
 ### ADR-052 Live strategic map: server-held, authority-polled, separate from GalaxyMetadata (T1.6, 2026-11-10)
 

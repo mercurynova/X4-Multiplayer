@@ -900,7 +900,10 @@ This section records what exists in code; the server half came first, the client
   `Interactions*`).
 - **FakeNode** (`--onfoot <container_net_id>`) stands a fake client in a station room at 10 Hz and walks it in a 5 m circle, so the relay can be verified on one PC before the mod
   captures real state.
-- **Not built yet (client waves):** the server-side appearance catalogue check. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
+- **Appearance catalogue check (server, in).** `X4MP.Core/Appearance/AppearanceCatalogue.cs` mirrors the mod's twelve looks, and
+  `RelayModule.OnPlayerAppearance` resolves every pair against it: the canonical ids, `character_macro` and `is_female` come from the
+  catalogue, and an unknown race, an unknown preset, a preset of another race or a smuggled macro becomes the default look with one
+  warning line. The mod's own validation is therefore no longer the only line of defence. The mod's own-ship tracker already sends one `Hidden` `PlayerState`
   and then goes quiet while the player stands up.
 - **Capture (client, in).** `mod/native/features/onfoot/`: `onfoot_types` (report grammar, `fnv1a32`, `matched_container_id`, `RoomRef`, `same_room`), `onfoot_tracker` (20 Hz moving /
   1 Hz idle, measured from the last send), `onfoot_hub` (relay frames in, `PresenceRoster` out, the room key and `PlayerAppearance` parsed) and `onfoot_feature` (inbox drain, frame

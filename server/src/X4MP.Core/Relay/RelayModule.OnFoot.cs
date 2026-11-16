@@ -1,3 +1,4 @@
+using X4MP.Core.Appearance;
 using X4MP.Core.Net;
 using X4MP.Core.Session;
 using X4MP.Core.World;
@@ -17,7 +18,9 @@ namespace X4MP.Core.Relay;
 /// <item><b><c>PresenceRoster</c> (Control, S-&gt;N).</b> Galaxy-wide (Q2), rebuilt on any container/mode/roomtype change, sent at most
 /// <see cref="RelayOptions.PresenceRosterHz"/>.</item>
 /// <item><b><c>PlayerAppearance</c> (Control, C-&gt;S-&gt;C).</b> Stored per player with a server-stamped revision and relayed on join and on
-/// change (ADR-051). The catalogue check is the M3b appearance task; until then the strings are only cleaned and length-capped.</item>
+/// change (ADR-051). The strings are cleaned and length-capped and the pair is resolved against
+/// <see cref="AppearanceCatalogue"/>: only a race and preset of this build survive, and the macro plus the gender are taken
+/// from the catalogue rather than the wire, so a hand-written client cannot name a look no node can spawn.</item>
 /// <item><b><c>PlayerInteraction</c> (Control, C-&gt;S-&gt;C).</b> The in-world social trigger (wave, emote, poke): rate limited and forwarded
 /// to the target only. Credits and team invites reuse the economy/team messages.</item>
 /// </list>
@@ -353,10 +356,36 @@ public sealed partial class RelayModule
         appearance.Preset = Clean(appearance.Preset);
         appearance.CharacterMacro = Clean(appearance.CharacterMacro);
         appearance.Clothing = Clean(appearance.Clothing);
+
+        // ADR-051: the pair is resolved against the build's catalogue. The macro and the gender come from the catalogue, never from
+        // the wire, because MD spawns what it names: a look no node ships would fail there every 2 s in the retry loop. Anything the
+        // catalogue does not know becomes the default look (empty race/preset/macro), which is what a fresh player sends anyway.
+        string wireRace = appearance.Race;
+        string wirePreset = appearance.Preset;
+        var (race, chosen) = AppearanceCatalogue.Resolve(wireRace, wirePreset);
+        if (race is not null && chosen is not null)
+        {
+            appearance.Race = race.Id;
+            appearance.Preset = chosen.Id;
+            appearance.CharacterMacro = chosen.Macro;
+            appearance.IsFemale = chosen.IsFemale;
+        }
+        else
+        {
+            if (wireRace.Length > 0 || wirePreset.Length > 0)
+            {
+                LogAppearanceOutsideCatalogue(node.PlayerId, AppearanceCatalogue.Describe(wireRace, wirePreset));
+            }
+
+            appearance.Race = "";
+            appearance.Preset = "";
+            appearance.CharacterMacro = "";
+            appearance.IsFemale = false;
+        }
+
         _appearanceRevisions[node.PlayerId] = appearance.Revision;
         _appearances[node.PlayerId] = appearance;
 
-        // ADR-051: the catalogue check (allowed race/preset/macro for the build) is the appearance task; here the values are only cleaned.
         foreach (var peer in _nodes.Values)
         {
             if (peer.PlayerId == node.PlayerId || !IsLive(peer) || !HasOnFoot(peer))
@@ -474,4 +503,7 @@ public sealed partial class RelayModule
 
     [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Debug, Message = "relay: dropped an on-foot state of player {PlayerId} ({Why})")]
     private partial void LogOnFootDropped(int playerId, string why);
+
+    [Microsoft.Extensions.Logging.LoggerMessage(Level = Microsoft.Extensions.Logging.LogLevel.Warning, Message = "relay: player {PlayerId} asked for an appearance outside the catalogue ({Look}); the default look is used")]
+    private partial void LogAppearanceOutsideCatalogue(int playerId, string look);
 }

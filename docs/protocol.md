@@ -986,9 +986,13 @@ Schema: `OnFootState` 0x0302 (Realtime), `PlayerAppearance` 0x0303, `PresenceRos
   argon, teladi, paranid, split, boron with their gender and ethnicity variants) and refuses anything else with a log line naming the
   ids, so a macro the running build does not have cannot reach a peer's spawn command by accident. The server stamps `player_id` and a
   monotonic `revision`, stores it for the session and relays it to the other capable nodes; a joining node gets the stored appearance of
-  everybody plus its own canonical revision (which it ignores). The relay only trims and length-caps the strings (96 chars): a
-  per-build catalogue check on the server is still open, so a hand-written client can name a macro it cannot spawn — MD then logs
-  "no character" and native retries every 2 s, and nothing else happens.
+  everybody plus its own canonical revision (which it ignores). The relay trims and length-caps the strings (96 chars) and then
+  **resolves the pair against the same catalogue**, mirrored in `X4MP.Core/Appearance/AppearanceCatalogue.cs`: only a known race
+  with a preset *of that race* survives, and `character_macro` and `is_female` are taken from the catalogue rather than from the
+  wire. Anything else - an unknown race, an unknown preset, a preset of another race, or a macro smuggled alongside a valid pair -
+  is stored as the default look (empty race/preset/macro, `is_female=false`) and logged once as
+  `relay: player {PlayerId} asked for an appearance outside the catalogue ({Look}); the default look is used`, so a hand-written
+  client cannot make a peer spawn a macro the build does not have.
 - **Interactions.** `PlayerInteraction{to_player, kind, emote_id, arg}` is forwarded to the target only, with `from_player` stamped and a token bucket
   (`InteractionPerSecond` 4/s, `InteractionBurst` 8). Credits and team invites stay on the economy and team messages.
   The client half is the Talk menu: the vanilla conversation of an avatar carries the choices from `md/x4mp_onfoot.xml` (`x4mp_mp_wave`,

@@ -202,8 +202,8 @@ public static class RelayFrames
             128);
 
     public static FlatBufferBuilder Appearance(
-        string race = "argon", string preset = "male_a", ushort claimedPlayerId = 0, uint claimedRevision = 99,
-        string macro = "character_argon_male_a_macro") =>
+        string race = "argon", string preset = "male_cau", ushort claimedPlayerId = 0, uint claimedRevision = 99,
+        string macro = "character_argon_male_cau_civ_01_macro") =>
         Pack(
             fbb => X4MP.Proto.PlayerAppearance.Pack(fbb, new PlayerAppearanceT
             {

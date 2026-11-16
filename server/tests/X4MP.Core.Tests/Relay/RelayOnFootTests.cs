@@ -315,13 +315,15 @@ public sealed class RelayOnFootTests
         var bob = await rig.JoinInGameAsync("Bob", caps: OnFootCap);
 
         await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(claimedPlayerId: 99, claimedRevision: 500));
-        await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(preset: "female_b", macro: ""));
+        await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(preset: "female_cau", macro: ""));
 
         var received = Appearances(bob);
         Assert.Equal(2, received.Count);
         Assert.All(received, a => Assert.Equal(alice.PlayerId, a.PlayerId));
         Assert.Equal([1u, 2u], received.Select(a => a.Revision));
-        Assert.Equal("female_b", received[1].Preset);
+        Assert.Equal("female_cau", received[1].Preset);
+        Assert.Equal("character_argon_female_cau_civ_01_macro", received[1].CharacterMacro);
+        Assert.True(received[1].IsFemale);
 
         var stored = rig.Relay.GetAppearance(alice.PlayerId);
         Assert.NotNull(stored);
@@ -335,13 +337,71 @@ public sealed class RelayOnFootTests
         await using var rig = new RelayRig();
         var authority = await rig.JoinAuthorityAsync();
         var alice = await rig.JoinInGameAsync("Alice", caps: OnFootCap);
-        await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(race: "teladi", preset: "male_c"));
+        await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(race: "teladi", preset: "male"));
 
         var bob = await rig.JoinInGameAsync("Bob", caps: OnFootCap);
 
         var received = Assert.Single(Appearances(bob), a => a.PlayerId == alice.PlayerId);
         Assert.Equal("teladi", received.Race);
-        Assert.Equal("male_c", received.Preset);
+        Assert.Equal("male", received.Preset);
+        Assert.Equal("character_teladi_male_generic_01_macro", received.CharacterMacro);
+    }
+
+    [Fact]
+    public async Task AnAppearanceOutsideTheCatalogueBecomesTheDefaultLook()
+    {
+        await using var rig = new RelayRig();
+        await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice", caps: OnFootCap);
+        var bob = await rig.JoinInGameAsync("Bob", caps: OnFootCap);
+
+        // The shape a hand-written client sends: a preset the build does not have, with a macro it made up.
+        await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(preset: "male_a", macro: "character_argon_male_a_macro"));
+
+        var received = Assert.Single(Appearances(bob), a => a.PlayerId == alice.PlayerId);
+        Assert.Equal("", received.Race);
+        Assert.Equal("", received.Preset);
+        Assert.Equal("", received.CharacterMacro);
+        Assert.False(received.IsFemale);
+
+        var stored = rig.Relay.GetAppearance(alice.PlayerId);
+        Assert.NotNull(stored);
+        Assert.Equal("", stored!.Race);
+        Assert.Equal("", stored.CharacterMacro);
+    }
+
+    [Fact]
+    public async Task TheMacroComesFromTheCatalogueNotFromTheWire()
+    {
+        await using var rig = new RelayRig();
+        await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice", caps: OnFootCap);
+        var bob = await rig.JoinInGameAsync("Bob", caps: OnFootCap);
+
+        // A known pair with somebody else's macro: the pair decides, so the smuggled macro is replaced.
+        await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(
+            race: "argon", preset: "female_afr", macro: "character_teladi_male_generic_01_macro"));
+
+        var received = Assert.Single(Appearances(bob), a => a.PlayerId == alice.PlayerId);
+        Assert.Equal("argon", received.Race);
+        Assert.Equal("female_afr", received.Preset);
+        Assert.Equal("character_argon_female_afr_civ_01_macro", received.CharacterMacro);
+        Assert.True(received.IsFemale);
+    }
+
+    [Fact]
+    public async Task APresetOfAnotherRaceIsRefused()
+    {
+        await using var rig = new RelayRig();
+        await rig.JoinAuthorityAsync();
+        var alice = await rig.JoinInGameAsync("Alice", caps: OnFootCap);
+        var bob = await rig.JoinInGameAsync("Bob", caps: OnFootCap);
+
+        // "generic" exists for the paranid and the boron, never for the argon.
+        await rig.SendAsync(alice, MsgType.PlayerAppearance, RelayFrames.Appearance(race: "argon", preset: "generic"));
+
+        var received = Assert.Single(Appearances(bob), a => a.PlayerId == alice.PlayerId);
+        Assert.Equal("", received.Preset);
     }
 
     // ------------------------------------------------------------------ interactions
