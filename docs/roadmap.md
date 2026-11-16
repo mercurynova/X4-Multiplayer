@@ -101,7 +101,11 @@ before, so every step publishes `TeamInviteHandled` (`sent`/`accepted`/`declined
 `{92000,945}` Talk choice and `/mp teamaccept <id>|/mp teamdecline <id>`. Gates: `X4MP.Core.Tests` **1400**,
 `X4MP.Protocol.Tests` **541**, `ctest` **759** (4 skips by design), Lua **344**, texts 943-953 in both language pages.
 What is still open is the in-game two-node sitting: a real leader inviting a real player and the invitee accepting it
-in a second game instance.
+in a second game instance. The server half of that trip is automated on real sockets as of 2026-11-16:
+`TeamInviteLiveTests` starts the real host in lobby mode and proves a leader-only invite delivered to the invitee's
+socket and to nobody else, the accept moving the player into the leader's team, a plain member's invite refused with
+`NotLeader`, and both steps written to the real `session_events` table as `TeamInviteHandled` rows. What the sitting
+still adds is only the mod's own Talk-menu choice and `/mp teamaccept` being pressed in the game.
 
 **M8 status (2026-11-11): the last M6 GUI carry-over is closed.** The server had API tokens and the audit log as
 endpoints since M1 but no screen for either, and admin accounts could only be created by the first-run bootstrap.
