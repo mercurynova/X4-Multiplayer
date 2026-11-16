@@ -209,9 +209,18 @@ M5-09 needed no new code: a tracked entity that becomes invalid is already detec
 
 **Not done, deliberately.**
 
-- **M5-12 (damage relay) is not implemented.** The plan marks it a stretch, and the MD action names it would need
-  (`set_object_hull` / `set_object_shield`) are still `[VERIFY]`. AC item 7 stays open and is reported as deferred in the exit
-  report rather than quietly dropped.
+- **M5-12 (damage relay): the upward half landed as M15 (2026-11-16); this row's own AC direction did not.** Q8 above picks
+  the upward `HitReport` "because the wire is already there and it is cheap", and that is what M15 delivers. The client watches
+  the game's own `HullDamaged` / `ShieldDamaged` hooks for the ghosts it holds, asks Lua for the percentages (neither hook
+  carries one), turns the drop into a delta and reports it upward at most 4 Hz (`kPerProbePeriodUs = 250'000` in
+  `features/damage/damage_feature.h`); the ghost takes the hit locally, the authority's `DamageHub::queue()` collects the line
+  and `DamageFeature::flush()` hands at most `kPerFrame` of them per frame to the MD actions shim as one
+  `AddUITriggeredEvent("X4MP_Actions", "damage", ...)` - MD is the only writer of `set_object_hull` / `set_object_shield` - and
+  replication drives the hull back down. It travels as `Intent` / `IntentBody.HitReport` (`protocol/schema/events.fbs`, `struct
+  HitEntry` + `table HitReport`), **not** through `MsgType.DamageReport` 0x0403, which stays reserved and unregistered on
+  purpose (`message_ids.fbs:83`, `MessageRegistry.Table.cs`). Pinned by `mod/tests/test_damage.cpp` and `authority_flow.cpp`
+  `on_hit_report`. What Q8 left conditional - an **authority NPC** damaging a **client player's** avatar, the direction this
+  row's AC asks for - is still not built, so AC item 7 stays deferred in the exit report rather than quietly dropped.
 - **A rejected `PlayerDeath` is not reconciled on the client.** The client's death belongs to the game; a rejection only means no
   despawn was broadcast, which the next roster/state update corrects. Same rule as W2's rejected kill claim.
 - **The reloaded client's own registry restore** is only exercised in session 8; the authority-side stale-record path is covered by
