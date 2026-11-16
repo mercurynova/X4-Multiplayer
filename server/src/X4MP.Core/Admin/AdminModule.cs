@@ -29,8 +29,12 @@ public sealed partial class AdminModule : ISessionModule, ISessionActorBound
     /// <summary>The actor, set once by <see cref="Bind"/>.</summary>
     private ISessionNodeDriver? _driver;
 
-    /// <summary>The last <c>request_id</c> handled per node, so a retried frame does not kick or ban twice.</summary>
-    private readonly Dictionary<int, uint> _lastRequestId = [];
+    /// <summary>
+    /// The last command handled per node. The mod numbers its requests from 1 in every process, so the key has to be the whole
+    /// command (id, arm and target) and has to be dropped when the node attaches again - a reloaded mod is the same player id with
+    /// a fresh counter, and keying on the id alone would swallow its first kick or ban.
+    /// </summary>
+    private readonly Dictionary<int, (uint RequestId, AdminBody Arm, int Target)> _lastRequest = [];
 
     public AdminModule(IBanStore bans, TimeProvider? time = null, ILogger<AdminModule>? logger = null)
     {
@@ -60,12 +64,13 @@ public sealed partial class AdminModule : ISessionModule, ISessionActorBound
             return true;  // the actor logs the violation; the frame is not ours to answer
         }
 
-        if (_lastRequestId.TryGetValue(node.PlayerId, out uint last) && last == request.RequestId)
+        (uint RequestId, AdminBody Arm, int Target) key = (request.RequestId, request.Body.Type, TargetOf(request.Body));
+        if (_lastRequest.TryGetValue(node.PlayerId, out var last) && last == key)
         {
             return true;  // the same command again (a retry): the first reply is the answer
         }
 
-        _lastRequestId[node.PlayerId] = request.RequestId;
+        _lastRequest[node.PlayerId] = key;
 
         switch (request.Body.Type)
         {
@@ -86,7 +91,20 @@ public sealed partial class AdminModule : ISessionModule, ISessionActorBound
     }
 
     /// <inheritdoc />
-    public void OnNodeLeft(SessionNode node, string reason) => _lastRequestId.Remove(node.PlayerId);
+    public void OnNodeLeft(SessionNode node, string reason) => _lastRequest.Remove(node.PlayerId);
+
+    /// <inheritdoc />
+    public void OnNodeAttached(SessionNode node, bool resumed) => _lastRequest.Remove(node.PlayerId);
+
+    private static int TargetOf(AdminBodyUnion body)
+    {
+        return body.Value switch
+        {
+            KickCmdT kick => kick.PlayerId,
+            BanCmdT ban => ban.PlayerId,
+            _ => 0,
+        };
+    }
 
     private void Kick(SessionNode requester, uint requestId, KickCmdT kick)
     {

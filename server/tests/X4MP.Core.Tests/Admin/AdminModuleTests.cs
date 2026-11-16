@@ -62,6 +62,37 @@ public sealed class AdminModuleTests
     }
 
     [Fact]
+    public async Task AResumedNodeStartsItsRequestCounterAgain()
+    {
+        await using var h = await HarnessAsync();
+
+        await h.Rig.SendAsync(h.Boss, MsgType.AdminCommand, Kick(playerId: 999, requestId: 1, "before the reload"));
+        await WaitForAsync(() => h.Boss.Connection.SentOf(MsgType.AdminResult).Count == 1);
+
+        var resumed = await h.Rig.ResumeAsync("Boss", h.Boss);
+        Assert.True(resumed.Accepted);
+
+        // The mod numbers its commands from 1 in every process, so the first one after a reload repeats an id the server has
+        // already answered. It has to be handled again, or a reloaded admin is silently mute until it counts past the old value.
+        await h.Rig.SendAsync(resumed, MsgType.AdminCommand, Kick(playerId: 999, requestId: 1, "after the reload"));
+        await WaitForAsync(() => resumed.Connection.SentOf(MsgType.AdminResult).Count == 1);
+    }
+
+    [Fact]
+    public async Task ASameRequestIdForAnotherTargetIsNotSwallowed()
+    {
+        await using var h = await HarnessAsync();
+
+        await h.Rig.SendAsync(h.Boss, MsgType.AdminCommand, Kick(playerId: 998, requestId: 5, "first"));
+        await WaitForAsync(() => h.Boss.Connection.SentOf(MsgType.AdminResult).Count == 1);
+
+        // A reused id is the mod's problem, but answering is always better than silence: the command is not the same one.
+        await h.Rig.SendAsync(h.Boss, MsgType.AdminCommand, Kick(playerId: 997, requestId: 5, "second"));
+        await WaitForAsync(() => h.Boss.Connection.SentOf(MsgType.AdminResult).Count == 2);
+        Assert.Contains("997", h.Boss.Connection.SentOf(MsgType.AdminResult)[1].Decode<AdminResult>().UnPack().Message);
+    }
+
+    [Fact]
     public async Task BanWithoutADurationIsPermanentAndKicksWithTheBannedCode()
     {
         await using var h = await HarnessAsync();

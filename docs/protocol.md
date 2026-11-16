@@ -1339,6 +1339,9 @@ greys out the same actions locally using `TeamTable`, `TeamRelations` and
   `Disconnect(Banned)`. Every other `AdminBody` arm is answered `AdminResult{ok=false, message}` pointing at the REST
   API, which remains the only surface for session, team, economy and broadcast commands, and the only one that can
   ban a player by key hash or CIDR and also remove their ships (`removeAvatar`).
+  A command is deduplicated per node on `(request_id, arm, target)`, and that memory is dropped when the node attaches
+  again: the mod numbers its commands from 1 in every process, so a reloaded admin must not find its first command
+  mistaken for the retry of the previous process's request 1.
 - Commands:
   - Session: Kick, Ban (`SHA-256(player_key)` plus optional IP), Broadcast, SetPaused,
     ForceCheckpoint, MigrateAuthority, SetTimeScale, SetSetting.
