@@ -26,6 +26,17 @@ public sealed class Peer : IAsyncDisposable
 
     private Peer(TcpNodeClient client) => Client = client;
 
+    /// <summary>
+    /// Wraps a client the caller already connected (a real <c>SaveServer</c> connection keeps the key it derived from the name, which
+    /// a reconnect needs). The pump is the only thing <see cref="JoinAsync(Stream, string, Role)"/> would have added.
+    /// </summary>
+    public static Peer Attach(TcpNodeClient client)
+    {
+        var peer = new Peer(client);
+        peer._pump = Task.Run(() => peer.PumpAsync(peer._stop.Token));
+        return peer;
+    }
+
     public TcpNodeClient Client { get; }
 
     public int PlayerId => Client.Welcome.PlayerId;
