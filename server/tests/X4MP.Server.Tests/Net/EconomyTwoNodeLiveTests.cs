@@ -16,7 +16,8 @@ namespace X4MP.Server.Tests.Net;
 /// The economy as two real nodes see it (m5-exit-report.md rows 10 to 12): a whole real server plus an authority, and two real
 /// <c>TcpNodeClient</c>s walking the join phases. The FakeNode swarm proves that the books stay clean under load; these cases prove
 /// the mechanics the exit report had to leave PARTIAL because they needed a second node - a transfer, a pool move in PerPlayer
-/// mode, a loan and a trade between two players, and the ledger latency of the first of them.
+/// mode, a loan and a trade between two players, the ledger latency of the first of them, and two simultaneous spends in Shared
+/// mode converging on the one team wallet.
 /// </summary>
 [Collection("net")]
 public sealed class EconomyTwoNodeLiveTests(ITestOutputHelper output)
@@ -176,6 +177,70 @@ public sealed class EconomyTwoNodeLiveTests(ITestOutputHelper output)
         Assert.Equal(0, stand.Ledger.TotalBalance());
     }
 
+    [Fact]
+    public async Task TwoSimultaneousPurchasesInSharedModeConvergeWithinTwoSeconds()
+    {
+        await using var stand = await Stand.StartAsync("--X4MP:Economy:CreditMode=Shared");
+        Assert.Equal(EffectiveCreditMode.Shared, stand.Economy.AppliedMode);
+        int team = stand.Economy.AppliedTeamOf(stand.Alice.PlayerId) ?? throw new InvalidOperationException("alice has no team");
+        Assert.Equal(team, stand.Economy.AppliedTeamOf(stand.Bob.PlayerId));
+        var shared = WalletId.TeamShared(team);
+
+        // The team wallet already holds both players' starting credits and whatever the save seeded, so the case asserts the move.
+        long before = stand.Ledger.BalanceOf(shared);
+
+        // m5-exit-report row 10: two purchases at the same instant. In Shared mode a client's own spend is a CreditDelta against the
+        // one team wallet, so this is the pair of frames the two mods send when two players buy at the same time.
+        var aliceKey = Key(stand.Alice.PlayerId, 10);
+        var bobKey = Key(stand.Bob.PlayerId, 10);
+        var watch = Stopwatch.StartNew();
+        await Task.WhenAll(
+            stand.Alice.SendAsync(MsgType.CreditDelta, b => CreditDelta.Pack(b, new CreditDeltaT
+            {
+                RequestKey = aliceKey,
+                Amount = -7_000,
+                Source = CreditSource.Other,
+                Seq = 1,
+            })),
+            stand.Bob.SendAsync(MsgType.CreditDelta, b => CreditDelta.Pack(b, new CreditDeltaT
+            {
+                RequestKey = bobKey,
+                Amount = -9_000,
+                Source = CreditSource.Other,
+                Seq = 1,
+            })));
+
+        long converged = before - 16_000;
+        var aliceUpdate = await stand.Alice.WaitForAsync<WalletUpdateT>(
+            Updates, u => Spent(u, team, converged), "alice's converged team wallet", 5000);
+        var bobUpdate = await stand.Bob.WaitForAsync<WalletUpdateT>(
+            Updates, u => Spent(u, team, converged), "bob's converged team wallet", 5000);
+        watch.Stop();
+
+        Assert.True(watch.ElapsedMilliseconds < 2000, $"the two spends converged after {watch.ElapsedMilliseconds} ms");
+
+        // Neither node's delta was lost and neither was booked twice: each node's own sequence is acked once, and both read the
+        // same number the ledger holds.
+        Assert.Equal(1UL, aliceUpdate.AckedDeltaSeq);
+        Assert.Equal(1UL, bobUpdate.AckedDeltaSeq);
+        Assert.Equal(converged, stand.Ledger.BalanceOf(shared));
+        Assert.Equal(0, stand.Ledger.TotalBalance());
+
+        // A resent frame whose sequence the ledger already booked must not spend a second time; the answer is an ack-only update.
+        int seen = Updates(stand.Alice).Count;
+        await stand.Alice.SendAsync(MsgType.CreditDelta, b => CreditDelta.Pack(b, new CreditDeltaT
+        {
+            RequestKey = aliceKey,
+            Amount = -7_000,
+            Source = CreditSource.Other,
+            Seq = 1,
+        }));
+        await SaveServer.WaitUntilAsync(() => Updates(stand.Alice).Count > seen, 5000, "the replay ack");
+        Assert.Equal(converged, stand.Ledger.BalanceOf(shared));
+        Assert.Equal(0, stand.Ledger.TotalBalance());
+        output.WriteLine($"two spends converged after {watch.ElapsedMilliseconds} ms");
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static readonly string[] Settings =
@@ -192,10 +257,24 @@ public sealed class EconomyTwoNodeLiveTests(ITestOutputHelper output)
 
     private static Id128T Key(int playerId, uint n) => new() { Hi = 0xE000_0000u | (uint)playerId, Lo = n };
 
+    /// <summary>The default settings with <paramref name="overrides"/> replacing the same-named ones (last wins, as on the command line).</summary>
+    private static string[] Merge(IReadOnlyList<string> overrides)
+    {
+        static string Name(string arg) => arg[..arg.IndexOf('=', StringComparison.Ordinal)];
+        return [.. Settings.Where(s => !overrides.Any(o => Name(o) == Name(s))), .. overrides];
+    }
+
     private static bool Same(Id128T a, Id128T b) => a.Hi == b.Hi && a.Lo == b.Lo;
 
     private static bool IsPlayerWallet(WalletBalanceT balance, int playerId, long amount) =>
-        balance.Wallet.Kind == ProtoWalletKind.Player && balance.Wallet.OwnerId == (ushort)playerId && balance.Balance == amount;
+        IsWallet(balance, ProtoWalletKind.Player, playerId, amount);
+
+    private static bool IsWallet(WalletBalanceT balance, ProtoWalletKind kind, int ownerId, long amount) =>
+        balance.Wallet.Kind == kind && balance.Wallet.OwnerId == (ushort)ownerId && balance.Balance == amount;
+
+    /// <summary>A spend update on the named wallet: the shared-mode half of row 10 looks for exactly this.</summary>
+    private static bool Spent(WalletUpdateT update, int team, long amount) =>
+        update.Reason == LedgerReason.GameSpend && update.Balances.Exists(x => IsWallet(x, ProtoWalletKind.TeamShared, team, amount));
 
     private static List<WalletUpdateT> Updates(Peer peer) =>
         peer.All(MsgType.WalletUpdate, f => MessageRegistry.Default.Decode<WalletUpdate>(f).UnPack());
@@ -242,9 +321,9 @@ public sealed class EconomyTwoNodeLiveTests(ITestOutputHelper output)
 
         public EconomyLedger Ledger => Economy.Ledger;
 
-        public static async Task<Stand> StartAsync()
+        public static async Task<Stand> StartAsync(params string[] overrides)
         {
-            var server = await SaveServer.StartAsync(Settings);
+            var server = await SaveServer.StartAsync(Merge(overrides));
             try
             {
                 var authority = await AuthorityRig.StartAsync(server, new FakeAuthoritySaveOptions
