@@ -99,6 +99,20 @@ the client is the bottleneck, the first things to try are a lower graphics prese
 session with fewer ships nearby; the mod itself is designed to keep its own frame cost under
 the budget the log prints (`over_budget` counts frames above it).
 
+## "the upload failed: Refused the server did not store every file"
+
+The host's sidecar refused a checkpoint upload. The mod log names the checkpoint and the request;
+the server console log has the reason, and the one worth knowing is
+
+`Save upload Aborted: storage error: Could not find a part of the path '...\uploads\save-<sha>.part'`
+
+The server writes uploads into `<data>\uploads` and saves into `<data>\saves` next to it. Older
+builds created those folders only at startup, so rebuilding or restoring the data folder under a
+running server (copying a backup in, for example) left every later upload refused until the server
+was restarted. The current build recreates them on demand; if you see this, update, and restart the
+server once to clear an already stuck session. Anything else under `storage error` is a disk
+problem: check free space and that the data folder is writable.
+
 ## The launcher is missing
 
 `x4mp-launcher.exe` ships at the zip root and is optional: the mod and the server work without
