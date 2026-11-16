@@ -542,8 +542,11 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     const bool have_pose = g.last_state != ghost::PoseState::Empty && g.last_render_sector != 0;
     const std::uint16_t known_sector = have_pose ? g.last_render_sector : (g.initial ? g.initial->sector : 0);
     const Vec3 known_pos = have_pose ? g.last_render_pos : (g.initial ? g.initial->pos : Vec3{});
+    // Criterion 11: the index -> universe id lookup goes through the sector map, so do it once per ghost per frame and reuse it for the
+    // placement below (the rendered sector is the last one on nearly every frame, so the second lookup was pure repetition).
+    std::uint64_t known_sec = 0;
     if (known_sector != 0) {
-      const std::uint64_t known_sec = world_->sector_id(known_sector);
+      known_sec = world_->sector_id(known_sector);
       if (known_sec != 0) observer_m = world_->player_distance(known_sec, known_pos);
     }
     ghost::RenderPose rp = in->render(now_us, observer_m);
@@ -574,7 +577,8 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       if (g.local_id != 0) hide(g, rp.hidden ? "hidden flag or stale" : "server despawn");
       continue;
     }
-    const std::uint64_t sec = world_->sector_id(rp.sector);
+    // Criterion 11: reuse the lookup above when the ghost did not change sector (known_sector is the last rendered sector).
+    const std::uint64_t sec = (rp.sector == known_sector && known_sec != 0) ? known_sec : world_->sector_id(rp.sector);
     if (sec == 0) {
       ++counters_.unmapped_frames;
       continue;
@@ -594,6 +598,9 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
     // work over the interval instead - the same ghost is always shifted by the same amount, so nothing drifts or is skipped.
     const std::int64_t guard_phase = static_cast<std::int64_t>(g.info.net_id % 8) * (cfg_.guard_interval_us / 8);
     const std::int64_t valid_phase = static_cast<std::int64_t>(g.info.net_id % 4) * (cfg_.validity_interval_us / 4);
+    // The 5 s inert re-assert is the one remaining periodic engine call: 9 ghosts of a join batch share its start, so without a phase all
+    // of them run make_inert (+ activate) in the same frame every 5 s.
+    const std::int64_t inert_phase = static_cast<std::int64_t>(g.info.net_id % 8) * (cfg_.inert_interval_us / 8);
 
     if (now_us - g.last_valid_us + valid_phase >= cfg_.validity_interval_us) {
       g.last_valid_us = now_us;
@@ -723,7 +730,7 @@ FrameStats GhostDriver::frame(std::int64_t now_us) {
       g.dress_retries = 0;
       g.dress_check_us = now_us + cfg_.dress_check_delay_us;
     }
-    if (!cfg_.inert_once && now_us - g.last_inert_us >= cfg_.inert_interval_us) {
+    if (!cfg_.inert_once && now_us - g.last_inert_us + inert_phase >= cfg_.inert_interval_us) {
       g.last_inert_us = now_us;
       world_->make_inert(g.local_id);
       if (cfg_.activate_streamed) world_->activate(g.local_id);  // M4-29: the same pair as at spawn, so the A/B keeps one policy
