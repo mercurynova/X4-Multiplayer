@@ -22,13 +22,24 @@ public sealed class SaveFileStore
         ArgumentException.ThrowIfNullOrEmpty(dataDir);
         SavesDir = Path.Combine(dataDir, "saves");
         UploadsDir = Path.Combine(dataDir, "uploads");
-        Directory.CreateDirectory(SavesDir);
-        Directory.CreateDirectory(UploadsDir);
+        EnsureDirectories();
     }
 
     public string SavesDir { get; }
 
     public string UploadsDir { get; }
+
+    /// <summary>
+    /// Creates <see cref="SavesDir"/> and <see cref="UploadsDir"/> if they are gone. The constructor does this once, but a data
+    /// directory can be cleaned or restored under a running server (an operator tidying up, a backup tool, a harness that rebuilds
+    /// the tree), and a writer that opens a part file then fails with <c>DirectoryNotFoundException</c> would refuse every upload
+    /// until the next restart. Call it right before opening a part file for writing.
+    /// </summary>
+    public void EnsureDirectories()
+    {
+        Directory.CreateDirectory(SavesDir);
+        Directory.CreateDirectory(UploadsDir);
+    }
 
     /// <summary>Lowercase hex of a SHA-256.</summary>
     public static string Hex(ReadOnlySpan<byte> sha256) => Convert.ToHexStringLower(sha256);

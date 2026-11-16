@@ -272,6 +272,7 @@ public static class SaveEndpoints
 
         long expected = end - start + 1;
         long written = 0;
+        saves.Files.EnsureDirectories(); // the data directory may have been cleaned since startup; do not fail the chunk on that
         await using (var file = new FileStream(part, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, 1 << 16, FileOptions.Asynchronous))
         {
             file.SetLength(start);

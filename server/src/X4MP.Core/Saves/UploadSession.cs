@@ -130,6 +130,15 @@ internal sealed class UploadSession : IDisposable
             long next = Received;
             if (!AlreadyStored)
             {
+                // The store creates its directories once, at construction. A data directory that was cleaned or restored since then
+                // would make this open throw DirectoryNotFoundException and refuse the upload until the next restart, so make sure
+                // the folder is there first (one syscall when it is).
+                string? partDir = Path.GetDirectoryName(PartPath);
+                if (!string.IsNullOrEmpty(partDir))
+                {
+                    Directory.CreateDirectory(partDir);
+                }
+
                 file = new FileStream(PartPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, 1 << 16, FileOptions.Asynchronous);
                 hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
                 if (next > 0)

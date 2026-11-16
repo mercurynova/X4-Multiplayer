@@ -338,6 +338,25 @@ public sealed class SaveJanitorTests
         Assert.False(File.Exists(orphan));
         Assert.True(File.Exists(recent));
     }
+
+    [Fact]
+    public void TheUploadFoldersAreRecreatedWhenTheyDisappearUnderARunningServer()
+    {
+        using var dir = new TempDir();
+        var files = new SaveFileStore(dir.Path);
+        Directory.Delete(files.UploadsDir, recursive: true);
+        Directory.Delete(files.SavesDir, recursive: true);
+
+        // The data directory was cleaned or restored while the server kept running: the writers must not refuse every upload
+        // until the next restart (the e2e authority restart repro does exactly this).
+        files.EnsureDirectories();
+
+        Assert.True(Directory.Exists(files.UploadsDir));
+        Assert.True(Directory.Exists(files.SavesDir));
+        string part = files.PartPathOf(Sha('7'), UploadKind.Save);
+        File.WriteAllText(part, "chunk");
+        Assert.True(File.Exists(part));
+    }
 }
 
 public sealed class InMemorySaveCatalogTests
