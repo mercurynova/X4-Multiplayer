@@ -438,6 +438,9 @@ public sealed partial class SessionActor : IAdmissionHandler, ISessionSettingsPu
         return true;
     });
 
+    /// <summary>The node of a player (actor thread only), or null when the player is not in the session.</summary>
+    public SessionNode? FindNode(int playerId) => _nodes.TryGetValue(playerId, out var slot) ? slot : null;
+
     // ------------------------------------------------------------------ settings
 
     /// <summary>The latest session settings (flagged <c>PushToNodes</c>) the actor was told about; null before the first push.</summary>

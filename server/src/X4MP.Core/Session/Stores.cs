@@ -39,6 +39,15 @@ public interface IBanStore
 
     /// <summary>Adds an IP ban (single address stored as /32 or /128). <paramref name="expires"/> null = permanent.</summary>
     ValueTask AddIpBanAsync(IPAddress ip, string reason, string createdBy, DateTimeOffset now, DateTimeOffset? expires, CancellationToken ct);
+
+    /// <summary>
+    /// Adds a ban for the player behind <paramref name="keyHash"/> (the in-game bridge: a client only knows the numeric player id,
+    /// the actor turns it into the key hash). Returns false when no player row exists for that key yet. `expires` null = permanent.
+    /// </summary>
+    ValueTask<bool> AddKeyHashBanAsync(ReadOnlyMemory<byte> keyHash, string reason, string createdBy, DateTimeOffset now, DateTimeOffset? expires, CancellationToken ct)
+    {
+        return ValueTask.FromResult(false);
+    }
 }
 
 /// <summary>In-memory stores for tests and for running the server without persistence.</summary>
@@ -133,5 +142,21 @@ public sealed class InMemoryNodeStore : IPlayerStore, IBanStore
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<bool> AddKeyHashBanAsync(ReadOnlyMemory<byte> keyHash, string reason, string createdBy, DateTimeOffset now, DateTimeOffset? expires, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            // The in-memory store only knows players that were bound in this process, which is the same set the actor can kick.
+            bool known = _players.Exists(p => keyHash.Span.SequenceEqual(p.KeyHash));
+            if (!known)
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            _bans.Add((keyHash.ToArray(), null, reason, expires));
+            return ValueTask.FromResult(true);
+        }
     }
 }

@@ -214,6 +214,12 @@ public interface ISessionNodeDriver
     Task<bool> RemoveNodeAsync(int playerId, DisconnectCode code, string reason);
 
     /// <summary>
+    /// The node of a player, for a module that needs the local details the actor owns (the key hash, the address). Actor thread
+    /// only: call it from inside a module callback, never from another thread. Null when the player is not in the session.
+    /// </summary>
+    SessionNode? FindNode(int playerId) => null;
+
+    /// <summary>
     /// Raises an external session trigger (<see cref="SessionTrigger.CheckpointStored"/>, <see cref="SessionTrigger.StopCompleted"/>).
     /// Actor thread only (call it from a module callback or from inside <see cref="CallAsync{T}"/>).
     /// </summary>

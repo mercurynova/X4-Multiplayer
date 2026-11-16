@@ -126,6 +126,7 @@ public static partial class ServerHost
         builder.Services.AddReplication();
         builder.Services.AddSaves();
         builder.Services.AddRelay(); // after the world mirror and the interest manager: it reads what they apply
+builder.Services.AddAdmin(); // the in-game AdminCommand bridge (kick/ban): needs the actor driver and the ban store only
         builder.Services.AddAdminApi();
         builder.Services.AddJoinApi(); // the launcher's two endpoints: a nonce and the mod manifest (M6-X1)
         builder.Services.AddAdminHub(); // after the admin API (it shares AdminSessions), the settings and the saves

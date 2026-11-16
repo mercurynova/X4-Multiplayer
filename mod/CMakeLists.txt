@@ -135,6 +135,7 @@ if(X4MP_TESTS)
   tests/test_map.cpp
   tests/test_settlement.cpp
   tests/test_damage.cpp
+  tests/test_admin.cpp  # m3-plan Q6: the in-game kick/ban AdminResult path
   tests/test_server_feature.cpp)  # test_server_feature: M5-32, the launcher that starts the bundled server
   target_link_libraries(x4mp_host_tests PRIVATE x4mp_host Catch2::Catch2WithMain)
   x4mp_set_warnings(x4mp_host_tests)

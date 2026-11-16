@@ -40,6 +40,7 @@
     <file name="ui/x4mp_optionsmenu_adapter.lua" />
     <file name="ui/x4mp_hud.lua" />
     <file name="ui/x4mp_join_mods.lua" />
+    <file name="ui/x4mp_admin.lua" />
     <file name="ui/x4mp_players.lua" />
     <file name="ui/x4mp_chat.lua" />
     <file name="ui/x4mp_teams.lua" />

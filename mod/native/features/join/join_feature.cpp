@@ -13,6 +13,7 @@
 #include "core/config/remembered.h"
 #include "core/crypto/crypto.h"
 #include "core/version/version.h"
+#include "features/admin/admin_hub.h"
 #include "features/authority/authority_flow.h"
 #include "features/chat/chat_json.h"
 #include "features/teams/team_hub.h"
@@ -891,7 +892,10 @@ void JoinFeature::handle_session_event(host::HostContext& ctx, const session::Se
         case X4MP::Proto::MsgType::TeamRequestResult:
           teams::team_hub().on_frame_message(e.type, body, self_id);
           break;
-        default:  // an admin verb, a newer message: hand it to every hub the way this branch always did
+        case X4MP::Proto::MsgType::AdminResult:  // the answer to an in-game kick/ban (m3-plan Q6)
+          admin::admin_hub().on_frame_message(e.type, body, self_id);
+          break;
+        default:  // a newer message: hand it to every hub the way this branch always did
           routed = false;
           break;
       }

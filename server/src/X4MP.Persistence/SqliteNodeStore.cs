@@ -124,6 +124,25 @@ public sealed class SqliteNodeStore(SqliteConnectionFactory factory) : IPlayerSt
         return ValueTask.CompletedTask;
     }
 
+    public ValueTask<bool> AddKeyHashBanAsync(ReadOnlyMemory<byte> keyHash, string reason, string createdBy, DateTimeOffset now, DateTimeOffset? expires, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        using var connection = factory.Open();
+        // The bans row hangs off the player row (migration 0001), so the key hash resolves to the id here; an unknown key cannot be
+        // banned because there is no row to revoke later.
+        int rows = connection.Execute(
+            "INSERT INTO bans (player_id, reason, created_by, created_at, expires_at) SELECT id, @reason, @createdBy, @created, @expires FROM players WHERE key_hash = @hash",
+            new
+            {
+                hash = keyHash.ToArray(),
+                reason,
+                createdBy,
+                created = Stamp(now),
+                expires = expires is { } e ? Stamp(e) : null,
+            });
+        return ValueTask.FromResult(rows > 0);
+    }
+
     /// <summary>Accepts <c>a.b.c.d</c>, <c>a.b.c.d/n</c> and the IPv6 equivalents.</summary>
     private static bool TryParseNetwork(string text, out IPNetwork network)
     {

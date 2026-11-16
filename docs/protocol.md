@@ -1329,6 +1329,12 @@ greys out the same actions locally using `TeamTable`, `TeamRelations` and
 
 - The web GUI (REST and SignalR) is the main admin surface. In-game admins send
   `AdminCommand{request_key, request_id, body}`, and the server replies `AdminResult`.
+- As built, the in-game bridge (`X4MP.Core/Admin/AdminModule.cs`) handles **Kick** and **Ban**: the target is the
+  numeric `player_id` the server assigned, a kick closes the node with `Disconnect(Kicked)`, a ban stores
+  `SHA-256(player_key)` with the optional duration (`duration_s` 0 = permanent) and closes it with
+  `Disconnect(Banned)`. Every other `AdminBody` arm is answered `AdminResult{ok=false, message}` pointing at the REST
+  API, which remains the only surface for session, team, economy and broadcast commands, and the only one that can
+  ban a player by key hash or CIDR and also remove their ships (`removeAvatar`).
 - Commands:
   - Session: Kick, Ban (`SHA-256(player_key)` plus optional IP), Broadcast, SetPaused,
     ForceCheckpoint, MigrateAuthority, SetTimeScale, SetSetting.

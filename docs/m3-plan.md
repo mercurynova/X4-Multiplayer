@@ -516,8 +516,11 @@ the station's undock point) - M3-11 brief. `SpawnObjectAtPos2` default equipment
   works for an offline player when the box is set). `IAvatarControl.RemoveAvatarsAsync(playerId)` drops every `PlayerShip` entity owned or piloted by the player
   from the mirror (nodes holding it get `EntityDespawn{Removed}` from the interest manager) and sends the **authority** `EntityDespawn{entries=[{net_id, reason=Removed}]}`
   for each one. This is a new direction for an existing message: **M3-11 must handle an inbound `EntityDespawn` on the authority** by removing the avatar
-  from its `AvatarRegistry` through `SafeRemove` (never the player's own ship). In-game `AdminCommand` Kick/Ban are not implemented on the server at all
-  (M5/M6), so `KickCmd`/`BanCmd` did not get the field.
+  from its `AvatarRegistry` through `SafeRemove` (never the player's own ship). In-game `AdminCommand` Kick/Ban were the one open leg of this entry and are
+  now implemented by `X4MP.Core/Admin/AdminModule.cs`: an Admin-role node sends `AdminCommand{request_id, KickCmd|BanCmd}` on the Control lane, the module
+  kicks (`DisconnectCode.Kicked`) or records a key-hash ban and kicks (`DisconnectCode.Banned`), and answers `AdminResult{request_id, ok, message}` on the
+  same lane; the remaining `AdminBody` arms are refused with a message that points at the admin API. `KickCmd`/`BanCmd` still carry no `removeAvatar`:
+  "also remove their ships" stays a REST-only option for now.
 - **GUI.** `PlayerLiveDto` gained `sectorId`, `sectorName` (galaxy metadata, null until it arrived), `position` (metres in the sector) and `shipNetId`
   (Players list column "Sector", detail page "Sector"); `GalaxyPlayerDto.online` (false for a detached node and for parked avatars, which are now listed on the map).
   `NodeSnapshot` and `SessionNode` carry the pose of the last `PlayerState` (`PosX/Y/Z` in 1/64 m).
