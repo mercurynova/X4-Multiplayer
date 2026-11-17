@@ -28,6 +28,42 @@ Summary: every criterion that can be checked locally passes. CI on GitHub and th
 | 9d | `tools/e2e.ps1` full | PASS | `powershell -NoProfile -File tools/e2e.ps1 -SkipPublish -SkipModBuild -SkipNpmInstall -ArtifactDir out/m1exit/e2e-full` | Swarm (6 clients, 3 teams, ffa, casual, dupe-attack, 45 s) PASS 47.1 s; Playwright PASS 171.7 s; Headless PASS 6.6 s; total 225.4 s | 2026-10-02 |
 | 9e | Linux / release-tag single-file binaries | PASS (CI) | Linux publish runs in the ubuntu e2e jobs on GitHub. The Windows single-file publish (`tools/e2e.ps1 -Steps Publish`, 36.7 s) works | n/a | 2026-10-02 |
 
+### Load row 8 re-run at HEAD (2026-11-17)
+
+Row 8 was measured on 2026-10-02 at the then-default `X4MP:Interest:MaxGhosts = 250`; `61edcfb` (2026-11-10) raised
+that default to **500**, and the budgets in `budgets.json` were never re-validated against the new default. So the same
+harness command reads differently today, and the difference was measured rather than assumed:
+
+| run | ghosts/client | tick p99 worst (ms, `<= 15`) | tick p50 (ms) | CPU p95 (%, `<= 100`) | bytes out/node/s (`<= 200 000`) | verify errors |
+|---|---:|---:|---:|---:|---:|---:|
+| 2026-10-02 CI (`113d245`, row 8) | 250 | 2.30 | 2.01 | 70.3 | 67 025 | 0 |
+| 2026-11-17, old tree `b7e7e09` | 250 | 11.51 | 2.25 | **131.3** | 66 381 | 0 |
+| 2026-11-17, HEAD `9282e30`, `MaxGhosts=250` | 250 | 14.43 | 2.36 | **126.9** | 78 699 | 0 |
+| 2026-11-17, HEAD `9282e30`, default | 500 | **21.47** | 3.94 | **151.8** | 151 390 | 0 |
+
+All four runs: 16 clients + authority, 21 35x entities, 0 dropped frames, 0 protocol violations, 0 FakeNode errors,
+17 nodes joined. Reading it honestly:
+
+- **No code regression is visible at equal workload.** HEAD and the 2026-10-02 tree on this same 8-core box agree on
+  the median tick (2.36 vs 2.25 ms, +5 %), differ by 25 % on p99 (14.43 vs 11.51, both under the 15 ms budget) and by
+  19 % on bytes out (78 699 vs 66 381).
+- **The CPU budget does not reproduce on this machine at all.** The October tree itself measures 131.3 % here against
+  the 70.3 % recorded in CI, with the same workload and the same harness, so `cpuPercentP95Max = 100` cannot be
+  judged on a box that also runs the 16 FakeNode clients. That is a measurement-environment finding, not a pass.
+- **What actually fails at HEAD is the doubled ghost budget.** At the new default the tick p99 passes 15 ms and the
+  outbound traffic more than doubles, which is exactly what doubling `MaxGhosts` per client predicts.
+
+No budget was changed. The 500 default itself is deliberate, not a slip: `docs/decisions.md:545` and `docs/architecture.md:343`
+record ADR-042's budget as `max_ghosts = 500`, chosen because a node's frame cost is rendering, not repositioning
+(~15.4 ms/frame at 250 inert ships, ~25.2 ms at 500 on the test PC), so 500 stops a busy sector from being visibly
+truncated. What was never re-done is the server side of that decision: row 8 and the numbers in `budgets.json` still
+describe the 250 era, and this re-run is the first measurement of a 16-client server at 500. Re-baselining those budgets
+belongs on the CI machine that produced the 70.3 % CPU figure, not on this box; until then the harness row must be read
+with the ghost count it was taken at. While doing this, a real harness bug was fixed: `Harness.cs` deleted the data
+directory with `Directory.Delete` outside the server's `await using`, catching only `IOException`, so a run that
+finished could die with `UnauthorizedAccessException: x4mp.db-shm is denied` and lose its report; it now stops the
+child and retries the delete.
+
 ## Issues found
 
 1. **Trade failure paths are not reached by the documented 30-minute economy command.** With the defaults (`Economy.TradeScope=Allied`,

@@ -80,6 +80,20 @@ internal sealed class ChildProcess : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await StopAsync().ConfigureAwait(false);
+
+        await _pump.ConfigureAwait(false);
+        lock (_tail)
+        {
+            _log.Dispose();
+        }
+
+        _process.Dispose();
+    }
+
+    /// <summary>Kills the tree and waits for it, so files the child held (a sqlite journal, say) can be removed.</summary>
+    public async Task StopAsync()
+    {
         try
         {
             if (!_process.HasExited)
@@ -92,14 +106,6 @@ internal sealed class ChildProcess : IAsyncDisposable
         {
             // already gone
         }
-
-        await _pump.ConfigureAwait(false);
-        lock (_tail)
-        {
-            _log.Dispose();
-        }
-
-        _process.Dispose();
     }
 }
 
@@ -205,13 +211,25 @@ public static partial class Harness
             }
         }
 
-        try
+        // The server is disposed (killed and waited for) at the end of its using block above; a sqlite journal can still be
+        // released a moment after the process exits, so retry briefly instead of treating that as a run failure.
+        for (var attempt = 1; ; attempt++)
         {
-            Directory.Delete(dataDir, recursive: true);
-        }
-        catch (IOException)
-        {
-            // a sqlite file may still be closing; the temp dir is disposable
+            try
+            {
+                Directory.Delete(dataDir, recursive: true);
+                break;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= 20)
+                {
+                    // a temp dir the OS will clean up is not worth failing an otherwise complete run for
+                    break;
+                }
+
+                await Task.Delay(100).ConfigureAwait(false);
+            }
         }
 
         var report = Summarise(o, series, entities, sectorsCaptured, swarmOutput, swarmExit, failure, budgets);
