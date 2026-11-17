@@ -97,12 +97,23 @@ test("actions: the MD half applies exactly, and mutates nothing else", function(
 	t.contains(md, 'exact="0 - $Op.{3}"')
 	t.contains(md, "<transfer_money")
 	t.contains(md, "screen=\"'X4MP_Actions'\"")
-	-- M5-15/M5-16: the shim changes stock and money and nothing else. It never creates, moves, damages or destroys an object, and it
-	-- never touches the player's ship (docs/mod-design.md 6.1).
+	-- M5-15/M5-16: the shim changes stock and money and nothing else. It never creates, moves or destroys an object, never
+	-- touches the player's ship and never edits ownership or relations (docs/mod-design.md 6.1).
 	for _, bad in ipairs({
-		"<destroy_object", "<create_object", "<set_object_hull", "<set_object_velocity",
+		"<destroy_object", "<create_object", "<set_object_velocity",
 		"<set_object_owner", "<set_faction_relation", "<teleport_object",
 	}) do
 		eq(md:find(bad, 1, true), nil)
+	end
+	-- M15 is the one deliberate exception: the damage trigger writes hull and shield back from the authority's HitReport, so
+	-- the shim does own those two setters - behind the damage control and nowhere else. Pin that shape rather than the old
+	-- "no hull writes at all", so a second silent writer would still fail here.
+	local damageControl = [[control="'damage'"]]
+	local damageAt = md:find(damageControl, 1, true)
+	truthy(damageAt, "the damage trigger is declared")
+	for _, op in ipairs({ "<set_object_hull", "<set_object_shield" }) do
+		local first = md:find(op, 1, true)
+		truthy(first and first > damageAt, op .. " appears after the damage trigger, not before it")
+		eq(md:find(op, first + 1, true), nil, op .. " is written exactly once")
 	end
 end)

@@ -119,6 +119,7 @@ local ADDON_TOPICS = {
 	onfoot_talk_in = "x4mp_onfoot.lua",
 	wallet = "x4mp_hud.lua",
 	presence = "x4mp_onfoot.lua",
+	damage_probe = "x4mp_damage.lua",
 }
 
 local function uiSource(file)

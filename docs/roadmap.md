@@ -98,8 +98,9 @@ server, answerable only by the invitee, 120 s expiry swept from the tick, `Check
 invitation obeys the same limits as a lobby join. Player-initiated team changes produced no `session_events` row
 before, so every step publishes `TeamInviteHandled` (`sent`/`accepted`/`declined`/`expired`). The mod half is
 `features/teams/teams_wire.h` + `TeamHub::{invite,invite_respond}` + the `x4mp.teams_invite` verb, surfaced as the
-`{92000,945}` Talk choice and `/mp teamaccept <id>|/mp teamdecline <id>`. Gates: `X4MP.Core.Tests` **1400**,
-`X4MP.Protocol.Tests` **541**, `ctest` **759** (4 skips by design), Lua **344**, texts 943-953 in both language pages.
+`{92000,945}` Talk choice and `/mp teamaccept <id>|/mp teamdecline <id>`. Gates: `X4MP.Core.Tests` **1442**,
+`X4MP.Protocol.Tests` **541**, `ctest` **775** (4 skips by design), Lua **348**, texts 943-953 in both language pages (all
+re-measured 2026-11-17 at `cf405a4`).
 What is still open is the in-game two-node sitting: a real leader inviting a real player and the invitee accepting it
 in a second game instance. The server half of that trip is automated on real sockets as of 2026-11-16:
 `TeamInviteLiveTests` starts the real host in lobby mode and proves a leader-only invite delivered to the invitee's
