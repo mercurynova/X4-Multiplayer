@@ -25,6 +25,11 @@ const string Usage = """
       re-checks a finished run's metrics against budgets (no server needed).
 
     Exit codes: 0 ok, 1 budget exceeded or the run failed, 2 bad usage.
+
+    The server inherits this process's environment, so a server setting can be pinned for a run with e.g.
+    X4MP__Interest__MaxGhosts=250 in the shell. The report records the effective ghost budget, tick rate and
+    bandwidth budget it ran at, plus the fullest ghost count a single client held, because two load rows only
+    compare when they measured the same workload.
     """;
 
 try

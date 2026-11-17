@@ -140,6 +140,8 @@ public static partial class Harness
         var swarmStopwatch = new Stopwatch();
         string? failure = null;
         Dictionary<string, double[]> series = [];
+        var workload = new Dictionary<string, double>();
+        var settingOverrides = new List<string>();
         double entities = 0;
         double sectorsCaptured = 0;
         string swarmOutput = string.Empty;
@@ -184,6 +186,7 @@ public static partial class Harness
                 if (failure is null || !server.HasExited)
                 {
                     (series, entities, sectorsCaptured) = await FetchAsync(http).ConfigureAwait(false);
+                    (workload, settingOverrides) = await FetchWorkloadAsync(http).ConfigureAwait(false);
                 }
 
                 samplesAvailable = (int)Math.Min(elapsed, 600);
@@ -232,7 +235,7 @@ public static partial class Harness
             }
         }
 
-        var report = Summarise(o, series, entities, sectorsCaptured, swarmOutput, swarmExit, failure, budgets);
+        var report = Summarise(o, series, entities, sectorsCaptured, swarmOutput, swarmExit, failure, budgets, workload, settingOverrides);
         await File.WriteAllTextAsync(Path.Combine(o.OutDir, "report.json"), JsonSerializer.Serialize(report, Json)).ConfigureAwait(false);
         await File.WriteAllTextAsync(Path.Combine(o.OutDir, "report.md"), Markdown(report)).ConfigureAwait(false);
         Console.WriteLine(Markdown(report));
@@ -315,20 +318,62 @@ public static partial class Harness
         return (series, dash.RootElement.GetProperty("entitiesInMirror").GetDouble(), dash.RootElement.GetProperty("sectorsCaptured").GetDouble());
     }
 
+    /// <summary>
+    /// The effective settings the run was driven at, so a report says which workload it measured. The harness passes no
+    /// server switches, so a knob can only differ from the default through the parent environment or a prior PATCH; both
+    /// end up in these values. A failure here is not worth failing the run for, so the block just reads "n/a".
+    /// </summary>
+    private static async Task<(Dictionary<string, double> Workload, List<string> Overrides)> FetchWorkloadAsync(HttpClient http)
+    {
+        var workload = new Dictionary<string, double>();
+        var overrides = new List<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(await http.GetStringAsync(new Uri("/api/v1/settings", UriKind.Relative)).ConfigureAwait(false));
+            var root = doc.RootElement;
+            if (root.TryGetProperty("sections", out var sections) && sections.ValueKind == JsonValueKind.Object)
+            {
+                Add(sections, "Interest", "MaxGhosts", "maxGhostsPerClient");
+                Add(sections, "Replication", "TickRateHz", "tickRateHz");
+                Add(sections, "Replication", "BandwidthBudgetKBps", "bandwidthBudgetKBps");
+            }
+
+            if (root.TryGetProperty("overrides", out var list) && list.ValueKind == JsonValueKind.Array)
+            {
+                overrides.AddRange(list.EnumerateArray().Select(x => x.GetString() ?? string.Empty).Where(s => s.Length > 0));
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException)
+        {
+            // the metrics half of the report is what the budgets read; a missing workload line is not a run failure
+        }
+
+        return (workload, overrides);
+
+        void Add(JsonElement sections, string section, string name, string key)
+        {
+            if (sections.TryGetProperty(section, out var s) && s.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number)
+            {
+                workload[key] = v.GetDouble();
+            }
+        }
+    }
+
     [GeneratedRegex(@"(\w[\w-]*)=(\S+)")]
     private static partial Regex KeyValue();
 
     /// <summary>Parses the swarm's last line that starts with <paramref name="prefix"/> into its key=value pairs (values with a trailing unit keep their number).</summary>
     internal static Dictionary<string, double> ParseLine(string output, string prefix)
     {
-        var result = new Dictionary<string, double>();
         var line = output.Split('\n').LastOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
-        if (line is null)
-        {
-            return result;
-        }
+        return line is null ? [] : ParsePairs(line);
+    }
 
-        foreach (Match m in KeyValue().Matches(line))
+    /// <summary>Parses one line's key=value pairs; <c>checksums-ok=44/44</c> keeps the numerator.</summary>
+    internal static Dictionary<string, double> ParsePairs(string pairs)
+    {
+        var result = new Dictionary<string, double>();
+        foreach (Match m in KeyValue().Matches(pairs))
         {
             var text = m.Groups[2].Value;
             int slash = text.IndexOf('/', StringComparison.Ordinal);

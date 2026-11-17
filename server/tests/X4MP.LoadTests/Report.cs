@@ -18,7 +18,9 @@ public sealed record LoadReport(
     List<string> Violations,
     string? Failure,
     bool Passed,
-    List<string> SwarmSummary);
+    List<string> SwarmSummary,
+    Dictionary<string, double> Workload,
+    List<string> SettingOverrides);
 
 public static partial class Harness
 {
@@ -53,7 +55,7 @@ public static partial class Harness
 
     internal static LoadReport Summarise(
         Options o, Dictionary<string, double[]> s, double entities, double sectors, string swarmOutput, int swarmExit, string? failure,
-        Dictionary<string, double> budgets)
+        Dictionary<string, double> budgets, Dictionary<string, double> workload, List<string> settingOverrides)
     {
         string[] lanes = ["control", "realtime", "bulk"];
         var bytesIn = SumOf(s, [.. lanes.Select(l => "net.bytes_in." + l)]);
@@ -105,22 +107,64 @@ public static partial class Harness
         var violations = Budgets.Evaluate(budgets, m).Select(v => v.ToString()).ToList();
         var lines = swarmOutput.Split('\n').Where(l => l.StartsWith("verify: clients=", StringComparison.Ordinal) || l.StartsWith("summary:", StringComparison.Ordinal))
             .Select(l => l.TrimEnd()).ToList();
+
+        // The per-bot verify lines are the only place the run shows how much a single client actually held, and that is what
+        // makes two runs comparable: a 250-ghost run and a 500-ghost run differ by ~2x in frames and bytes, not by a bug.
+        // Only the per-bot lines ("[Bot07] verify: ghosts=250 ..."); the swarm's own aggregate line ("verify: clients=16 ...
+        // ghosts=3998") sums every client and must not be read as one client's holding.
+        double held = 0;
+        foreach (var line in swarmOutput.Split('\n'))
+        {
+            string trimmed = line.TrimStart();
+            int at = trimmed.IndexOf(" verify:", StringComparison.Ordinal);
+            if (at < 0 || trimmed[0] != '[')
+            {
+                continue;
+            }
+
+            var kv = ParsePairs(trimmed[(at + 1)..]);
+            if (kv.TryGetValue("ghosts", out var ghosts))
+            {
+                held = Math.Max(held, ghosts);
+            }
+        }
+
+        if (held > 0)
+        {
+            workload["observedMaxGhostsPerClient"] = held;
+        }
+
         int measured = Get(s, "tick.p99_ms").Length;
         return new LoadReport(
             DateTimeOffset.UtcNow, $"{Environment.MachineName} ({Environment.OSVersion.Platform}, {Environment.ProcessorCount} logical cores)",
-            o.Clients, o.Sectors, o.Ships, o.Duration, o.Warmup, measured, m, budgets, violations, failure, failure is null && violations.Count == 0, lines);
+            o.Clients, o.Sectors, o.Ships, o.Duration, o.Warmup, measured, m, budgets, violations, failure, failure is null && violations.Count == 0, lines,
+            workload, settingOverrides);
     }
 
     internal static string Markdown(LoadReport r)
     {
         var inv = CultureInfo.InvariantCulture;
         string F(string key, string fmt = "0.00") => r.Metrics.TryGetValue(key, out var v) ? v.ToString(fmt, inv) : "n/a";
+        string W(string key, string fmt = "0.##") => r.Workload.TryGetValue(key, out var v) ? v.ToString(fmt, inv) : "n/a";
         var sb = new StringBuilder();
         sb.AppendLine(inv, $"# X4MP load report: {(r.Passed ? "PASS" : "FAIL")}");
         sb.AppendLine();
         sb.AppendLine(inv, $"- when: {r.At:u}; machine: {r.Machine}");
         sb.AppendLine(inv, $"- load: 1 authority + {r.Clients} clients, galaxy {r.Sectors} sectors / {r.Ships} ships; {r.DurationSeconds} s run, {r.WarmupSeconds} s warm-up, {r.MeasuredSeconds} s measured");
         sb.AppendLine(inv, $"- world: {F("entitiesInMirror", "0")} entities in the mirror, {F("sectorsCaptured", "0")} captured sectors, {F("connectionsMean", "0.0")} connections");
+
+        // Two load rows only compare when they ran at the same workload: these lines are the run's own record of what it was.
+        sb.AppendLine(inv, $"- workload: ghost budget {W("maxGhostsPerClient", "0")} per client, tick {W("tickRateHz", "0")} Hz, bandwidth budget {W("bandwidthBudgetKBps", "0")} KB/s per client");
+        if (r.Workload.TryGetValue("observedMaxGhostsPerClient", out var held))
+        {
+            sb.AppendLine(inv, $"- observed: the fullest single client held {held.ToString("0", inv)} ghosts");
+        }
+
+        if (r.SettingOverrides.Count > 0)
+        {
+            sb.AppendLine(inv, $"- server setting overrides: {string.Join(", ", r.SettingOverrides)}");
+        }
+
         if (r.Failure is not null)
         {
             sb.AppendLine(inv, $"- **run failure:** {r.Failure}");

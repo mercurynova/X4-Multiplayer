@@ -310,7 +310,10 @@ writes `report.json` + `report.md` (job summary and the `load-report-<os>` artif
 Locally: `dotnet test X4MP.sln --filter "Category!=Perf"` for the default run, `--filter "Category=Perf"` for the perf
 tests. The harness by hand: build Release, then `X4MP.LoadTests run --server-exe <x4mp-server> --fakenode-exe <FakeNode>
 --duration 180` (non-default ports 47980/47981/47990; `--budget tickP99MsMax=0.5` overrides a budget, `evaluate
---report report.json` re-checks a finished run).
+--report report.json` re-checks a finished run). The server inherits the harness process's environment, so a run can be
+pinned to a setting with e.g. `X4MP__Interest__MaxGhosts=250`; the report then states the ghost budget, tick rate and
+bandwidth budget it ran at plus the fullest ghost count a single client held, because a row is only comparable at the
+same workload.
 
 Other workflows: `codeql.yml` (C#, JS/TS; weekly and on push to main only; needs GitHub
 Advanced Security on a private repo; set the repo variable `CODEQL_DISABLED=true` to turn it
