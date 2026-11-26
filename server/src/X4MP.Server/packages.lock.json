@@ -155,7 +155,7 @@
       "x4mp.persistence": {
         "type": "Project",
         "dependencies": {
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "Microsoft.Data.Sqlite": "[10.0.15, )",
           "X4MP.Core": "[1.0.0, )"
         }
@@ -175,9 +175,9 @@
       },
       "Dapper": {
         "type": "CentralTransitive",
-        "requested": "[2.1.89, )",
-        "resolved": "2.1.89",
-        "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
+        "requested": "[2.1.100, )",
+        "resolved": "2.1.100",
+        "contentHash": "zKwgGfxkDIVLGU2WIsl57DwTgj17+fa5v0u2eiVMxU92GXN2fRIn2M8QMGtyGFrPSbVOYKgGFxAxEFL6CB9tTw=="
       },
       "Google.FlatBuffers": {
         "type": "CentralTransitive",
